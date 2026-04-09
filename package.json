@@ -12,7 +12,7 @@
       "types": "./dist/main.d.ts"
     }
   },
-  "files": ["dist", "bundle"],
+  "files": ["bundle"],
   "scripts": {
     "build": "tsc",
     "bundle": "node build.mjs",
