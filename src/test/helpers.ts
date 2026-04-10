@@ -136,6 +136,7 @@ export function makeMockClient(extraRoutes: Record<string, unknown> = {}): IsCli
   const client = createClient({
     transport: createMockTransport({ ...MOCK_ROUTES, ...extraRoutes }),
     repo: "repo_test",
+    apiKey: "test",
   });
   return client;
 }

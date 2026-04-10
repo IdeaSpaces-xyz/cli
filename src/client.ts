@@ -9,18 +9,35 @@ import type { GlobalFlags } from "./types.js";
 export function formatRepoList(repos: RepoInfo[]): string {
   return repos
     .map((r) => {
+      const key = r.hostname ? `${r.hostname}/${r.slug}` : r.slug;
       const name = r.name || r.slug;
       const parts: string[] = [name];
-      if (r.hostname) parts.push(r.hostname);
       if (r.file_count != null) parts.push(`${r.file_count} files`);
       if (r.last_activity) parts.push(`active ${r.last_activity}`);
-      return `  ${r.slug} — ${parts.join(", ")}`;
+      return `  ${key} — ${parts.join(", ")}`;
     })
     .join("\n");
 }
 
 export function resolveRepo(repos: RepoInfo[], ref: string): RepoInfo | undefined {
-  return repos.find((r) => r.slug === ref || r.repo_id === ref);
+  // Match by repo_id first (exact)
+  const byId = repos.find((r) => r.repo_id === ref);
+  if (byId) return byId;
+
+  // Match by hostname (org repos: "ideaspaces.xyz" → the org's "notes")
+  const byHost = repos.find((r) => r.hostname === ref);
+  if (byHost) return byHost;
+
+  // Match by "hostname/slug" (fully qualified: "ideaspaces.xyz/notes")
+  if (ref.includes("/")) {
+    const [host, slug] = ref.split("/", 2);
+    return repos.find((r) => r.hostname === host && r.slug === slug);
+  }
+
+  // Match by slug — prefer personal (no hostname) over org
+  const bySlug = repos.filter((r) => r.slug === ref);
+  if (bySlug.length === 1) return bySlug[0];
+  return bySlug.find((r) => !r.hostname) || bySlug[0];
 }
 
 export async function initClient(flags: GlobalFlags): Promise<IsClient> {

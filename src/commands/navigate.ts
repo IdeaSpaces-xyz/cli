@@ -18,7 +18,8 @@ export const navigateCommand: CommandDef = {
     const { data: r } = await client.navigate(path);
 
     if (global.json) {
-      output.result(r, "");
+      const { centroid: _, ...clean } = r;
+      output.result(clean, "");
       return 0;
     }
 

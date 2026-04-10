@@ -1,8 +1,21 @@
 import { syncToSpace } from "@ideaspaces/sdk";
+import { createInterface } from "node:readline";
+import { autoSelectRepo, type RepoInfo } from "@ideaspaces/sdk";
 import { initClient } from "../client.js";
 import { createOutput } from "../output.js";
 import { setLastSha } from "../auth/session-state.js";
 import type { CommandDef } from "../types.js";
+
+async function confirm(message: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return true;
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  return new Promise((resolve) => {
+    rl.question(`${message} (y/N) `, (answer) => {
+      rl.close();
+      resolve(answer.toLowerCase() === "y");
+    });
+  });
+}
 
 export const syncCommand: CommandDef = {
   name: "sync",
@@ -24,6 +37,30 @@ export const syncCommand: CommandDef = {
 
     const client = await initClient(global);
     const dryRun = !!flags["dry-run"];
+
+    // Show destination and confirm before uploading
+    if (!dryRun && !global.yes) {
+      const repoId = client.repoId;
+      let repoLabel = repoId;
+      try {
+        const { repos } = await autoSelectRepo(client);
+        const match = repos.find((r: RepoInfo) => r.repo_id === repoId);
+        if (match) {
+          repoLabel = match.hostname
+            ? `${match.hostname}/${match.slug} (${match.name || match.slug})`
+            : `${match.slug} (personal)`;
+        }
+      } catch { /* best effort — fall back to repo_id */ }
+
+      output.progress(`Destination: ${repoLabel}`);
+      output.progress(`Space path:  ${spacePath}/`);
+      output.progress(`Source:      ${localPath}`);
+      const ok = await confirm("Proceed with sync?");
+      if (!ok) {
+        output.log("Cancelled.");
+        return 0;
+      }
+    }
 
     if (dryRun) output.progress("Dry run — no files will be written.");
 
