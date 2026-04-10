@@ -22,7 +22,7 @@
     "prepublishOnly": "npm run build && npm run bundle"
   },
   "dependencies": {
-    "@ideaspaces/sdk": "file:../sdk"
+    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
