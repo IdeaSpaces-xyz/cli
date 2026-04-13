@@ -126,6 +126,17 @@ export const MOCK_ROUTES = {
     limit: 50,
     offset: 0,
   },
+  "POST /repos/repo_test/reindex": {
+    repo_id: "repo_test",
+    removed_entries: 4,
+    indexed_files: 9,
+    status: "ok",
+  },
+  "POST /repos/connect": {
+    repo_id: "repo_connected",
+    slug: "ideaspace",
+    name: "IdeaSpace",
+  },
 };
 
 /**
