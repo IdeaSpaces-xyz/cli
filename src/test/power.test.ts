@@ -15,6 +15,7 @@ const { gitCommand } = await import("../commands/power/git.js");
 const { outlineCommand } = await import("../commands/power/outline.js");
 const { findCommand } = await import("../commands/power/find.js");
 const { tagsCommand } = await import("../commands/power/tags.js");
+const { reindexCommand } = await import("../commands/power/reindex.js");
 const { statusCommand } = await import("../commands/power/status.js");
 const { logoutCommand } = await import("../commands/power/logout.js");
 
@@ -90,6 +91,25 @@ describe("tags", () => {
     expect(exitCode).toBe(0);
     expect(stdout).toContain("core");
     expect(stdout).toContain("(3)");
+  });
+});
+
+describe("reindex", () => {
+  it("reindexes active repo", async () => {
+    const clientAny = mockClient as any;
+    clientAny.reindexRepo = vi.fn().mockResolvedValue({
+      data: {
+        repo_id: "repo_test",
+        removed_entries: 4,
+        indexed_files: 9,
+        status: "ok",
+      },
+    });
+
+    const { exitCode, stdout } = await runCommand(reindexCommand);
+    expect(exitCode).toBe(0);
+    expect(clientAny.reindexRepo).toHaveBeenCalledWith("repo_test");
+    expect(stdout).toContain("Reindexed: repo_test");
   });
 });
 

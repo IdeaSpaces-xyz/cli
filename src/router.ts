@@ -21,6 +21,8 @@ import { metadataCommand } from "./commands/power/metadata.js";
 import { reposCommand } from "./commands/power/repos.js";
 import { statusCommand } from "./commands/power/status.js";
 import { logoutCommand } from "./commands/power/logout.js";
+import { connectCommand } from "./commands/power/connect.js";
+import { reindexCommand } from "./commands/power/reindex.js";
 
 const topLevel: CommandDef[] = [
   loginCommand,
@@ -44,6 +46,8 @@ const power: CommandDef[] = [
   reposCommand,
   statusCommand,
   logoutCommand,
+  connectCommand,
+  reindexCommand,
 ];
 
 export function findCommand_(name: string): CommandDef | undefined {
@@ -59,7 +63,7 @@ export function printHelp(): void {
   for (const cmd of topLevel) {
     lines.push(`  ${cmd.name.padEnd(14)} ${cmd.description}`);
   }
-  lines.push("", "  power          Advanced tools (grep, git, outline, find, move, delete, tags, metadata, ...)");
+  lines.push("", "  power          Advanced tools (grep, git, outline, find, move, delete, tags, metadata, connect, reindex, ...)");
   lines.push("", "Global flags:");
   lines.push("  --json         Structured JSON output to stdout");
   lines.push("  --repo <slug>  Override space for this command");
