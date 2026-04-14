@@ -11,6 +11,10 @@ vi.mock("../client.js", async (importOriginal) => {
   };
 });
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 // Import commands AFTER mocking
 const { navigateCommand } = await import("../commands/navigate.js");
 const { searchCommand } = await import("../commands/search.js");
@@ -123,6 +127,96 @@ describe("write", () => {
     const data = JSON.parse(stdout);
     expect(data.path).toBe("test.md");
     expect(data.commit_sha).toBe("def456");
+  });
+
+  it("defaults if_match from latest file sha", async () => {
+    const readSpy = vi.spyOn(mockClient, "readFile").mockResolvedValue({
+      data: {
+        path: "test.md",
+        node_id: "n_abc",
+        content: "# Old",
+        total_lines: 1,
+        frontmatter: { name: "Test" },
+        node_type: "note",
+        tags: [],
+        attached_to: [],
+        last_commit_sha: "abc123",
+      },
+      meta: { requestMs: 1, retries: 0 },
+    } as any);
+    const writeSpy = vi.spyOn(mockClient, "writeFile").mockResolvedValue({
+      data: { path: "test.md", node_id: "n_new", commit_sha: "def456" },
+      meta: { requestMs: 1, retries: 0 },
+    } as any);
+
+    const { exitCode } = await runCommand(
+      writeCommand,
+      ["test.md"],
+      { content: "# New", name: "Test" },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(readSpy).toHaveBeenCalledWith("test.md");
+    expect(writeSpy).toHaveBeenCalledWith(
+      "test.md",
+      expect.objectContaining({ if_match: "abc123" }),
+    );
+  });
+
+  it("skips pre-read and if_match when --force is set", async () => {
+    const readSpy = vi.spyOn(mockClient, "readFile");
+    const writeSpy = vi.spyOn(mockClient, "writeFile").mockResolvedValue({
+      data: { path: "test.md", node_id: "n_new", commit_sha: "def456" },
+      meta: { requestMs: 1, retries: 0 },
+    } as any);
+
+    const { exitCode } = await runCommand(
+      writeCommand,
+      ["test.md"],
+      { content: "# New", name: "Test", force: true },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(readSpy).not.toHaveBeenCalled();
+    expect(writeSpy).toHaveBeenCalledWith(
+      "test.md",
+      expect.objectContaining({ if_match: undefined }),
+    );
+  });
+
+  it("uses explicit --if-match without pre-read", async () => {
+    const readSpy = vi.spyOn(mockClient, "readFile");
+    const writeSpy = vi.spyOn(mockClient, "writeFile").mockResolvedValue({
+      data: { path: "test.md", node_id: "n_new", commit_sha: "def456" },
+      meta: { requestMs: 1, retries: 0 },
+    } as any);
+
+    const { exitCode } = await runCommand(
+      writeCommand,
+      ["test.md"],
+      { content: "# New", name: "Test", "if-match": "feedface" },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(readSpy).not.toHaveBeenCalled();
+    expect(writeSpy).toHaveBeenCalledWith(
+      "test.md",
+      expect.objectContaining({ if_match: "feedface" }),
+    );
+  });
+
+  it("errors when both --force and --if-match are provided", async () => {
+    const writeSpy = vi.spyOn(mockClient, "writeFile");
+
+    const { exitCode, stderr } = await runCommand(
+      writeCommand,
+      ["test.md"],
+      { content: "# New", name: "Test", force: true, "if-match": "abc123" },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Use either --force or --if-match");
+    expect(writeSpy).not.toHaveBeenCalled();
   });
 
   it("errors without path", async () => {

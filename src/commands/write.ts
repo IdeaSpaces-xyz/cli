@@ -1,3 +1,5 @@
+import { SdkError } from "@ideaspaces/sdk";
+
 import { initClient } from "../client.js";
 import { createOutput } from "../output.js";
 import { setLastSha } from "../auth/session-state.js";
@@ -15,10 +17,11 @@ async function readStdin(): Promise<string> {
 export const writeCommand: CommandDef = {
   name: "write",
   description: "Create or update a note",
-  usage: "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--content TEXT]",
+  usage: "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--content TEXT] [--if-match SHA] [--force]",
   examples: [
     'echo "# My Note\\nContent here" | ideaspaces write notes/my-note.md --name "My Note"',
     'ideaspaces write notes/test.md --name "Test" --content "# Test\\nHello"',
+    'ideaspaces write notes/test.md --content "# overwrite" --force',
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -43,14 +46,44 @@ export const writeCommand: CommandDef = {
       ? (flags["attached-to"] as string).split(",").map((t) => t.trim())
       : undefined;
 
-    const { data: r } = await client.writeFile(path, {
-      content,
-      name: flags.name as string | undefined,
-      summary: flags.summary as string | undefined,
-      tags,
-      attached_to: attachedTo,
-      if_match: flags["if-match"] as string | undefined,
-    });
+    const force = Boolean(flags.force);
+    const explicitIfMatch = flags["if-match"] as string | undefined;
+    if (force && explicitIfMatch) {
+      output.error("Use either --force or --if-match, not both.");
+      return 1;
+    }
+
+    let ifMatch = explicitIfMatch;
+    if (!ifMatch && !force) {
+      try {
+        const { data } = await client.readFile(path);
+        ifMatch = data.last_commit_sha;
+      } catch (error) {
+        if (!(error instanceof SdkError && error.status === 404)) {
+          throw error;
+        }
+      }
+    }
+
+    let r;
+    try {
+      ({ data: r } = await client.writeFile(path, {
+        content,
+        name: flags.name as string | undefined,
+        summary: flags.summary as string | undefined,
+        tags,
+        attached_to: attachedTo,
+        if_match: ifMatch,
+      }));
+    } catch (error) {
+      if (error instanceof SdkError && error.status === 409) {
+        output.error(
+          "Write conflict: file changed since your last read. Re-run with --force to overwrite intentionally.",
+        );
+        return 5;
+      }
+      throw error;
+    }
 
     // Track HEAD
     if (r.commit_sha) {
