@@ -1,62 +1,7 @@
-import type { GlobalFlags } from "./types.js";
 import { findCommand_, printHelp, printPowerHelp } from "./router.js";
 import { handleError } from "./errors.js";
 import { createOutput } from "./output.js";
-
-// ─── Parse argv ────────────────────────────────────────────────────
-
-function parseArgs(argv: string[]): {
-  global: GlobalFlags;
-  command: string | undefined;
-  args: string[];
-  flags: Record<string, string | boolean>;
-} {
-  const global: GlobalFlags = { json: false, quiet: false, yes: false, help: false };
-  const flags: Record<string, string | boolean> = {};
-  const positional: string[] = [];
-  let stopFlags = false;
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-
-    if (arg === "--") {
-      stopFlags = true;
-      continue;
-    }
-
-    if (!stopFlags && arg.startsWith("--")) {
-      const eqIdx = arg.indexOf("=");
-      if (eqIdx !== -1) {
-        const key = arg.slice(2, eqIdx);
-        flags[key] = arg.slice(eqIdx + 1);
-      } else {
-        const key = arg.slice(2);
-        // Global flags are boolean
-        if (key === "json") { global.json = true; continue; }
-        if (key === "quiet") { global.quiet = true; continue; }
-        if (key === "yes") { global.yes = true; continue; }
-        if (key === "help") { global.help = true; continue; }
-        // Check if next arg is a value
-        if (key === "repo" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-          global.repo = argv[++i];
-          continue;
-        }
-        // Command-specific flag with value
-        if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-          flags[key] = argv[++i];
-        } else {
-          flags[key] = true;
-        }
-      }
-    } else {
-      positional.push(arg);
-    }
-  }
-
-  const command = positional[0];
-  const args = positional.slice(1);
-  return { global, command, args, flags };
-}
+import { parseArgs } from "./argv.js";
 
 // ─── Main ──────────────────────────────────────────────────────────
 

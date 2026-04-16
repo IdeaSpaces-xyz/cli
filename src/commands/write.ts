@@ -77,9 +77,24 @@ export const writeCommand: CommandDef = {
       }));
     } catch (error) {
       if (error instanceof SdkError && error.status === 409) {
-        output.error(
-          "Write conflict: file changed since your last read. Re-run with --force to overwrite intentionally.",
-        );
+        const rawDetail = (error as any).detail;
+        const detail = rawDetail && typeof rawDetail === "object"
+          ? ((rawDetail as any).detail ?? rawDetail)
+          : null;
+
+        const pathHint = typeof detail?.path === "string" ? detail.path : path;
+        const expected = typeof detail?.expected_sha === "string" ? detail.expected_sha : undefined;
+        const actual = typeof detail?.actual_sha === "string" ? detail.actual_sha : undefined;
+
+        const lines = [
+          "Write conflict: file changed since your last read.",
+          pathHint ? `Path: ${pathHint}` : "",
+          expected ? `Expected SHA: ${expected}` : "",
+          actual ? `Actual SHA:   ${actual}` : "",
+          "Re-run with --force to overwrite intentionally.",
+        ].filter(Boolean);
+
+        output.error(lines.join("\n"));
         return 5;
       }
       throw error;

@@ -16,6 +16,7 @@ const { outlineCommand } = await import("../commands/power/outline.js");
 const { findCommand } = await import("../commands/power/find.js");
 const { tagsCommand } = await import("../commands/power/tags.js");
 const { reindexCommand } = await import("../commands/power/reindex.js");
+const { repoCommand } = await import("../commands/power/repo.js");
 const { statusCommand } = await import("../commands/power/status.js");
 const { logoutCommand } = await import("../commands/power/logout.js");
 
@@ -95,6 +96,12 @@ describe("tags", () => {
 });
 
 describe("reindex", () => {
+  it("works with SDK method bound to client instance", async () => {
+    const { exitCode, stdout } = await runCommand(reindexCommand);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Reindexed: repo_test");
+  });
+
   it("reindexes active repo", async () => {
     const clientAny = mockClient as any;
     clientAny.reindexRepo = vi.fn().mockResolvedValue({
@@ -110,6 +117,96 @@ describe("reindex", () => {
     expect(exitCode).toBe(0);
     expect(clientAny.reindexRepo).toHaveBeenCalledWith("repo_test");
     expect(stdout).toContain("Reindexed: repo_test");
+  });
+});
+
+describe("repo", () => {
+  it("falls back to raw SDK request when sync methods are unavailable", async () => {
+    const clientAny = mockClient as any;
+    delete clientAny.syncStatus;
+
+    const { exitCode, stdout } = await runCommand(repoCommand, ["status"]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Status: fresh");
+  });
+
+  it("shows sync status", async () => {
+    const clientAny = mockClient as any;
+    clientAny.syncStatus = vi.fn().mockResolvedValue({
+      data: {
+        repo_id: "repo_test",
+        status: "stale",
+        is_fresh: false,
+        repo_head: "def456",
+        indexed_head: "abc123",
+        last_indexed_at: "2026-04-14T10:00:00Z",
+        lag_commits: 2,
+        last_index_error: null,
+      },
+    });
+
+    const { exitCode, stdout } = await runCommand(repoCommand, ["status"]);
+    expect(exitCode).toBe(0);
+    expect(clientAny.syncStatus).toHaveBeenCalledWith("repo_test");
+    expect(stdout).toContain("Status: stale");
+  });
+
+  it("pull returns diverged status without hard failure", async () => {
+    const clientAny = mockClient as any;
+    clientAny.syncPullRepo = vi.fn().mockResolvedValue({
+      data: {
+        repo_id: "repo_test",
+        diverged: true,
+        old_head: "abc123",
+        new_head: "abc123",
+        indexed_files: 0,
+        removed_entries: 0,
+        changed_markdown_files: [],
+        status: "diverged",
+      },
+    });
+
+    const { exitCode, stdout } = await runCommand(repoCommand, ["pull"]);
+    expect(exitCode).toBe(0);
+    expect(clientAny.syncPullRepo).toHaveBeenCalledWith("repo_test");
+    expect(stdout).toContain("Pull status: diverged");
+  });
+
+  it("push returns exit 5 when rejected", async () => {
+    const clientAny = mockClient as any;
+    clientAny.syncPushRepo = vi.fn().mockResolvedValue({
+      data: {
+        repo_id: "repo_test",
+        rejected: true,
+        reason: "behind_origin",
+        head: "abc123",
+        status: "rejected",
+      },
+    });
+
+    const { exitCode, stdout } = await runCommand(repoCommand, ["push"]);
+    expect(exitCode).toBe(5);
+    expect(clientAny.syncPushRepo).toHaveBeenCalledWith("repo_test");
+    expect(stdout).toContain("Push rejected");
+  });
+
+  it("credential set and clear", async () => {
+    const clientAny = mockClient as any;
+    clientAny.setRepoCredential = vi.fn().mockResolvedValue({
+      data: { repo_id: "repo_test", has_credentials: true },
+    });
+
+    const setResult = await runCommand(repoCommand, ["credential", "set"], { value: "ghp_x" });
+    expect(setResult.exitCode).toBe(0);
+    expect(clientAny.setRepoCredential).toHaveBeenCalledWith("ghp_x", "repo_test");
+
+    clientAny.setRepoCredential = vi.fn().mockResolvedValue({
+      data: { repo_id: "repo_test", has_credentials: false },
+    });
+
+    const clearResult = await runCommand(repoCommand, ["credential", "clear"]);
+    expect(clearResult.exitCode).toBe(0);
+    expect(clientAny.setRepoCredential).toHaveBeenCalledWith(null, "repo_test");
   });
 });
 

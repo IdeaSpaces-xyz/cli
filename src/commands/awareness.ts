@@ -1,4 +1,5 @@
 import { createSession } from "@ideaspaces/sdk";
+import { getLastSha } from "../auth/session-state.js";
 import { initClient } from "../client.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -14,7 +15,8 @@ export const awarenessCommand: CommandDef = {
   async run(_args, _flags, global) {
     const output = createOutput(global);
     const client = await initClient(global);
-    const session = createSession(client);
+    const lastSha = getLastSha(client.repoId) ?? null;
+    const session = createSession(client, { lastSha });
     const block = await session.getAwarenessBlock();
 
     output.result({ awareness: block }, block || "");

@@ -23,7 +23,20 @@ const HINTS: Record<string, string> = {
 export function handleError(err: unknown, output: Output): number {
   if (err instanceof SdkError) {
     const hint = HINTS[err.category] ?? "";
-    output.error(`Error: ${err.message}${hint ? `\n${hint}` : ""}`);
+
+    const rawDetail = (err as any).detail;
+    const detail = rawDetail && typeof rawDetail === "object"
+      ? ((rawDetail as any).detail ?? rawDetail)
+      : null;
+
+    const pathHint = typeof detail?.path === "string" ? `\nPath: ${detail.path}` : "";
+    const expected = typeof detail?.expected_sha === "string" ? `\nExpected SHA: ${detail.expected_sha}` : "";
+    const actual = typeof detail?.actual_sha === "string" ? `\nActual SHA:   ${detail.actual_sha}` : "";
+
+    output.error(
+      `Error: ${err.message}${pathHint}${expected}${actual}${hint ? `\n${hint}` : ""}`,
+    );
+
     return EXIT_CODES[err.category] ?? 1;
   }
 
