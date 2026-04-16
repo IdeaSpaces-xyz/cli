@@ -157,26 +157,13 @@ export const connectCommand: CommandDef = {
     const hostname = (flags.hostname as string | undefined) || undefined;
 
     const client = createClient({ apiKey: config.apiKey, apiUrl: config.apiUrl });
-    const connectRepo = (client as any).connectRepo as
-      | ((body: {
-          origin_url: string;
-          name: string;
-          slug?: string;
-          hostname?: string | null;
-        }) => Promise<{ data: ConnectResult }>)
-      | undefined;
 
-    if (typeof connectRepo !== "function") {
-      output.error("SDK in this CLI build does not support connectRepo(). Update @ideaspaces/sdk.");
-      return 1;
-    }
-
-    const { data } = await connectRepo({
+    const { data } = (await client.connectRepo({
       origin_url: normalizedOriginUrl || originUrl,
       name,
       slug,
       hostname: hostname ?? null,
-    });
+    })) as { data: ConnectResult };
 
     if (!process.env.IS_API_KEY) {
       saveCredentials({

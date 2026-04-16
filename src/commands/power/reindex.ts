@@ -21,16 +21,7 @@ export const reindexCommand: CommandDef = {
     const output = createOutput(global);
     const client = await initClient(global);
 
-    const reindexRepo = (client as any).reindexRepo as
-      | ((repoId?: string) => Promise<{ data: ReindexResult }>)
-      | undefined;
-
-    if (typeof reindexRepo !== "function") {
-      output.error("SDK in this CLI build does not support reindexRepo(). Update @ideaspaces/sdk.");
-      return 1;
-    }
-
-    const { data: result } = await reindexRepo(client.repoId);
+    const { data: result } = (await client.reindexRepo(client.repoId)) as { data: ReindexResult };
 
     output.result(
       result,

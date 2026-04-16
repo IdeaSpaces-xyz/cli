@@ -22,7 +22,9 @@ import { reposCommand } from "./commands/power/repos.js";
 import { statusCommand } from "./commands/power/status.js";
 import { logoutCommand } from "./commands/power/logout.js";
 import { connectCommand } from "./commands/power/connect.js";
+import { createCommand } from "./commands/power/create.js";
 import { reindexCommand } from "./commands/power/reindex.js";
+import { repoCommand } from "./commands/power/repo.js";
 
 const topLevel: CommandDef[] = [
   loginCommand,
@@ -47,7 +49,9 @@ const power: CommandDef[] = [
   statusCommand,
   logoutCommand,
   connectCommand,
+  createCommand,
   reindexCommand,
+  repoCommand,
 ];
 
 export function findCommand_(name: string): CommandDef | undefined {
@@ -63,7 +67,7 @@ export function printHelp(): void {
   for (const cmd of topLevel) {
     lines.push(`  ${cmd.name.padEnd(14)} ${cmd.description}`);
   }
-  lines.push("", "  power          Advanced tools (grep, git, outline, find, move, delete, tags, metadata, connect, reindex, ...)");
+  lines.push("", "  power          Advanced tools (grep, git, outline, find, move, delete, tags, metadata, connect, create, reindex, repo, ...)");
   lines.push("", "Global flags:");
   lines.push("  --json         Structured JSON output to stdout");
   lines.push("  --repo <slug>  Override space for this command");

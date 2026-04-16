@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { SdkError } from "@ideaspaces/sdk";
 import { runCommand, makeMockClient, MOCK_ROUTES } from "./helpers.js";
 
 // Mock initClient to return our mock client
@@ -217,6 +218,36 @@ describe("write", () => {
     expect(exitCode).toBe(1);
     expect(stderr).toContain("Use either --force or --if-match");
     expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it("surfaces conflict details when API returns structured 409", async () => {
+    const conflict = new SdkError({
+      message: "PUT /repos/repo_test/files/test.md: 409 — conflict",
+      category: "client_error",
+      status: 409,
+      retryable: false,
+    });
+    (conflict as any).detail = {
+      detail: {
+        error: "conflict",
+        path: "test.md",
+        expected_sha: "abc123",
+        actual_sha: "def456",
+      },
+    };
+
+    vi.spyOn(mockClient, "writeFile").mockRejectedValue(conflict);
+
+    const { exitCode, stderr } = await runCommand(
+      writeCommand,
+      ["test.md"],
+      { content: "# New", name: "Test" },
+    );
+
+    expect(exitCode).toBe(5);
+    expect(stderr).toContain("Write conflict");
+    expect(stderr).toContain("Expected SHA: abc123");
+    expect(stderr).toContain("Actual SHA:   def456");
   });
 
   it("errors without path", async () => {

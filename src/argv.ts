@@ -1,0 +1,70 @@
+import type { GlobalFlags } from "./types.js";
+
+export interface ParsedArgs {
+  global: GlobalFlags;
+  command: string | undefined;
+  args: string[];
+  flags: Record<string, string | boolean>;
+}
+
+function parseBool(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return !(v === "false" || v === "0" || v === "no" || v === "off");
+}
+
+export function parseArgs(argv: string[]): ParsedArgs {
+  const global: GlobalFlags = { json: false, quiet: false, yes: false, help: false };
+  const flags: Record<string, string | boolean> = {};
+  const positional: string[] = [];
+  let stopFlags = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+
+    if (arg === "--") {
+      stopFlags = true;
+      continue;
+    }
+
+    if (!stopFlags && arg.startsWith("--")) {
+      const eqIdx = arg.indexOf("=");
+      if (eqIdx !== -1) {
+        const key = arg.slice(2, eqIdx);
+        const value = arg.slice(eqIdx + 1);
+
+        if (key === "json") { global.json = parseBool(value); continue; }
+        if (key === "quiet") { global.quiet = parseBool(value); continue; }
+        if (key === "yes") { global.yes = parseBool(value); continue; }
+        if (key === "help") { global.help = parseBool(value); continue; }
+        if (key === "repo") { global.repo = value; continue; }
+
+        flags[key] = value;
+        continue;
+      }
+
+      const key = arg.slice(2);
+      // Global flags are boolean
+      if (key === "json") { global.json = true; continue; }
+      if (key === "quiet") { global.quiet = true; continue; }
+      if (key === "yes") { global.yes = true; continue; }
+      if (key === "help") { global.help = true; continue; }
+      // Check if next arg is a value
+      if (key === "repo" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
+        global.repo = argv[++i];
+        continue;
+      }
+      // Command-specific flag with value
+      if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
+        flags[key] = argv[++i];
+      } else {
+        flags[key] = true;
+      }
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  const command = positional[0];
+  const args = positional.slice(1);
+  return { global, command, args, flags };
+}
