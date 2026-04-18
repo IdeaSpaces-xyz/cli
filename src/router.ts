@@ -8,6 +8,8 @@ import { readCommand } from "./commands/read.js";
 import { writeCommand } from "./commands/write.js";
 import { awarenessCommand } from "./commands/awareness.js";
 import { syncCommand } from "./commands/sync.js";
+import { credentialCommand } from "./commands/credential.js";
+import { cloneCommand } from "./commands/clone.js";
 
 // Power commands
 import { grepCommand } from "./commands/power/grep.js";
@@ -34,6 +36,8 @@ const topLevel: CommandDef[] = [
   writeCommand,
   awarenessCommand,
   syncCommand,
+  cloneCommand,
+  credentialCommand,
 ];
 
 const power: CommandDef[] = [
