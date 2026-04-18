@@ -3,6 +3,7 @@ import { platform } from "node:os";
 import { createClient, autoSelectRepo, createSession } from "@ideaspaces/sdk";
 import { loadConfig, saveCredentials, getDefaultApiUrl } from "../auth/credentials.js";
 import { startCallbackServer } from "../auth/callback-server.js";
+import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { formatRepoList, resolveRepo } from "../client.js";
 import { createOutput } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
@@ -68,6 +69,9 @@ export const loginCommand: CommandDef = {
     }
 
     saveCredentials({ api_url: apiUrl, api_key: token });
+    // Register git credential helper so `git clone` picks up the API key
+    // for git.ideaspaces.xyz without the user configuring git manually.
+    await registerGitCredentialHelper();
 
     const client = createClient({ apiKey: token, apiUrl });
     const { repoId, repos } = await autoSelectRepo(client);
