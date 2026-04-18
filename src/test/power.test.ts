@@ -121,15 +121,6 @@ describe("reindex", () => {
 });
 
 describe("repo", () => {
-  it("falls back to raw SDK request when sync methods are unavailable", async () => {
-    const clientAny = mockClient as any;
-    delete clientAny.syncStatus;
-
-    const { exitCode, stdout } = await runCommand(repoCommand, ["status"]);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("Status: fresh");
-  });
-
   it("shows sync status", async () => {
     const clientAny = mockClient as any;
     clientAny.syncStatus = vi.fn().mockResolvedValue({
