@@ -40,27 +40,52 @@ export function resolveRepo(repos: RepoInfo[], ref: string): RepoInfo | undefine
   return bySlug.find((r) => !r.hostname) || bySlug[0];
 }
 
+// repo_id format mirrors the server's _REPO_ID_RE: "repo_" + 12 hex chars.
+// Used to decide whether flags.repo needs slug/hostname resolution.
+const REPO_ID_RE = /^repo_[a-f0-9]{12}$/;
+
 export async function initClient(flags: GlobalFlags): Promise<IsClient> {
   const config = loadConfig();
   if (!config) {
     throw new Error("Not logged in. Run: ideaspaces login");
   }
 
-  const repo = flags.repo || config.repo;
-  const client = createClient({ apiKey: config.apiKey, apiUrl: config.apiUrl, repo: repo || undefined });
+  const client = createClient({ apiKey: config.apiKey, apiUrl: config.apiUrl });
 
-  if (!repo) {
-    const { repoId, repos } = await autoSelectRepo(client);
-    if (repoId) {
-      return client;
+  // Resolve --repo: accepts slug, hostname, hostname/slug, or repo_id.
+  // config.repo is always a repo_id (login stores the resolved form).
+  let repoId: string | undefined;
+  if (flags.repo) {
+    if (REPO_ID_RE.test(flags.repo)) {
+      repoId = flags.repo;
+    } else {
+      const { data } = await client.listRepos();
+      const match = resolveRepo(data.repos, flags.repo);
+      if (!match) {
+        throw new Error(
+          `Space "${flags.repo}" not found. Available:\n${formatRepoList(data.repos)}`,
+        );
+      }
+      repoId = match.repo_id;
     }
-    if (repos.length > 1) {
-      throw new Error(
-        `Multiple spaces available. Use --repo or run: ideaspaces login <slug>\n${formatRepoList(repos)}`,
-      );
-    }
-    throw new Error("No spaces found for this account.");
+  } else if (config.repo) {
+    repoId = config.repo;
   }
 
-  return client;
+  if (repoId) {
+    client.setRepo(repoId);
+    return client;
+  }
+
+  // No --repo, no stored default → try to auto-select.
+  const { repoId: autoId, repos } = await autoSelectRepo(client);
+  if (autoId) {
+    return client;
+  }
+  if (repos.length > 1) {
+    throw new Error(
+      `Multiple spaces available. Use --repo or run: ideaspaces login <slug>\n${formatRepoList(repos)}`,
+    );
+  }
+  throw new Error("No spaces found for this account.");
 }
