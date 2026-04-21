@@ -18,6 +18,21 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      # The @ideaspaces/sdk dependency points at a private GitHub repo. On
+      # hosted runners, npm resolves the git+https:// URL as ssh:// (the
+      # runner's default insteadOf rule) and fails because no SSH key is
+      # loaded. Force HTTPS with a token that has read access to
+      # IdeaSpaces-xyz/sdk. Requires SDK_FETCH_TOKEN secret configured at
+      # the repo level (fine-grained PAT or classic PAT with `repo` scope).
+      - name: Configure git auth for private SDK fetch
+        run: |
+          if [ -z "${{ secrets.SDK_FETCH_TOKEN }}" ]; then
+            echo "::error::SDK_FETCH_TOKEN secret is not configured. See .github/workflows/ci.yml for setup notes."
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${{ secrets.SDK_FETCH_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${{ secrets.SDK_FETCH_TOKEN }}@github.com/".insteadOf "ssh://git@github.com/"
+
       - name: Install dependencies
         run: npm ci
 
