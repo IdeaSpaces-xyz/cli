@@ -27,6 +27,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      # `npm run bundle` consumes dist/main.js, which `tsc --noEmit` above
+      # doesn't produce. Run the emit-full build first so esbuild has
+      # something to consume.
+      - name: Build
+        run: npm run build
+
       - name: Bundle
         run: npm run bundle
 
