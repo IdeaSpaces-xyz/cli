@@ -2,12 +2,12 @@ import type { CommandDef, GlobalFlags } from "./types.js";
 
 // Top-level commands
 import { loginCommand } from "./commands/login.js";
+import { initCommand } from "./commands/init.js";
 import { navigateCommand } from "./commands/navigate.js";
 import { searchCommand } from "./commands/search.js";
 import { readCommand } from "./commands/read.js";
 import { writeCommand } from "./commands/write.js";
 import { awarenessCommand } from "./commands/awareness.js";
-import { syncCommand } from "./commands/sync.js";
 import { credentialCommand } from "./commands/credential.js";
 import { cloneCommand } from "./commands/clone.js";
 
@@ -30,12 +30,12 @@ import { repoCommand } from "./commands/power/repo.js";
 
 const topLevel: CommandDef[] = [
   loginCommand,
+  initCommand,
   navigateCommand,
   searchCommand,
   readCommand,
   writeCommand,
   awarenessCommand,
-  syncCommand,
   cloneCommand,
   credentialCommand,
 ];
