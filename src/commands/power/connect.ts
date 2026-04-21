@@ -1,27 +1,23 @@
 import { createClient } from "@ideaspaces/sdk";
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
 import { loadConfig, saveCredentials } from "../../auth/credentials.js";
 import { createOutput } from "../../output.js";
 import type { CommandDef } from "../../types.js";
+
+/**
+ * `ideaspaces power connect <origin_url>` — adopt an external git repo
+ * (GitHub, GitLab, etc.) as an IdeaSpaces space.
+ *
+ * For creating a *new* space where IdeaSpaces is the origin, use
+ * `ideaspaces init`. The `--from-cwd` shortcut that auto-detected the
+ * cwd's origin was removed when init landed — it was designed for the
+ * pre-git-push world where every local repo needed a server-side copy.
+ * Today, `init` handles the "make my cwd a space" case cleanly.
+ */
 
 interface ConnectResult {
   repo_id: string;
   slug: string;
   name: string;
-}
-
-interface RepoShapeDetection {
-  repoRoot: string;
-  originUrl: string;
-  normalizedOriginUrl: string;
-  markers: {
-    purpose: boolean;
-    now: boolean;
-    accessManifest: boolean;
-  };
-  classification: "ideaspace_shaped" | "generic" | "ambiguous";
 }
 
 function deriveNameFromOrigin(originUrl: string): string {
@@ -48,73 +44,13 @@ export function normalizeConnectOrigin(originUrl: string): string {
   return trimmed;
 }
 
-function detectRepoFromCwd(cwd: string): RepoShapeDetection {
-  try {
-    const inside = execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
-      cwd,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    if (inside !== "true") {
-      throw new Error("not in a git repo");
-    }
-  } catch {
-    throw new Error("Current directory is not a git repository");
-  }
-
-  let repoRoot = "";
-  let originUrl = "";
-
-  try {
-    repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-      cwd,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    throw new Error("Could not resolve git repository root");
-  }
-
-  try {
-    originUrl = execFileSync("git", ["remote", "get-url", "origin"], {
-      cwd,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    throw new Error("No git remote named 'origin' found");
-  }
-
-  const markers = {
-    purpose: existsSync(join(repoRoot, "_agent", "purpose.md")),
-    now: existsSync(join(repoRoot, "_agent", "now.md")),
-    accessManifest: existsSync(join(repoRoot, "_access", "manifest.yml")),
-  };
-
-  let classification: RepoShapeDetection["classification"] = "generic";
-  if (markers.purpose && markers.now) {
-    classification = "ideaspace_shaped";
-  } else if (markers.purpose || markers.now || markers.accessManifest) {
-    classification = "ambiguous";
-  }
-
-  return {
-    repoRoot,
-    originUrl,
-    normalizedOriginUrl: normalizeConnectOrigin(originUrl),
-    markers,
-    classification,
-  };
-}
-
 export const connectCommand: CommandDef = {
   name: "connect",
-  description: "Connect an existing git repo to IdeaSpaces",
+  description: "Adopt an external git repo (GitHub, GitLab, …) as an IdeaSpaces space",
   usage:
-    "ideaspaces power connect [origin_url] [--name NAME] [--slug SLUG] [--hostname HOST] [--from-cwd]",
+    "ideaspaces power connect <origin_url> [--name NAME] [--slug SLUG] [--hostname HOST]",
   examples: [
     "ideaspaces power connect https://github.com/IdeaSpaces-xyz/ideaspace.git --name IdeaSpace",
-    "ideaspaces power connect --from-cwd",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -125,32 +61,18 @@ export const connectCommand: CommandDef = {
       return 2;
     }
 
-    const fromCwd = Boolean(flags["from-cwd"]);
-
-    let originUrl = (args[0] as string | undefined)?.trim() || "";
-    let normalizedOriginUrl = originUrl ? normalizeConnectOrigin(originUrl) : "";
-    let name = (flags.name as string | undefined)?.trim() || "";
-    let detection: RepoShapeDetection | null = null;
-
-    if (fromCwd || !originUrl) {
-      try {
-        detection = detectRepoFromCwd(process.cwd());
-      } catch (e) {
-        output.error(e instanceof Error ? e.message : String(e));
-        return 1;
-      }
-      originUrl = detection.originUrl;
-      normalizedOriginUrl = detection.normalizedOriginUrl;
-      if (!name) name = basename(detection.repoRoot);
-    }
-
+    const originUrl = (args[0] as string | undefined)?.trim() || "";
     if (!originUrl) {
-      output.error("origin_url is required (or use --from-cwd)");
+      output.error(
+        "origin_url is required. For a brand-new space, use 'ideaspaces init <name>' instead.",
+      );
       return 1;
     }
+    const normalizedOriginUrl = normalizeConnectOrigin(originUrl);
 
+    let name = (flags.name as string | undefined)?.trim() || "";
     if (!name) {
-      name = deriveNameFromOrigin(normalizedOriginUrl || originUrl);
+      name = deriveNameFromOrigin(normalizedOriginUrl);
     }
 
     const slug = (flags.slug as string | undefined) || undefined;
@@ -159,7 +81,7 @@ export const connectCommand: CommandDef = {
     const client = createClient({ apiKey: config.apiKey, apiUrl: config.apiUrl });
 
     const { data } = (await client.connectRepo({
-      origin_url: normalizedOriginUrl || originUrl,
+      origin_url: normalizedOriginUrl,
       name,
       slug,
       hostname: hostname ?? null,
@@ -177,27 +99,15 @@ export const connectCommand: CommandDef = {
       repo: data,
       source: {
         origin_url: originUrl,
-        normalized_origin_url: normalizedOriginUrl || originUrl,
-        from_cwd: fromCwd || !args[0],
-        repo_root: detection?.repoRoot || null,
-        markers: detection?.markers || null,
-        classification: detection?.classification || null,
+        normalized_origin_url: normalizedOriginUrl,
       },
     };
 
     const lines = [
       `Connected: ${data.name} (${data.repo_id})`,
       `Slug: ${data.slug}`,
-      `Origin: ${normalizedOriginUrl || originUrl}`,
+      `Origin: ${normalizedOriginUrl}`,
     ];
-
-    if (detection) {
-      lines.push(`Repo root: ${detection.repoRoot}`);
-      lines.push(`Classification: ${detection.classification}`);
-      lines.push(
-        `Markers: purpose=${detection.markers.purpose}, now=${detection.markers.now}, _access=${detection.markers.accessManifest}`,
-      );
-    }
 
     output.result(result, lines.join("\n"));
     return 0;
