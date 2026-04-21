@@ -12,7 +12,9 @@
       "types": "./dist/main.d.ts"
     }
   },
-  "files": ["bundle"],
+  "files": [
+    "bundle"
+  ],
   "scripts": {
     "build": "tsc",
     "bundle": "node build.mjs",
@@ -22,7 +24,7 @@
     "prepublishOnly": "npm run build && npm run bundle"
   },
   "dependencies": {
-    "@ideaspaces/sdk": "git+https://github.com/IdeaSpaces-xyz/sdk.git"
+    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
