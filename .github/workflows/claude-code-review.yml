@@ -1,0 +1,95 @@
+name: SLC Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  slc-review:
+    if: |
+      !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-review') &&
+      !contains(github.event.pull_request.labels.*.name, 'tiny')
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run SLC Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Review this pull request using our SLC (Simple, Lovable, Complete) principles for the IdeaSpaces CLI.
+
+            ## Context
+            - This repo: TypeScript Node CLI (`@ideaspaces/cli`). Bundles via esbuild for distribution as part of the IdeaSpaces plugin.
+            - Local-first: post-pivot, the CLI exposes `create`, `login`, `write`, `credential`, `power logout`. Server-flavored commands have been stripped; recoverable from git history when sync ships.
+            - Architecture invariant: thin CLI; logic lives in SDK / domain modules. New capabilities go in the SDK first; CLI exposes them.
+            - Reference: monorepo CLAUDE.md (root principles), ideaspace/architecture/plans/plugin-local-first/ (the active plan).
+
+            ## SLC label context
+            - `slc:simple` / `slc:lovable` / `slc:complete`: quick validation for labeled dimensions, deeper review for unlabeled.
+            - `needs:slc-review`: do deeper analysis.
+            - No SLC labels: standard full review.
+
+            ## SLC Framework Review
+
+            ### Simple 🎯
+            - Is this the simplest implementation that solves the user problem?
+            - Does it reuse existing patterns (SDK primitives, output, argv, auth helpers)?
+            - Any unnecessary new abstractions or framework-like complexity?
+            - Avoidable code paths that should sit in the SDK or be deferred?
+
+            ### Lovable ❤️
+            - CLI UX: clear `--help`, sensible defaults, plan-then-confirm for destructive ops, useful error messages with hints.
+            - Output discipline: human text on stderr, JSON on stdout when `--json` is set; no broken JSON contract.
+            - Failure modes: errors actionable, exit codes consistent with errors.ts conventions.
+            - Discoverability: examples in CommandDef, names match user mental models.
+
+            ### Complete 🏁
+            - Error handling covers unhappy paths (missing flags, file conflicts, git failures, auth issues)?
+            - Tests cover the new behavior (vitest under src/test/) including edge cases?
+            - No leftover references to stripped commands or stripped SDK exports?
+            - Bundle still works end-to-end (`node bundle/ideaspaces.js --help` succeeds in CI)?
+
+            ## CLI-specific checks
+            - Replace-semantics for write operations (caller specifies all fields; no surprise merges).
+            - File-system safety: never overwrite without explicit `--force` or equivalent confirmation.
+            - Git operations: shell out via `child_process` (no extra deps), graceful degradation when git isn't available or repo state is unexpected.
+            - No hardcoded API URLs / credentials. Auth via `auth/credentials.ts` only.
+            - `--yes` flag honored for non-interactive automation paths.
+
+            ## Anti-pattern detection 🚨
+            - Over-engineering or speculative infrastructure.
+            - Scope creep beyond PR description.
+            - Reintroducing server-flavored complexity (the strip is intentional).
+            - Incomplete features (missing error/loading handling, no fallback behavior).
+
+            ## Output format
+
+            **SLC Assessment:**
+            - ✅/⚠️/❌ Simple: [brief assessment]
+            - ✅/⚠️/❌ Lovable: [brief assessment]
+            - ✅/⚠️/❌ Complete: [brief assessment]
+
+            **Anti-Patterns Found:** [list or "None detected"]
+
+            **CLI-Specific Issues:** [list or "None detected"]
+
+            **Detailed Feedback:** [specific issues and suggestions]
+
+            **Recommendation:** Approve / Request Changes / Comment
+
+            Use `gh pr comment` to post your review.
+
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
