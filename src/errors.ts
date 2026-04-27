@@ -1,45 +1,6 @@
-import { SdkError } from "@ideaspaces/sdk";
 import type { Output } from "./output.js";
 
-const EXIT_CODES: Record<string, number> = {
-  auth_error: 3,
-  not_found: 4,
-  client_error: 5,
-  rate_limited: 6,
-  overloaded: 7,
-  network_error: 8,
-  timeout: 9,
-};
-
-const HINTS: Record<string, string> = {
-  auth_error: "Run: ideaspaces login",
-  not_found: "Check the path with: ideaspaces navigate",
-  rate_limited: "Wait a moment and retry.",
-  overloaded: "Server is busy. Try again in a moment.",
-  network_error: "Check your internet connection.",
-  timeout: "Request timed out. Try again.",
-};
-
 export function handleError(err: unknown, output: Output): number {
-  if (err instanceof SdkError) {
-    const hint = HINTS[err.category] ?? "";
-
-    const rawDetail = (err as any).detail;
-    const detail = rawDetail && typeof rawDetail === "object"
-      ? ((rawDetail as any).detail ?? rawDetail)
-      : null;
-
-    const pathHint = typeof detail?.path === "string" ? `\nPath: ${detail.path}` : "";
-    const expected = typeof detail?.expected_sha === "string" ? `\nExpected SHA: ${detail.expected_sha}` : "";
-    const actual = typeof detail?.actual_sha === "string" ? `\nActual SHA:   ${detail.actual_sha}` : "";
-
-    output.error(
-      `Error: ${err.message}${pathHint}${expected}${actual}${hint ? `\n${hint}` : ""}`,
-    );
-
-    return EXIT_CODES[err.category] ?? 1;
-  }
-
   if (err instanceof Error) {
     if (err.message.includes("Not logged in")) {
       output.error(`Error: ${err.message}\nRun: ideaspaces login`);

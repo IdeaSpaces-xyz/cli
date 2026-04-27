@@ -2,3 +2,11 @@ node_modules/
 dist/
 bundle/
 *.tsbuildinfo
+
+# ideaspace defaults
+# (code repo with private _agent/ — each developer's contract stays local)
+_agent/
+CLAUDE.local.md
+*.draft.md
+scratch/
+_local/
