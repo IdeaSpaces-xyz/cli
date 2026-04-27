@@ -1,6 +1,7 @@
 import type { CommandDef } from "./types.js";
 
 // Top-level commands
+import { createCommand } from "./commands/create.js";
 import { loginCommand } from "./commands/login.js";
 import { writeCommand } from "./commands/write.js";
 import { credentialCommand } from "./commands/credential.js";
@@ -9,6 +10,7 @@ import { credentialCommand } from "./commands/credential.js";
 import { logoutCommand } from "./commands/power/logout.js";
 
 const topLevel: CommandDef[] = [
+  createCommand,
   loginCommand,
   writeCommand,
   credentialCommand,
