@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -17,6 +17,16 @@ const baseGlobal: GlobalFlags = {
 
 let tmp: string;
 let originalCwd: string;
+
+// Tests scaffold real git repos. CI runners don't have a git user identity
+// configured globally, so set per-process env vars that `git commit` honors
+// without polluting the user's global git config.
+beforeAll(() => {
+  process.env.GIT_AUTHOR_NAME = "Test";
+  process.env.GIT_AUTHOR_EMAIL = "test@example.com";
+  process.env.GIT_COMMITTER_NAME = "Test";
+  process.env.GIT_COMMITTER_EMAIL = "test@example.com";
+});
 
 beforeEach(async () => {
   tmp = await mkdtemp(join(tmpdir(), "is-cli-create-"));
