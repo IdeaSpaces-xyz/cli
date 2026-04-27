@@ -1,61 +1,21 @@
-import type { CommandDef, GlobalFlags } from "./types.js";
+import type { CommandDef } from "./types.js";
 
 // Top-level commands
 import { loginCommand } from "./commands/login.js";
-import { initCommand } from "./commands/init.js";
-import { navigateCommand } from "./commands/navigate.js";
-import { searchCommand } from "./commands/search.js";
-import { readCommand } from "./commands/read.js";
 import { writeCommand } from "./commands/write.js";
-import { awarenessCommand } from "./commands/awareness.js";
 import { credentialCommand } from "./commands/credential.js";
-import { cloneCommand } from "./commands/clone.js";
 
 // Power commands
-import { grepCommand } from "./commands/power/grep.js";
-import { gitCommand } from "./commands/power/git.js";
-import { outlineCommand } from "./commands/power/outline.js";
-import { findCommand } from "./commands/power/find.js";
-import { moveCommand } from "./commands/power/move.js";
-import { deleteCommand } from "./commands/power/delete.js";
-import { tagsCommand } from "./commands/power/tags.js";
-import { metadataCommand } from "./commands/power/metadata.js";
-import { reposCommand } from "./commands/power/repos.js";
-import { statusCommand } from "./commands/power/status.js";
 import { logoutCommand } from "./commands/power/logout.js";
-import { connectCommand } from "./commands/power/connect.js";
-import { createCommand } from "./commands/power/create.js";
-import { reindexCommand } from "./commands/power/reindex.js";
-import { repoCommand } from "./commands/power/repo.js";
 
 const topLevel: CommandDef[] = [
   loginCommand,
-  initCommand,
-  navigateCommand,
-  searchCommand,
-  readCommand,
   writeCommand,
-  awarenessCommand,
-  cloneCommand,
   credentialCommand,
 ];
 
 const power: CommandDef[] = [
-  grepCommand,
-  gitCommand,
-  outlineCommand,
-  findCommand,
-  moveCommand,
-  deleteCommand,
-  tagsCommand,
-  metadataCommand,
-  reposCommand,
-  statusCommand,
   logoutCommand,
-  connectCommand,
-  createCommand,
-  reindexCommand,
-  repoCommand,
 ];
 
 export function findCommand_(name: string): CommandDef | undefined {
@@ -71,10 +31,9 @@ export function printHelp(): void {
   for (const cmd of topLevel) {
     lines.push(`  ${cmd.name.padEnd(14)} ${cmd.description}`);
   }
-  lines.push("", "  power          Advanced tools (grep, git, outline, find, move, delete, tags, metadata, connect, create, reindex, repo, ...)");
+  lines.push("", "  power          Advanced tools (logout, ...)");
   lines.push("", "Global flags:");
   lines.push("  --json         Structured JSON output to stdout");
-  lines.push("  --repo <slug>  Override space for this command");
   lines.push("  --quiet        Suppress non-essential output");
   lines.push("  --yes          Skip confirmation prompts");
   lines.push("  --help         Show help");
