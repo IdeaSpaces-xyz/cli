@@ -40,6 +40,12 @@ The five-file contract:
 - \`now.md\` — what's currently active.
 - \`next.md\` — what's queued.
 
+Optional dimensions inside \`_agent/\` (add as the space earns them):
+
+- \`skills/\` — operating procedures the agent should follow here. Each
+  skill is a markdown file (e.g., \`commit.md\` for the commit shape).
+  Surfaced at session start by name + summary; body loads on demand.
+
 \`CLAUDE.md\` at the space root tells Claude Code where this contract lives.
 
 \`.gitignore\` is also part of the Agreement — the boundary between what's
