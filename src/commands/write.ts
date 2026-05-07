@@ -13,7 +13,13 @@ import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
-import { composeFrontmatter, stripFrontmatter, type Frontmatter } from "@ideaspaces/sdk";
+import {
+  composeFrontmatter,
+  ensureMarkdownNodeId,
+  generateNodeId,
+  stripFrontmatter,
+  type Frontmatter,
+} from "@ideaspaces/sdk";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -54,7 +60,7 @@ export const writeCommand: CommandDef = {
       }
     }
 
-    const fm: Frontmatter = {
+    const fm: Frontmatter & { node_id?: string } = {
       name: flags.name as string | undefined,
       summary: flags.summary as string | undefined,
       tags: parseList(flags.tags),
@@ -64,15 +70,32 @@ export const writeCommand: CommandDef = {
     const commit = Boolean(flags.commit);
     const absPath = resolve(path);
 
-    if (existsSync(absPath) && !force) {
+    const exists = existsSync(absPath);
+    if (exists && !force) {
       output.error(`File exists: ${path}\nRe-run with --force to overwrite.`);
       return 5;
     }
 
+    if (exists) {
+      try {
+        const existing = await fs.readFile(absPath, "utf-8");
+        fm.node_id = ensureMarkdownNodeId(existing).node_id;
+      } catch (err) {
+        output.error(
+          `Existing file has a malformed node_id: ${err instanceof Error ? err.message : String(err)}\n` +
+            `Run \`ideaspaces id --regenerate ${path}\` if you intend to reset this file's identity.`,
+        );
+        return 1;
+      }
+    } else {
+      fm.node_id = generateNodeId();
+    }
+
     // Body: if user-supplied content has its own frontmatter, strip it; the
-    // composed frontmatter from flags wins (replace-semantics).
+    // composed frontmatter from flags wins (replace-semantics), while node_id
+    // is generated/preserved locally so future pushes pass identity checks.
     const body = stripFrontmatter(content);
-    const finalContent = composeFrontmatter(fm) + body;
+    const finalContent = composeFrontmatter(fm as Frontmatter & { node_id: string }) + body;
 
     await fs.mkdir(dirname(absPath), { recursive: true });
     await fs.writeFile(absPath, finalContent, "utf-8");
