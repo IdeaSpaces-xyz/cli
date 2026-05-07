@@ -266,4 +266,110 @@ describe("ideaspaces publish", () => {
     expect(createCallCount).toBe(2);
     expect(readSpaceRecord().repo_id).toBe("repo_second");
   });
+
+  it("rejects --name / --slug / --hostname on re-publish without --force", async () => {
+    const dir = initLocalRepo("reject-flags");
+    process.chdir(dir);
+    await writeCredentials();
+
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) return authMeResponse();
+      if (url.endsWith("/repos")) {
+        return new Response(
+          JSON.stringify({ repo_id: "repo_x", slug: "reject-flags", name: "n" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setupBareRemote("ernests_s", "reject-flags");
+
+    const { publishCommand } = await import("../commands/publish.js");
+    // First publish succeeds and writes to spaces.json.
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+    // Re-publish with --name silently mapped to nothing → reject.
+    expect(await publishCommand.run([], { name: "Something Else" }, baseGlobal)).toBe(1);
+    // Same for --slug and --hostname.
+    expect(await publishCommand.run([], { slug: "other" }, baseGlobal)).toBe(1);
+    expect(await publishCommand.run([], { hostname: "x.com" }, baseGlobal)).toBe(1);
+  });
+
+  it("errors on detached HEAD", async () => {
+    const dir = initLocalRepo("detached");
+    process.chdir(dir);
+    await writeCredentials();
+    // Detach HEAD by checking out the commit SHA directly.
+    const sha = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+      encoding: "utf-8",
+    }).stdout.trim();
+    spawnSync("git", ["-C", dir, "checkout", "--detach", sha]);
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, baseGlobal);
+    expect(exit).toBe(1);
+  });
+
+  it("errors when /auth/me returns no username", async () => {
+    const dir = initLocalRepo("no-username");
+    process.chdir(dir);
+    await writeCredentials();
+
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) {
+        return new Response(
+          JSON.stringify({
+            user_id: 1,
+            username: null,
+            email: null,
+            name: null,
+            repos: [],
+            onboarding_complete: false,
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, baseGlobal);
+    expect(exit).toBe(1);
+  });
+});
+
+describe("deriveGitBase", () => {
+  let originalGitUrl: string | undefined;
+
+  beforeEach(() => {
+    originalGitUrl = process.env.IS_GIT_URL;
+    delete process.env.IS_GIT_URL;
+  });
+  afterEach(() => {
+    if (originalGitUrl !== undefined) process.env.IS_GIT_URL = originalGitUrl;
+    else delete process.env.IS_GIT_URL;
+  });
+
+  it("swaps `api.` for `git.` on the hostname", async () => {
+    const { deriveGitBase } = await import("../commands/publish.js");
+    expect(deriveGitBase("https://api.ideaspaces.xyz")).toBe("https://git.ideaspaces.xyz");
+    expect(deriveGitBase("https://api.ideaspaces.xyz/")).toBe("https://git.ideaspaces.xyz");
+    expect(deriveGitBase("https://api.staging.ideaspaces.xyz")).toBe("https://git.staging.ideaspaces.xyz");
+  });
+
+  it("passes through hostnames without `api.` prefix (caller should set IS_GIT_URL)", async () => {
+    const { deriveGitBase } = await import("../commands/publish.js");
+    expect(deriveGitBase("http://localhost:8080")).toBe("http://localhost:8080");
+  });
+
+  it("IS_GIT_URL env override wins", async () => {
+    process.env.IS_GIT_URL = "http://git.localhost:9000";
+    const { deriveGitBase } = await import("../commands/publish.js");
+    expect(deriveGitBase("https://api.ideaspaces.xyz")).toBe("http://git.localhost:9000");
+  });
 });

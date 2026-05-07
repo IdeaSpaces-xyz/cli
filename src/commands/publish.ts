@@ -37,6 +37,11 @@ interface PublishFlags {
 
 function runGit(cwd: string, args: string[]): { ok: boolean; stderr: string; stdout: string } {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
+  // ENOENT and friends — git not on PATH. spawnSync returns status: null and
+  // sets r.error; without this guard the caller surfaces an empty-stderr 1.
+  if (r.error) {
+    return { ok: false, stderr: `git not available: ${r.error.message}`, stdout: "" };
+  }
   return {
     ok: r.status === 0,
     stderr: (r.stderr || "").trim(),
@@ -46,8 +51,10 @@ function runGit(cwd: string, args: string[]): { ok: boolean; stderr: string; std
 
 /** Derive the git host from the api URL by swapping the `api.` subdomain
  * for `git.`. `IS_GIT_URL` env override wins for dev/localhost setups
- * where the convention can't be inferred (no `api.` prefix). */
-function deriveGitBase(apiUrl: string): string {
+ * where the convention can't be inferred (no `api.` prefix).
+ *
+ * Exported for unit tests. */
+export function deriveGitBase(apiUrl: string): string {
   const override = process.env.IS_GIT_URL;
   if (override) return override.replace(/\/+$/, "");
   try {

@@ -59,7 +59,6 @@ const DEFAULT_API_URL = "https://api.ideaspaces.xyz";
 export interface LoadedConfig {
   apiUrl: string;
   apiKey: string;
-  repo: string;
 }
 
 /**
@@ -69,15 +68,16 @@ export interface LoadedConfig {
  * 1. IS_API_KEY env var (explicit override, CI)
  * 2. Stored credentials from login (~/.ideaspaces/credentials.json)
  * 3. null — not logged in
+ *
+ * Per-folder repo binding lives in `auth/spaces.ts` (folder-keyed map),
+ * not in this struct.
  */
 export function loadConfig(): LoadedConfig | null {
   const envKey = process.env.IS_API_KEY;
-  const envRepo = process.env.IS_REPO || "";
   if (envKey) {
     return {
       apiUrl: (process.env.IS_API_URL || DEFAULT_API_URL).replace(/\/$/, ""),
       apiKey: envKey,
-      repo: envRepo,
     };
   }
 
@@ -86,7 +86,6 @@ export function loadConfig(): LoadedConfig | null {
     return {
       apiUrl: (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, ""),
       apiKey: stored.api_key,
-      repo: envRepo || "",
     };
   }
 
