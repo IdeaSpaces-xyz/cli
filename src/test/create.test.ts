@@ -55,11 +55,16 @@ describe("ideaspaces create", () => {
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     configureGitIdentity(tmp); // git-init happened; ensure identity for any subsequent ops
-    for (const file of ["foundation", "guide", "purpose", "now", "next"]) {
+    // Seed only — foundation + guide. purpose/now/next emerge in conversation.
+    for (const file of ["foundation", "guide"]) {
       expect(existsSync(join(tmp, "_agent", `${file}.md`))).toBe(true);
+    }
+    for (const file of ["purpose", "now", "next"]) {
+      expect(existsSync(join(tmp, "_agent", `${file}.md`))).toBe(false);
     }
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(true);
     expect(existsSync(join(tmp, ".gitignore"))).toBe(true);
+    expect(existsSync(join(tmp, ".gitattributes"))).toBe(true);
     expect(existsSync(join(tmp, ".git"))).toBe(true);
   });
 

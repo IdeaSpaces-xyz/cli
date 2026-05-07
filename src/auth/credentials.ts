@@ -9,19 +9,25 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const CONFIG_DIR = join(homedir(), ".ideaspaces");
-const CREDENTIALS_FILE = join(CONFIG_DIR, "credentials.json");
+// Compute lazily so tests can override HOME (constants captured at import
+// time would freeze the path).
+function configDir(): string {
+  return join(homedir(), ".ideaspaces");
+}
+
+function credentialsFile(): string {
+  return join(configDir(), "credentials.json");
+}
 
 export interface StoredCredentials {
   api_url: string;
   api_key: string;
-  repo_id?: string;
 }
 
 export function loadStoredCredentials(): StoredCredentials | null {
   try {
-    if (!existsSync(CREDENTIALS_FILE)) return null;
-    const raw = readFileSync(CREDENTIALS_FILE, "utf-8");
+    if (!existsSync(credentialsFile())) return null;
+    const raw = readFileSync(credentialsFile(), "utf-8");
     const data = JSON.parse(raw);
     if (!data.api_key) return null;
     return data as StoredCredentials;
@@ -31,18 +37,18 @@ export function loadStoredCredentials(): StoredCredentials | null {
 }
 
 export function saveCredentials(creds: StoredCredentials): void {
-  if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  if (!existsSync(configDir())) {
+    mkdirSync(configDir(), { recursive: true, mode: 0o700 });
   }
-  writeFileSync(CREDENTIALS_FILE, JSON.stringify(creds, null, 2) + "\n", {
+  writeFileSync(credentialsFile(), JSON.stringify(creds, null, 2) + "\n", {
     mode: 0o600,
   });
 }
 
 export function deleteCredentials(): void {
   try {
-    if (existsSync(CREDENTIALS_FILE)) {
-      unlinkSync(CREDENTIALS_FILE);
+    if (existsSync(credentialsFile())) {
+      unlinkSync(credentialsFile());
     }
   } catch {
     // Ignore — file may not exist
@@ -83,7 +89,7 @@ export function loadConfig(): LoadedConfig | null {
     return {
       apiUrl: (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, ""),
       apiKey: stored.api_key,
-      repo: envRepo || stored.repo_id || "",
+      repo: envRepo,
     };
   }
 
