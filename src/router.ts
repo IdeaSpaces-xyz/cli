@@ -6,6 +6,7 @@ import { loginCommand } from "./commands/login.js";
 import { publishCommand } from "./commands/publish.js";
 import { writeCommand } from "./commands/write.js";
 import { credentialCommand } from "./commands/credential.js";
+import { idCommand } from "./commands/id.js";
 
 // Power commands
 import { logoutCommand } from "./commands/power/logout.js";
@@ -16,6 +17,7 @@ const topLevel: CommandDef[] = [
   publishCommand,
   writeCommand,
   credentialCommand,
+  idCommand,
 ];
 
 const power: CommandDef[] = [

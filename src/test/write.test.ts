@@ -37,7 +37,9 @@ describe("ideaspaces write", () => {
     );
     expect(exit).toBe(0);
     const written = await fs.readFile(join(tmp, "notes/foo.md"), "utf-8");
-    expect(written).toContain("---\nname: Foo\nsummary: About foo.\n---\n");
+    expect(written).toContain("---\nname: Foo\nnode_id: n_");
+    expect(written).toMatch(/^node_id: n_[0-9a-f]{24}$/m);
+    expect(written).toContain("summary: About foo.\n---\n");
     expect(written).toContain("# Foo\nBody.");
   });
 
@@ -69,7 +71,7 @@ describe("ideaspaces write", () => {
     expect((await fs.readFile(join(tmp, "existing.md"), "utf-8")).trim()).toBe("# Original");
   });
 
-  it("overwrites with --force", async () => {
+  it("overwrites with --force and injects a node_id", async () => {
     await fs.writeFile(join(tmp, "existing.md"), "# Original", "utf-8");
     const exit = await writeCommand.run(
       ["existing.md"],
@@ -79,6 +81,7 @@ describe("ideaspaces write", () => {
     expect(exit).toBe(0);
     const written = await fs.readFile(join(tmp, "existing.md"), "utf-8");
     expect(written).toContain("name: New");
+    expect(written).toMatch(/^node_id: n_[0-9a-f]{24}$/m);
     expect(written).toContain("# New");
   });
 
@@ -94,8 +97,45 @@ describe("ideaspaces write", () => {
     expect(exit).toBe(0);
     const written = await fs.readFile(join(tmp, "notes/foo.md"), "utf-8");
     expect(written).toContain("name: NewName");
+    expect(written).toMatch(/^node_id: n_[0-9a-f]{24}$/m);
     expect(written).not.toContain("OldName");
     expect(written).toContain("# Body\nReal content.");
+  });
+
+  it("preserves an existing valid node_id on overwrite", async () => {
+    await fs.writeFile(
+      join(tmp, "existing.md"),
+      "---\nname: Old\nnode_id: n_abcdef123456\n---\n# Old",
+      "utf-8",
+    );
+
+    const exit = await writeCommand.run(
+      ["existing.md"],
+      { content: "# New", name: "New", force: true },
+      baseGlobal,
+    );
+
+    expect(exit).toBe(0);
+    const written = await fs.readFile(join(tmp, "existing.md"), "utf-8");
+    expect(written).toContain("node_id: n_abcdef123456");
+    expect(written).toContain("name: New");
+  });
+
+  it("rejects malformed existing node_id on overwrite", async () => {
+    await fs.writeFile(
+      join(tmp, "bad.md"),
+      "---\nnode_id: nope\n---\n# Bad",
+      "utf-8",
+    );
+
+    const exit = await writeCommand.run(
+      ["bad.md"],
+      { content: "# New", force: true },
+      baseGlobal,
+    );
+
+    expect(exit).toBe(1);
+    expect(await fs.readFile(join(tmp, "bad.md"), "utf-8")).toContain("node_id: nope");
   });
 
   it("creates parent directories", async () => {
