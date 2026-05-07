@@ -8,8 +8,10 @@
  * old-shape, complete) and applies the right scaffold. Never overwrites
  * user content or existing CLAUDE.md / .gitignore — appends only.
  *
- * Conversational seeding (purpose / now / next) is delegated to the
- * `/is-setup` skill in Claude Code; this command produces fillable seeds.
+ * Scaffolds the seed of the contract: foundation.md + guide.md + CLAUDE.md
+ * + .gitignore + .gitattributes. purpose.md / now.md / next.md are emergent
+ * — the agent on first session reads foundation+guide, sees those names
+ * without matching files, and proposes capturing them in conversation.
  *
  * Without `--yes`, prints the plan and exits 0 without applying. With
  * `--yes`, applies. Errors don't roll back partial scaffolds — git is the
@@ -21,10 +23,12 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve, basename } from "node:path";
 import { createOutput } from "../output.js";
+import { loadStoredCredentials } from "../auth/credentials.js";
 import type { CommandDef } from "../types.js";
 import {
   CLAUDE_MD,
   CONTRACT_TEMPLATES,
+  GITATTRIBUTES,
   gitignoreDefaults,
 } from "../templates/default.js";
 
@@ -106,10 +110,17 @@ export const createCommand: CommandDef = {
       return 1;
     }
 
+    const where = name ? `./${name}` : "this directory";
+    const lines = [
+      `Scaffolded ${describeTarget(targetDir, name)} (${shape}${privateAgent ? ", private _agent/" : ""}).`,
+      `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
+    ];
+    if (loadStoredCredentials()) {
+      lines.push(`When ready to host this remotely, run \`ideaspaces publish\` from inside ${where}.`);
+    }
     output.result(
       { target: targetDir, shape, privateAgent, scaffolded: true },
-      `Scaffolded ${describeTarget(targetDir, name)} (${shape}${privateAgent ? ", private _agent/" : ""}).\n` +
-        `Next: open Claude Code in ${name ? `./${name}` : "this directory"} and run \`/is-setup\` to seed purpose / now / next.`,
+      lines.join("\n"),
     );
     return 0;
   },
@@ -213,6 +224,14 @@ function buildPlan(opts: {
     steps.push({ op: "write", path: join(targetDir, claudeFile) });
   }
 
+  if (!existsSync(join(targetDir, ".gitattributes"))) {
+    steps.push({
+      op: "write",
+      path: join(targetDir, ".gitattributes"),
+      detail: "markdown diff/eol attributes",
+    });
+  }
+
   steps.push({
     op: inspection.hasGitignore ? "append" : "write",
     path: join(targetDir, ".gitignore"),
@@ -267,6 +286,11 @@ async function applyPlan(opts: {
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";
   if (!inspection.hasClaude) {
     await fs.writeFile(join(targetDir, claudeFile), CLAUDE_MD, "utf-8");
+  }
+
+  const gitattributesPath = join(targetDir, ".gitattributes");
+  if (!existsSync(gitattributesPath)) {
+    await fs.writeFile(gitattributesPath, GITATTRIBUTES, "utf-8");
   }
 
   const gitignorePath = join(targetDir, ".gitignore");

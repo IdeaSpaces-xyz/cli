@@ -6,22 +6,23 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { configDir } from "./config-dir.js";
 
-const CONFIG_DIR = join(homedir(), ".ideaspaces");
-const CREDENTIALS_FILE = join(CONFIG_DIR, "credentials.json");
+function credentialsFile(): string {
+  return join(configDir(), "credentials.json");
+}
 
 export interface StoredCredentials {
   api_url: string;
   api_key: string;
-  repo_id?: string;
 }
 
 export function loadStoredCredentials(): StoredCredentials | null {
+  const file = credentialsFile();
   try {
-    if (!existsSync(CREDENTIALS_FILE)) return null;
-    const raw = readFileSync(CREDENTIALS_FILE, "utf-8");
+    if (!existsSync(file)) return null;
+    const raw = readFileSync(file, "utf-8");
     const data = JSON.parse(raw);
     if (!data.api_key) return null;
     return data as StoredCredentials;
@@ -31,18 +32,20 @@ export function loadStoredCredentials(): StoredCredentials | null {
 }
 
 export function saveCredentials(creds: StoredCredentials): void {
-  if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  const dir = configDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(CREDENTIALS_FILE, JSON.stringify(creds, null, 2) + "\n", {
+  writeFileSync(credentialsFile(), JSON.stringify(creds, null, 2) + "\n", {
     mode: 0o600,
   });
 }
 
 export function deleteCredentials(): void {
+  const file = credentialsFile();
   try {
-    if (existsSync(CREDENTIALS_FILE)) {
-      unlinkSync(CREDENTIALS_FILE);
+    if (existsSync(file)) {
+      unlinkSync(file);
     }
   } catch {
     // Ignore — file may not exist
@@ -56,7 +59,6 @@ const DEFAULT_API_URL = "https://api.ideaspaces.xyz";
 export interface LoadedConfig {
   apiUrl: string;
   apiKey: string;
-  repo: string;
 }
 
 /**
@@ -66,15 +68,16 @@ export interface LoadedConfig {
  * 1. IS_API_KEY env var (explicit override, CI)
  * 2. Stored credentials from login (~/.ideaspaces/credentials.json)
  * 3. null — not logged in
+ *
+ * Per-folder repo binding lives in `auth/spaces.ts` (folder-keyed map),
+ * not in this struct.
  */
 export function loadConfig(): LoadedConfig | null {
   const envKey = process.env.IS_API_KEY;
-  const envRepo = process.env.IS_REPO || "";
   if (envKey) {
     return {
       apiUrl: (process.env.IS_API_URL || DEFAULT_API_URL).replace(/\/$/, ""),
       apiKey: envKey,
-      repo: envRepo,
     };
   }
 
@@ -83,7 +86,6 @@ export function loadConfig(): LoadedConfig | null {
     return {
       apiUrl: (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, ""),
       apiKey: stored.api_key,
-      repo: envRepo || stored.repo_id || "",
     };
   }
 

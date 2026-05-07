@@ -2,8 +2,11 @@
  * Default template — minimal scaffolding for `ideaspaces create`.
  *
  * Templates ship as inline string constants compiled into the CLI bundle.
- * They're starting points, not finished documents — the user fills via
- * `/is-setup` (conversational seeding) or by editing directly.
+ * Only `foundation.md` and `guide.md` are scaffolded — they describe the
+ * five-file contract that names `purpose.md`, `now.md`, and `next.md`.
+ * The agent reading these on first session sees those names without
+ * matching files and the drift rule fires: propose creating them in
+ * conversation. Real content from real exchange beats placeholder filler.
  *
  * Two shapes for `_agent/` visibility (set by the create command per the
  * detected target shape):
@@ -39,6 +42,11 @@ The five-file contract:
 - \`purpose.md\` — why this place exists.
 - \`now.md\` — what's currently active.
 - \`next.md\` — what's queued.
+
+Only \`foundation.md\` and \`guide.md\` are scaffolded at create time.
+\`purpose.md\`, \`now.md\`, and \`next.md\` are emergent — when the agent
+reads this contract and finds those files missing, propose creating
+them in conversation. Real content from real exchange.
 
 Optional dimensions inside \`_agent/\` (add as the space earns them):
 
@@ -117,45 +125,7 @@ doing — surface it. Update this guide for this scope, or revisit foundation
 if a baseline needs to shift.
 `;
 
-export const PURPOSE_MD = `---
-name: Purpose
-summary: Why this space exists — the North Star. Fill in via \`/is-setup\` or
-  edit directly.
----
-
-# Purpose
-
-_Why does this space exist? What's it for?_
-
-Two or three sentences. Concrete over aspirational. What would make this
-valuable to you six months from now?
-`;
-
-export const NOW_MD = `---
-name: Now
-summary: What's currently active in this space. Fill in via \`/is-setup\` or
-  edit directly. Update at natural breaks; let it drift, then reflect.
----
-
-# Now
-
-_What are you working on right now? What would progress look like this week?_
-
-A single paragraph or a short list. Concrete, evaluable.
-`;
-
-export const NEXT_MD = `---
-name: Next
-summary: What's queued after Now. Vague is OK — agents and humans figure out
-  the flow.
----
-
-# Next
-
-_What's queued after the current focus? What's plausibly next but not yet
-active?_
-
-Vague is OK. Leave a placeholder if nothing comes to mind.
+export const GITATTRIBUTES = `*.md diff=markdown text eol=lf
 `;
 
 export const CLAUDE_MD = `# CLAUDE.md
@@ -199,11 +169,15 @@ export function gitignoreDefaults(opts: { privateAgent: boolean }): string {
   return lines.join("\n");
 }
 
-/** All five contract files keyed by name. */
+/** Seed contract files keyed by name.
+ *
+ * `foundation.md` + `guide.md` describe the contract that names
+ * `purpose.md`, `now.md`, and `next.md`. Those three are not scaffolded —
+ * the agent on first session reads foundation+guide, notices the missing
+ * files (the contract names them), and proposes capturing them in
+ * conversation. Real content over placeholder filler.
+ */
 export const CONTRACT_TEMPLATES: Record<string, string> = {
   foundation: FOUNDATION_MD,
   guide: GUIDE_MD,
-  purpose: PURPOSE_MD,
-  now: NOW_MD,
-  next: NEXT_MD,
 };
