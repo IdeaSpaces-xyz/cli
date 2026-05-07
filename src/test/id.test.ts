@@ -214,7 +214,8 @@ describe("ideaspaces id", () => {
     expect(exit).toBe(0);
     const hook = join(tmp, ".git", "hooks", "pre-commit");
     expect(existsSync(hook)).toBe(true);
-    expect(await fs.readFile(hook, "utf-8")).toContain("ideaspaces id --fix --staged");
+    const hookContent = await fs.readFile(hook, "utf-8");
+    expect(hookContent).toMatch(/node .+id --fix --staged/);
   });
 
   it("does not overwrite an already installed hook", async () => {

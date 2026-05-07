@@ -27,6 +27,7 @@ import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe, createRepo } from "../auth/api.js";
 import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import type { CommandDef } from "../types.js";
+import { hasIdentityProblems, renderIdentityProblems, scanMarkdownIdentityFiles } from "../identity-report.js";
 
 interface PublishFlags {
   slug?: string;
@@ -74,12 +75,46 @@ function defaultGitUrl(apiUrl: string, namespace: string, slug: string): string 
 
 const SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
 
+async function checkMarkdownIdentities(cwd: string): Promise<string | null> {
+  const files = trackedMarkdownFiles(cwd);
+  if (!files.length) return null;
+
+  const scan = await scanMarkdownIdentityFiles(files);
+  if (!hasIdentityProblems(scan)) return null;
+
+  return renderIdentityProblems(scan, {
+    cwd,
+    header: [
+      "Cannot publish yet: markdown identity check failed.",
+      "Every committed markdown file needs a stable node_id before it can be pushed.",
+      "",
+    ],
+    footer: [
+      "Fix missing IDs with: `ideaspaces id --fix .`",
+      "Fix copied/duplicate IDs with: `ideaspaces id --regenerate <path>`",
+      "Then commit the identity changes and re-run `ideaspaces publish`.",
+    ],
+  });
+}
+
+function trackedMarkdownFiles(cwd: string): string[] {
+  const r = spawnSync("git", ["-C", cwd, "ls-files", "-z", "--", "*.md"], { encoding: "utf-8" });
+  if (r.error) throw new Error(`git not available: ${r.error.message}`);
+  if (r.status !== 0) {
+    throw new Error(r.stderr.trim() || "git ls-files failed while checking markdown identities");
+  }
+  return r.stdout
+    .split("\0")
+    .filter(Boolean)
+    .map((path) => join(cwd, path));
+}
+
 export const publishCommand: CommandDef = {
   name: "publish",
-  description: "Publish this folder as a remote ideaspace (login required)",
+  description: "Publish this folder as a remote ideaspace (tracked .md files need node_id)",
   usage: "ideaspaces publish [--slug <slug>] [--name <name>] [--hostname <host>] [--force]",
   examples: [
-    "ideaspaces publish                     # publish current directory; slug from folder name",
+    "ideaspaces publish                     # publish current directory; preflights tracked .md node_id fields",
     "ideaspaces publish --slug my-notes     # explicit slug",
     "ideaspaces publish --hostname acme.com # publish into an org space (must be a member)",
     "ideaspaces publish --force             # force a fresh remote even if this dir already mapped",
@@ -105,6 +140,18 @@ export const publishCommand: CommandDef = {
       return 1;
     }
     const branch = branchResult.stdout;
+
+    let identityProblem: string | null;
+    try {
+      identityProblem = await checkMarkdownIdentities(cwd);
+    } catch (err) {
+      output.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+    if (identityProblem) {
+      output.error(identityProblem);
+      return 1;
+    }
 
     const stored = loadStoredCredentials();
     if (!stored) {

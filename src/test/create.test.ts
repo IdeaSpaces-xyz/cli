@@ -44,6 +44,11 @@ function configureGitIdentity(cwd: string): void {
   spawnSync("git", ["-C", cwd, "config", "user.name", "Test"]);
 }
 
+async function expectNodeId(path: string): Promise<void> {
+  const content = await fs.readFile(path, "utf-8");
+  expect(content).toMatch(/^node_id: n_[0-9a-f]{24}$/m);
+}
+
 describe("ideaspaces create", () => {
   it("plans without applying when --yes is absent", async () => {
     const exit = await createCommand.run([], {}, baseGlobal);
@@ -63,6 +68,9 @@ describe("ideaspaces create", () => {
       expect(existsSync(join(tmp, "_agent", `${file}.md`))).toBe(false);
     }
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(true);
+    await expectNodeId(join(tmp, "CLAUDE.md"));
+    await expectNodeId(join(tmp, "_agent", "foundation.md"));
+    await expectNodeId(join(tmp, "_agent", "guide.md"));
     expect(existsSync(join(tmp, ".gitignore"))).toBe(true);
     expect(existsSync(join(tmp, ".gitattributes"))).toBe(true);
     expect(existsSync(join(tmp, ".git"))).toBe(true);

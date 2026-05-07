@@ -48,13 +48,17 @@ function writeCredentials() {
   );
 }
 
-function initLocalRepo(name = "my-space") {
+function md(nodeId = "n_abcdef123456abcdef123456", body = "# foo"): string {
+  return `---\nname: Foo\nnode_id: ${nodeId}\n---\n\n${body}\n`;
+}
+
+function initLocalRepo(name = "my-space", opts: { withNodeId?: boolean } = {}) {
   const dir = join(tmp, name);
   mkdirSync(dir, { recursive: true });
   spawnSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
   spawnSync("git", ["-C", dir, "config", "user.email", "local@example.com"]);
   spawnSync("git", ["-C", dir, "config", "user.name", "Local"]);
-  writeFileSync(join(dir, "foo.md"), "# foo\n");
+  writeFileSync(join(dir, "foo.md"), opts.withNodeId === false ? "# foo\n" : md());
   spawnSync("git", ["-C", dir, "add", "."]);
   spawnSync("git", ["-C", dir, "commit", "-q", "-m", "first"]);
   return dir;
@@ -97,6 +101,45 @@ describe("ideaspaces publish", () => {
     const { publishCommand } = await import("../commands/publish.js");
     const exit = await publishCommand.run([], {}, baseGlobal);
     expect(exit).toBe(1);
+  });
+
+  it("preflights markdown node_id before publishing", async () => {
+    const dir = initLocalRepo("missing-id", { withNodeId: false });
+    process.chdir(dir);
+    await writeCredentials();
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, baseGlobal);
+    expect(exit).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(false);
+  });
+
+  it("ignores untracked markdown during publish preflight", async () => {
+    const dir = initLocalRepo("untracked-ok");
+    process.chdir(dir);
+    writeFileSync(join(dir, "scratch.md"), "# local scratch without node id\n");
+    await writeCredentials();
+
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) return authMeResponse();
+      if (url.endsWith("/repos")) {
+        return new Response(
+          JSON.stringify({ repo_id: "repo_untracked", slug: "untracked-ok", name: "untracked-ok" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setupBareRemote("ernests_s", "untracked-ok");
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
   });
 
   it("calls /auth/me and /repos, sets local user.email, adds origin, pushes", async () => {
