@@ -21,7 +21,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe, createRepo } from "../auth/api.js";
@@ -64,13 +64,24 @@ export const publishCommand: CommandDef = {
   async run(_args, rawFlags, global) {
     const output = createOutput(global);
     const flags = rawFlags as PublishFlags;
+    // process.cwd() returns an absolute path; no resolve() needed.
     const cwd = process.cwd();
-    const cwdAbs = resolve(cwd);
 
     if (!existsSync(join(cwd, ".git"))) {
       output.error("Not a git repo. Run `ideaspaces create` first, or `git init` here.");
       return 1;
     }
+
+    // Detect the current branch up-front. Push uses this name on origin —
+    // a repo created with `git init -b master` (older git defaults) pushes
+    // to `master`, not `main`. The server's HEAD symbolic-ref convention
+    // is `main`, but the bare repo accepts ref creation under any name.
+    const branchResult = runGit(cwd, ["symbolic-ref", "--short", "HEAD"]);
+    if (!branchResult.ok) {
+      output.error("Couldn't determine the current branch — is HEAD detached?");
+      return 1;
+    }
+    const branch = branchResult.stdout;
 
     const stored = loadStoredCredentials();
     if (!stored) {
@@ -95,14 +106,16 @@ export const publishCommand: CommandDef = {
     // reuse that record instead of creating another server-side repo.
     // `--force` opts into a fresh remote (drops the old mapping locally —
     // the orphaned server repo stays accessible by repo_id).
-    const existing = findSpaceFor(cwdAbs);
+    const existing = findSpaceFor(cwd);
     let repo: { repo_id: string; slug: string; name: string };
     let namespace: string;
 
     if (existing && !flags.force) {
       output.log(
         `This folder is already published as ${existing.namespace}/${existing.slug} ` +
-          `(repo_id=${existing.repo_id}). Re-pushing to the same remote. Use --force to provision a new one.`,
+          `(repo_id=${existing.repo_id}). Re-pushing to the same remote. ` +
+          `Use --force to provision a new one — the old server repo isn't deleted, ` +
+          `just unlinked from this folder.`,
       );
       repo = { repo_id: existing.repo_id, slug: existing.slug, name: flags.name?.toString() || existing.slug };
       namespace = existing.namespace;
@@ -147,8 +160,8 @@ export const publishCommand: CommandDef = {
       }
     }
 
-    output.progress(`Pushing to ${remoteUrl} ...`);
-    const push = runGit(cwd, ["push", "-u", "origin", "main"]);
+    output.progress(`Pushing ${branch} to ${remoteUrl} ...`);
+    const push = runGit(cwd, ["push", "-u", "origin", branch]);
     if (!push.ok) {
       output.error(
         `Push failed:\n${push.stderr}\n` +
@@ -157,7 +170,7 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    saveSpace(cwdAbs, {
+    saveSpace(cwd, {
       repo_id: repo.repo_id,
       slug: repo.slug,
       namespace,

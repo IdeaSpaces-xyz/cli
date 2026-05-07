@@ -19,9 +19,10 @@ export interface StoredCredentials {
 }
 
 export function loadStoredCredentials(): StoredCredentials | null {
+  const file = credentialsFile();
   try {
-    if (!existsSync(credentialsFile())) return null;
-    const raw = readFileSync(credentialsFile(), "utf-8");
+    if (!existsSync(file)) return null;
+    const raw = readFileSync(file, "utf-8");
     const data = JSON.parse(raw);
     if (!data.api_key) return null;
     return data as StoredCredentials;
@@ -31,8 +32,9 @@ export function loadStoredCredentials(): StoredCredentials | null {
 }
 
 export function saveCredentials(creds: StoredCredentials): void {
-  if (!existsSync(configDir())) {
-    mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+  const dir = configDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   writeFileSync(credentialsFile(), JSON.stringify(creds, null, 2) + "\n", {
     mode: 0o600,
@@ -40,9 +42,10 @@ export function saveCredentials(creds: StoredCredentials): void {
 }
 
 export function deleteCredentials(): void {
+  const file = credentialsFile();
   try {
-    if (existsSync(credentialsFile())) {
-      unlinkSync(credentialsFile());
+    if (existsSync(file)) {
+      unlinkSync(file);
     }
   } catch {
     // Ignore — file may not exist

@@ -26,9 +26,10 @@ export interface SpaceRecord {
 export type SpacesMap = Record<string, SpaceRecord>;
 
 export function loadSpaces(): SpacesMap {
+  const file = spacesFile();
   try {
-    if (!existsSync(spacesFile())) return {};
-    const raw = readFileSync(spacesFile(), "utf-8");
+    if (!existsSync(file)) return {};
+    const raw = readFileSync(file, "utf-8");
     const data = JSON.parse(raw);
     if (typeof data !== "object" || data === null) return {};
     return data as SpacesMap;
@@ -41,8 +42,9 @@ export function saveSpace(absolutePath: string, record: SpaceRecord): void {
   const key = resolve(absolutePath);
   const map = loadSpaces();
   map[key] = record;
-  if (!existsSync(configDir())) {
-    mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+  const dir = configDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   writeFileSync(spacesFile(), JSON.stringify(map, null, 2) + "\n", { mode: 0o600 });
 }

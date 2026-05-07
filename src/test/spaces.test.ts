@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ beforeEach(async () => {
   tmp = await mkdtemp(join(tmpdir(), "is-cli-spaces-"));
   originalHome = process.env.HOME;
   process.env.HOME = tmp;
+  vi.resetModules();
 });
 
 afterEach(async () => {

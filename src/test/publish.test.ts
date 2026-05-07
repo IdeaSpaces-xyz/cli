@@ -204,8 +204,9 @@ describe("ideaspaces publish", () => {
       if (url.endsWith("/auth/me")) return authMeResponse();
       if (url.endsWith("/repos")) {
         createCallCount += 1;
+        const repoId = createCallCount === 1 ? "repo_first" : "repo_second";
         return new Response(
-          JSON.stringify({ repo_id: "repo_first", slug: "reused", name: "reused" }),
+          JSON.stringify({ repo_id: repoId, slug: "reused", name: "reused" }),
           { status: 200 },
         );
       }
@@ -214,16 +215,26 @@ describe("ideaspaces publish", () => {
     vi.stubGlobal("fetch", fetchMock);
     setupBareRemote("ernests_s", "reused");
 
+    const spacesPath = join(tmp, ".ideaspaces", "spaces.json");
+    const readSpaceRecord = () => {
+      const map = JSON.parse(readFileSync(spacesPath, "utf-8"));
+      return map[Object.keys(map).find((k) => k.endsWith("reused"))!];
+    };
+
     const { publishCommand } = await import("../commands/publish.js");
+
     expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
     expect(createCallCount).toBe(1);
+    expect(readSpaceRecord().repo_id).toBe("repo_first");
 
     // Second publish from the same dir — should reuse, not create again.
     expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
     expect(createCallCount).toBe(1);
+    expect(readSpaceRecord().repo_id).toBe("repo_first");
 
-    // --force opts into a fresh remote.
+    // --force opts into a fresh remote and replaces the local mapping.
     expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
     expect(createCallCount).toBe(2);
+    expect(readSpaceRecord().repo_id).toBe("repo_second");
   });
 });
