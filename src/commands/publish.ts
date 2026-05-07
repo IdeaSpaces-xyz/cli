@@ -35,8 +35,6 @@ interface PublishFlags {
   force?: boolean;
 }
 
-const GIT_HOST = "git.ideaspaces.xyz";
-
 function runGit(cwd: string, args: string[]): { ok: boolean; stderr: string; stdout: string } {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
   return {
@@ -46,10 +44,28 @@ function runGit(cwd: string, args: string[]): { ok: boolean; stderr: string; std
   };
 }
 
-function defaultGitUrl(namespace: string, slug: string): string {
-  const base = (process.env.IS_GIT_URL || `https://${GIT_HOST}`).replace(/\/+$/, "");
-  return `${base}/${namespace}/${slug}.git`;
+/** Derive the git host from the api URL by swapping the `api.` subdomain
+ * for `git.`. `IS_GIT_URL` env override wins for dev/localhost setups
+ * where the convention can't be inferred (no `api.` prefix). */
+function deriveGitBase(apiUrl: string): string {
+  const override = process.env.IS_GIT_URL;
+  if (override) return override.replace(/\/+$/, "");
+  try {
+    const url = new URL(apiUrl);
+    if (url.hostname.startsWith("api.")) {
+      url.hostname = "git." + url.hostname.slice(4);
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return apiUrl.replace(/\/+$/, "");
+  }
 }
+
+function defaultGitUrl(apiUrl: string, namespace: string, slug: string): string {
+  return `${deriveGitBase(apiUrl)}/${namespace}/${slug}.git`;
+}
+
+const SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
 
 export const publishCommand: CommandDef = {
   name: "publish",
@@ -111,13 +127,29 @@ export const publishCommand: CommandDef = {
     let namespace: string;
 
     if (existing && !flags.force) {
+      // Flags that only affect a *fresh* create silently no-op here.
+      // Reject early so the user knows their request didn't apply.
+      const ignored = [
+        flags.name && "--name",
+        flags.slug && "--slug",
+        flags.hostname && "--hostname",
+      ].filter(Boolean);
+      if (ignored.length > 0) {
+        output.error(
+          `${ignored.join(", ")} only apply on first publish. ` +
+            `This folder is already mapped to ${existing.namespace}/${existing.slug}; ` +
+            `re-publish reuses that record. Use --force to provision a new remote.`,
+        );
+        return 1;
+      }
+
       output.log(
         `This folder is already published as ${existing.namespace}/${existing.slug} ` +
           `(repo_id=${existing.repo_id}). Re-pushing to the same remote. ` +
           `Use --force to provision a new one — the old server repo isn't deleted, ` +
           `just unlinked from this folder.`,
       );
-      repo = { repo_id: existing.repo_id, slug: existing.slug, name: flags.name?.toString() || existing.slug };
+      repo = { repo_id: existing.repo_id, slug: existing.slug, name: existing.slug };
       namespace = existing.namespace;
     } else {
       const name = flags.name?.toString() || basename(cwd);
@@ -143,10 +175,13 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    const remoteUrl = defaultGitUrl(namespace, repo.slug);
+    const remoteUrl = defaultGitUrl(config.apiUrl, namespace, repo.slug);
     // Replace any existing origin (idempotent re-publish from same dir).
     const existingRemote = runGit(cwd, ["remote", "get-url", "origin"]);
     if (existingRemote.ok) {
+      if (existingRemote.stdout && existingRemote.stdout !== remoteUrl) {
+        output.log(`Replacing existing origin: ${existingRemote.stdout} → ${remoteUrl}`);
+      }
       const setUrl = runGit(cwd, ["remote", "set-url", "origin", remoteUrl]);
       if (!setUrl.ok) {
         output.error(`git remote set-url failed: ${setUrl.stderr}`);
@@ -163,10 +198,11 @@ export const publishCommand: CommandDef = {
     output.progress(`Pushing ${branch} to ${remoteUrl} ...`);
     const push = runGit(cwd, ["push", "-u", "origin", branch]);
     if (!push.ok) {
-      output.error(
-        `Push failed:\n${push.stderr}\n` +
-          `If a blob exceeded the 200KB cap, shrink it or move it out of the repo.`,
-      );
+      const sizeRelated = SIZE_CAP_MARKERS.some((m) => push.stderr.includes(m));
+      const hint = sizeRelated
+        ? "\nA blob exceeded the 200KB cap — shrink it or move it out of the repo."
+        : "";
+      output.error(`Push failed:\n${push.stderr}${hint}`);
       return 1;
     }
 

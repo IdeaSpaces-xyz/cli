@@ -171,6 +171,35 @@ describe("ideaspaces publish", () => {
     expect(origin).toContain("/acme.com/org-notes.git");
   });
 
+  it("surfaces a readable error when git push itself fails", async () => {
+    const dir = initLocalRepo("push-fail");
+    process.chdir(dir);
+    await writeCredentials();
+
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) return authMeResponse();
+      if (url.endsWith("/repos")) {
+        return new Response(
+          JSON.stringify({ repo_id: "repo_x", slug: "push-fail", name: "push-fail" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    // IS_GIT_URL points at a directory that doesn't exist, so `git push` to
+    // file://<missing>/<namespace>/<slug>.git fails. Exit 1, no spaces.json
+    // (the save happens after a successful push).
+    process.env.IS_GIT_URL = `file://${join(tmp, "does-not-exist")}`;
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, baseGlobal);
+    expect(exit).toBe(1);
+    expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(false);
+  });
+
   it("surfaces a readable error when /repos rejects (e.g. 409 slug conflict)", async () => {
     const dir = initLocalRepo();
     process.chdir(dir);
