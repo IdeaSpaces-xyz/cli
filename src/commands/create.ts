@@ -31,6 +31,7 @@ import {
   GITATTRIBUTES,
   gitignoreDefaults,
 } from "../templates/default.js";
+import { ensureMarkdownNodeId } from "@ideaspaces/sdk";
 
 type Shape = "greenfield" | "content-existing" | "code-repo" | "old-shape" | "complete";
 
@@ -59,7 +60,7 @@ const OLD_AGENT_FILES = ["always.md", "rules.md", "soul.md", "guidance.md"];
 
 export const createCommand: CommandDef = {
   name: "create",
-  description: "Scaffold an ideaspace (five-file _agent/ contract + CLAUDE.md + .gitignore defaults)",
+  description: "Scaffold an ideaspace (seed _agent/ contract + CLAUDE.md + .gitignore defaults)",
   usage: "ideaspaces create [name] [--yes] [--shared]",
   examples: [
     "ideaspaces create my-space             # plan in ./my-space/, exit without applying",
@@ -280,12 +281,13 @@ async function applyPlan(opts: {
 
   await fs.mkdir(join(targetDir, "_agent"), { recursive: true });
   for (const [name, content] of Object.entries(CONTRACT_TEMPLATES)) {
-    await fs.writeFile(join(targetDir, "_agent", `${name}.md`), content, "utf-8");
+    await fs.writeFile(join(targetDir, "_agent", `${name}.md`), withNodeId(content), "utf-8");
   }
 
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";
   if (!inspection.hasClaude) {
-    await fs.writeFile(join(targetDir, claudeFile), CLAUDE_MD, "utf-8");
+    // Orientation files are publishable markdown objects too; stamp identity at creation.
+    await fs.writeFile(join(targetDir, claudeFile), withNodeId(CLAUDE_MD), "utf-8");
   }
 
   const gitattributesPath = join(targetDir, ".gitattributes");
@@ -312,6 +314,10 @@ async function applyPlan(opts: {
   // fail; the caller surfaces that error.
   runGit(targetDir, ["add", "."]);
   runGit(targetDir, ["commit", "-q", "-m", "Initial ideaspace scaffold"]);
+}
+
+function withNodeId(content: string): string {
+  return ensureMarkdownNodeId(content).content;
 }
 
 function runGit(cwd: string, args: string[]): void {

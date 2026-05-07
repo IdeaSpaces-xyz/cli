@@ -7,24 +7,9 @@ import type { CommandDef } from "../types.js";
 import {
   collectMarkdownFiles,
   ensureMarkdownNodeId,
-  inspectMarkdownIdentity,
   isMarkdownPath,
 } from "@ideaspaces/sdk";
-
-interface FileStatus {
-  path: string;
-  status: "valid" | "missing" | "malformed";
-  node_id: string | null;
-  duplicate: boolean;
-  message?: string;
-}
-
-interface ScanResult {
-  files: FileStatus[];
-  missing: FileStatus[];
-  malformed: FileStatus[];
-  duplicates: FileStatus[];
-}
+import { renderIdentityProblems, scanMarkdownIdentityFiles } from "../identity-report.js";
 
 const HOOK_MARKER = "# ideaspaces-node-id-hook";
 
@@ -83,11 +68,11 @@ export const idCommand: CommandDef = {
       return 0;
     }
 
-    const scan = await scanFiles(files);
+    const scan = await scanMarkdownIdentityFiles(files);
 
     if (fix) {
       if (scan.malformed.length || scan.duplicates.length) {
-        output.error(renderProblems(scan));
+        output.error(renderIdentityProblems(scan));
         output.error("Run `ideaspaces id --regenerate <path>` to intentionally reset a malformed or duplicate identity.");
         return 1;
       }
@@ -118,7 +103,7 @@ export const idCommand: CommandDef = {
     }
 
     if (scan.missing.length || scan.malformed.length || scan.duplicates.length) {
-      output.error(renderProblems(scan));
+      output.error(renderIdentityProblems(scan));
       return 1;
     }
 
@@ -129,45 +114,6 @@ export const idCommand: CommandDef = {
     return 0;
   },
 };
-
-async function scanFiles(files: string[]): Promise<ScanResult> {
-  const statuses: FileStatus[] = [];
-  const byId = new Map<string, FileStatus[]>();
-
-  for (const path of files) {
-    const content = await readFile(path, "utf-8");
-    const identity = inspectMarkdownIdentity(content);
-    const status: FileStatus = {
-      path,
-      status: identity.status,
-      node_id: identity.node_id,
-      duplicate: false,
-      message: identity.message,
-    };
-    statuses.push(status);
-    if (identity.status === "valid" && identity.node_id) {
-      const group = byId.get(identity.node_id) ?? [];
-      group.push(status);
-      byId.set(identity.node_id, group);
-    }
-  }
-
-  const duplicates: FileStatus[] = [];
-  for (const group of byId.values()) {
-    if (group.length <= 1) continue;
-    for (const item of group) {
-      item.duplicate = true;
-      duplicates.push(item);
-    }
-  }
-
-  return {
-    files: statuses,
-    missing: statuses.filter((s) => s.status === "missing"),
-    malformed: statuses.filter((s) => s.status === "malformed"),
-    duplicates,
-  };
-}
 
 async function regenerateFile(path: string, output: ReturnType<typeof createOutput>, staged: boolean): Promise<number> {
   const abs = resolve(path);
@@ -270,7 +216,7 @@ async function installHook(output: ReturnType<typeof createOutput>): Promise<num
     "#!/bin/sh",
     HOOK_MARKER,
     "set -e",
-    "ideaspaces id --fix --staged",
+    hookCommand(),
     "",
   ].join("\n");
 
@@ -294,6 +240,18 @@ async function installHook(output: ReturnType<typeof createOutput>): Promise<num
   return 0;
 }
 
+function hookCommand(): string {
+  const entry = process.argv[1];
+  if (entry && existsSync(entry)) {
+    return `node ${shellQuote(resolve(entry))} id --fix --staged`;
+  }
+  return "ideaspaces id --fix --staged";
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
 function findGitDir(): string | null {
   const r = spawnSync("git", ["rev-parse", "--git-dir"], { encoding: "utf-8" });
   if (r.status !== 0) return null;
@@ -302,38 +260,3 @@ function findGitDir(): string | null {
   return resolve(gitDir);
 }
 
-function renderProblems(scan: ScanResult): string {
-  const lines: string[] = [];
-  if (scan.missing.length) {
-    lines.push(`Missing node_id (${scan.missing.length}):`);
-    for (const item of scan.missing) lines.push(`  ${displayPath(item.path)}`);
-  }
-  if (scan.malformed.length) {
-    if (lines.length) lines.push("");
-    lines.push(`Malformed node_id (${scan.malformed.length}):`);
-    for (const item of scan.malformed) {
-      const suffix = item.message ? ` — ${item.message}` : "";
-      lines.push(`  ${displayPath(item.path)}${suffix}`);
-    }
-  }
-  if (scan.duplicates.length) {
-    if (lines.length) lines.push("");
-    lines.push(`Duplicate node_id (${scan.duplicates.length} files):`);
-    const byId = new Map<string, FileStatus[]>();
-    for (const item of scan.duplicates) {
-      if (!item.node_id) continue;
-      const group = byId.get(item.node_id) ?? [];
-      group.push(item);
-      byId.set(item.node_id, group);
-    }
-    for (const [id, group] of byId) {
-      lines.push(`  ${id}`);
-      for (const item of group) lines.push(`    ${displayPath(item.path)}`);
-    }
-  }
-  return lines.join("\n");
-}
-
-function displayPath(path: string): string {
-  return relative(process.cwd(), path) || path;
-}

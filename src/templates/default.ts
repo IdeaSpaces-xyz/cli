@@ -128,21 +128,33 @@ if a baseline needs to shift.
 export const GITATTRIBUTES = `*.md diff=markdown text eol=lf
 `;
 
-export const CLAUDE_MD = `# CLAUDE.md
+export const CLAUDE_MD = `---
+name: Claude Code orientation
+summary: Tells Claude Code this directory is an ideaspace and points at the seed
+  _agent contract. Purpose, Now, and Next may be missing at first; their absence
+  is a prompt to capture real direction in conversation.
+---
 
-> This is an ideaspace. The five-file \`_agent/\` contract carries the Agreement.
+# CLAUDE.md
+
+> This is an ideaspace. The \`_agent/\` contract carries the working agreement.
 
 ## Orient
 
-At session start, read in order:
+At session start, read the seed files first:
 
 1. [\`_agent/foundation.md\`](_agent/foundation.md) — what this place is, baseline behaviors
 2. [\`_agent/guide.md\`](_agent/guide.md) — how agent and human work together here
-3. [\`_agent/purpose.md\`](_agent/purpose.md) — why this exists
-4. [\`_agent/now.md\`](_agent/now.md) — what's currently active
-5. [\`_agent/next.md\`](_agent/next.md) — what's queued
 
-These five files are loaded by position. Read them before answering.
+Then look for the emergent direction files:
+
+3. \`_agent/purpose.md\` — why this exists
+4. \`_agent/now.md\` — what's currently active
+5. \`_agent/next.md\` — what's queued
+
+\`purpose.md\`, \`now.md\`, and \`next.md\` may not exist yet. If missing,
+don't invent them. Treat the gap as direction not yet captured and propose
+creating them in conversation when there is enough real signal.
 
 ## When the Agreement drifts
 
