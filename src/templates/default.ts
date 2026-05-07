@@ -125,8 +125,7 @@ doing — surface it. Update this guide for this scope, or revisit foundation
 if a baseline needs to shift.
 `;
 
-export const GITATTRIBUTES = `*.md diff=markdown
-*.md text eol=lf
+export const GITATTRIBUTES = `*.md diff=markdown text eol=lf
 `;
 
 export const CLAUDE_MD = `# CLAUDE.md

@@ -6,14 +6,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-
-// Compute lazily so tests can override HOME (constants captured at import
-// time would freeze the path).
-function configDir(): string {
-  return join(homedir(), ".ideaspaces");
-}
+import { configDir } from "./config-dir.js";
 
 function credentialsFile(): string {
   return join(configDir(), "credentials.json");
@@ -89,7 +83,7 @@ export function loadConfig(): LoadedConfig | null {
     return {
       apiUrl: (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, ""),
       apiKey: stored.api_key,
-      repo: envRepo,
+      repo: envRepo || "",
     };
   }
 

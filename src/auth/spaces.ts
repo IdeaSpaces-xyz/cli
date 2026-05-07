@@ -8,14 +8,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-
-// Compute lazily so tests can override HOME between vi.resetModules()
-// boundaries (constants captured at import time would freeze the path).
-function configDir(): string {
-  return join(homedir(), ".ideaspaces");
-}
+import { configDir } from "./config-dir.js";
 
 function spacesFile(): string {
   return join(configDir(), "spaces.json");

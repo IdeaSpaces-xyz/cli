@@ -25,13 +25,14 @@ import { basename, join, resolve } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe, createRepo } from "../auth/api.js";
-import { saveSpace } from "../auth/spaces.js";
+import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import type { CommandDef } from "../types.js";
 
 interface PublishFlags {
   slug?: string;
   hostname?: string;
   name?: string;
+  force?: boolean;
 }
 
 const GIT_HOST = "git.ideaspaces.xyz";
@@ -53,16 +54,18 @@ function defaultGitUrl(namespace: string, slug: string): string {
 export const publishCommand: CommandDef = {
   name: "publish",
   description: "Publish this folder as a remote ideaspace (login required)",
-  usage: "ideaspaces publish [--slug <slug>] [--name <name>] [--hostname <host>]",
+  usage: "ideaspaces publish [--slug <slug>] [--name <name>] [--hostname <host>] [--force]",
   examples: [
     "ideaspaces publish                     # publish current directory; slug from folder name",
     "ideaspaces publish --slug my-notes     # explicit slug",
     "ideaspaces publish --hostname acme.com # publish into an org space (must be a member)",
+    "ideaspaces publish --force             # force a fresh remote even if this dir already mapped",
   ],
   async run(_args, rawFlags, global) {
     const output = createOutput(global);
     const flags = rawFlags as PublishFlags;
     const cwd = process.cwd();
+    const cwdAbs = resolve(cwd);
 
     if (!existsSync(join(cwd, ".git"))) {
       output.error("Not a git repo. Run `ideaspaces create` first, or `git init` here.");
@@ -80,7 +83,7 @@ export const publishCommand: CommandDef = {
     try {
       me = await fetchAuthMe(config);
     } catch (err) {
-      output.error(`/auth/me failed: ${err instanceof Error ? err.message : String(err)}`);
+      output.error(`Couldn't reach the IdeaSpaces server: ${err instanceof Error ? err.message : String(err)}`);
       return 1;
     }
     if (!me.username) {
@@ -88,17 +91,33 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    const name = flags.name?.toString() || basename(cwd);
-    const slug = flags.slug?.toString();
-    const hostname = flags.hostname?.toString() ?? null;
-    const namespace = hostname ?? me.username;
+    // Re-publish idempotency: if this folder is already mapped to a remote,
+    // reuse that record instead of creating another server-side repo.
+    // `--force` opts into a fresh remote (drops the old mapping locally —
+    // the orphaned server repo stays accessible by repo_id).
+    const existing = findSpaceFor(cwdAbs);
+    let repo: { repo_id: string; slug: string; name: string };
+    let namespace: string;
 
-    let repo;
-    try {
-      repo = await createRepo(config, { name, slug, hostname });
-    } catch (err) {
-      output.error(`createRepo failed: ${err instanceof Error ? err.message : String(err)}`);
-      return 1;
+    if (existing && !flags.force) {
+      output.log(
+        `This folder is already published as ${existing.namespace}/${existing.slug} ` +
+          `(repo_id=${existing.repo_id}). Re-pushing to the same remote. Use --force to provision a new one.`,
+      );
+      repo = { repo_id: existing.repo_id, slug: existing.slug, name: flags.name?.toString() || existing.slug };
+      namespace = existing.namespace;
+    } else {
+      const name = flags.name?.toString() || basename(cwd);
+      const slug = flags.slug?.toString();
+      const hostname = flags.hostname?.toString() ?? null;
+      namespace = hostname ?? me.username;
+
+      try {
+        repo = await createRepo(config, { name, slug, hostname });
+      } catch (err) {
+        output.error(`Couldn't create remote space: ${err instanceof Error ? err.message : String(err)}`);
+        return 1;
+      }
     }
 
     // Identity wiring — set user.email so commits resolve to person:<user>
@@ -131,11 +150,14 @@ export const publishCommand: CommandDef = {
     output.progress(`Pushing to ${remoteUrl} ...`);
     const push = runGit(cwd, ["push", "-u", "origin", "main"]);
     if (!push.ok) {
-      output.error(`git push failed:\n${push.stderr}`);
+      output.error(
+        `Push failed:\n${push.stderr}\n` +
+          `If a blob exceeded the 200KB cap, shrink it or move it out of the repo.`,
+      );
       return 1;
     }
 
-    saveSpace(resolve(cwd), {
+    saveSpace(cwdAbs, {
       repo_id: repo.repo_id,
       slug: repo.slug,
       namespace,
