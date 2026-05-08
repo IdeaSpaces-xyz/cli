@@ -24,6 +24,7 @@ import { spawnSync } from "node:child_process";
 import { join, resolve, basename } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
+import { fetchAuthMe } from "../auth/api.js";
 import type { CommandDef } from "../types.js";
 import {
   CLAUDE_MD,
@@ -279,12 +280,7 @@ async function applyPlan(opts: {
     runGit(targetDir, ["init", "-q", "-b", "main"]);
   }
 
-  // If logged in, set the local user.email to the IdeaSpaces identity
-  // BEFORE the initial commit. Otherwise the scaffold commit gets the
-  // user's global git identity, and `publish` later has to amend the
-  // tip's author to satisfy the pre-receive hook (extra friction). When
-  // not logged in, leave git config alone — `publish` will set it then
-  // and recover the tip if needed.
+  // Set local user.email before the initial commit so publish's pre-receive identity check passes without an amend.
   await maybeSetIdentity(targetDir);
 
   await fs.mkdir(join(targetDir, "_agent"), { recursive: true });
@@ -328,27 +324,16 @@ function withNodeId(content: string): string {
   return ensureMarkdownNodeId(content).content;
 }
 
-/** If logged in, set the repo's local `user.email` to the IdeaSpaces
- * identity so the initial scaffold commit is authored correctly.
- * Silent no-op when not logged in or when the auth call fails — the
- * scaffold continues with the user's global git config and `publish`
- * recovers the tip's author later. Never throws. */
+/** Set repo-local `user.email` to the IdeaSpaces identity; silent no-op if not logged in or network fails. */
 async function maybeSetIdentity(targetDir: string): Promise<void> {
   const stored = loadStoredCredentials();
   if (!stored) return;
   try {
-    const { fetchAuthMe } = await import("../auth/api.js");
     const me = await fetchAuthMe({ apiUrl: stored.api_url, apiKey: stored.api_key });
     if (!me.username) return;
-    runGit(targetDir, [
-      "config",
-      "--local",
-      "user.email",
-      `person:${me.username}@ideaspaces`,
-    ]);
+    runGit(targetDir, ["config", "--local", "user.email", `person:${me.username}@ideaspaces`]);
   } catch {
-    // Network or transient auth failure — fall through; publish will
-    // set identity later. Don't block create.
+    // Don't block create on transient auth/network failure.
   }
 }
 

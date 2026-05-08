@@ -510,6 +510,56 @@ describe("ideaspaces publish", () => {
       }).stdout.trim();
       expect(sha_after_second).toBe(sha_after_first);
     });
+
+    it("amends on --force re-publish even when mapping exists", async () => {
+      // After the first publish writes spaces.json, the existing-mapping
+      // guard would normally skip the amend. --force reopens the create
+      // path and should also rewrite a stale tip.
+      const dir = initLocalRepo("force-rewrite");
+      process.chdir(dir);
+      await writeCredentials();
+
+      let createCallCount = 0;
+      const fetchMock = vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) return authMeResponse();
+        if (url.endsWith("/api/v1/repos")) {
+          createCallCount += 1;
+          return new Response(
+            JSON.stringify({ repo_id: `r_${createCallCount}`, slug: "force-rewrite", name: "n" }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      setupBareRemote("ernests_s", "force-rewrite");
+
+      const { publishCommand } = await import("../commands/publish.js");
+      expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+
+      // Simulate a follow-up commit authored with the wrong identity
+      // (e.g. user committed manually; their global git config kicked
+      // back in). Distinct node_id so identity preflight doesn't trip
+      // on duplicates.
+      spawnSync("git", ["-C", dir, "config", "user.email", "wrong@example.com"]);
+      writeFileSync(join(dir, "second.md"), md("n_111111222222333333444444"));
+      spawnSync("git", ["-C", dir, "add", "."]);
+      spawnSync("git", ["-C", dir, "commit", "-q", "-m", "second"]);
+
+      const before = spawnSync("git", ["-C", dir, "log", "-1", "--format=%ae"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(before).toBe("wrong@example.com");
+
+      // --force opens the create branch and the amend guard.
+      expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
+
+      const after = spawnSync("git", ["-C", dir, "log", "-1", "--format=%ae"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(after).toBe("person:ernests_s@ideaspaces");
+    });
   });
 });
 
