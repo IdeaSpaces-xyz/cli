@@ -171,16 +171,26 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    // Detect the current branch up-front. Push uses this name on origin —
-    // a repo created with `git init -b master` (older git defaults) pushes
-    // to `master`, not `main`. The server's HEAD symbolic-ref convention
-    // is `main`, but the bare repo accepts ref creation under any name.
+    // Detect the current branch up-front. The server's HEAD symbolic-ref
+    // points at refs/heads/main, so publishing requires the local branch
+    // to be `main` — otherwise local and remote drift, breaking clone HEAD
+    // and `git pull origin <branch>` for the user later. Refuse with an
+    // actionable hint if the local branch is something else; let the
+    // conversational layer (`/is-publish`) offer the rename, or terminal
+    // users run `git branch -m main` manually.
     const branchResult = runGit(cwd, ["symbolic-ref", "--short", "HEAD"]);
     if (!branchResult.ok) {
       output.error("Couldn't determine the current branch — is HEAD detached?");
       return 1;
     }
     const branch = branchResult.stdout;
+    if (branch !== "main") {
+      output.error(
+        `Local branch is \`${branch}\`; IdeaSpaces uses \`main\` as the default. ` +
+          `Rename with \`git branch -m main\` and retry, or use \`/is-publish\` from Claude Code which offers to rename for you.`,
+      );
+      return 1;
+    }
 
     let identityProblem: string | null;
     try {
@@ -330,15 +340,8 @@ export const publishCommand: CommandDef = {
       }
     }
 
-    // Push the local branch to `main` on the remote regardless of its
-    // local name. Server's HEAD symbolic-ref points at refs/heads/main;
-    // pushing a non-main branch would leave HEAD broken on clone. Refspec
-    // `<local>:main` lands the local commit on the right remote ref AND
-    // (with -u) sets origin/main as the local branch's upstream, so
-    // future `git push` from the same branch keeps targeting main.
-    const refspec = `${branch}:main`;
-    output.progress(`Pushing ${refspec} to ${remoteUrl} ...`);
-    const push = runGit(cwd, ["push", "-u", "origin", refspec]);
+    output.progress(`Pushing main to ${remoteUrl} ...`);
+    const push = runGit(cwd, ["push", "-u", "origin", "main"]);
     if (!push.ok) {
       const sizeRelated = SIZE_CAP_MARKERS.some((m) => push.stderr.includes(m));
       const hint = sizeRelated

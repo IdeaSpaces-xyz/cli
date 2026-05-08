@@ -340,6 +340,30 @@ describe("ideaspaces publish", () => {
     expect(await publishCommand.run([], { hostname: "x.com" }, baseGlobal)).toBe(1);
   });
 
+  it("refuses publish from a non-main branch with an actionable hint", async () => {
+    const dir = initLocalRepo("non-main");
+    process.chdir(dir);
+    spawnSync("git", ["-C", dir, "branch", "-m", "feature/foo"]);
+    await writeCredentials();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+
+    let stderrCapture = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: Buffer | string) => {
+      stderrCapture += c.toString();
+      return true;
+    }) as typeof process.stderr.write;
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, { ...baseGlobal, quiet: false });
+    process.stderr.write = origWrite;
+
+    expect(exit).toBe(1);
+    expect(stderrCapture).toContain("feature/foo");
+    expect(stderrCapture).toContain("git branch -m main");
+    expect(stderrCapture).toContain("/is-publish");
+  });
+
   it("errors on detached HEAD", async () => {
     const dir = initLocalRepo("detached");
     process.chdir(dir);
