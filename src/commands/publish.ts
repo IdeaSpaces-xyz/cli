@@ -269,10 +269,14 @@ export const publishCommand: CommandDef = {
         output.log("Could not read tip author; skipping author rewrite. If push fails the identity check, fix git history manually.");
       } else if (tipAuthor.stdout && tipAuthor.stdout !== identityEmail) {
         output.log(`Rewriting tip commit author to ${identityEmail} to satisfy the pre-receive identity check.`);
-        // Known limitation: amend fails on repos with `commit.gpgsign=true` if no signing key is configured for the IdeaSpaces email; user surfaces the git error and resolves manually.
         const amend = runGit(cwd, ["commit", "--amend", "--no-edit", "--reset-author"]);
         if (!amend.ok) {
-          output.error(`git commit --amend failed: ${amend.stderr}`);
+          // Common failure mode: commit.gpgsign=true with no signing key for the IdeaSpaces email.
+          const gpgRelated = /gpg|signing|secret key/i.test(amend.stderr);
+          const hint = gpgRelated
+            ? `\nIf you have commit signing on (\`commit.gpgsign=true\`), either configure a key for ${identityEmail} or run \`git config --local commit.gpgsign false\` in this dir.`
+            : "";
+          output.error(`git commit --amend failed: ${amend.stderr}${hint}`);
           return 1;
         }
       }

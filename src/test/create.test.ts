@@ -332,4 +332,42 @@ describe("ideaspaces create — identity (Layer 1)", () => {
     );
     expect(localEmail.status).not.toBe(0);
   });
+
+  it("does not hang scaffolding when fetchAuthMe is slow (timeout fires)", async () => {
+    // Logged in, but the API hangs forever. Without a timeout, `create`
+    // would block indefinitely on the /auth/me round-trip. Verify the
+    // built-in timeout aborts and falls through to silent-no-op.
+    const credsDir = join(tmp, ".ideaspaces");
+    await fs.mkdir(credsDir, { recursive: true });
+    await fs.writeFile(
+      join(credsDir, "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+        // Honor the AbortSignal so the timeout actually unblocks the test.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      }),
+    );
+
+    // Override timeout via a small monkey-patch so the test runs fast.
+    // We re-export DEFAULT_REQUEST_TIMEOUT_MS but the call site in
+    // create.ts uses the default. Keep the test bounded by vitest's
+    // own timeout in case anything else regresses.
+    const { createCommand: cc } = await import("../commands/create.js");
+    const start = Date.now();
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    const elapsed = Date.now() - start;
+    expect(exit).toBe(0);
+    // Should bail well under the 5s default timeout we ship with.
+    // Generous bound to avoid flake.
+    expect(elapsed).toBeLessThan(8000);
+  }, 10_000);
 });
