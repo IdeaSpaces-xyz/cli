@@ -20,7 +20,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
@@ -64,7 +64,50 @@ function spaceWebUrl(apiUrl: string, namespace: string, slug: string): string {
   return `${deriveWebBase(apiUrl)}/${namespace}/${slug}`;
 }
 
+const SIZE_CAP_BYTES = 200_000;
 const SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
+
+interface SizeOffender {
+  path: string;
+  bytes: number;
+}
+
+export function preflightSize(cwd: string): SizeOffender[] {
+  const r = spawnSync("git", ["-C", cwd, "ls-files", "-z"], { encoding: "utf-8" });
+  if (r.error) throw new Error(`git not available: ${r.error.message}`);
+  if (r.status !== 0) {
+    throw new Error(r.stderr.trim() || "git ls-files failed while checking blob sizes");
+  }
+  const offenders: SizeOffender[] = [];
+  for (const rel of r.stdout.split("\0").filter(Boolean)) {
+    const abs = join(cwd, rel);
+    let bytes: number;
+    try {
+      bytes = statSync(abs).size;
+    } catch {
+      // ls-files lists tracked paths from the index; the working tree may
+      // be missing one (deleted but not staged). Skip — the push will
+      // surface any real index/server mismatch.
+      continue;
+    }
+    if (bytes > SIZE_CAP_BYTES) offenders.push({ path: rel, bytes });
+  }
+  return offenders;
+}
+
+export function renderSizeProblems(offenders: SizeOffender[]): string {
+  const noun = offenders.length === 1 ? "file" : "files";
+  return [
+    `Cannot publish yet: ${offenders.length} tracked ${noun} exceed the ${SIZE_CAP_BYTES.toLocaleString("en-US")}-byte server limit.`,
+    "",
+    ...offenders.map((o) => `  ${o.path} (${o.bytes.toLocaleString("en-US")} bytes)`),
+    "",
+    "Fix: add the offending paths to `.gitignore` (especially vault config",
+    "like `.obsidian/`), untrack with `git rm --cached -r <path>`, commit,",
+    "and retry publish. Or shrink the file, store it externally, and link",
+    "it via frontmatter (`attached_to:`).",
+  ].join("\n");
+}
 
 const SESSION_EXPIRED_MSG =
   "Your IdeaSpaces session has expired. Run `ideaspaces login` to refresh, then retry publish.";
@@ -175,6 +218,22 @@ export const publishCommand: CommandDef = {
         `Local branch is \`${branch}\`; IdeaSpaces uses \`main\` as the default. ` +
           `Rename with \`git branch -m main\` and retry, or use \`/is-publish\` from Claude Code which offers to rename for you.`,
       );
+      return 1;
+    }
+
+    // Size preflight first — fail-fast on tracked files exceeding the
+    // server's 200KB blob cap. Cheap (stat only), and a positive hit
+    // usually means a clutter dir (.obsidian/, node_modules/) that the
+    // user wants to untrack before bothering with markdown work.
+    let sizeOffenders: SizeOffender[];
+    try {
+      sizeOffenders = preflightSize(cwd);
+    } catch (err) {
+      output.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+    if (sizeOffenders.length) {
+      output.error(renderSizeProblems(sizeOffenders));
       return 1;
     }
 
