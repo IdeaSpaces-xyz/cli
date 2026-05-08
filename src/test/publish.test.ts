@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { slugify } from "../commands/publish.js";
+import { slugify, preflightSize, renderSizeProblems } from "../commands/publish.js";
 import type { GlobalFlags } from "../types.js";
 
 const baseGlobal: GlobalFlags = {
@@ -139,6 +139,40 @@ describe("ideaspaces publish", () => {
     expect(exit).toBe(1);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(false);
+  });
+
+  it("preflights tracked-blob size before login or markdown work", async () => {
+    const dir = initLocalRepo("oversized");
+    // 200KB cap; write a 250KB blob and track it.
+    writeFileSync(join(dir, "big.bin"), Buffer.alloc(250_000, "x"));
+    spawnSync("git", ["-C", dir, "add", "big.bin"]);
+    spawnSync("git", ["-C", dir, "commit", "-q", "-m", "add big"]);
+    process.chdir(dir);
+    await writeCredentials();
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    let stderr = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+      return true;
+    }) as typeof process.stderr.write;
+
+    let exit: number;
+    try {
+      const { publishCommand } = await import("../commands/publish.js");
+      exit = await publishCommand.run([], {}, baseGlobal);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+    expect(exit).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(false);
+    expect(stderr).toContain("Cannot publish yet");
+    expect(stderr).toContain("big.bin (250,000 bytes)");
+    expect(stderr).toContain(".gitignore");
   });
 
   it("ignores untracked markdown during publish preflight", async () => {
@@ -770,5 +804,100 @@ describe("slugify", () => {
     // Documented edge case — split fires only when lowercase/digit
     // precedes uppercase, so `XML` runs don't get dashed.
     expect(slugify("XMLSpace")).toBe("xmlspace");
+  });
+});
+
+describe("preflightSize", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "is-cli-size-"));
+    spawnSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    spawnSync("git", ["-C", dir, "config", "user.email", "local@example.com"]);
+    spawnSync("git", ["-C", dir, "config", "user.name", "Local"]);
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function track(rel: string, contents: Buffer | string) {
+    const abs = join(dir, rel);
+    mkdirSync(join(abs, ".."), { recursive: true });
+    writeFileSync(abs, contents);
+    spawnSync("git", ["-C", dir, "add", rel]);
+    spawnSync("git", ["-C", dir, "commit", "-q", "-m", `add ${rel}`]);
+  }
+
+  it("returns no offenders for an empty repo", () => {
+    expect(preflightSize(dir)).toEqual([]);
+  });
+
+  it("returns no offenders when all tracked files are under the cap", () => {
+    track("small.md", "# tiny\n");
+    track("medium.bin", Buffer.alloc(199_999, "x"));
+    expect(preflightSize(dir)).toEqual([]);
+  });
+
+  it("flags a single oversized tracked file", () => {
+    track("big.bin", Buffer.alloc(250_000, "x"));
+    expect(preflightSize(dir)).toEqual([{ path: "big.bin", bytes: 250_000 }]);
+  });
+
+  it("flags multiple oversized tracked files", () => {
+    track("big1.bin", Buffer.alloc(250_000, "x"));
+    track("nested/big2.bin", Buffer.alloc(300_000, "y"));
+    const offenders = preflightSize(dir).sort((a, b) => a.path.localeCompare(b.path));
+    expect(offenders).toEqual([
+      { path: "big1.bin", bytes: 250_000 },
+      { path: "nested/big2.bin", bytes: 300_000 },
+    ]);
+  });
+
+  it("ignores untracked oversized files", () => {
+    writeFileSync(join(dir, "untracked.bin"), Buffer.alloc(500_000, "x"));
+    expect(preflightSize(dir)).toEqual([]);
+  });
+
+  it("skips tracked paths missing from the working tree without throwing", () => {
+    track("big.bin", Buffer.alloc(250_000, "x"));
+    // Remove from working tree but leave in the index — a real
+    // mid-edit state. preflightSize should silently skip it.
+    rmSync(join(dir, "big.bin"));
+    expect(preflightSize(dir)).toEqual([]);
+  });
+
+  it("uses the 200,000-byte cap (199_999 ok, 200_001 flagged)", () => {
+    track("edge-low.bin", Buffer.alloc(199_999, "x"));
+    track("edge-high.bin", Buffer.alloc(200_001, "y"));
+    const paths = preflightSize(dir).map((o) => o.path).sort();
+    expect(paths).toEqual(["edge-high.bin"]);
+  });
+
+  it("allows a file at exactly the cap (200,000 bytes) — matches server's strict >", () => {
+    track("at-cap.bin", Buffer.alloc(200_000, "x"));
+    expect(preflightSize(dir)).toEqual([]);
+  });
+});
+
+describe("renderSizeProblems", () => {
+  it("singular noun for one offender, with formatted bytes", () => {
+    const out = renderSizeProblems([{ path: ".obsidian/plugins/copilot/main.js", bytes: 4_392_002 }]);
+    expect(out).toContain("1 tracked file exceed");
+    expect(out).toContain(".obsidian/plugins/copilot/main.js (4,392,002 bytes)");
+    expect(out).toContain("200,000-byte server limit");
+  });
+
+  it("plural noun for multiple offenders", () => {
+    const out = renderSizeProblems([
+      { path: "a.bin", bytes: 250_000 },
+      { path: "b.bin", bytes: 300_000 },
+    ]);
+    expect(out).toContain("2 tracked files exceed");
+  });
+
+  it("includes actionable fix lines (gitignore, untrack, frontmatter)", () => {
+    const out = renderSizeProblems([{ path: "big.bin", bytes: 250_000 }]);
+    expect(out).toContain(".gitignore");
+    expect(out).toContain("git rm --cached");
+    expect(out).toContain("attached_to:");
   });
 });
