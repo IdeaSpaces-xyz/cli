@@ -454,6 +454,14 @@ describe("slugify", () => {
     expect(s.length).toBeLessThanOrEqual(64);
   });
 
+  it("length cap does not leave a trailing dash", () => {
+    // 63 a's + 'B' → CamelCase inserts a dash before B → 65 chars →
+    // slice(0, 64) lands ON the dash → final trim must remove it.
+    const s = slugify("a".repeat(63) + "B");
+    expect(s.endsWith("-")).toBe(false);
+    expect(s).toBe("a".repeat(63));
+  });
+
   it("consecutive uppercase collapses to a single lowercased word", () => {
     // Documented edge case — split fires only when lowercase/digit
     // precedes uppercase, so `XML` runs don't get dashed.

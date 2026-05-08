@@ -240,7 +240,15 @@ export const publishCommand: CommandDef = {
       // Server enforces ^[a-z0-9][a-z0-9-]*$ on slug. If the user passes
       // --slug, trust them but still normalize so a casing slip doesn't
       // become a 422. Otherwise derive from the folder basename.
-      const slug = slugify(flags.slug?.toString() || folderName);
+      const slugInput = flags.slug?.toString() || folderName;
+      const slug = slugify(slugInput);
+      // Surface the normalization when it changes the input. A user who
+      // typed `--slug My_Space` (or pointed publish at a CamelCase
+      // folder) deserves to see that the URL slug is `my-space`, not
+      // discover it later from the remote URL.
+      if (slug !== slugInput) {
+        output.log(`Using slug: ${slug} (normalized from "${slugInput}")`);
+      }
       const hostname = flags.hostname?.toString() ?? null;
       namespace = hostname ?? me.username;
 
