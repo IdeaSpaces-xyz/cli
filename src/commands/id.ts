@@ -10,6 +10,11 @@ import {
   isMarkdownPath,
 } from "@ideaspaces/sdk";
 import { renderIdentityProblems, scanMarkdownIdentityFiles } from "../identity-report.js";
+import {
+  hasFrontmatterSyntaxProblems,
+  renderFrontmatterSyntaxProblems,
+  scanMarkdownFrontmatterSyntaxFiles,
+} from "../frontmatter-report.js";
 
 const HOOK_MARKER = "# ideaspaces-node-id-hook";
 
@@ -28,6 +33,7 @@ export const idCommand: CommandDef = {
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
+    const cwd = process.cwd();
 
     if (args[0] === "install-hook") {
       return installHook(output);
@@ -39,7 +45,7 @@ export const idCommand: CommandDef = {
     }
     const regeneratePath = typeof flags.regenerate === "string" ? flags.regenerate : undefined;
     if (regeneratePath) {
-      return regenerateFile(regeneratePath, output, Boolean(flags.staged));
+      return regenerateFile(regeneratePath, output, Boolean(flags.staged), cwd);
     }
 
     const staged = Boolean(flags.staged);
@@ -66,6 +72,17 @@ export const idCommand: CommandDef = {
     if (!files.length) {
       output.result({ files: 0, ok: true }, "No markdown files found.");
       return 0;
+    }
+
+    const syntaxScan = await scanMarkdownFrontmatterSyntaxFiles(files);
+    if (hasFrontmatterSyntaxProblems(syntaxScan)) {
+      output.error(
+        renderFrontmatterSyntaxProblems(syntaxScan, {
+          cwd,
+          footer: ["Fix YAML frontmatter first, then rerun `ideaspaces id --fix .`."],
+        }),
+      );
+      return 1;
     }
 
     const scan = await scanMarkdownIdentityFiles(files);
@@ -115,7 +132,12 @@ export const idCommand: CommandDef = {
   },
 };
 
-async function regenerateFile(path: string, output: ReturnType<typeof createOutput>, staged: boolean): Promise<number> {
+async function regenerateFile(
+  path: string,
+  output: ReturnType<typeof createOutput>,
+  staged: boolean,
+  cwd: string,
+): Promise<number> {
   const abs = resolve(path);
   if (!existsSync(abs) || !isMarkdownPath(abs)) {
     output.error(`Not a markdown file: ${path}`);
@@ -134,6 +156,17 @@ async function regenerateFile(path: string, output: ReturnType<typeof createOutp
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
+  }
+
+  const syntaxScan = await scanMarkdownFrontmatterSyntaxFiles([abs]);
+  if (hasFrontmatterSyntaxProblems(syntaxScan)) {
+    output.error(
+      renderFrontmatterSyntaxProblems(syntaxScan, {
+        cwd,
+        footer: ["Fix YAML frontmatter first, then rerun `ideaspaces id --regenerate <path>`."],
+      }),
+    );
+    return 1;
   }
 
   const content = await readFile(abs, "utf-8");

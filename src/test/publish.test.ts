@@ -37,6 +37,7 @@ beforeEach(async () => {
 afterEach(async () => {
   process.chdir(originalCwd);
   process.env.HOME = originalHome;
+  vi.unstubAllGlobals();
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -106,6 +107,27 @@ describe("ideaspaces publish", () => {
 
   it("preflights markdown node_id before publishing", async () => {
     const dir = initLocalRepo("missing-id", { withNodeId: false });
+    process.chdir(dir);
+    await writeCredentials();
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, baseGlobal);
+    expect(exit).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(false);
+  });
+
+  it("preflights markdown frontmatter syntax before publishing", async () => {
+    const dir = initLocalRepo("bad-frontmatter");
+    writeFileSync(
+      join(dir, "foo.md"),
+      "---\nname: `ideaspace create` — Adopt and Publish\nnode_id: n_abcdef123456abcdef123456\n---\n# foo\n",
+    );
+    spawnSync("git", ["-C", dir, "add", "foo.md"]);
+    spawnSync("git", ["-C", dir, "commit", "-q", "-m", "bad frontmatter"]);
     process.chdir(dir);
     await writeCredentials();
 
