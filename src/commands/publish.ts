@@ -61,6 +61,9 @@ function spaceWebUrl(apiUrl: string, namespace: string, slug: string): string {
 
 const SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
 
+const SESSION_EXPIRED_MSG =
+  "Your IdeaSpaces session has expired. Run `ideaspaces login` to refresh, then retry publish.";
+
 /** Coerce a folder basename into a server-acceptable slug.
  *
  * Server requires `^[a-z0-9][a-z0-9-]*$` (max 64). CamelCase → kebab
@@ -181,7 +184,7 @@ export const publishCommand: CommandDef = {
       me = await fetchAuthMe(config);
     } catch (err) {
       if (err instanceof UnauthorizedError) {
-        output.error("Your IdeaSpaces session has expired. Run `ideaspaces login` to refresh, then retry publish.");
+        output.error(SESSION_EXPIRED_MSG);
         return 1;
       }
       output.error(`Couldn't reach the IdeaSpaces server: ${err instanceof Error ? err.message : String(err)}`);
@@ -247,7 +250,7 @@ export const publishCommand: CommandDef = {
         repo = await createRepo(config, { name, slug, hostname });
       } catch (err) {
         if (err instanceof UnauthorizedError) {
-          output.error("Your IdeaSpaces session has expired. Run `ideaspaces login` to refresh, then retry publish.");
+          output.error(SESSION_EXPIRED_MSG);
           return 1;
         }
         output.error(`Couldn't create remote space: ${err instanceof Error ? err.message : String(err)}`);
