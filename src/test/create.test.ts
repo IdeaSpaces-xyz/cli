@@ -357,17 +357,14 @@ describe("ideaspaces create — identity (Layer 1)", () => {
       }),
     );
 
-    // Override timeout via a small monkey-patch so the test runs fast.
-    // We re-export DEFAULT_REQUEST_TIMEOUT_MS but the call site in
-    // create.ts uses the default. Keep the test bounded by vitest's
-    // own timeout in case anything else regresses.
+    // create's call passes timeoutMs: 2000, so AbortError fires by ~2s.
+    // Bound assertion just past that to catch a regression where the
+    // timeout silently stops working (test hangs to vitest default).
     const { createCommand: cc } = await import("../commands/create.js");
     const start = Date.now();
     const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
     const elapsed = Date.now() - start;
     expect(exit).toBe(0);
-    // Should bail well under the 5s default timeout we ship with.
-    // Generous bound to avoid flake.
-    expect(elapsed).toBeLessThan(8000);
-  }, 10_000);
+    expect(elapsed).toBeLessThan(3000);
+  }, 5_000);
 });

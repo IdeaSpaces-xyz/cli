@@ -24,7 +24,7 @@ import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
-import { fetchAuthMe, createRepo, UnauthorizedError } from "../auth/api.js";
+import { fetchAuthMe, createRepo, deriveGitBase, deriveWebBase, UnauthorizedError } from "../auth/api.js";
 import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import { identityEmail as formatIdentityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
@@ -51,43 +51,8 @@ function runGit(cwd: string, args: string[]): { ok: boolean; stderr: string; std
   };
 }
 
-/** Derive the git host from the api URL by swapping the `api.` subdomain
- * for `git.`. `IS_GIT_URL` env override wins for dev/localhost setups
- * where the convention can't be inferred (no `api.` prefix).
- *
- * Exported for unit tests. */
-export function deriveGitBase(apiUrl: string): string {
-  const override = process.env.IS_GIT_URL;
-  if (override) return override.replace(/\/+$/, "");
-  try {
-    const url = new URL(apiUrl);
-    if (url.hostname.startsWith("api.")) {
-      url.hostname = "git." + url.hostname.slice(4);
-    }
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return apiUrl.replace(/\/+$/, "");
-  }
-}
-
 function defaultGitUrl(apiUrl: string, namespace: string, slug: string): string {
   return `${deriveGitBase(apiUrl)}/${namespace}/${slug}.git`;
-}
-
-/** Derive the user-facing web URL from the api URL by dropping the `api.`
- * subdomain. `IS_WEB_URL` env override wins for dev/localhost. */
-export function deriveWebBase(apiUrl: string): string {
-  const override = process.env.IS_WEB_URL;
-  if (override) return override.replace(/\/+$/, "");
-  try {
-    const url = new URL(apiUrl);
-    if (url.hostname.startsWith("api.")) {
-      url.hostname = url.hostname.slice(4);
-    }
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return apiUrl.replace(/\/+$/, "");
-  }
 }
 
 function spaceWebUrl(apiUrl: string, namespace: string, slug: string): string {

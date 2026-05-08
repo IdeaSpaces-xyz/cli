@@ -50,6 +50,39 @@ export interface CreateRepoResult {
  * partially-up or slow server. Override via `opts.timeoutMs` per call. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 
+/** Derive the git host URL from the api URL by swapping the `api.`
+ * subdomain for `git.`. `IS_GIT_URL` env override wins for dev/localhost
+ * setups where the convention can't be inferred (no `api.` prefix). */
+export function deriveGitBase(apiUrl: string): string {
+  const override = process.env.IS_GIT_URL;
+  if (override) return override.replace(/\/+$/, "");
+  try {
+    const url = new URL(apiUrl);
+    if (url.hostname.startsWith("api.")) {
+      url.hostname = "git." + url.hostname.slice(4);
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return apiUrl.replace(/\/+$/, "");
+  }
+}
+
+/** Derive the user-facing web URL from the api URL by dropping the `api.`
+ * subdomain. `IS_WEB_URL` env override wins for dev/localhost. */
+export function deriveWebBase(apiUrl: string): string {
+  const override = process.env.IS_WEB_URL;
+  if (override) return override.replace(/\/+$/, "");
+  try {
+    const url = new URL(apiUrl);
+    if (url.hostname.startsWith("api.")) {
+      url.hostname = url.hostname.slice(4);
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return apiUrl.replace(/\/+$/, "");
+  }
+}
+
 export interface RequestOptions {
   timeoutMs?: number;
 }

@@ -330,7 +330,13 @@ async function maybeSetIdentity(targetDir: string): Promise<void> {
   const stored = loadStoredCredentials();
   if (!stored) return;
   try {
-    const me = await fetchAuthMe({ apiUrl: stored.api_url, apiKey: stored.api_key });
+    // Tighter timeout than the default — this is a fire-and-forget
+    // best-effort identity wiring; we shouldn't block scaffold for
+    // even a couple seconds if the server is slow.
+    const me = await fetchAuthMe(
+      { apiUrl: stored.api_url, apiKey: stored.api_key },
+      { timeoutMs: 2000 },
+    );
     if (!me.username) return;
     runGit(targetDir, ["config", "--local", "user.email", identityEmail(me.username)]);
   } catch {

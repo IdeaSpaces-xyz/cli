@@ -4,7 +4,7 @@ import { saveCredentials, getDefaultApiUrl } from "../auth/credentials.js";
 import { startCallbackServer } from "../auth/callback-server.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
-import { deriveWebBase } from "./publish.js";
+import { deriveWebBase } from "../auth/api.js";
 import type { CommandDef } from "../types.js";
 
 function openBrowser(url: string): void {
