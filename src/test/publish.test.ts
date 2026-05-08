@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { slugify } from "../commands/publish.js";
 import type { GlobalFlags } from "../types.js";
 
 const baseGlobal: GlobalFlags = {
@@ -418,12 +419,6 @@ describe("deriveGitBase", () => {
 });
 
 describe("slugify", () => {
-  let slugify: (input: string) => string;
-
-  beforeAll(async () => {
-    ({ slugify } = await import("../commands/publish.js"));
-  });
-
   it("camelCase basenames split on caps", () => {
     expect(slugify("TheKnowledgeSpace")).toBe("the-knowledge-space");
     expect(slugify("myNotes")).toBe("my-notes");
