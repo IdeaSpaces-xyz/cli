@@ -340,6 +340,30 @@ describe("ideaspaces publish", () => {
     expect(await publishCommand.run([], { hostname: "x.com" }, baseGlobal)).toBe(1);
   });
 
+  it("refuses publish from a non-main branch with an actionable hint", async () => {
+    const dir = initLocalRepo("non-main");
+    process.chdir(dir);
+    spawnSync("git", ["-C", dir, "branch", "-m", "feature/foo"]);
+    await writeCredentials();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+
+    let stderrCapture = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: Buffer | string) => {
+      stderrCapture += c.toString();
+      return true;
+    }) as typeof process.stderr.write;
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, { ...baseGlobal, quiet: false });
+    process.stderr.write = origWrite;
+
+    expect(exit).toBe(1);
+    expect(stderrCapture).toContain("feature/foo");
+    expect(stderrCapture).toContain("git branch -m main");
+    expect(stderrCapture).toContain("/is-publish");
+  });
+
   it("errors on detached HEAD", async () => {
     const dir = initLocalRepo("detached");
     process.chdir(dir);
@@ -385,6 +409,269 @@ describe("ideaspaces publish", () => {
     const exit = await publishCommand.run([], {}, baseGlobal);
     expect(exit).toBe(1);
   });
+
+  describe("tip-author rewrite (Layer 2)", () => {
+    // The outer beforeAll sets GIT_AUTHOR_EMAIL/GIT_COMMITTER_EMAIL to
+    // ensure commits succeed on CI without git config. Those env vars
+    // override `git config user.email`, so for tip-author tests we need
+    // them unset — `git commit` and `--reset-author` then pick up the
+    // local user.email we manage in the test.
+    let savedAuthorEmail: string | undefined;
+    let savedCommitterEmail: string | undefined;
+
+    beforeEach(() => {
+      savedAuthorEmail = process.env.GIT_AUTHOR_EMAIL;
+      savedCommitterEmail = process.env.GIT_COMMITTER_EMAIL;
+      delete process.env.GIT_AUTHOR_EMAIL;
+      delete process.env.GIT_COMMITTER_EMAIL;
+    });
+
+    afterEach(() => {
+      if (savedAuthorEmail !== undefined) process.env.GIT_AUTHOR_EMAIL = savedAuthorEmail;
+      if (savedCommitterEmail !== undefined) process.env.GIT_COMMITTER_EMAIL = savedCommitterEmail;
+    });
+
+    it("rewrites tip commit author when it doesn't match the IdeaSpaces identity", async () => {
+      const dir = initLocalRepo("amend-tip");
+      process.chdir(dir);
+      await writeCredentials();
+
+      const fetchMock = vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) return authMeResponse();
+        if (url.endsWith("/api/v1/repos")) {
+          return new Response(
+            JSON.stringify({ repo_id: "r_amend", slug: "amend-tip", name: "amend-tip" }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      setupBareRemote("ernests_s", "amend-tip");
+
+      const before = spawnSync("git", ["-C", dir, "log", "-1", "--format=%ae"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(before).toBe("local@example.com");
+
+      const { publishCommand } = await import("../commands/publish.js");
+      expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+
+      const after = spawnSync("git", ["-C", dir, "log", "-1", "--format=%ae"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(after).toBe("person:ernests_s@ideaspaces");
+    });
+
+    it("does not amend when tip author already matches", async () => {
+      const dir = join(tmp, "no-amend-needed");
+      mkdirSync(dir, { recursive: true });
+      spawnSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+      spawnSync("git", ["-C", dir, "config", "user.email", "person:ernests_s@ideaspaces"]);
+      spawnSync("git", ["-C", dir, "config", "user.name", "Local"]);
+      writeFileSync(join(dir, "foo.md"), md());
+      spawnSync("git", ["-C", dir, "add", "."]);
+      spawnSync("git", ["-C", dir, "commit", "-q", "-m", "first"]);
+      process.chdir(dir);
+      await writeCredentials();
+
+      const fetchMock = vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) return authMeResponse();
+        if (url.endsWith("/api/v1/repos")) {
+          return new Response(
+            JSON.stringify({ repo_id: "r", slug: "no-amend-needed", name: "n" }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      setupBareRemote("ernests_s", "no-amend-needed");
+
+      const sha_before = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+
+      const { publishCommand } = await import("../commands/publish.js");
+      expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+
+      const sha_after = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(sha_after).toBe(sha_before);
+    });
+
+    it("does not amend on re-publish (would rewrite shared history)", async () => {
+      const dir = initLocalRepo("no-rewrite");
+      process.chdir(dir);
+      await writeCredentials();
+
+      const fetchMock = vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) return authMeResponse();
+        if (url.endsWith("/api/v1/repos")) {
+          return new Response(
+            JSON.stringify({ repo_id: "r", slug: "no-rewrite", name: "n" }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      setupBareRemote("ernests_s", "no-rewrite");
+
+      const { publishCommand } = await import("../commands/publish.js");
+      expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+      const sha_after_first = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+
+      expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+      const sha_after_second = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(sha_after_second).toBe(sha_after_first);
+    });
+
+    it("amends on --force re-publish even when mapping exists", async () => {
+      // After the first publish writes spaces.json, the existing-mapping
+      // guard would normally skip the amend. --force reopens the create
+      // path and should also rewrite a stale tip.
+      const dir = initLocalRepo("force-rewrite");
+      process.chdir(dir);
+      await writeCredentials();
+
+      let createCallCount = 0;
+      const fetchMock = vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) return authMeResponse();
+        if (url.endsWith("/api/v1/repos")) {
+          createCallCount += 1;
+          return new Response(
+            JSON.stringify({ repo_id: `r_${createCallCount}`, slug: "force-rewrite", name: "n" }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      setupBareRemote("ernests_s", "force-rewrite");
+
+      const { publishCommand } = await import("../commands/publish.js");
+      expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+
+      // Simulate a follow-up commit authored with the wrong identity
+      // (e.g. user committed manually; their global git config kicked
+      // back in). Distinct node_id so identity preflight doesn't trip
+      // on duplicates.
+      spawnSync("git", ["-C", dir, "config", "user.email", "wrong@example.com"]);
+      writeFileSync(join(dir, "second.md"), md("n_111111222222333333444444"));
+      spawnSync("git", ["-C", dir, "add", "."]);
+      spawnSync("git", ["-C", dir, "commit", "-q", "-m", "second"]);
+
+      const before = spawnSync("git", ["-C", dir, "log", "-1", "--format=%ae"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(before).toBe("wrong@example.com");
+
+      // --force opens the create branch and the amend guard.
+      expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
+
+      const after = spawnSync("git", ["-C", dir, "log", "-1", "--format=%ae"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(after).toBe("person:ernests_s@ideaspaces");
+    });
+  });
+});
+
+describe("deriveWebBase", () => {
+  let originalWebUrl: string | undefined;
+
+  beforeEach(() => {
+    originalWebUrl = process.env.IS_WEB_URL;
+    delete process.env.IS_WEB_URL;
+  });
+  afterEach(() => {
+    if (originalWebUrl !== undefined) process.env.IS_WEB_URL = originalWebUrl;
+    else delete process.env.IS_WEB_URL;
+  });
+
+  it("drops `api.` prefix from the hostname", async () => {
+    const { deriveWebBase } = await import("../auth/api.js");
+    expect(deriveWebBase("https://api.ideaspaces.xyz")).toBe("https://ideaspaces.xyz");
+    expect(deriveWebBase("https://api.staging.ideaspaces.xyz")).toBe("https://staging.ideaspaces.xyz");
+  });
+
+  it("passes through hostnames without `api.` prefix", async () => {
+    const { deriveWebBase } = await import("../auth/api.js");
+    expect(deriveWebBase("http://localhost:8080")).toBe("http://localhost:8080");
+  });
+
+  it("IS_WEB_URL env override wins", async () => {
+    process.env.IS_WEB_URL = "http://web.localhost:9000";
+    const { deriveWebBase } = await import("../auth/api.js");
+    expect(deriveWebBase("https://api.ideaspaces.xyz")).toBe("http://web.localhost:9000");
+  });
+});
+
+describe("publish — 401 surfaces re-login hint", () => {
+  let tmp: string;
+  let originalCwd: string;
+  let originalHome: string | undefined;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "is-cli-publish-401-"));
+    originalCwd = process.cwd();
+    originalHome = process.env.HOME;
+    process.env.HOME = tmp;
+    process.chdir(tmp);
+    vi.resetModules();
+    vi.unstubAllGlobals();
+  });
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("translates a 401 from /auth/me into a re-login hint", async () => {
+    const dir = join(tmp, "mock-space");
+    mkdirSync(dir, { recursive: true });
+    spawnSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    writeFileSync(join(dir, "foo.md"), "---\nname: Foo\nnode_id: n_abcdef123456abcdef123456\n---\n\n# foo\n");
+    spawnSync("git", ["-C", dir, "add", "."]);
+    spawnSync("git", ["-C", dir, "commit", "-q", "-m", "first"]);
+    process.chdir(dir);
+    mkdirSync(join(tmp, ".ideaspaces"), { recursive: true });
+    writeFileSync(
+      join(tmp, ".ideaspaces", "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "expired" }) + "\n",
+    );
+
+    let stderrCapture = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: Buffer | string) => {
+      stderrCapture += c.toString();
+      return true;
+    }) as typeof process.stderr.write;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("Unauthorized", { status: 401 })),
+    );
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, { json: true, quiet: false, yes: false, help: false });
+    process.stderr.write = origWrite;
+
+    expect(exit).toBe(1);
+    expect(stderrCapture).toContain("session has expired");
+    expect(stderrCapture).toContain("ideaspaces login");
+  });
 });
 
 describe("deriveGitBase", () => {
@@ -400,20 +687,20 @@ describe("deriveGitBase", () => {
   });
 
   it("swaps `api.` for `git.` on the hostname", async () => {
-    const { deriveGitBase } = await import("../commands/publish.js");
+    const { deriveGitBase } = await import("../auth/api.js");
     expect(deriveGitBase("https://api.ideaspaces.xyz")).toBe("https://git.ideaspaces.xyz");
     expect(deriveGitBase("https://api.ideaspaces.xyz/")).toBe("https://git.ideaspaces.xyz");
     expect(deriveGitBase("https://api.staging.ideaspaces.xyz")).toBe("https://git.staging.ideaspaces.xyz");
   });
 
   it("passes through hostnames without `api.` prefix (caller should set IS_GIT_URL)", async () => {
-    const { deriveGitBase } = await import("../commands/publish.js");
+    const { deriveGitBase } = await import("../auth/api.js");
     expect(deriveGitBase("http://localhost:8080")).toBe("http://localhost:8080");
   });
 
   it("IS_GIT_URL env override wins", async () => {
     process.env.IS_GIT_URL = "http://git.localhost:9000";
-    const { deriveGitBase } = await import("../commands/publish.js");
+    const { deriveGitBase } = await import("../auth/api.js");
     expect(deriveGitBase("https://api.ideaspaces.xyz")).toBe("http://git.localhost:9000");
   });
 });

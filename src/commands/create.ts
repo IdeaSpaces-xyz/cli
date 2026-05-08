@@ -24,6 +24,8 @@ import { spawnSync } from "node:child_process";
 import { join, resolve, basename } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
+import { fetchAuthMe } from "../auth/api.js";
+import { identityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
 import {
   CLAUDE_MD,
@@ -279,6 +281,9 @@ async function applyPlan(opts: {
     runGit(targetDir, ["init", "-q", "-b", "main"]);
   }
 
+  // Set local user.email before the initial commit so publish's pre-receive identity check passes without an amend.
+  await maybeSetIdentity(targetDir);
+
   await fs.mkdir(join(targetDir, "_agent"), { recursive: true });
   for (const [name, content] of Object.entries(CONTRACT_TEMPLATES)) {
     await fs.writeFile(join(targetDir, "_agent", `${name}.md`), withNodeId(content), "utf-8");
@@ -318,6 +323,25 @@ async function applyPlan(opts: {
 
 function withNodeId(content: string): string {
   return ensureMarkdownNodeId(content).content;
+}
+
+/** Set repo-local `user.email` to the IdeaSpaces identity; silent no-op if not logged in or network fails. */
+async function maybeSetIdentity(targetDir: string): Promise<void> {
+  const stored = loadStoredCredentials();
+  if (!stored) return;
+  try {
+    // Tighter timeout than the default — this is a fire-and-forget
+    // best-effort identity wiring; we shouldn't block scaffold for
+    // even a couple seconds if the server is slow.
+    const me = await fetchAuthMe(
+      { apiUrl: stored.api_url, apiKey: stored.api_key },
+      { timeoutMs: 2000 },
+    );
+    if (!me.username) return;
+    runGit(targetDir, ["config", "--local", "user.email", identityEmail(me.username)]);
+  } catch {
+    // Don't block create on transient auth/network failure.
+  }
 }
 
 function runGit(cwd: string, args: string[]): void {

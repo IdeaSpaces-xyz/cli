@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -152,4 +152,219 @@ describe("ideaspaces create", () => {
     const log = spawnSync("git", ["-C", tmp, "log", "--oneline"], { encoding: "utf-8" });
     expect(log.stdout.split("\n").filter(Boolean)).toHaveLength(2);
   });
+});
+
+describe("ideaspaces create — identity (Layer 1)", () => {
+  let tmp: string;
+  let originalCwd: string;
+  let originalHome: string | undefined;
+  const ENV_KEYS = [
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+  ] as const;
+  let savedEnv: Record<string, string | undefined>;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "is-cli-create-id-"));
+    originalCwd = process.cwd();
+    originalHome = process.env.HOME;
+    process.env.HOME = tmp;
+    savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    process.chdir(tmp);
+    vi.resetModules();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    for (const k of ENV_KEYS) {
+      if (savedEnv[k] !== undefined) process.env[k] = savedEnv[k];
+      else delete process.env[k];
+    }
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("sets local user.email when logged in (initial commit gets correct author)", async () => {
+    // Unset GIT_AUTHOR_EMAIL/GIT_COMMITTER_EMAIL so git commit picks
+    // up local user.email as the source of truth (env email vars
+    // override config). Leave NAME env vars in place so the commit
+    // has a valid committer/author name on CI runners without global
+    // git config.
+    delete process.env.GIT_AUTHOR_EMAIL;
+    delete process.env.GIT_COMMITTER_EMAIL;
+    // Pre-populate stored credentials.
+    const credsDir = join(tmp, ".ideaspaces");
+    await fs.mkdir(credsDir, { recursive: true });
+    await fs.writeFile(
+      join(credsDir, "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
+    );
+    // Mock /auth/me.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) {
+          return new Response(
+            JSON.stringify({
+              user_id: 1,
+              username: "alice",
+              email: null,
+              name: null,
+              repos: [],
+              onboarding_complete: true,
+            }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+
+    const target = join(tmp, "space");
+    const { createCommand: cc } = await import("../commands/create.js");
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+
+    // Local user.email is set to the IdeaSpaces identity.
+    const localEmail = spawnSync(
+      "git",
+      ["-C", target, "config", "--local", "user.email"],
+      { encoding: "utf-8" },
+    ).stdout.trim();
+    expect(localEmail).toBe("person:alice@ideaspaces");
+
+    // Initial commit author email matches.
+    const author = spawnSync(
+      "git",
+      ["-C", target, "log", "-1", "--format=%ae"],
+      { encoding: "utf-8" },
+    ).stdout.trim();
+    expect(author).toBe("person:alice@ideaspaces");
+  });
+
+  it("does not touch local git config when not logged in", async () => {
+    // No credentials.json. fetch is also unstubbed so any call would throw,
+    // catching a regression where the helper tries to call /auth/me anyway.
+    const target = join(tmp, "space");
+    const { createCommand: cc } = await import("../commands/create.js");
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+
+    // No local user.email set — git exits non-zero on missing key.
+    const localEmail = spawnSync(
+      "git",
+      ["-C", target, "config", "--local", "--get", "user.email"],
+      { encoding: "utf-8" },
+    );
+    expect(localEmail.status).not.toBe(0);
+  });
+
+  it("does not set identity when /auth/me returns empty username", async () => {
+    // Logged in but onboarding incomplete: server returns username "".
+    // Falsy guard skips the runGit call; create still scaffolds.
+    const credsDir = join(tmp, ".ideaspaces");
+    await fs.mkdir(credsDir, { recursive: true });
+    await fs.writeFile(
+      join(credsDir, "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            user_id: 1,
+            username: "",
+            email: null,
+            name: null,
+            repos: [],
+            onboarding_complete: false,
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const target = join(tmp, "space");
+    const { createCommand: cc } = await import("../commands/create.js");
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+    const localEmail = spawnSync(
+      "git",
+      ["-C", target, "config", "--local", "--get", "user.email"],
+      { encoding: "utf-8" },
+    );
+    expect(localEmail.status).not.toBe(0);
+  });
+
+  it("does not block scaffolding when fetchAuthMe throws (transient network)", async () => {
+    // Logged in, but the auth call fails. Scaffold should still complete;
+    // local user.email is just left untouched (publish recovers later).
+    const credsDir = join(tmp, ".ideaspaces");
+    await fs.mkdir(credsDir, { recursive: true });
+    await fs.writeFile(
+      join(credsDir, "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("simulated network failure");
+      }),
+    );
+
+    const target = join(tmp, "space");
+    const { createCommand: cc } = await import("../commands/create.js");
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+    // Scaffold landed.
+    expect(existsSync(join(target, "_agent", "foundation.md"))).toBe(true);
+    // Identity not set (we never reached the runGit config call).
+    const localEmail = spawnSync(
+      "git",
+      ["-C", target, "config", "--local", "--get", "user.email"],
+      { encoding: "utf-8" },
+    );
+    expect(localEmail.status).not.toBe(0);
+  });
+
+  it("does not hang scaffolding when fetchAuthMe is slow (timeout fires)", async () => {
+    // Logged in, but the API hangs forever. Without a timeout, `create`
+    // would block indefinitely on the /auth/me round-trip. Verify the
+    // built-in timeout aborts and falls through to silent-no-op.
+    const credsDir = join(tmp, ".ideaspaces");
+    await fs.mkdir(credsDir, { recursive: true });
+    await fs.writeFile(
+      join(credsDir, "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: string | URL | Request, init?: RequestInit) => {
+        // Honor the AbortSignal so the timeout actually unblocks the test.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      }),
+    );
+
+    // create's call passes timeoutMs: 2000, so AbortError fires by ~2s.
+    // Bound assertion just past that to catch a regression where the
+    // timeout silently stops working (test hangs to vitest default).
+    const { createCommand: cc } = await import("../commands/create.js");
+    const start = Date.now();
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    const elapsed = Date.now() - start;
+    expect(exit).toBe(0);
+    expect(elapsed).toBeLessThan(3000);
+  }, 5_000);
 });

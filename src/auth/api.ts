@@ -46,25 +46,97 @@ export interface CreateRepoResult {
   name: string;
 }
 
-async function request<T>(config: ApiConfig, method: string, path: string, body?: unknown): Promise<T> {
-  const r = await fetch(`${config.apiUrl}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!r.ok) {
-    const text = await r.text();
-    throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
+/** Default request timeout — protects callers from indefinite hangs on a
+ * partially-up or slow server. Override via `opts.timeoutMs` per call. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
+
+/** Derive the git host URL from the api URL by swapping the `api.`
+ * subdomain for `git.`. `IS_GIT_URL` env override wins for dev/localhost
+ * setups where the convention can't be inferred (no `api.` prefix). */
+export function deriveGitBase(apiUrl: string): string {
+  const override = process.env.IS_GIT_URL;
+  if (override) return override.replace(/\/+$/, "");
+  try {
+    const url = new URL(apiUrl);
+    if (url.hostname.startsWith("api.")) {
+      url.hostname = "git." + url.hostname.slice(4);
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return apiUrl.replace(/\/+$/, "");
   }
-  return (await r.json()) as T;
+}
+
+/** Derive the user-facing web URL from the api URL by dropping the `api.`
+ * subdomain. `IS_WEB_URL` env override wins for dev/localhost. */
+export function deriveWebBase(apiUrl: string): string {
+  const override = process.env.IS_WEB_URL;
+  if (override) return override.replace(/\/+$/, "");
+  try {
+    const url = new URL(apiUrl);
+    if (url.hostname.startsWith("api.")) {
+      url.hostname = url.hostname.slice(4);
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return apiUrl.replace(/\/+$/, "");
+  }
+}
+
+export interface RequestOptions {
+  timeoutMs?: number;
+}
+
+/** Thrown on 401 so callers can recognize "session expired" without
+ * string-matching on error.message. */
+export class UnauthorizedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
+async function request<T>(
+  config: ApiConfig,
+  method: string,
+  path: string,
+  body?: unknown,
+  opts: RequestOptions = {},
+): Promise<T> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(`${config.apiUrl}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      if (r.status === 401) {
+        throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
+      }
+      throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
+    }
+    return (await r.json()) as T;
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`${method} ${path} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Fetch the OAuth-resolved identity. Authenticates the stored credentials. */
-export async function fetchAuthMe(config: ApiConfig): Promise<AuthMeResponse> {
-  return request<AuthMeResponse>(config, "GET", "/auth/me");
+export async function fetchAuthMe(config: ApiConfig, opts?: RequestOptions): Promise<AuthMeResponse> {
+  return request<AuthMeResponse>(config, "GET", "/auth/me", undefined, opts);
 }
 
 /** Create a server-side bare repo. Returns repo_id + slug + name.
@@ -73,6 +145,10 @@ export async function fetchAuthMe(config: ApiConfig): Promise<AuthMeResponse> {
  * from the client establishes refs/heads/main. Pre-receive's force-push
  * guard short-circuits on ZERO_OID for ref creation.
  */
-export async function createRepo(config: ApiConfig, body: CreateRepoBody): Promise<CreateRepoResult> {
-  return request<CreateRepoResult>(config, "POST", `${API_V1}/repos`, body);
+export async function createRepo(
+  config: ApiConfig,
+  body: CreateRepoBody,
+  opts?: RequestOptions,
+): Promise<CreateRepoResult> {
+  return request<CreateRepoResult>(config, "POST", `${API_V1}/repos`, body, opts);
 }

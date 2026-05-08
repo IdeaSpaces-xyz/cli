@@ -24,8 +24,9 @@ import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
-import { fetchAuthMe, createRepo } from "../auth/api.js";
+import { fetchAuthMe, createRepo, deriveGitBase, deriveWebBase, UnauthorizedError } from "../auth/api.js";
 import { findSpaceFor, saveSpace } from "../auth/spaces.js";
+import { identityEmail as formatIdentityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
 import { hasIdentityProblems, renderIdentityProblems, scanMarkdownIdentityFiles } from "../identity-report.js";
 
@@ -50,30 +51,18 @@ function runGit(cwd: string, args: string[]): { ok: boolean; stderr: string; std
   };
 }
 
-/** Derive the git host from the api URL by swapping the `api.` subdomain
- * for `git.`. `IS_GIT_URL` env override wins for dev/localhost setups
- * where the convention can't be inferred (no `api.` prefix).
- *
- * Exported for unit tests. */
-export function deriveGitBase(apiUrl: string): string {
-  const override = process.env.IS_GIT_URL;
-  if (override) return override.replace(/\/+$/, "");
-  try {
-    const url = new URL(apiUrl);
-    if (url.hostname.startsWith("api.")) {
-      url.hostname = "git." + url.hostname.slice(4);
-    }
-    return url.toString().replace(/\/+$/, "");
-  } catch {
-    return apiUrl.replace(/\/+$/, "");
-  }
-}
-
 function defaultGitUrl(apiUrl: string, namespace: string, slug: string): string {
   return `${deriveGitBase(apiUrl)}/${namespace}/${slug}.git`;
 }
 
+function spaceWebUrl(apiUrl: string, namespace: string, slug: string): string {
+  return `${deriveWebBase(apiUrl)}/${namespace}/${slug}`;
+}
+
 const SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
+
+const SESSION_EXPIRED_MSG =
+  "Your IdeaSpaces session has expired. Run `ideaspaces login` to refresh, then retry publish.";
 
 /** Coerce a folder basename into a server-acceptable slug.
  *
@@ -150,16 +139,26 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    // Detect the current branch up-front. Push uses this name on origin —
-    // a repo created with `git init -b master` (older git defaults) pushes
-    // to `master`, not `main`. The server's HEAD symbolic-ref convention
-    // is `main`, but the bare repo accepts ref creation under any name.
+    // Detect the current branch up-front. The server's HEAD symbolic-ref
+    // points at refs/heads/main, so publishing requires the local branch
+    // to be `main` — otherwise local and remote drift, breaking clone HEAD
+    // and `git pull origin <branch>` for the user later. Refuse with an
+    // actionable hint if the local branch is something else; let the
+    // conversational layer (`/is-publish`) offer the rename, or terminal
+    // users run `git branch -m main` manually.
     const branchResult = runGit(cwd, ["symbolic-ref", "--short", "HEAD"]);
     if (!branchResult.ok) {
       output.error("Couldn't determine the current branch — is HEAD detached?");
       return 1;
     }
     const branch = branchResult.stdout;
+    if (branch !== "main") {
+      output.error(
+        `Local branch is \`${branch}\`; IdeaSpaces uses \`main\` as the default. ` +
+          `Rename with \`git branch -m main\` and retry, or use \`/is-publish\` from Claude Code which offers to rename for you.`,
+      );
+      return 1;
+    }
 
     let identityProblem: string | null;
     try {
@@ -184,6 +183,10 @@ export const publishCommand: CommandDef = {
     try {
       me = await fetchAuthMe(config);
     } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        output.error(SESSION_EXPIRED_MSG);
+        return 1;
+      }
       output.error(`Couldn't reach the IdeaSpaces server: ${err instanceof Error ? err.message : String(err)}`);
       return 1;
     }
@@ -246,6 +249,10 @@ export const publishCommand: CommandDef = {
       try {
         repo = await createRepo(config, { name, slug, hostname });
       } catch (err) {
+        if (err instanceof UnauthorizedError) {
+          output.error(SESSION_EXPIRED_MSG);
+          return 1;
+        }
         output.error(`Couldn't create remote space: ${err instanceof Error ? err.message : String(err)}`);
         return 1;
       }
@@ -254,11 +261,40 @@ export const publishCommand: CommandDef = {
     // Identity wiring — set user.email so commits resolve to person:<user>
     // via the pre-receive hook's email-format identity regex. Leave
     // user.name alone — display name stays the user's choice.
-    const identityEmail = `person:${me.username}@ideaspaces`;
+    const identityEmail = formatIdentityEmail(me.username);
     const setEmail = runGit(cwd, ["config", "--local", "user.email", identityEmail]);
     if (!setEmail.ok) {
       output.error(`git config user.email failed: ${setEmail.stderr}`);
       return 1;
+    }
+
+    // First-publish only — amending already-pushed commits creates divergence.
+    if (!existing || flags.force) {
+      const tipAuthor = runGit(cwd, ["log", "-1", "--format=%ae"]);
+      if (!tipAuthor.ok) {
+        output.log("Could not read tip author; skipping author rewrite. If push fails the identity check, fix git history manually.");
+      } else if (tipAuthor.stdout && tipAuthor.stdout !== identityEmail) {
+        output.log(`Rewriting tip commit author to ${identityEmail} to satisfy the pre-receive identity check.`);
+        // --reset-author is the simplest path: it picks up both user.email and
+        // user.name from local config. Tradeoff: it also resets author-date to
+        // now, so the commit timestamp jumps to publish time. Acceptable for
+        // first-publish (the recovery case); the alternative (--author="N <e>")
+        // would require knowing user.name and bypass the silent fall-through
+        // when name isn't configured.
+        const amend = runGit(cwd, ["commit", "--amend", "--no-edit", "--reset-author"]);
+        if (!amend.ok) {
+          // Two common failure modes: gpg signing without a configured key,
+          // and missing user.name (CI envs that set EMAIL but not NAME).
+          let hint = "";
+          if (/gpg|signing|secret key/i.test(amend.stderr)) {
+            hint = `\nIf you have commit signing on (\`commit.gpgsign=true\`), either configure a key for ${identityEmail} or run \`git config --local commit.gpgsign false\` in this dir.`;
+          } else if (/please tell me who you are/i.test(amend.stderr)) {
+            hint = `\nGit needs a \`user.name\` to commit. Run \`git config --local user.name "Your Name"\` and retry.`;
+          }
+          output.error(`git commit --amend failed: ${amend.stderr}${hint}`);
+          return 1;
+        }
+      }
     }
 
     const remoteUrl = defaultGitUrl(config.apiUrl, namespace, repo.slug);
@@ -281,8 +317,8 @@ export const publishCommand: CommandDef = {
       }
     }
 
-    output.progress(`Pushing ${branch} to ${remoteUrl} ...`);
-    const push = runGit(cwd, ["push", "-u", "origin", branch]);
+    output.progress(`Pushing main to ${remoteUrl} ...`);
+    const push = runGit(cwd, ["push", "-u", "origin", "main"]);
     if (!push.ok) {
       const sizeRelated = SIZE_CAP_MARKERS.some((m) => push.stderr.includes(m));
       const hint = sizeRelated
@@ -298,16 +334,20 @@ export const publishCommand: CommandDef = {
       namespace,
     });
 
+    const webUrl = spaceWebUrl(config.apiUrl, namespace, repo.slug);
     output.result(
       {
         repo_id: repo.repo_id,
         slug: repo.slug,
         namespace,
         remote_url: remoteUrl,
+        web_url: webUrl,
         identity_email: identityEmail,
       },
       [
-        `Published ${repo.name} → ${remoteUrl}`,
+        `Published ${repo.name}.`,
+        `View: ${webUrl}`,
+        `Git remote: ${remoteUrl}`,
         `Local git identity set to ${identityEmail} (this dir only — your global git config is untouched).`,
       ].join("\n"),
     );
