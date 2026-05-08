@@ -95,6 +95,16 @@ describe("ideaspaces id", () => {
     expect((await fs.readFile(join(tmp, "bad.md"), "utf-8"))).toContain("node_id: nope");
   });
 
+  it("does not inject node_id into malformed frontmatter", async () => {
+    const original = "---\nname: `ideaspace create` — Adopt and Publish\n---\n# Bad\n";
+    await fs.writeFile(join(tmp, "bad-frontmatter.md"), original, "utf-8");
+
+    const exit = await idCommand.run(["bad-frontmatter.md"], { fix: true }, baseGlobal);
+
+    expect(exit).toBe(1);
+    expect(await fs.readFile(join(tmp, "bad-frontmatter.md"), "utf-8")).toBe(original);
+  });
+
   it("does not auto-fix duplicates", async () => {
     const content = "---\nnode_id: n_abcdef123456abcdef123456\n---\n# Dup\n";
     await fs.writeFile(join(tmp, "a.md"), content, "utf-8");
@@ -117,6 +127,16 @@ describe("ideaspaces id", () => {
     const next = nodeIdOf("copy.md");
     expect(next).toMatch(/^n_[0-9a-f]{24}$/);
     expect(next).not.toBe(oldId);
+  });
+
+  it("does not regenerate node_id in malformed frontmatter", async () => {
+    const original = "---\nname: `ideaspace create` — Adopt and Publish\nnode_id: n_abcdef123456abcdef123456\n---\n# Bad\n";
+    await fs.writeFile(join(tmp, "bad-frontmatter.md"), original, "utf-8");
+
+    const exit = await idCommand.run([], { regenerate: "bad-frontmatter.md" }, baseGlobal);
+
+    expect(exit).toBe(1);
+    expect(await fs.readFile(join(tmp, "bad-frontmatter.md"), "utf-8")).toBe(original);
   });
 
   it("errors when --regenerate has no path value", async () => {

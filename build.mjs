@@ -7,6 +7,11 @@ await esbuild.build({
   target: "node20",
   format: "esm",
   outfile: "bundle/ideaspaces.js",
-  banner: { js: "#!/usr/bin/env node" },
+  // Some transitive CommonJS dependencies call dynamic require() at runtime.
+  // ESM bundles need a real Node require binding so those paths work in
+  // credential-helper invocations too.
+  banner: {
+    js: "#!/usr/bin/env node\nimport { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);",
+  },
   external: [],
 });

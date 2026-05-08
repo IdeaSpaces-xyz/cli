@@ -43,6 +43,18 @@ describe("ideaspaces write", () => {
     expect(written).toContain("# Foo\nBody.");
   });
 
+  it("quotes leading-backtick names", async () => {
+    // Scalar quoting belongs to the SDK; this keeps the CLI write path covered.
+    const exit = await writeCommand.run(
+      ["notes/plan.md"],
+      { content: "# Plan", name: "`ideaspace create` — Adopt and Publish" },
+      baseGlobal,
+    );
+    expect(exit).toBe(0);
+    const written = await fs.readFile(join(tmp, "notes/plan.md"), "utf-8");
+    expect(written).toContain('name: "`ideaspace create` — Adopt and Publish"');
+  });
+
   it("composes tags and attached_to into the frontmatter", async () => {
     const exit = await writeCommand.run(
       ["notes/foo.md"],

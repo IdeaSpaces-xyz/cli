@@ -29,6 +29,11 @@ import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import { identityEmail as formatIdentityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
 import { hasIdentityProblems, renderIdentityProblems, scanMarkdownIdentityFiles } from "../identity-report.js";
+import {
+  hasFrontmatterSyntaxProblems,
+  renderFrontmatterSyntaxProblems,
+  scanMarkdownFrontmatterSyntaxFiles,
+} from "../frontmatter-report.js";
 
 interface PublishFlags {
   slug?: string;
@@ -84,9 +89,22 @@ export function slugify(input: string): string {
   return s.slice(0, 64).replace(/-+$/, "");
 }
 
-async function checkMarkdownIdentities(cwd: string): Promise<string | null> {
+async function checkMarkdownPreflight(cwd: string): Promise<string | null> {
   const files = trackedMarkdownFiles(cwd);
   if (!files.length) return null;
+
+  const syntaxScan = await scanMarkdownFrontmatterSyntaxFiles(files);
+  if (hasFrontmatterSyntaxProblems(syntaxScan)) {
+    return renderFrontmatterSyntaxProblems(syntaxScan, {
+      cwd,
+      header: [
+        "Cannot publish yet: markdown frontmatter is invalid.",
+        "Fix YAML syntax before publishing so the server can index these files.",
+        "",
+      ],
+      footer: ["Fix YAML first, commit the repair, and re-run `ideaspaces publish`."],
+    });
+  }
 
   const scan = await scanMarkdownIdentityFiles(files);
   if (!hasIdentityProblems(scan)) return null;
@@ -160,15 +178,15 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    let identityProblem: string | null;
+    let preflightProblem: string | null;
     try {
-      identityProblem = await checkMarkdownIdentities(cwd);
+      preflightProblem = await checkMarkdownPreflight(cwd);
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
-    if (identityProblem) {
-      output.error(identityProblem);
+    if (preflightProblem) {
+      output.error(preflightProblem);
       return 1;
     }
 
