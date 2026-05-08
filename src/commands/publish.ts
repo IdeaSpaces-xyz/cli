@@ -275,6 +275,12 @@ export const publishCommand: CommandDef = {
         output.log("Could not read tip author; skipping author rewrite. If push fails the identity check, fix git history manually.");
       } else if (tipAuthor.stdout && tipAuthor.stdout !== identityEmail) {
         output.log(`Rewriting tip commit author to ${identityEmail} to satisfy the pre-receive identity check.`);
+        // --reset-author is the simplest path: it picks up both user.email and
+        // user.name from local config. Tradeoff: it also resets author-date to
+        // now, so the commit timestamp jumps to publish time. Acceptable for
+        // first-publish (the recovery case); the alternative (--author="N <e>")
+        // would require knowing user.name and bypass the silent fall-through
+        // when name isn't configured.
         const amend = runGit(cwd, ["commit", "--amend", "--no-edit", "--reset-author"]);
         if (!amend.ok) {
           // Two common failure modes: gpg signing without a configured key,

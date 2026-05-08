@@ -600,19 +600,19 @@ describe("deriveWebBase", () => {
   });
 
   it("drops `api.` prefix from the hostname", async () => {
-    const { deriveWebBase } = await import("../commands/publish.js");
+    const { deriveWebBase } = await import("../auth/api.js");
     expect(deriveWebBase("https://api.ideaspaces.xyz")).toBe("https://ideaspaces.xyz");
     expect(deriveWebBase("https://api.staging.ideaspaces.xyz")).toBe("https://staging.ideaspaces.xyz");
   });
 
   it("passes through hostnames without `api.` prefix", async () => {
-    const { deriveWebBase } = await import("../commands/publish.js");
+    const { deriveWebBase } = await import("../auth/api.js");
     expect(deriveWebBase("http://localhost:8080")).toBe("http://localhost:8080");
   });
 
   it("IS_WEB_URL env override wins", async () => {
     process.env.IS_WEB_URL = "http://web.localhost:9000";
-    const { deriveWebBase } = await import("../commands/publish.js");
+    const { deriveWebBase } = await import("../auth/api.js");
     expect(deriveWebBase("https://api.ideaspaces.xyz")).toBe("http://web.localhost:9000");
   });
 });
@@ -687,20 +687,20 @@ describe("deriveGitBase", () => {
   });
 
   it("swaps `api.` for `git.` on the hostname", async () => {
-    const { deriveGitBase } = await import("../commands/publish.js");
+    const { deriveGitBase } = await import("../auth/api.js");
     expect(deriveGitBase("https://api.ideaspaces.xyz")).toBe("https://git.ideaspaces.xyz");
     expect(deriveGitBase("https://api.ideaspaces.xyz/")).toBe("https://git.ideaspaces.xyz");
     expect(deriveGitBase("https://api.staging.ideaspaces.xyz")).toBe("https://git.staging.ideaspaces.xyz");
   });
 
   it("passes through hostnames without `api.` prefix (caller should set IS_GIT_URL)", async () => {
-    const { deriveGitBase } = await import("../commands/publish.js");
+    const { deriveGitBase } = await import("../auth/api.js");
     expect(deriveGitBase("http://localhost:8080")).toBe("http://localhost:8080");
   });
 
   it("IS_GIT_URL env override wins", async () => {
     process.env.IS_GIT_URL = "http://git.localhost:9000";
-    const { deriveGitBase } = await import("../commands/publish.js");
+    const { deriveGitBase } = await import("../auth/api.js");
     expect(deriveGitBase("https://api.ideaspaces.xyz")).toBe("http://git.localhost:9000");
   });
 });
