@@ -264,6 +264,44 @@ describe("ideaspaces create — identity (Layer 1)", () => {
     expect(localEmail.status).not.toBe(0);
   });
 
+  it("does not set identity when /auth/me returns empty username", async () => {
+    // Logged in but onboarding incomplete: server returns username "".
+    // Falsy guard skips the runGit call; create still scaffolds.
+    const credsDir = join(tmp, ".ideaspaces");
+    await fs.mkdir(credsDir, { recursive: true });
+    await fs.writeFile(
+      join(credsDir, "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            user_id: 1,
+            username: "",
+            email: null,
+            name: null,
+            repos: [],
+            onboarding_complete: false,
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const target = join(tmp, "space");
+    const { createCommand: cc } = await import("../commands/create.js");
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+    const localEmail = spawnSync(
+      "git",
+      ["-C", target, "config", "--local", "--get", "user.email"],
+      { encoding: "utf-8" },
+    );
+    expect(localEmail.status).not.toBe(0);
+  });
+
   it("does not block scaffolding when fetchAuthMe throws (transient network)", async () => {
     // Logged in, but the auth call fails. Scaffold should still complete;
     // local user.email is just left untouched (publish recovers later).

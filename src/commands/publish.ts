@@ -26,6 +26,7 @@ import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe, createRepo } from "../auth/api.js";
 import { findSpaceFor, saveSpace } from "../auth/spaces.js";
+import { identityEmail as formatIdentityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
 import { hasIdentityProblems, renderIdentityProblems, scanMarkdownIdentityFiles } from "../identity-report.js";
 
@@ -254,7 +255,7 @@ export const publishCommand: CommandDef = {
     // Identity wiring — set user.email so commits resolve to person:<user>
     // via the pre-receive hook's email-format identity regex. Leave
     // user.name alone — display name stays the user's choice.
-    const identityEmail = `person:${me.username}@ideaspaces`;
+    const identityEmail = formatIdentityEmail(me.username);
     const setEmail = runGit(cwd, ["config", "--local", "user.email", identityEmail]);
     if (!setEmail.ok) {
       output.error(`git config user.email failed: ${setEmail.stderr}`);
@@ -268,6 +269,7 @@ export const publishCommand: CommandDef = {
         output.log("Could not read tip author; skipping author rewrite. If push fails the identity check, fix git history manually.");
       } else if (tipAuthor.stdout && tipAuthor.stdout !== identityEmail) {
         output.log(`Rewriting tip commit author to ${identityEmail} to satisfy the pre-receive identity check.`);
+        // Known limitation: amend fails on repos with `commit.gpgsign=true` if no signing key is configured for the IdeaSpaces email; user surfaces the git error and resolves manually.
         const amend = runGit(cwd, ["commit", "--amend", "--no-edit", "--reset-author"]);
         if (!amend.ok) {
           output.error(`git commit --amend failed: ${amend.stderr}`);

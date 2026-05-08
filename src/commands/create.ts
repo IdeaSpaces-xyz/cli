@@ -25,6 +25,7 @@ import { join, resolve, basename } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe } from "../auth/api.js";
+import { identityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
 import {
   CLAUDE_MD,
@@ -331,7 +332,7 @@ async function maybeSetIdentity(targetDir: string): Promise<void> {
   try {
     const me = await fetchAuthMe({ apiUrl: stored.api_url, apiKey: stored.api_key });
     if (!me.username) return;
-    runGit(targetDir, ["config", "--local", "user.email", `person:${me.username}@ideaspaces`]);
+    runGit(targetDir, ["config", "--local", "user.email", identityEmail(me.username)]);
   } catch {
     // Don't block create on transient auth/network failure.
   }
