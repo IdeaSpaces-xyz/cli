@@ -264,7 +264,9 @@ export const publishCommand: CommandDef = {
     // First-publish only — amending already-pushed commits creates divergence.
     if (!existing || flags.force) {
       const tipAuthor = runGit(cwd, ["log", "-1", "--format=%ae"]);
-      if (tipAuthor.ok && tipAuthor.stdout && tipAuthor.stdout !== identityEmail) {
+      if (!tipAuthor.ok) {
+        output.log("Could not read tip author; skipping author rewrite. If push fails the identity check, fix git history manually.");
+      } else if (tipAuthor.stdout && tipAuthor.stdout !== identityEmail) {
         output.log(`Rewriting tip commit author to ${identityEmail} to satisfy the pre-receive identity check.`);
         const amend = runGit(cwd, ["commit", "--amend", "--no-edit", "--reset-author"]);
         if (!amend.ok) {
