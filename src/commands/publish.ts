@@ -261,21 +261,11 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    // Recover from the common ordering issue: the user ran `create` (or
-    // committed manually) before `user.email` was set, so the tip's
-    // author is a stale identity (e.g. their global git config). The
-    // pre-receive hook only checks the tip, so amending it is sufficient
-    // to satisfy attribution.
-    //
-    // Only amend on first publish — on re-publish the tip is already
-    // shared remotely and rewriting would create divergence. Existing-
-    // mapping check (`existing && !flags.force`) guards this path.
+    // First-publish only — amending already-pushed commits creates divergence.
     if (!existing || flags.force) {
       const tipAuthor = runGit(cwd, ["log", "-1", "--format=%ae"]);
       if (tipAuthor.ok && tipAuthor.stdout && tipAuthor.stdout !== identityEmail) {
-        output.log(
-          `Tip commit author was '${tipAuthor.stdout}'; rewriting to '${identityEmail}' so the pre-receive hook accepts the push.`,
-        );
+        output.log(`Rewriting tip commit author to ${identityEmail} to satisfy the pre-receive identity check.`);
         const amend = runGit(cwd, ["commit", "--amend", "--no-edit", "--reset-author"]);
         if (!amend.ok) {
           output.error(`git commit --amend failed: ${amend.stderr}`);
