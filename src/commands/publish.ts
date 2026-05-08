@@ -90,6 +90,8 @@ export function preflightSize(cwd: string): SizeOffender[] {
       // surface any real index/server mismatch.
       continue;
     }
+    // Server rejects with "blobs over 200,000 bytes rejected" — strict
+    // greater-than. A file at exactly the cap passes both client and server.
     if (bytes > SIZE_CAP_BYTES) offenders.push({ path: rel, bytes });
   }
   return offenders;

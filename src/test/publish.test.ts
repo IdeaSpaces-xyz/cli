@@ -153,11 +153,26 @@ describe("ideaspaces publish", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const { publishCommand } = await import("../commands/publish.js");
-    const exit = await publishCommand.run([], {}, baseGlobal);
+    let stderr = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+      return true;
+    }) as typeof process.stderr.write;
+
+    let exit: number;
+    try {
+      const { publishCommand } = await import("../commands/publish.js");
+      exit = await publishCommand.run([], {}, baseGlobal);
+    } finally {
+      process.stderr.write = origWrite;
+    }
     expect(exit).toBe(1);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(false);
+    expect(stderr).toContain("Cannot publish yet");
+    expect(stderr).toContain("big.bin (250,000 bytes)");
+    expect(stderr).toContain(".gitignore");
   });
 
   it("ignores untracked markdown during publish preflight", async () => {
@@ -855,6 +870,11 @@ describe("preflightSize", () => {
     track("edge-high.bin", Buffer.alloc(200_001, "y"));
     const paths = preflightSize(dir).map((o) => o.path).sort();
     expect(paths).toEqual(["edge-high.bin"]);
+  });
+
+  it("allows a file at exactly the cap (200,000 bytes) — matches server's strict >", () => {
+    track("at-cap.bin", Buffer.alloc(200_000, "x"));
+    expect(preflightSize(dir)).toEqual([]);
   });
 });
 
