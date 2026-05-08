@@ -4,7 +4,13 @@
  * Lives in CLI for now — the SDK is local-first after the refactor and
  * has no remote surface. When a second caller appears (mcp-server,
  * plugin), lift these to `@ideaspaces/sdk`.
+ *
+ * Routing note: auth endpoints sit at top-level (`/auth/*`); repo and
+ * other resource endpoints are versioned under `/api/v1/*`. Mixed by
+ * design on the server; mirrored here.
  */
+
+const API_V1 = "/api/v1";
 
 export interface ApiConfig {
   apiUrl: string;
@@ -68,5 +74,5 @@ export async function fetchAuthMe(config: ApiConfig): Promise<AuthMeResponse> {
  * guard short-circuits on ZERO_OID for ref creation.
  */
 export async function createRepo(config: ApiConfig, body: CreateRepoBody): Promise<CreateRepoResult> {
-  return request<CreateRepoResult>(config, "POST", "/repos", body);
+  return request<CreateRepoResult>(config, "POST", `${API_V1}/repos`, body);
 }

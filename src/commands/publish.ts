@@ -75,6 +75,26 @@ function defaultGitUrl(apiUrl: string, namespace: string, slug: string): string 
 
 const SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
 
+/** Coerce a folder basename into a server-acceptable slug.
+ *
+ * Server requires `^[a-z0-9][a-z0-9-]*$` (max 64). CamelCase → kebab
+ * fires only between a lowercase/digit and an uppercase, so consecutive
+ * caps collapse (`XMLSpace` → `xmlspace`, not `x-m-l-space`). Exported
+ * for unit tests.
+ */
+export function slugify(input: string): string {
+  let s = input
+    // Insert dash between lowercase/digit and uppercase: theKnowledge → the-Knowledge
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    // Collapse non-alphanumeric runs to a single dash.
+    .replace(/[^a-z0-9]+/g, "-")
+    // Trim leading/trailing dashes.
+    .replace(/^-+|-+$/g, "");
+  if (s.length === 0) return "space";
+  return s.slice(0, 64).replace(/-+$/, "");
+}
+
 async function checkMarkdownIdentities(cwd: string): Promise<string | null> {
   const files = trackedMarkdownFiles(cwd);
   if (!files.length) return null;
@@ -206,8 +226,20 @@ export const publishCommand: CommandDef = {
       repo = { repo_id: existing.repo_id, slug: existing.slug, name: existing.slug };
       namespace = existing.namespace;
     } else {
-      const name = flags.name?.toString() || basename(cwd);
-      const slug = flags.slug?.toString();
+      const folderName = basename(cwd);
+      const name = flags.name?.toString() || folderName;
+      // Server enforces ^[a-z0-9][a-z0-9-]*$ on slug. If the user passes
+      // --slug, trust them but still normalize so a casing slip doesn't
+      // become a 422. Otherwise derive from the folder basename.
+      const slugInput = flags.slug?.toString() || folderName;
+      const slug = slugify(slugInput);
+      // Surface the normalization when it changes the input. A user who
+      // typed `--slug My_Space` (or pointed publish at a CamelCase
+      // folder) deserves to see that the URL slug is `my-space`, not
+      // discover it later from the remote URL.
+      if (slug !== slugInput) {
+        output.log(`Using slug: ${slug} (normalized from "${slugInput}")`);
+      }
       const hostname = flags.hostname?.toString() ?? null;
       namespace = hostname ?? me.username;
 

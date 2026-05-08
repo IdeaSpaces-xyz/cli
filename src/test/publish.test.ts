@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { slugify } from "../commands/publish.js";
 import type { GlobalFlags } from "../types.js";
 
 const baseGlobal: GlobalFlags = {
@@ -414,5 +415,51 @@ describe("deriveGitBase", () => {
     process.env.IS_GIT_URL = "http://git.localhost:9000";
     const { deriveGitBase } = await import("../commands/publish.js");
     expect(deriveGitBase("https://api.ideaspaces.xyz")).toBe("http://git.localhost:9000");
+  });
+});
+
+describe("slugify", () => {
+  it("camelCase basenames split on caps", () => {
+    expect(slugify("TheKnowledgeSpace")).toBe("the-knowledge-space");
+    expect(slugify("myNotes")).toBe("my-notes");
+  });
+
+  it("lowercase + dash basenames pass through", () => {
+    expect(slugify("my-notes")).toBe("my-notes");
+    expect(slugify("notes")).toBe("notes");
+  });
+
+  it("non-alphanumeric runs collapse to a single dash", () => {
+    expect(slugify("My Space (v2)")).toBe("my-space-v2");
+    expect(slugify("a/b\\c")).toBe("a-b-c");
+  });
+
+  it("trims leading/trailing dashes", () => {
+    expect(slugify("---abc---")).toBe("abc");
+    expect(slugify("---ABC")).toBe("abc");
+  });
+
+  it("empty / non-alphanumeric input falls back to `space`", () => {
+    expect(slugify("")).toBe("space");
+    expect(slugify("___")).toBe("space");
+  });
+
+  it("caps length at 64 chars", () => {
+    const s = slugify("a".repeat(100));
+    expect(s.length).toBeLessThanOrEqual(64);
+  });
+
+  it("length cap does not leave a trailing dash", () => {
+    // 63 a's + 'B' → CamelCase inserts a dash before B → 65 chars →
+    // slice(0, 64) lands ON the dash → final trim must remove it.
+    const s = slugify("a".repeat(63) + "B");
+    expect(s.endsWith("-")).toBe(false);
+    expect(s).toBe("a".repeat(63));
+  });
+
+  it("consecutive uppercase collapses to a single lowercased word", () => {
+    // Documented edge case — split fires only when lowercase/digit
+    // precedes uppercase, so `XML` runs don't get dashed.
+    expect(slugify("XMLSpace")).toBe("xmlspace");
   });
 });
