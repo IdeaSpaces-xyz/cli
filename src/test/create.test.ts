@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -151,5 +151,116 @@ describe("ideaspaces create", () => {
     // Two commits now: initial "first" + scaffold
     const log = spawnSync("git", ["-C", tmp, "log", "--oneline"], { encoding: "utf-8" });
     expect(log.stdout.split("\n").filter(Boolean)).toHaveLength(2);
+  });
+});
+
+describe("ideaspaces create — identity (Layer 1)", () => {
+  let tmp: string;
+  let originalCwd: string;
+  let originalHome: string | undefined;
+  const ENV_KEYS = [
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+  ] as const;
+  let savedEnv: Record<string, string | undefined>;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "is-cli-create-id-"));
+    originalCwd = process.cwd();
+    originalHome = process.env.HOME;
+    process.env.HOME = tmp;
+    savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    process.chdir(tmp);
+    vi.resetModules();
+    vi.unstubAllGlobals();
+  });
+
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    for (const k of ENV_KEYS) {
+      if (savedEnv[k] !== undefined) process.env[k] = savedEnv[k];
+      else delete process.env[k];
+    }
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("sets local user.email when logged in (initial commit gets correct author)", async () => {
+    // Unset GIT_AUTHOR_EMAIL/GIT_COMMITTER_EMAIL so git commit picks
+    // up local user.email as the source of truth (env email vars
+    // override config). Leave NAME env vars in place so the commit
+    // has a valid committer/author name on CI runners without global
+    // git config.
+    delete process.env.GIT_AUTHOR_EMAIL;
+    delete process.env.GIT_COMMITTER_EMAIL;
+    // Pre-populate stored credentials.
+    const credsDir = join(tmp, ".ideaspaces");
+    await fs.mkdir(credsDir, { recursive: true });
+    await fs.writeFile(
+      join(credsDir, "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
+    );
+    // Mock /auth/me.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) {
+          return new Response(
+            JSON.stringify({
+              user_id: 1,
+              username: "alice",
+              email: null,
+              name: null,
+              repos: [],
+              onboarding_complete: true,
+            }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+
+    const target = join(tmp, "space");
+    const { createCommand: cc } = await import("../commands/create.js");
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+
+    // Local user.email is set to the IdeaSpaces identity.
+    const localEmail = spawnSync(
+      "git",
+      ["-C", target, "config", "--local", "user.email"],
+      { encoding: "utf-8" },
+    ).stdout.trim();
+    expect(localEmail).toBe("person:alice@ideaspaces");
+
+    // Initial commit author email matches.
+    const author = spawnSync(
+      "git",
+      ["-C", target, "log", "-1", "--format=%ae"],
+      { encoding: "utf-8" },
+    ).stdout.trim();
+    expect(author).toBe("person:alice@ideaspaces");
+  });
+
+  it("does not touch local git config when not logged in", async () => {
+    // No credentials.json. fetch is also unstubbed so any call would throw,
+    // catching a regression where the helper tries to call /auth/me anyway.
+    const target = join(tmp, "space");
+    const { createCommand: cc } = await import("../commands/create.js");
+    const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+
+    // No local user.email set — git exits non-zero on missing key.
+    const localEmail = spawnSync(
+      "git",
+      ["-C", target, "config", "--local", "--get", "user.email"],
+      { encoding: "utf-8" },
+    );
+    expect(localEmail.status).not.toBe(0);
   });
 });
