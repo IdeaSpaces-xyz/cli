@@ -274,11 +274,14 @@ export const publishCommand: CommandDef = {
         output.log(`Rewriting tip commit author to ${identityEmail} to satisfy the pre-receive identity check.`);
         const amend = runGit(cwd, ["commit", "--amend", "--no-edit", "--reset-author"]);
         if (!amend.ok) {
-          // Common failure mode: commit.gpgsign=true with no signing key for the IdeaSpaces email.
-          const gpgRelated = /gpg|signing|secret key/i.test(amend.stderr);
-          const hint = gpgRelated
-            ? `\nIf you have commit signing on (\`commit.gpgsign=true\`), either configure a key for ${identityEmail} or run \`git config --local commit.gpgsign false\` in this dir.`
-            : "";
+          // Two common failure modes: gpg signing without a configured key,
+          // and missing user.name (CI envs that set EMAIL but not NAME).
+          let hint = "";
+          if (/gpg|signing|secret key/i.test(amend.stderr)) {
+            hint = `\nIf you have commit signing on (\`commit.gpgsign=true\`), either configure a key for ${identityEmail} or run \`git config --local commit.gpgsign false\` in this dir.`;
+          } else if (/please tell me who you are/i.test(amend.stderr)) {
+            hint = `\nGit needs a \`user.name\` to commit. Run \`git config --local user.name "Your Name"\` and retry.`;
+          }
           output.error(`git commit --amend failed: ${amend.stderr}${hint}`);
           return 1;
         }
