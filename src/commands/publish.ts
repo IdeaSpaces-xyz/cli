@@ -83,6 +83,12 @@ const SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
  * collapse to a single dash; leading non-alphanumeric chars are dropped;
  * empty result falls back to `space`.
  *
+ * Edge case worth knowing: consecutive uppercase letters don't get
+ * dashed apart. `XMLSpace` → `xmlspace`, not `x-m-l-space`. The split
+ * fires only when a lowercase/digit precedes an uppercase, so `XML`
+ * runs collapse into a single lowercased word. Acceptable for slug
+ * purposes; widen the regex if a real case shows it should split.
+ *
  * Exported for unit tests.
  */
 export function slugify(input: string): string {

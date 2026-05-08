@@ -418,39 +418,45 @@ describe("deriveGitBase", () => {
 });
 
 describe("slugify", () => {
-  it("camelCase basenames split on caps", async () => {
-    const { slugify } = await import("../commands/publish.js");
+  let slugify: (input: string) => string;
+
+  beforeAll(async () => {
+    ({ slugify } = await import("../commands/publish.js"));
+  });
+
+  it("camelCase basenames split on caps", () => {
     expect(slugify("TheKnowledgeSpace")).toBe("the-knowledge-space");
     expect(slugify("myNotes")).toBe("my-notes");
   });
 
-  it("lowercase + dash basenames pass through", async () => {
-    const { slugify } = await import("../commands/publish.js");
+  it("lowercase + dash basenames pass through", () => {
     expect(slugify("my-notes")).toBe("my-notes");
     expect(slugify("notes")).toBe("notes");
   });
 
-  it("non-alphanumeric runs collapse to a single dash", async () => {
-    const { slugify } = await import("../commands/publish.js");
+  it("non-alphanumeric runs collapse to a single dash", () => {
     expect(slugify("My Space (v2)")).toBe("my-space-v2");
     expect(slugify("a/b\\c")).toBe("a-b-c");
   });
 
-  it("trims leading/trailing dashes", async () => {
-    const { slugify } = await import("../commands/publish.js");
+  it("trims leading/trailing dashes", () => {
     expect(slugify("---abc---")).toBe("abc");
     expect(slugify("---ABC")).toBe("abc");
   });
 
-  it("empty / non-alphanumeric input falls back to `space`", async () => {
-    const { slugify } = await import("../commands/publish.js");
+  it("empty / non-alphanumeric input falls back to `space`", () => {
     expect(slugify("")).toBe("space");
     expect(slugify("___")).toBe("space");
   });
 
-  it("caps length at 64 chars", async () => {
-    const { slugify } = await import("../commands/publish.js");
+  it("caps length at 64 chars", () => {
     const s = slugify("a".repeat(100));
     expect(s.length).toBeLessThanOrEqual(64);
+  });
+
+  it("consecutive uppercase collapses to a single lowercased word", () => {
+    // Documented edge case — split fires only when lowercase/digit
+    // precedes uppercase, so `XML` runs don't get dashed.
+    expect(slugify("XMLSpace")).toBe("xmlspace");
   });
 });
