@@ -54,6 +54,15 @@ export interface RequestOptions {
   timeoutMs?: number;
 }
 
+/** Thrown on 401 so callers can recognize "session expired" without
+ * string-matching on error.message. */
+export class UnauthorizedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
 async function request<T>(
   config: ApiConfig,
   method: string,
@@ -76,6 +85,9 @@ async function request<T>(
     });
     if (!r.ok) {
       const text = await r.text();
+      if (r.status === 401) {
+        throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
+      }
       throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
     }
     return (await r.json()) as T;

@@ -24,7 +24,7 @@ import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
-import { fetchAuthMe, createRepo } from "../auth/api.js";
+import { fetchAuthMe, createRepo, UnauthorizedError } from "../auth/api.js";
 import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import { identityEmail as formatIdentityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
@@ -72,6 +72,26 @@ export function deriveGitBase(apiUrl: string): string {
 
 function defaultGitUrl(apiUrl: string, namespace: string, slug: string): string {
   return `${deriveGitBase(apiUrl)}/${namespace}/${slug}.git`;
+}
+
+/** Derive the user-facing web URL from the api URL by dropping the `api.`
+ * subdomain. `IS_WEB_URL` env override wins for dev/localhost. */
+export function deriveWebBase(apiUrl: string): string {
+  const override = process.env.IS_WEB_URL;
+  if (override) return override.replace(/\/+$/, "");
+  try {
+    const url = new URL(apiUrl);
+    if (url.hostname.startsWith("api.")) {
+      url.hostname = url.hostname.slice(4);
+    }
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return apiUrl.replace(/\/+$/, "");
+  }
+}
+
+function spaceWebUrl(apiUrl: string, namespace: string, slug: string): string {
+  return `${deriveWebBase(apiUrl)}/${namespace}/${slug}`;
 }
 
 const SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
@@ -185,6 +205,10 @@ export const publishCommand: CommandDef = {
     try {
       me = await fetchAuthMe(config);
     } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        output.error("Your IdeaSpaces session has expired. Run `ideaspaces login` to refresh, then retry publish.");
+        return 1;
+      }
       output.error(`Couldn't reach the IdeaSpaces server: ${err instanceof Error ? err.message : String(err)}`);
       return 1;
     }
@@ -247,6 +271,10 @@ export const publishCommand: CommandDef = {
       try {
         repo = await createRepo(config, { name, slug, hostname });
       } catch (err) {
+        if (err instanceof UnauthorizedError) {
+          output.error("Your IdeaSpaces session has expired. Run `ideaspaces login` to refresh, then retry publish.");
+          return 1;
+        }
         output.error(`Couldn't create remote space: ${err instanceof Error ? err.message : String(err)}`);
         return 1;
       }
@@ -302,8 +330,15 @@ export const publishCommand: CommandDef = {
       }
     }
 
-    output.progress(`Pushing ${branch} to ${remoteUrl} ...`);
-    const push = runGit(cwd, ["push", "-u", "origin", branch]);
+    // Push the local branch to `main` on the remote regardless of its
+    // local name. Server's HEAD symbolic-ref points at refs/heads/main;
+    // pushing a non-main branch would leave HEAD broken on clone. Refspec
+    // `<local>:main` lands the local commit on the right remote ref AND
+    // (with -u) sets origin/main as the local branch's upstream, so
+    // future `git push` from the same branch keeps targeting main.
+    const refspec = `${branch}:main`;
+    output.progress(`Pushing ${refspec} to ${remoteUrl} ...`);
+    const push = runGit(cwd, ["push", "-u", "origin", refspec]);
     if (!push.ok) {
       const sizeRelated = SIZE_CAP_MARKERS.some((m) => push.stderr.includes(m));
       const hint = sizeRelated
@@ -319,16 +354,20 @@ export const publishCommand: CommandDef = {
       namespace,
     });
 
+    const webUrl = spaceWebUrl(config.apiUrl, namespace, repo.slug);
     output.result(
       {
         repo_id: repo.repo_id,
         slug: repo.slug,
         namespace,
         remote_url: remoteUrl,
+        web_url: webUrl,
         identity_email: identityEmail,
       },
       [
-        `Published ${repo.name} → ${remoteUrl}`,
+        `Published ${repo.name}.`,
+        `View: ${webUrl}`,
+        `Git remote: ${remoteUrl}`,
         `Local git identity set to ${identityEmail} (this dir only — your global git config is untouched).`,
       ].join("\n"),
     );

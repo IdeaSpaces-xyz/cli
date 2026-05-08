@@ -4,6 +4,7 @@ import { saveCredentials, getDefaultApiUrl } from "../auth/credentials.js";
 import { startCallbackServer } from "../auth/callback-server.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
+import { deriveWebBase } from "./publish.js";
 import type { CommandDef } from "../types.js";
 
 function openBrowser(url: string): void {
@@ -41,9 +42,14 @@ export const loginCommand: CommandDef = {
     saveCredentials({ api_url: apiUrl, api_key: token });
     await registerGitCredentialHelper();
 
+    const webUrl = deriveWebBase(apiUrl);
     output.result(
-      { logged_in: true },
-      "Logged in. `git push` / `git pull` against your space repo now picks up credentials automatically.",
+      { logged_in: true, web_url: webUrl },
+      [
+        "Logged in.",
+        `View your account: ${webUrl}`,
+        "`git push` / `git pull` against your space repos now picks up credentials automatically.",
+      ].join("\n"),
     );
     return 0;
   },

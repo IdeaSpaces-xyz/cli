@@ -563,6 +563,93 @@ describe("ideaspaces publish", () => {
   });
 });
 
+describe("deriveWebBase", () => {
+  let originalWebUrl: string | undefined;
+
+  beforeEach(() => {
+    originalWebUrl = process.env.IS_WEB_URL;
+    delete process.env.IS_WEB_URL;
+  });
+  afterEach(() => {
+    if (originalWebUrl !== undefined) process.env.IS_WEB_URL = originalWebUrl;
+    else delete process.env.IS_WEB_URL;
+  });
+
+  it("drops `api.` prefix from the hostname", async () => {
+    const { deriveWebBase } = await import("../commands/publish.js");
+    expect(deriveWebBase("https://api.ideaspaces.xyz")).toBe("https://ideaspaces.xyz");
+    expect(deriveWebBase("https://api.staging.ideaspaces.xyz")).toBe("https://staging.ideaspaces.xyz");
+  });
+
+  it("passes through hostnames without `api.` prefix", async () => {
+    const { deriveWebBase } = await import("../commands/publish.js");
+    expect(deriveWebBase("http://localhost:8080")).toBe("http://localhost:8080");
+  });
+
+  it("IS_WEB_URL env override wins", async () => {
+    process.env.IS_WEB_URL = "http://web.localhost:9000";
+    const { deriveWebBase } = await import("../commands/publish.js");
+    expect(deriveWebBase("https://api.ideaspaces.xyz")).toBe("http://web.localhost:9000");
+  });
+});
+
+describe("publish — 401 surfaces re-login hint", () => {
+  let tmp: string;
+  let originalCwd: string;
+  let originalHome: string | undefined;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "is-cli-publish-401-"));
+    originalCwd = process.cwd();
+    originalHome = process.env.HOME;
+    process.env.HOME = tmp;
+    process.chdir(tmp);
+    vi.resetModules();
+    vi.unstubAllGlobals();
+  });
+  afterEach(async () => {
+    process.chdir(originalCwd);
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    else delete process.env.HOME;
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("translates a 401 from /auth/me into a re-login hint", async () => {
+    const dir = join(tmp, "mock-space");
+    mkdirSync(dir, { recursive: true });
+    spawnSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    writeFileSync(join(dir, "foo.md"), "---\nname: Foo\nnode_id: n_abcdef123456abcdef123456\n---\n\n# foo\n");
+    spawnSync("git", ["-C", dir, "add", "."]);
+    spawnSync("git", ["-C", dir, "commit", "-q", "-m", "first"]);
+    process.chdir(dir);
+    mkdirSync(join(tmp, ".ideaspaces"), { recursive: true });
+    writeFileSync(
+      join(tmp, ".ideaspaces", "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "expired" }) + "\n",
+    );
+
+    let stderrCapture = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: Buffer | string) => {
+      stderrCapture += c.toString();
+      return true;
+    }) as typeof process.stderr.write;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("Unauthorized", { status: 401 })),
+    );
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, { json: true, quiet: false, yes: false, help: false });
+    process.stderr.write = origWrite;
+
+    expect(exit).toBe(1);
+    expect(stderrCapture).toContain("session has expired");
+    expect(stderrCapture).toContain("ideaspaces login");
+  });
+});
+
 describe("deriveGitBase", () => {
   let originalGitUrl: string | undefined;
 
