@@ -66,14 +66,20 @@ function initLocalRepo(name = "my-space", opts: { withNodeId?: boolean } = {}) {
   return dir;
 }
 
-function authMeResponse(username = "ernests_s"): Response {
+function authMeResponse(username = "ernests_s", repoIds: string[] = []): Response {
   return new Response(
     JSON.stringify({
       user_id: 1,
       username,
       email: null,
       name: null,
-      repos: [],
+      repos: repoIds.map((id) => ({
+        repo_id: id,
+        slug: id,
+        hostname: null,
+        role: "owner",
+        member_count: 1,
+      })),
       onboarding_complete: true,
     }),
     { status: 200 },
@@ -328,12 +334,16 @@ describe("ideaspaces publish", () => {
     await writeCredentials();
 
     let createCallCount = 0;
+    const createdRepoIds: string[] = [];
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.endsWith("/auth/me")) return authMeResponse();
+      // auth/me reflects the user's currently-owned repos — track them
+      // so the stale-mapping check sees the existing repo_id.
+      if (url.endsWith("/auth/me")) return authMeResponse("ernests_s", createdRepoIds);
       if (url.endsWith("/repos")) {
         createCallCount += 1;
         const repoId = createCallCount === 1 ? "repo_first" : "repo_second";
+        createdRepoIds.push(repoId);
         return new Response(
           JSON.stringify({ repo_id: repoId, slug: "reused", name: "reused" }),
           { status: 200 },
@@ -367,15 +377,100 @@ describe("ideaspaces publish", () => {
     expect(readSpaceRecord().repo_id).toBe("repo_second");
   });
 
+  it("detects stale folder mapping (remote deleted on server) and surfaces a fix hint", async () => {
+    const dir = initLocalRepo("stale-mapping");
+    process.chdir(dir);
+    await writeCredentials();
+
+    // First publish: server returns repo_stale; auth/me reflects it; success.
+    const ownedRepoIds: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) return authMeResponse("ernests_s", ownedRepoIds);
+      if (url.endsWith("/repos")) {
+        ownedRepoIds.push("repo_stale");
+        return new Response(
+          JSON.stringify({ repo_id: "repo_stale", slug: "stale-mapping", name: "n" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setupBareRemote("ernests_s", "stale-mapping");
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+
+    // Server-side deletion: drop the repo from the user's list. spaces.json
+    // still points at repo_stale locally; auth/me no longer surfaces it.
+    ownedRepoIds.length = 0;
+
+    let stderr = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+      return true;
+    }) as typeof process.stderr.write;
+
+    let exit: number;
+    try {
+      exit = await publishCommand.run([], {}, baseGlobal);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+    expect(exit).toBe(1);
+    expect(stderr).toContain("no longer exists or you no longer have access");
+    expect(stderr).toContain("--force");
+    expect(stderr).toContain("repo_stale");
+  });
+
+  it("--force bypasses the stale-mapping check and provisions a fresh remote", async () => {
+    const dir = initLocalRepo("stale-force");
+    process.chdir(dir);
+    await writeCredentials();
+
+    const ownedRepoIds: string[] = [];
+    let createCallCount = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) return authMeResponse("ernests_s", ownedRepoIds);
+      if (url.endsWith("/repos")) {
+        createCallCount += 1;
+        const id = createCallCount === 1 ? "repo_old" : "repo_new";
+        ownedRepoIds.push(id);
+        return new Response(
+          JSON.stringify({ repo_id: id, slug: "stale-force", name: "n" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setupBareRemote("ernests_s", "stale-force");
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+
+    // Simulate server-side deletion.
+    ownedRepoIds.length = 0;
+
+    // --force skips the stale-mapping check and creates a fresh repo.
+    expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
+    expect(createCallCount).toBe(2);
+  });
+
   it("rejects --name / --slug / --hostname on re-publish without --force", async () => {
     const dir = initLocalRepo("reject-flags");
     process.chdir(dir);
     await writeCredentials();
 
+    const createdRepoIds: string[] = [];
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.endsWith("/auth/me")) return authMeResponse();
+      if (url.endsWith("/auth/me")) return authMeResponse("ernests_s", createdRepoIds);
       if (url.endsWith("/repos")) {
+        createdRepoIds.push("repo_x");
         return new Response(
           JSON.stringify({ repo_id: "repo_x", slug: "reject-flags", name: "n" }),
           { status: 200 },
@@ -564,10 +659,12 @@ describe("ideaspaces publish", () => {
       process.chdir(dir);
       await writeCredentials();
 
+      const createdRepoIds: string[] = [];
       const fetchMock = vi.fn(async (input: string | URL | Request) => {
         const url = typeof input === "string" ? input : input.toString();
-        if (url.endsWith("/auth/me")) return authMeResponse();
+        if (url.endsWith("/auth/me")) return authMeResponse("ernests_s", createdRepoIds);
         if (url.endsWith("/api/v1/repos")) {
+          createdRepoIds.push("r");
           return new Response(
             JSON.stringify({ repo_id: "r", slug: "no-rewrite", name: "n" }),
             { status: 200 },
