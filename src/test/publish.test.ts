@@ -420,7 +420,7 @@ describe("ideaspaces publish", () => {
       process.stderr.write = origWrite;
     }
     expect(exit).toBe(1);
-    expect(stderr).toContain("no longer exists on the server");
+    expect(stderr).toContain("no longer exists or you no longer have access");
     expect(stderr).toContain("--force");
     expect(stderr).toContain("repo_stale");
   });

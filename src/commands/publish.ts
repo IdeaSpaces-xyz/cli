@@ -284,17 +284,19 @@ export const publishCommand: CommandDef = {
 
     if (existing && !flags.force) {
       // Stale-mapping detection — `/auth/me` returns the repos this user
-      // can see. If the mapped repo_id isn't there, the remote was deleted
-      // (or access was revoked). Push would surface git's "Repository not
-      // found" which is opaque; intercept with an actionable hint instead.
-      const stillExists = me.repos.some((r) => r.repo_id === existing.repo_id);
-      if (!stillExists) {
+      // can see. If the mapped repo_id isn't there, either the remote was
+      // deleted or the user lost access. Both surface identically; push
+      // would otherwise hit git's opaque "Repository not found".
+      // Note: this assumes `/auth/me` returns the full repo set (no
+      // pagination). Safe today; revisit if the endpoint adds paging.
+      const stillVisible = me.repos.some((r) => r.repo_id === existing.repo_id);
+      if (!stillVisible) {
         output.error(
           `This folder is mapped to ${existing.namespace}/${existing.slug} ` +
             `(repo_id=${existing.repo_id}) but that remote no longer exists ` +
-            `on the server. Re-run with --force to publish as a fresh space ` +
-            `(new repo_id), or remove this folder's entry from ` +
-            `~/.ideaspaces/spaces.json and retry.`,
+            `or you no longer have access to it. Re-run with --force to ` +
+            `publish as a fresh space (new repo_id), or remove this folder's ` +
+            `entry from ~/.ideaspaces/spaces.json and retry.`,
         );
         return 1;
       }
