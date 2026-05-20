@@ -28,7 +28,6 @@ import { fetchAuthMe, createRepo, deriveGitBase, deriveWebBase, UnauthorizedErro
 import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import { identityEmail as formatIdentityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
-import { hasIdentityProblems, renderIdentityProblems, scanMarkdownIdentityFiles } from "../identity-report.js";
 import {
   hasFrontmatterSyntaxProblems,
   renderFrontmatterSyntaxProblems,
@@ -134,38 +133,21 @@ export function slugify(input: string): string {
   return s.slice(0, 64).replace(/-+$/, "");
 }
 
-async function checkMarkdownPreflight(cwd: string): Promise<string | null> {
+async function checkMarkdownFrontmatterSyntax(cwd: string): Promise<string | null> {
   const files = trackedMarkdownFiles(cwd);
   if (!files.length) return null;
 
   const syntaxScan = await scanMarkdownFrontmatterSyntaxFiles(files);
-  if (hasFrontmatterSyntaxProblems(syntaxScan)) {
-    return renderFrontmatterSyntaxProblems(syntaxScan, {
-      cwd,
-      header: [
-        "Cannot publish yet: markdown frontmatter is invalid.",
-        "Fix YAML syntax before publishing so the server can index these files.",
-        "",
-      ],
-      footer: ["Fix YAML first, commit the repair, and re-run `ideaspaces publish`."],
-    });
-  }
+  if (!hasFrontmatterSyntaxProblems(syntaxScan)) return null;
 
-  const scan = await scanMarkdownIdentityFiles(files);
-  if (!hasIdentityProblems(scan)) return null;
-
-  return renderIdentityProblems(scan, {
+  return renderFrontmatterSyntaxProblems(syntaxScan, {
     cwd,
     header: [
-      "Cannot publish yet: markdown identity check failed.",
-      "Every committed markdown file needs a stable node_id before it can be pushed.",
+      "Cannot publish yet: markdown frontmatter is invalid.",
+      "Fix YAML syntax before publishing so the server can index these files.",
       "",
     ],
-    footer: [
-      "Fix missing IDs with: `ideaspaces id --fix .`",
-      "Fix copied/duplicate IDs with: `ideaspaces id --regenerate <path>`",
-      "Then commit the identity changes and re-run `ideaspaces publish`.",
-    ],
+    footer: ["Fix YAML first, commit the repair, and re-run `ideaspaces publish`."],
   });
 }
 
@@ -183,10 +165,10 @@ function trackedMarkdownFiles(cwd: string): string[] {
 
 export const publishCommand: CommandDef = {
   name: "publish",
-  description: "Publish this folder as a remote ideaspace (tracked .md files need node_id)",
+  description: "Publish this folder as a remote ideaspace",
   usage: "ideaspaces publish [--slug <slug>] [--name <name>] [--hostname <host>] [--force]",
   examples: [
-    "ideaspaces publish                     # publish current directory; preflights tracked .md node_id fields",
+    "ideaspaces publish                     # publish current directory",
     "ideaspaces publish --slug my-notes     # explicit slug",
     "ideaspaces publish --hostname acme.com # publish into an org space (must be a member)",
     "ideaspaces publish --force             # force a fresh remote even if this dir already mapped",
@@ -239,15 +221,15 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    let preflightProblem: string | null;
+    let frontmatterProblem: string | null;
     try {
-      preflightProblem = await checkMarkdownPreflight(cwd);
+      frontmatterProblem = await checkMarkdownFrontmatterSyntax(cwd);
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
-    if (preflightProblem) {
-      output.error(preflightProblem);
+    if (frontmatterProblem) {
+      output.error(frontmatterProblem);
       return 1;
     }
 

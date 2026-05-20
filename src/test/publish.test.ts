@@ -111,26 +111,37 @@ describe("ideaspaces publish", () => {
     expect(exit).toBe(1);
   });
 
-  it("preflights markdown node_id before publishing", async () => {
+  it("publishes markdown without node_id frontmatter", async () => {
     const dir = initLocalRepo("missing-id", { withNodeId: false });
     process.chdir(dir);
     await writeCredentials();
 
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) return authMeResponse();
+      if (url.endsWith("/repos")) {
+        return new Response(
+          JSON.stringify({ repo_id: "repo_missing", slug: "missing-id", name: "missing-id" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
+    setupBareRemote("ernests_s", "missing-id");
 
     const { publishCommand } = await import("../commands/publish.js");
     const exit = await publishCommand.run([], {}, baseGlobal);
-    expect(exit).toBe(1);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(false);
+    expect(exit).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(true);
   });
 
   it("preflights markdown frontmatter syntax before publishing", async () => {
     const dir = initLocalRepo("bad-frontmatter");
     writeFileSync(
       join(dir, "foo.md"),
-      "---\nname: `ideaspace create` — Adopt and Publish\nnode_id: n_abcdef123456abcdef123456\n---\n# foo\n",
+      "---\nname: `ideaspace create` — Adopt and Publish\n---\n# foo\n",
     );
     spawnSync("git", ["-C", dir, "add", "foo.md"]);
     spawnSync("git", ["-C", dir, "commit", "-q", "-m", "bad frontmatter"]);
@@ -717,8 +728,7 @@ describe("ideaspaces publish", () => {
 
       // Simulate a follow-up commit authored with the wrong identity
       // (e.g. user committed manually; their global git config kicked
-      // back in). Distinct node_id so identity preflight doesn't trip
-      // on duplicates.
+      // back in).
       spawnSync("git", ["-C", dir, "config", "user.email", "wrong@example.com"]);
       writeFileSync(join(dir, "second.md"), md("n_111111222222333333444444"));
       spawnSync("git", ["-C", dir, "add", "."]);

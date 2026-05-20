@@ -44,9 +44,9 @@ function configureGitIdentity(cwd: string): void {
   spawnSync("git", ["-C", cwd, "config", "user.name", "Test"]);
 }
 
-async function expectNodeId(path: string): Promise<void> {
+async function expectNoNodeId(path: string): Promise<void> {
   const content = await fs.readFile(path, "utf-8");
-  expect(content).toMatch(/^node_id: n_[0-9a-f]{24}$/m);
+  expect(content).not.toMatch(/^node_id:/m);
 }
 
 describe("ideaspaces create", () => {
@@ -68,9 +68,9 @@ describe("ideaspaces create", () => {
       expect(existsSync(join(tmp, "_agent", `${file}.md`))).toBe(false);
     }
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(true);
-    await expectNodeId(join(tmp, "CLAUDE.md"));
-    await expectNodeId(join(tmp, "_agent", "foundation.md"));
-    await expectNodeId(join(tmp, "_agent", "guide.md"));
+    await expectNoNodeId(join(tmp, "CLAUDE.md"));
+    await expectNoNodeId(join(tmp, "_agent", "foundation.md"));
+    await expectNoNodeId(join(tmp, "_agent", "guide.md"));
     expect(existsSync(join(tmp, ".gitignore"))).toBe(true);
     expect(existsSync(join(tmp, ".gitattributes"))).toBe(true);
     expect(existsSync(join(tmp, ".git"))).toBe(true);
@@ -154,7 +154,7 @@ describe("ideaspaces create", () => {
   });
 });
 
-describe("ideaspaces create — identity (Layer 1)", () => {
+describe("ideaspaces create — git author identity", () => {
   let tmp: string;
   let originalCwd: string;
   let originalHome: string | undefined;

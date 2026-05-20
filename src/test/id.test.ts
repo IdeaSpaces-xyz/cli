@@ -43,6 +43,24 @@ function nodeIdOf(path: string): string | null {
 }
 
 describe("ideaspaces id", () => {
+  it("prints a deprecation warning", async () => {
+    let stderr = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      const exit = await idCommand.run(["."], {}, { ...baseGlobal, json: false, quiet: false });
+      expect(exit).toBe(0);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+
+    expect(stderr).toContain("`ideaspaces id` is deprecated");
+  });
+
   it("reports missing node_id", async () => {
     await fs.writeFile(join(tmp, "missing.md"), "---\nname: Missing\n---\n# Missing\n", "utf-8");
 
