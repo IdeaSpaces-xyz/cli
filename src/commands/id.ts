@@ -34,13 +34,14 @@ export const idCommand: CommandDef = {
   async run(args, flags, global) {
     const output = createOutput(global);
     const cwd = process.cwd();
-    output.log(
-      "Warning: `ideaspaces id` is deprecated. node_id frontmatter is no longer required; this command will be removed in a future release.",
-    );
 
     if (args[0] === "install-hook") {
       return installHook(output);
     }
+
+    output.log(
+      "Warning: `ideaspaces id` is deprecated. node_id frontmatter is no longer required; this command will be removed in a future release.",
+    );
 
     if (flags.regenerate === true) {
       output.error("Usage: ideaspaces id --regenerate <path>");

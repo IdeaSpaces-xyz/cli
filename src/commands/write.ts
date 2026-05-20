@@ -71,9 +71,10 @@ export const writeCommand: CommandDef = {
     }
 
     // Body: if user-supplied content has its own frontmatter, strip it; the
-    // composed frontmatter from flags wins (replace-semantics). Platform
-    // identity lives in the server index, so local writes do not generate,
-    // preserve, or validate `node_id` frontmatter.
+    // composed frontmatter from flags wins (replace-semantics), including
+    // intentionally dropping any pre-existing `node_id`. Platform identity
+    // lives in the server index, so local writes do not generate, preserve,
+    // or validate `node_id` frontmatter.
     const body = stripFrontmatter(content);
     const finalContent = composeFrontmatter(fm) + body;
 
