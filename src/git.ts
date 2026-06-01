@@ -20,6 +20,12 @@ function git(args: string[], cwd?: string): { ok: boolean; out: string; err: str
   return { ok: r.status === 0, out: (r.stdout ?? "").trim(), err: (r.stderr ?? "").trim() };
 }
 
+/** Exit code of a git invocation (for `--quiet` diff probes). -1 on spawn error. */
+function gitExit(args: string[], cwd?: string): number {
+  const r = spawnSync("git", args, { encoding: "utf-8", cwd });
+  return r.status ?? -1;
+}
+
 function gitOrThrow(args: string[], cwd?: string): string {
   const r = git(args, cwd);
   if (!r.ok) throw new GitError(r.err || r.out || `git ${args.join(" ")} failed`);
@@ -55,6 +61,47 @@ export function commitPaths(message: string, paths: string[], cwd?: string): str
   gitOrThrow(["add", "--", ...paths], cwd);
   gitOrThrow(["commit", "-q", "-m", message, "--", ...paths], cwd);
   return headSha(cwd);
+}
+
+/**
+ * Content blob sha of a file (`git hash-object`), or null if it doesn't exist.
+ *
+ * This is the optimistic-concurrency token: it depends only on file content,
+ * not on commits, so it works for staged-but-uncommitted captures. `is_write`
+ * returns it; `if_match` compares against it.
+ */
+export function blobSha(path: string, cwd?: string): string | null {
+  const r = git(["hash-object", "--", path], cwd);
+  return r.ok ? r.out : null;
+}
+
+export interface PathStatus {
+  path: string;
+  exists: boolean;
+  /** Content blob sha, or null when the file is absent. */
+  sha: string | null;
+  /** Staged in the index. */
+  inIndex: boolean;
+  /** Has unstaged modifications. */
+  modified: boolean;
+  /** In the git index (staged or committed) — `ls-files --error-unmatch`. */
+  inTracked: boolean;
+}
+
+/** Single-path git state — the `if_match` token source for first updates. */
+export function pathStatus(path: string, cwd?: string): PathStatus {
+  const sha = blobSha(path, cwd);
+  // Use diff exit codes rather than porcelain columns — the git() helper trims
+  // output, which would destroy the leading-space that separates the staged (X)
+  // and worktree (Y) columns. `--quiet` exits 1 when there are differences.
+  return {
+    path,
+    exists: sha !== null,
+    sha,
+    inIndex: gitExit(["diff", "--cached", "--quiet", "--", path], cwd) === 1,
+    modified: gitExit(["diff", "--quiet", "--", path], cwd) === 1,
+    inTracked: git(["ls-files", "--error-unmatch", "--", path], cwd).ok,
+  };
 }
 
 export interface PorcelainEntry {

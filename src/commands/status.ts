@@ -6,17 +6,22 @@
  * user sees what's awaiting the explicit `commit` save.
  */
 
+import { resolve } from "node:path";
 import { gitState, sessionState } from "@ideaspaces/sdk";
-import { repoRoot, GitError } from "../git.js";
+import { repoRoot, pathStatus, GitError } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
 export const statusCommand: CommandDef = {
   name: "status",
   description: "Show git position and plugin-tracked captures awaiting commit",
-  usage: "ideaspaces status [--json]",
-  examples: ["ideaspaces status", "ideaspaces status --json"],
-  async run(_args, _flags, global) {
+  usage: "ideaspaces status [--path FILE] [--json]",
+  examples: [
+    "ideaspaces status",
+    "ideaspaces status --json",
+    "ideaspaces status --path notes/a.md  # single-file state + sha (if_match source)",
+  ],
+  async run(_args, flags, global) {
     const output = createOutput(global);
 
     let root: string;
@@ -25,6 +30,32 @@ export const statusCommand: CommandDef = {
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
+    }
+
+    // Single-path mode: the sha here is what the caller passes as if_match to
+    // safely update a file it didn't just write.
+    const pathArg = typeof flags.path === "string" ? flags.path : undefined;
+    if (pathArg) {
+      // Resolve against the invocation cwd (the agent's dir), not the repo
+      // root — an absolute path makes git's cwd irrelevant, so a bare filename
+      // passed from a subdirectory still points at the right file.
+      const ps = pathStatus(resolve(pathArg), root);
+      // Report the path the caller passed (friendly), with git facts from the
+      // resolved absolute path.
+      output.result(
+        {
+          path: pathArg,
+          exists: ps.exists,
+          sha: ps.sha,
+          in_index: ps.inIndex,
+          modified: ps.modified,
+          in_tracked: ps.inTracked,
+        },
+        ps.exists
+          ? `${pathArg}: sha ${ps.sha}${ps.inIndex ? ", staged" : ""}${ps.modified ? ", modified" : ""}${ps.inTracked ? "" : ", untracked"}`
+          : `${pathArg}: does not exist`,
+      );
+      return 0;
     }
 
     const gs = await gitState(root);

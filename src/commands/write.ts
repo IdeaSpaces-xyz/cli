@@ -14,7 +14,7 @@ import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { composeFrontmatter, stripFrontmatter, type Frontmatter } from "@ideaspaces/sdk";
-import { stagePaths, GitError } from "../git.js";
+import { stagePaths, blobSha, GitError } from "../git.js";
 import { parseBool } from "../argv.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -32,10 +32,11 @@ export const writeCommand: CommandDef = {
   name: "write",
   description: "Create or update a Note (local file with Layer 1 frontmatter)",
   usage:
-    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to ent1,ent2] [--content TEXT] [--force] [--stage=false]",
+    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to ent1,ent2] [--content TEXT] [--if-match SHA] [--force] [--stage=false]",
   examples: [
     'echo "# My Note\\nContent here" | ideaspaces write notes/my-note.md --name "My Note"',
     'ideaspaces write notes/test.md --name "Test" --content "# Test\\nHello"',
+    'ideaspaces write notes/test.md --content "# update" --if-match <sha>  # safe update',
     'ideaspaces write notes/test.md --content "# overwrite" --force',
     'ideaspaces write notes/test.md --content "..." --stage=false  # write without staging',
   ],
@@ -65,11 +66,26 @@ export const writeCommand: CommandDef = {
     const force = Boolean(flags.force);
     // Stage by default; `--stage=false` writes without touching the index.
     const stage = parseBool(flags.stage, true);
+    const ifMatch = flags["if-match"] as string | undefined;
     const absPath = resolve(path);
 
-    const exists = existsSync(absPath);
-    if (exists && !force) {
-      output.error(`File exists: ${path}\nRe-run with --force to overwrite.`);
+    if (ifMatch !== undefined) {
+      // Optimistic concurrency: the caller asserts the current content sha.
+      // Mismatch (including the file having vanished) refuses unless --force,
+      // surfacing both shas so the caller can re-read and merge intentionally.
+      // A matching if_match IS the intent to update — no separate --force needed.
+      const currentSha = blobSha(absPath);
+      if (currentSha !== ifMatch && !force) {
+        output.error(
+          `if_match mismatch for ${path}.\n` +
+            `  expected: ${ifMatch}\n` +
+            `  current:  ${currentSha ?? "(file absent)"}\n` +
+            "Re-read the file for the current sha and retry, or pass --force to override.",
+        );
+        return 6;
+      }
+    } else if (existsSync(absPath) && !force) {
+      output.error(`File exists: ${path}\nRe-run with --force to overwrite, or pass --if-match <sha> for a safe update.`);
       return 5;
     }
 
@@ -97,9 +113,13 @@ export const writeCommand: CommandDef = {
       }
     }
 
+    // The new content sha — the token the caller passes as if_match to refine
+    // this same file without a separate status query.
+    const sha = blobSha(absPath);
+
     output.result(
-      { path: absPath, staged },
-      staged ? `Written + staged: ${absPath}` : `Written: ${absPath}`,
+      { path: absPath, staged, sha },
+      `${staged ? "Written + staged" : "Written"}: ${absPath} (${sha ?? "unknown sha"})`,
     );
     return 0;
   },
