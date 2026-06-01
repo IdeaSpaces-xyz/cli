@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sessionState } from "@ideaspaces/sdk";
 import { commitCommand } from "../commands/commit.js";
+import { writeCommand } from "../commands/write.js";
 import type { GlobalFlags } from "../types.js";
 
 const G: GlobalFlags = { json: true, quiet: true, yes: false, help: false };
@@ -89,5 +90,19 @@ describe("ideaspaces commit", () => {
   it("refuses --tracked when nothing is tracked", async () => {
     const exit = await commitCommand.run([], { m: "x", tracked: true }, G);
     expect(exit).toBe(1);
+  });
+
+  it("write records the staged path so --tracked can commit it (#30)", async () => {
+    // Writing through the CLI now records the path in session state...
+    const w = await writeCommand.run(["note.md"], { content: "# Note", name: "Note" }, G);
+    expect(w).toBe(0);
+    expect(await sessionState(tmp).getStagedPaths()).toContain("note.md");
+
+    // ...so commit --tracked finds and commits it (the path the dogfood gap hid).
+    const c = await commitCommand.run([], { m: "tracked save", tracked: true }, G);
+    expect(c).toBe(0);
+    const files = git(["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean);
+    expect(files).toEqual(["note.md"]);
+    expect(await sessionState(tmp).getStagedPaths()).toEqual([]);
   });
 });
