@@ -24,14 +24,9 @@ import {
   push,
   GitError,
 } from "../git.js";
+import { parseBool } from "../argv.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
-
-function parseBool(v: unknown, dflt: boolean): boolean {
-  if (typeof v !== "string") return v === undefined ? dflt : Boolean(v);
-  const s = v.trim().toLowerCase();
-  return !(s === "false" || s === "0" || s === "no" || s === "off");
-}
 
 export const syncCommand: CommandDef = {
   name: "sync",
@@ -96,8 +91,20 @@ export const syncCommand: CommandDef = {
           );
           return 1;
         }
-        if (useRebase) rebaseOntoUpstream(root);
-        else mergeUpstream(root);
+        // A conflict here leaves git mid-rebase/merge — tell the user how to back out.
+        try {
+          if (useRebase) rebaseOntoUpstream(root);
+          else mergeUpstream(root);
+        } catch (err) {
+          const msg = err instanceof GitError ? err.message : String(err);
+          const reset = useRebase ? "git rebase --abort" : "git merge --abort";
+          output.error(
+            `Sync failed while integrating remote changes: ${msg}\n` +
+              `The repo may be mid-${useRebase ? "rebase" : "merge"}. ` +
+              `Run \`${reset}\` to reset, resolve the conflict, then re-run sync.`,
+          );
+          return 1;
+        }
       }
 
       const after = remoteState(root);

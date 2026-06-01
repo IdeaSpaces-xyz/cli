@@ -54,13 +54,15 @@ export const commitCommand: CommandDef = {
     }
 
     // Resolve the path set: explicit args, or the plugin's session-tracked set.
+    // One session-state handle, reused for the post-commit clear below.
+    const store = flags.tracked ? sessionState(root) : null;
     let paths = args.slice();
-    if (flags.tracked) {
+    if (store) {
       if (paths.length) {
         output.error("Pass either explicit paths or --tracked, not both.");
         return 1;
       }
-      paths = await sessionState(root).getStagedPaths();
+      paths = await store.getStagedPaths();
       if (!paths.length) {
         output.error("No plugin-tracked paths to commit (session state is empty).");
         return 1;
@@ -89,8 +91,7 @@ export const commitCommand: CommandDef = {
     }
 
     // Drop committed paths from the plugin's tracked set so they don't linger.
-    if (flags.tracked) {
-      const store = sessionState(root);
+    if (store) {
       for (const p of paths) await store.clearStagedPath(p);
     }
 

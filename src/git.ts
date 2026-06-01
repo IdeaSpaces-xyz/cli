@@ -78,12 +78,6 @@ export function isDirty(cwd?: string): boolean {
   return statusEntries(cwd).some((e) => !e.status.startsWith("??"));
 }
 
-/** Paths that are staged in the index (first status char is not space/?). */
-export function stagedPaths(cwd?: string): string[] {
-  return statusEntries(cwd)
-    .filter((e) => e.status[0] !== " " && e.status[0] !== "?")
-    .map((e) => e.path);
-}
 
 export interface RemoteState {
   /** Upstream ref (e.g. `origin/main`), or null if none configured. */

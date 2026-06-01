@@ -15,6 +15,7 @@ export const statusCommand: CommandDef = {
   name: "status",
   description: "Show git position and plugin-tracked captures awaiting commit",
   usage: "ideaspaces status [--json]",
+  examples: ["ideaspaces status", "ideaspaces status --json"],
   async run(_args, _flags, global) {
     const output = createOutput(global);
 

@@ -58,4 +58,31 @@ describe("ideaspaces sync", () => {
     const exit = await syncCommand.run([], {}, G);
     expect(exit).toBe(1); // refuses before touching the network
   });
+
+  it("pushes local commits to the upstream (happy path)", async () => {
+    // Local bare remote — no network.
+    const bare = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-bare-")));
+    try {
+      spawnSync("git", ["init", "-q", "--bare", bare]);
+      git(["remote", "add", "origin", bare]);
+      git(["push", "-q", "-u", "origin", "main"]); // sets upstream, in sync
+
+      // Get one commit ahead.
+      await fs.writeFile(join(tmp, "capture.md"), "# Capture", "utf-8");
+      git(["add", "."]);
+      git(["commit", "-q", "-m", "capture"]);
+      const localHead = git(["rev-parse", "HEAD"]);
+
+      const exit = await syncCommand.run([], {}, G);
+      expect(exit).toBe(0);
+
+      // The bare remote's main now points at the local commit.
+      const remoteHead = spawnSync("git", ["--git-dir", bare, "rev-parse", "main"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      expect(remoteHead).toBe(localHead);
+    } finally {
+      await rm(bare, { recursive: true, force: true });
+    }
+  });
 });

@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { composeFrontmatter, stripFrontmatter, type Frontmatter } from "@ideaspaces/sdk";
 import { stagePaths, GitError } from "../git.js";
+import { parseBool } from "../argv.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -63,8 +64,7 @@ export const writeCommand: CommandDef = {
     };
     const force = Boolean(flags.force);
     // Stage by default; `--stage=false` writes without touching the index.
-    // (argv passes `=false` as the string "false", which is truthy — parse it.)
-    const stage = flags.stage === undefined ? true : parseBool(flags.stage);
+    const stage = parseBool(flags.stage, true);
     const absPath = resolve(path);
 
     const exists = existsSync(absPath);
@@ -104,12 +104,6 @@ export const writeCommand: CommandDef = {
     return 0;
   },
 };
-
-function parseBool(value: unknown): boolean {
-  if (typeof value !== "string") return Boolean(value);
-  const v = value.trim().toLowerCase();
-  return !(v === "false" || v === "0" || v === "no" || v === "off");
-}
 
 function parseList(value: unknown): string[] | undefined {
   if (typeof value !== "string" || !value) return undefined;

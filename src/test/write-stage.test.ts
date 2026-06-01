@@ -55,4 +55,18 @@ describe("ideaspaces write — staging", () => {
     expect(await fs.readFile(join(tmp, "notes/b.md"), "utf-8")).toContain("# B");
     expect(git(["diff", "--cached", "--name-only"])).toBe("");
   });
+
+  it("writes successfully even outside a git repo (staging is best-effort)", async () => {
+    const nonRepo = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-norepo-")));
+    const here = process.cwd();
+    process.chdir(nonRepo);
+    try {
+      const exit = await writeCommand.run(["c.md"], { content: "# C", name: "C" }, G);
+      expect(exit).toBe(0); // capture succeeds; staging just no-ops with a notice
+      expect(await fs.readFile(join(nonRepo, "c.md"), "utf-8")).toContain("# C");
+    } finally {
+      process.chdir(here);
+      await rm(nonRepo, { recursive: true, force: true });
+    }
+  });
 });
