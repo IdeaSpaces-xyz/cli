@@ -12,9 +12,9 @@
 
 import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { composeFrontmatter, stripFrontmatter, type Frontmatter } from "@ideaspaces/sdk";
-import { stagePaths, blobSha, GitError } from "../git.js";
+import { dirname, resolve, relative } from "node:path";
+import { composeFrontmatter, stripFrontmatter, sessionState, type Frontmatter } from "@ideaspaces/sdk";
+import { stagePaths, blobSha, repoRoot, GitError } from "../git.js";
 import { parseBool } from "../argv.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -105,6 +105,15 @@ export const writeCommand: CommandDef = {
       try {
         stagePaths([absPath]);
         staged = true;
+        // Record the path in session state so `commit --tracked` and the sync
+        // guard can see this capture. Repo-relative so the commit's explicit
+        // pathspecs resolve against the repo root. Best-effort.
+        try {
+          const root = repoRoot();
+          await sessionState(root).recordStagedPath(relative(root, absPath));
+        } catch {
+          // No repo / no session store — staging already happened; carry on.
+        }
       } catch (err) {
         // The write succeeded; staging is best-effort (e.g. not in a repo).
         // Surface it without failing the capture.
