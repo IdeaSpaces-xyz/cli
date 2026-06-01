@@ -125,6 +125,17 @@ export function isDirty(cwd?: string): boolean {
   return statusEntries(cwd).some((e) => !e.status.startsWith("??"));
 }
 
+/**
+ * Paths currently staged in the index (repo-relative). Uses
+ * `git diff --cached --name-only` — clean path output, no porcelain-column
+ * parsing (the git() helper trims, which would corrupt status columns).
+ */
+export function stagedPaths(cwd?: string): string[] {
+  const r = git(["diff", "--cached", "--name-only"], cwd);
+  if (!r.ok || !r.out) return [];
+  return r.out.split("\n").filter(Boolean);
+}
+
 
 export interface RemoteState {
   /** Upstream ref (e.g. `origin/main`), or null if none configured. */

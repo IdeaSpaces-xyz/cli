@@ -92,6 +92,34 @@ describe("ideaspaces commit", () => {
     expect(exit).toBe(1);
   });
 
+  it("--all commits staged ideaspace paths and leaves staged code uncommitted", async () => {
+    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+    await fs.mkdir(join(tmp, "_agent"), { recursive: true });
+    await fs.writeFile(join(tmp, "_agent/now.md"), "now", "utf-8");
+    await fs.writeFile(join(tmp, "app.ts"), "code", "utf-8");
+    git(["add", "note.md", "_agent/now.md", "app.ts"]);
+
+    const exit = await commitCommand.run([], { m: "save knowledge", all: true }, G);
+    expect(exit).toBe(0);
+
+    const committed = git(["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean).sort();
+    expect(committed).toEqual(["_agent/now.md", "note.md"]);
+    // The staged code file is left for the user — still staged, not committed.
+    expect(git(["diff", "--cached", "--name-only"])).toContain("app.ts");
+  });
+
+  it("--all refuses when only non-ideaspace files are staged", async () => {
+    await fs.writeFile(join(tmp, "app.ts"), "code", "utf-8");
+    git(["add", "app.ts"]);
+    expect(await commitCommand.run([], { m: "x", all: true }, G)).toBe(1);
+  });
+
+  it("rejects combining --all with explicit paths", async () => {
+    await fs.writeFile(join(tmp, "a.md"), "x", "utf-8");
+    git(["add", "a.md"]);
+    expect(await commitCommand.run(["a.md"], { m: "x", all: true }, G)).toBe(1);
+  });
+
   it("write records the staged path so --tracked can commit it (#30)", async () => {
     // Writing through the CLI now records the path in session state...
     const w = await writeCommand.run(["note.md"], { content: "# Note", name: "Note" }, G);

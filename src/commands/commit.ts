@@ -17,17 +17,18 @@
 
 import { resolve } from "node:path";
 import { sessionState } from "@ideaspaces/sdk";
-import { commitPaths, repoRoot, GitError } from "../git.js";
+import { commitPaths, repoRoot, stagedPaths, GitError } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
 export const commitCommand: CommandDef = {
   name: "commit",
   description: "Save staged captures — commits only the paths you name",
-  usage: 'ideaspaces commit -m "<message>" <path>... | --tracked',
+  usage: 'ideaspaces commit -m "<message>" <path>... | --tracked | --all',
   examples: [
     'ideaspaces commit -m "Capture auth decision" notes/auth.md',
     'ideaspaces commit -m "Session captures" --tracked',
+    'ideaspaces commit -m "Save notes" --all   # all staged markdown / _agent/ paths',
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -35,14 +36,6 @@ export const commitCommand: CommandDef = {
     const message = String(flags.m ?? flags.message ?? "").trim();
     if (!message) {
       output.error('A commit message is required: ideaspaces commit -m "<message>" <path>...');
-      return 1;
-    }
-
-    if (flags.all) {
-      output.error(
-        "commit --all is not supported yet. Name the paths explicitly, or use --tracked\n" +
-          "to commit what the plugin staged this session.",
-      );
       return 1;
     }
 
@@ -54,22 +47,48 @@ export const commitCommand: CommandDef = {
       return 1;
     }
 
-    // Resolve the path set: explicit args (resolved against the invocation cwd
-    // so a bare filename from a subdir still points at the right file), or the
-    // plugin's session-tracked set (taken as recorded — not re-resolved).
-    // One session-state handle, reused for the post-commit clear below.
+    // Exactly one path source: explicit args, --tracked, or --all.
+    const sources = [args.length > 0, Boolean(flags.tracked), Boolean(flags.all)].filter(Boolean);
+    if (sources.length > 1) {
+      output.error("Use exactly one of: explicit <path>..., --tracked, or --all.");
+      return 1;
+    }
+
+    // `store` set only for --tracked (reused for the post-commit clear below).
     const store = flags.tracked ? sessionState(root) : null;
-    let paths = args.map((p) => resolve(p));
-    if (store) {
-      if (paths.length) {
-        output.error("Pass either explicit paths or --tracked, not both.");
+    let paths: string[];
+
+    if (flags.all) {
+      // Commit all staged *ideaspace* paths (markdown + `_agent/`). Staged
+      // non-knowledge files (code, configs) are left for the user to commit
+      // themselves — this never sweeps up source changes.
+      const staged = stagedPaths(root);
+      if (!staged.length) {
+        output.error("Nothing staged to commit.");
         return 1;
       }
+      paths = staged.filter(isIdeaspacePath);
+      const other = staged.filter((p) => !isIdeaspacePath(p));
+      if (!paths.length) {
+        output.error(
+          "No staged ideaspace paths (markdown or _agent/). Staged non-knowledge files:\n" +
+            other.map((p) => `  ${p}`).join("\n"),
+        );
+        return 1;
+      }
+      if (other.length) {
+        output.log(`Leaving ${other.length} non-ideaspace staged path(s) for you to commit: ${other.join(", ")}`);
+      }
+    } else if (store) {
       paths = await store.getStagedPaths();
       if (!paths.length) {
         output.error("No plugin-tracked paths to commit (session state is empty).");
         return 1;
       }
+    } else {
+      // Explicit args, resolved against the invocation cwd so a bare filename
+      // from a subdir still points at the right file.
+      paths = args.map((p) => resolve(p));
     }
 
     if (!paths.length) {
@@ -77,7 +96,7 @@ export const commitCommand: CommandDef = {
       output.error(
         'Refusing to commit with no paths. Name the paths to save:\n' +
           '  ideaspaces commit -m "<message>" <path>...\n' +
-          "or use --tracked to commit what the plugin staged this session.",
+          "or use --tracked / --all.",
       );
       return 1;
     }
@@ -105,3 +124,8 @@ export const commitCommand: CommandDef = {
     return 0;
   },
 };
+
+/** Knowledge path: a markdown file, or anything under an `_agent/` dir. */
+function isIdeaspacePath(path: string): boolean {
+  return path.endsWith(".md") || path.split("/").includes("_agent");
+}
