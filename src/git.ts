@@ -84,7 +84,7 @@ export interface PathStatus {
   inIndex: boolean;
   /** Has unstaged modifications. */
   modified: boolean;
-  /** Tracked by git (committed at some point). */
+  /** In the git index (staged or committed) — `ls-files --error-unmatch`. */
   inTracked: boolean;
 }
 

@@ -119,7 +119,7 @@ export const writeCommand: CommandDef = {
 
     output.result(
       { path: absPath, staged, sha },
-      staged ? `Written + staged: ${absPath} (${sha})` : `Written: ${absPath} (${sha})`,
+      `${staged ? "Written + staged" : "Written"}: ${absPath} (${sha ?? "unknown sha"})`,
     );
     return 0;
   },

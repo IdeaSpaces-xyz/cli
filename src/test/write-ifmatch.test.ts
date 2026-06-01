@@ -79,6 +79,15 @@ describe("ideaspaces write — if_match optimistic concurrency", () => {
     expect(await fs.readFile(join(tmp, "a.md"), "utf-8")).toContain("# A");
   });
 
+  it("refuses --if-match when the file does not exist", async () => {
+    const { exit } = await writeCapture(["ghost.md"], {
+      content: "# ghost",
+      name: "G",
+      "if-match": "abc123",
+    });
+    expect(exit).toBe(6);
+  });
+
   it("--force overrides an if_match mismatch", async () => {
     await writeCapture(["a.md"], { content: "# A", name: "A" });
     const { exit } = await writeCapture(["a.md"], {

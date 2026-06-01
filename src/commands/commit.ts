@@ -15,6 +15,7 @@
  * other staged work is never pulled into a capture commit.
  */
 
+import { resolve } from "node:path";
 import { sessionState } from "@ideaspaces/sdk";
 import { commitPaths, repoRoot, GitError } from "../git.js";
 import { createOutput } from "../output.js";
@@ -53,10 +54,12 @@ export const commitCommand: CommandDef = {
       return 1;
     }
 
-    // Resolve the path set: explicit args, or the plugin's session-tracked set.
+    // Resolve the path set: explicit args (resolved against the invocation cwd
+    // so a bare filename from a subdir still points at the right file), or the
+    // plugin's session-tracked set (taken as recorded — not re-resolved).
     // One session-state handle, reused for the post-commit clear below.
     const store = flags.tracked ? sessionState(root) : null;
-    let paths = args.slice();
+    let paths = args.map((p) => resolve(p));
     if (store) {
       if (paths.length) {
         output.error("Pass either explicit paths or --tracked, not both.");

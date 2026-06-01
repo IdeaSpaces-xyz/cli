@@ -68,6 +68,23 @@ describe("ideaspaces status --path", () => {
     expect(result).toMatchObject({ path: "ghost.md", exists: false, sha: null, in_tracked: false });
   });
 
+  it("resolves a bare filename against the cwd, not the repo root (subdir)", async () => {
+    // File lives in a subdirectory; the agent is `cd`-ed into it and passes a
+    // bare filename. It must resolve against the cwd, not the repo toplevel.
+    await fs.mkdir(join(tmp, "sub"), { recursive: true });
+    await fs.writeFile(join(tmp, "sub", "n.md"), "# N", "utf-8");
+    git(["add", "sub/n.md"]);
+    const here = process.cwd();
+    process.chdir(join(tmp, "sub"));
+    try {
+      const { result } = await statusCapture({ path: "n.md" });
+      expect(result.exists).toBe(true);
+      expect(result.sha).toBe(git(["hash-object", "sub/n.md"]));
+    } finally {
+      process.chdir(here);
+    }
+  });
+
   it("flags an unstaged modification on a committed file", async () => {
     await fs.writeFile(join(tmp, "a.md"), "# A", "utf-8");
     git(["add", "a.md"]);
