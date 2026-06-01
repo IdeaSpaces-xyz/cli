@@ -7,7 +7,14 @@ export interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
 
-function parseBool(value: string): boolean {
+/**
+ * Canonical bool-flag parser. `undefined` → `dflt` (for absent flags);
+ * a boolean passes through; a string is false only for the negative tokens.
+ * Shared so `--stage=false` / `--rebase=false` parse identically everywhere.
+ */
+export function parseBool(value: unknown, dflt = true): boolean {
+  if (value === undefined) return dflt;
+  if (typeof value !== "string") return Boolean(value);
   const v = value.trim().toLowerCase();
   return !(v === "false" || v === "0" || v === "no" || v === "off");
 }
@@ -55,6 +62,19 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
       // Command-specific flag with value
       if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
+        flags[key] = argv[++i];
+      } else {
+        flags[key] = true;
+      }
+    } else if (!stopFlags && /^-[a-zA-Z]$/.test(arg)) {
+      // Single-letter short flag (e.g. `-m`). Takes the next token as its
+      // value when present, else boolean. Maps to flags[<letter>]; commands
+      // alias as needed (e.g. commit reads `m` || `message`).
+      // Limitation: a value starting with `-` is read as a separate flag, so
+      // for messages/values beginning with a hyphen use the long form
+      // (`--message "-1"`), which only excludes `--`-prefixed tokens.
+      const key = arg.slice(1);
+      if (i + 1 < argv.length && !argv[i + 1].startsWith("-")) {
         flags[key] = argv[++i];
       } else {
         flags[key] = true;

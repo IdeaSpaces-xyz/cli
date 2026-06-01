@@ -29,4 +29,16 @@ describe("parseArgs", () => {
     expect(parsed.command).toBe("power");
     expect(parsed.args).toEqual(["repos"]);
   });
+
+  it("parses a single-letter short flag with a value (-m), leaving paths positional", () => {
+    const parsed = parseArgs(["commit", "-m", "my message", "notes/a.md", "notes/b.md"]);
+    expect(parsed.command).toBe("commit");
+    expect(parsed.flags.m).toBe("my message");
+    expect(parsed.args).toEqual(["notes/a.md", "notes/b.md"]);
+  });
+
+  it("treats a short flag with no following value as boolean", () => {
+    const parsed = parseArgs(["sync", "-n"]);
+    expect(parsed.flags.n).toBe(true);
+  });
 });
