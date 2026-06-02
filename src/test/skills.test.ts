@@ -19,7 +19,8 @@ describe("ideaspaces skills", () => {
     const { exit, out } = await capture([]);
     expect(exit).toBe(0);
     const skills = JSON.parse(out);
-    expect(skills.length).toBe(8);
+    // Non-empty + right shape; not coupled to the SDK's catalog size.
+    expect(skills.length).toBeGreaterThan(0);
     expect(skills.every((s: any) => s.name && "description" in s)).toBe(true);
   });
 
