@@ -8,6 +8,7 @@ import { writeCommand } from "./commands/write.js";
 import { commitCommand } from "./commands/commit.js";
 import { statusCommand } from "./commands/status.js";
 import { syncCommand } from "./commands/sync.js";
+import { skillsCommand } from "./commands/skills.js";
 import { credentialCommand } from "./commands/credential.js";
 
 // Power commands
@@ -21,6 +22,7 @@ const topLevel: CommandDef[] = [
   commitCommand,
   statusCommand,
   syncCommand,
+  skillsCommand,
   credentialCommand,
 ];
 
