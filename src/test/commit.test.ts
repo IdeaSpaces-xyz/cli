@@ -137,13 +137,33 @@ describe("ideaspaces commit", () => {
     expect(await sessionState(tmp).getStagedPaths()).toEqual([]);
   });
 
-  it("--tracked reports a staging error when a session path does not exist", async () => {
+  it("--tracked clears a missing stale path instead of failing", async () => {
     const store = sessionState(tmp);
     await store.recordStagedPath("missing.md");
 
-    const exit = await commitCommand.run([], { m: "session capture", tracked: true }, G);
-    expect(exit).toBe(1);
-    expect(await sessionState(tmp).getStagedPaths()).toEqual(["missing.md"]);
+    const { result: exit, stdout } = await captureStdout(() =>
+      commitCommand.run([], { m: "session capture", tracked: true }, G),
+    );
+    expect(exit).toBe(0);
+    expect(JSON.parse(stdout).cleared_paths).toEqual(["missing.md"]);
+    expect(await sessionState(tmp).getStagedPaths()).toEqual([]);
+  });
+
+  it("--tracked commits valid paths when another session path is missing", async () => {
+    await fs.writeFile(join(tmp, "pending.md"), "# Pending", "utf-8");
+    const store = sessionState(tmp);
+    await store.recordStagedPath("pending.md");
+    await store.recordStagedPath("missing.md");
+
+    const { result: exit, stdout } = await captureStdout(() =>
+      commitCommand.run([], { m: "session capture", tracked: true }, G),
+    );
+    expect(exit).toBe(0);
+
+    const files = git(["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean);
+    expect(files).toEqual(["pending.md"]);
+    expect(JSON.parse(stdout).cleared_paths).toEqual(["missing.md"]);
+    expect(await sessionState(tmp).getStagedPaths()).toEqual([]);
   });
 
   it("refuses --tracked when nothing is tracked", async () => {

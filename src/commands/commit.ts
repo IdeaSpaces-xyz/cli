@@ -17,7 +17,7 @@
 
 import { resolve } from "node:path";
 import { sessionState } from "@ideaspaces/sdk";
-import { commitPaths, repoRoot, stagedPaths, stagePaths, GitError } from "../git.js";
+import { commitPaths, repoRoot, stagedPaths, stagePaths, pathStatus, GitError } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -90,19 +90,35 @@ export const commitCommand: CommandDef = {
       // Session state is advisory: it records paths the plugin staged, but it
       // can outlive the actual git diff when a capture was already committed
       // or otherwise cleaned up. Reconcile before committing so stale markers
-      // don't block `sync` forever.
-      try {
-        stagePaths(paths, root);
-      } catch (err) {
-        if (err instanceof GitError) {
-          output.error(`Staging tracked paths failed: ${err.message}`);
-          return 1;
+      // don't block `sync` forever. Stage one path at a time so a missing stale
+      // entry cannot prevent valid tracked captures from being committed.
+      const stageErrors: string[] = [];
+      for (const p of paths) {
+        try {
+          // Probe: re-staging lets `diff --cached` distinguish paths with real
+          // changes from stale session markers. `commitPaths` stages again by
+          // contract; that second add is harmless.
+          stagePaths([p], root);
+        } catch (err) {
+          if (!(err instanceof GitError)) throw err;
+          const ps = pathStatus(p, root);
+          if (!ps.exists && !ps.inTracked) {
+            clearedPaths.push(p);
+          } else {
+            stageErrors.push(`${p}: ${err.message}`);
+          }
         }
-        throw err;
+      }
+      if (stageErrors.length) {
+        output.error(`Staging tracked paths failed:\n${stageErrors.map((e) => `  ${e}`).join("\n")}`);
+        return 1;
       }
 
       const staged = new Set(stagedPaths(root));
-      clearedPaths = paths.filter((p) => !staged.has(p));
+      clearedPaths = [
+        ...clearedPaths,
+        ...paths.filter((p) => !staged.has(p) && !clearedPaths.includes(p)),
+      ];
       paths = paths.filter((p) => staged.has(p));
 
       await Promise.all(clearedPaths.map((p) => store.clearStagedPath(p)));
