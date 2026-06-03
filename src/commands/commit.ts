@@ -17,7 +17,7 @@
 
 import { resolve } from "node:path";
 import { sessionState } from "@ideaspaces/sdk";
-import { commitPaths, repoRoot, stagedPaths, GitError } from "../git.js";
+import { commitPaths, repoRoot, stagedPaths, stagePaths, GitError } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -57,6 +57,7 @@ export const commitCommand: CommandDef = {
     // `store` set only for --tracked (reused for the post-commit clear below).
     const store = flags.tracked ? sessionState(root) : null;
     let paths: string[];
+    let clearedPaths: string[] = [];
 
     if (flags.all) {
       // Commit all staged *ideaspace* paths (markdown + `_agent/`). Staged
@@ -84,6 +85,34 @@ export const commitCommand: CommandDef = {
       if (!paths.length) {
         output.error("No plugin-tracked paths to commit (session state is empty).");
         return 1;
+      }
+
+      // Session state is advisory: it records paths the plugin staged, but it
+      // can outlive the actual git diff when a capture was already committed
+      // or otherwise cleaned up. Reconcile before committing so stale markers
+      // don't block `sync` forever.
+      try {
+        stagePaths(paths, root);
+      } catch (err) {
+        if (err instanceof GitError) {
+          output.error(`Staging tracked paths failed: ${err.message}`);
+          return 1;
+        }
+        throw err;
+      }
+
+      const staged = new Set(stagedPaths(root));
+      clearedPaths = paths.filter((p) => !staged.has(p));
+      paths = paths.filter((p) => staged.has(p));
+
+      await Promise.all(clearedPaths.map((p) => store.clearStagedPath(p)));
+
+      if (!paths.length) {
+        output.result(
+          { commit_sha: null, committed_paths: [], cleared_paths: clearedPaths },
+          `No tracked changes to commit; cleared ${clearedPaths.length} stale marker(s).`,
+        );
+        return 0;
       }
     } else {
       // Explicit args, resolved against the invocation cwd so a bare filename
@@ -114,11 +143,13 @@ export const commitCommand: CommandDef = {
 
     // Drop committed paths from the plugin's tracked set so they don't linger.
     if (store) {
-      for (const p of paths) await store.clearStagedPath(p);
+      await Promise.all(paths.map((p) => store.clearStagedPath(p)));
     }
 
     output.result(
-      { commit_sha: sha, committed_paths: paths },
+      store
+        ? { commit_sha: sha, committed_paths: paths, cleared_paths: clearedPaths }
+        : { commit_sha: sha, committed_paths: paths },
       `Committed ${paths.length} path(s): ${sha}`,
     );
     return 0;
