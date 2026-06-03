@@ -23,6 +23,20 @@ function git(args: string[]): string {
   return r.stdout.trim();
 }
 
+async function captureStdout<T>(fn: () => Promise<T>): Promise<{ result: T; stdout: string }> {
+  const original = process.stdout.write;
+  let stdout = "";
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += chunk.toString();
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    return { result: await fn(), stdout };
+  } finally {
+    process.stdout.write = original;
+  }
+}
+
 beforeEach(async () => {
   tmp = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-commit-")));
   home = await mkdtemp(join(tmpdir(), "is-cli-home-"));
@@ -85,6 +99,51 @@ describe("ideaspaces commit", () => {
     expect(files).toEqual(["tracked.md"]);
     // Committed paths are dropped from the tracked set.
     expect(await sessionState(tmp).getStagedPaths()).toEqual([]);
+  });
+
+  it("--tracked clears stale clean paths instead of blocking sync", async () => {
+    await fs.writeFile(join(tmp, "already.md"), "# Already committed", "utf-8");
+    git(["add", "already.md"]);
+    git(["commit", "-q", "-m", "already committed"]);
+    const before = git(["rev-parse", "HEAD"]);
+
+    const store = sessionState(tmp);
+    await store.recordStagedPath("already.md");
+
+    const exit = await commitCommand.run([], { m: "session capture", tracked: true }, G);
+    expect(exit).toBe(0);
+    expect(git(["rev-parse", "HEAD"])).toBe(before);
+    expect(await sessionState(tmp).getStagedPaths()).toEqual([]);
+  });
+
+  it("--tracked commits dirty paths and clears stale paths in one pass", async () => {
+    await fs.writeFile(join(tmp, "already.md"), "# Already committed", "utf-8");
+    git(["add", "already.md"]);
+    git(["commit", "-q", "-m", "already committed"]);
+
+    await fs.writeFile(join(tmp, "pending.md"), "# Pending", "utf-8");
+    const store = sessionState(tmp);
+    await store.recordStagedPath("already.md");
+    await store.recordStagedPath("pending.md");
+
+    const { result: exit, stdout } = await captureStdout(() =>
+      commitCommand.run([], { m: "session capture", tracked: true }, G),
+    );
+    expect(exit).toBe(0);
+
+    const files = git(["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean);
+    expect(files).toEqual(["pending.md"]);
+    expect(JSON.parse(stdout).cleared_paths).toEqual(["already.md"]);
+    expect(await sessionState(tmp).getStagedPaths()).toEqual([]);
+  });
+
+  it("--tracked reports a staging error when a session path does not exist", async () => {
+    const store = sessionState(tmp);
+    await store.recordStagedPath("missing.md");
+
+    const exit = await commitCommand.run([], { m: "session capture", tracked: true }, G);
+    expect(exit).toBe(1);
+    expect(await sessionState(tmp).getStagedPaths()).toEqual(["missing.md"]);
   });
 
   it("refuses --tracked when nothing is tracked", async () => {
