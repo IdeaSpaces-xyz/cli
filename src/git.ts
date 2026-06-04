@@ -146,7 +146,6 @@ export function stagedIdeaspacePaths(cwd?: string): string[] {
   return stagedPaths(cwd).filter(isIdeaspacePath);
 }
 
-
 export interface RemoteState {
   /** Upstream ref (e.g. `origin/main`), or null if none configured. */
   upstream: string | null;
