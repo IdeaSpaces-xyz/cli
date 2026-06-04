@@ -1,14 +1,14 @@
 /**
  * `ideaspaces status` — where the capture stands.
  *
- * Surfaces the working-tree git position (SDK `gitState`) plus the paths the
- * plugin staged this session (SDK `sessionState`), shown separately so the
- * user sees what's awaiting the explicit `commit` save.
+ * Surfaces the working-tree git position (SDK `gitState`) plus the staged
+ * knowledge paths (markdown + `_agent/`) read straight from git's index, shown
+ * separately so the user sees what's awaiting the explicit `commit` save.
  */
 
 import { resolve } from "node:path";
-import { gitState, sessionState } from "@ideaspaces/sdk";
-import { repoRoot, pathStatus, GitError } from "../git.js";
+import { gitState } from "@ideaspaces/sdk";
+import { repoRoot, pathStatus, stagedIdeaspacePaths, GitError } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -59,7 +59,7 @@ export const statusCommand: CommandDef = {
     }
 
     const gs = await gitState(root);
-    const tracked = await sessionState(root).getStagedPaths();
+    const tracked = stagedIdeaspacePaths(root);
 
     const data = {
       repoRoot: gs.repoRoot,
@@ -82,9 +82,9 @@ export const statusCommand: CommandDef = {
     if (tracked.length) {
       lines.push("", `captures awaiting commit (${tracked.length}):`);
       for (const p of tracked) lines.push(`  ${p}`);
-      lines.push("", 'Save them: ideaspaces commit -m "<message>" --tracked');
+      lines.push("", 'Save them: ideaspaces commit -m "<message>" --all');
     } else {
-      lines.push("", "no plugin-tracked captures awaiting commit");
+      lines.push("", "no staged captures awaiting commit");
     }
 
     output.result(data, lines.join("\n"));

@@ -5,7 +5,6 @@ import { realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sessionState } from "@ideaspaces/sdk";
 import { syncCommand } from "../commands/sync.js";
 import type { GlobalFlags } from "../types.js";
 
@@ -53,8 +52,9 @@ describe("ideaspaces sync", () => {
     expect(git(["rev-parse", "HEAD"])).toBe(before);
   });
 
-  it("refuses to sync while plugin-tracked captures are uncommitted", async () => {
-    await sessionState(tmp).recordStagedPath("pending.md");
+  it("refuses to sync while staged captures are uncommitted", async () => {
+    await fs.writeFile(join(tmp, "pending.md"), "# Pending", "utf-8");
+    git(["add", "pending.md"]);
     const exit = await syncCommand.run([], {}, G);
     expect(exit).toBe(1); // refuses before touching the network
   });

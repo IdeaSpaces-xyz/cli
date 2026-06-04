@@ -13,7 +13,6 @@
  * mutates nothing (no fetch, no network).
  */
 
-import { sessionState } from "@ideaspaces/sdk";
 import {
   repoRoot,
   fetch,
@@ -22,6 +21,7 @@ import {
   rebaseOntoUpstream,
   mergeUpstream,
   push,
+  stagedIdeaspacePaths,
   GitError,
 } from "../git.js";
 import { parseBool } from "../argv.js";
@@ -46,14 +46,14 @@ export const syncCommand: CommandDef = {
       return 1;
     }
 
-    // Sync pushes committed history. Uncommitted plugin captures would be left
-    // behind silently — refuse and point at the save step.
-    const tracked = await sessionState(root).getStagedPaths();
-    if (tracked.length) {
+    // Sync pushes committed history. Staged-but-uncommitted knowledge would be
+    // left behind silently — refuse and point at the save step.
+    const staged = stagedIdeaspacePaths(root);
+    if (staged.length) {
       output.error(
-        `Refusing to sync: ${tracked.length} plugin-tracked capture(s) not yet committed.\n` +
-          tracked.map((p) => `  ${p}`).join("\n") +
-          '\nSave them first: ideaspaces commit -m "<message>" --tracked',
+        `Refusing to sync: ${staged.length} staged capture(s) not yet committed.\n` +
+          staged.map((p) => `  ${p}`).join("\n") +
+          '\nSave them first: ideaspaces commit -m "<message>" --all',
       );
       return 1;
     }

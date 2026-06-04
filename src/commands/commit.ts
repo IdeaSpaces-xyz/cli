@@ -6,28 +6,26 @@
  * guesses scope:
  *
  *   - `commit -m "msg" <path>...`  — commit exactly these paths
- *   - `commit -m "msg" --tracked`  — commit paths the plugin staged this
- *                                    session (from SDK session state)
+ *   - `commit -m "msg" --all`      — commit all staged knowledge paths
+ *                                    (markdown + `_agent/`); staged code is left
  *   - bare `commit -m "msg"`       — REFUSES; will not sweep all staged work
- *   - `commit -m "msg" --all`      — deferred (see issue); refuses for now
  *
  * Commits go through `commitPaths`, which uses explicit pathspecs — the user's
- * other staged work is never pulled into a capture commit.
+ * other staged work is never pulled into a capture commit. The staged set comes
+ * straight from git; there is no separate session ledger of "what we captured".
  */
 
 import { resolve } from "node:path";
-import { sessionState } from "@ideaspaces/sdk";
-import { commitPaths, repoRoot, stagedPaths, stagePaths, pathStatus, GitError } from "../git.js";
+import { commitPaths, repoRoot, stagedPaths, isIdeaspacePath, GitError } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
 export const commitCommand: CommandDef = {
   name: "commit",
   description: "Save staged captures — commits only the paths you name",
-  usage: 'ideaspaces commit -m "<message>" <path>... | --tracked | --all',
+  usage: 'ideaspaces commit -m "<message>" <path>... | --all',
   examples: [
     'ideaspaces commit -m "Capture auth decision" notes/auth.md',
-    'ideaspaces commit -m "Session captures" --tracked',
     'ideaspaces commit -m "Save notes" --all   # all staged markdown / _agent/ paths',
   ],
   async run(args, flags, global) {
@@ -47,22 +45,19 @@ export const commitCommand: CommandDef = {
       return 1;
     }
 
-    // Exactly one path source: explicit args, --tracked, or --all.
-    const sources = [args.length > 0, Boolean(flags.tracked), Boolean(flags.all)].filter(Boolean);
-    if (sources.length > 1) {
-      output.error("Use exactly one of: explicit <path>..., --tracked, or --all.");
+    // Exactly one path source: explicit args or --all.
+    if (args.length > 0 && flags.all) {
+      output.error("Use exactly one of: explicit <path>..., or --all.");
       return 1;
     }
 
-    // `store` set only for --tracked (reused for the post-commit clear below).
-    const store = flags.tracked ? sessionState(root) : null;
     let paths: string[];
-    let clearedPaths: string[] = [];
 
     if (flags.all) {
       // Commit all staged *ideaspace* paths (markdown + `_agent/`). Staged
       // non-knowledge files (code, configs) are left for the user to commit
-      // themselves — this never sweeps up source changes.
+      // themselves — this never sweeps up source changes. The staged set is
+      // git's index; we don't keep our own list.
       const staged = stagedPaths(root);
       if (!staged.length) {
         output.error("Nothing staged to commit.");
@@ -80,56 +75,6 @@ export const commitCommand: CommandDef = {
       if (other.length) {
         output.log(`Leaving ${other.length} non-ideaspace staged path(s) for you to commit: ${other.join(", ")}`);
       }
-    } else if (store) {
-      paths = await store.getStagedPaths();
-      if (!paths.length) {
-        output.error("No plugin-tracked paths to commit (session state is empty).");
-        return 1;
-      }
-
-      // Session state is advisory: it records paths the plugin staged, but it
-      // can outlive the actual git diff when a capture was already committed
-      // or otherwise cleaned up. Reconcile before committing so stale markers
-      // don't block `sync` forever. Stage one path at a time so a missing stale
-      // entry cannot prevent valid tracked captures from being committed.
-      const stageErrors: string[] = [];
-      for (const p of paths) {
-        try {
-          // Probe: re-staging lets `diff --cached` distinguish paths with real
-          // changes from stale session markers. `commitPaths` stages again by
-          // contract; that second add is harmless.
-          stagePaths([p], root);
-        } catch (err) {
-          if (!(err instanceof GitError)) throw err;
-          const ps = pathStatus(p, root);
-          if (!ps.exists && !ps.inTracked) {
-            clearedPaths.push(p);
-          } else {
-            stageErrors.push(`${p}: ${err.message}`);
-          }
-        }
-      }
-      if (stageErrors.length) {
-        output.error(`Staging tracked paths failed:\n${stageErrors.map((e) => `  ${e}`).join("\n")}`);
-        return 1;
-      }
-
-      const staged = new Set(stagedPaths(root));
-      clearedPaths = [
-        ...clearedPaths,
-        ...paths.filter((p) => !staged.has(p) && !clearedPaths.includes(p)),
-      ];
-      paths = paths.filter((p) => staged.has(p));
-
-      await Promise.all(clearedPaths.map((p) => store.clearStagedPath(p)));
-
-      if (!paths.length) {
-        output.result(
-          { commit_sha: null, committed_paths: [], cleared_paths: clearedPaths },
-          `No tracked changes to commit; cleared ${clearedPaths.length} stale marker(s).`,
-        );
-        return 0;
-      }
     } else {
       // Explicit args, resolved against the invocation cwd so a bare filename
       // from a subdir still points at the right file.
@@ -141,7 +86,7 @@ export const commitCommand: CommandDef = {
       output.error(
         'Refusing to commit with no paths. Name the paths to save:\n' +
           '  ideaspaces commit -m "<message>" <path>...\n' +
-          "or use --tracked / --all.",
+          "or use --all.",
       );
       return 1;
     }
@@ -157,22 +102,10 @@ export const commitCommand: CommandDef = {
       throw err;
     }
 
-    // Drop committed paths from the plugin's tracked set so they don't linger.
-    if (store) {
-      await Promise.all(paths.map((p) => store.clearStagedPath(p)));
-    }
-
     output.result(
-      store
-        ? { commit_sha: sha, committed_paths: paths, cleared_paths: clearedPaths }
-        : { commit_sha: sha, committed_paths: paths },
+      { commit_sha: sha, committed_paths: paths },
       `Committed ${paths.length} path(s): ${sha}`,
     );
     return 0;
   },
 };
-
-/** Knowledge path: a markdown file, or anything under an `_agent/` dir. */
-function isIdeaspacePath(path: string): boolean {
-  return path.endsWith(".md") || path.split("/").includes("_agent");
-}
