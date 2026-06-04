@@ -136,6 +136,15 @@ export function stagedPaths(cwd?: string): string[] {
   return r.out.split("\n").filter(Boolean);
 }
 
+/** Knowledge path: a markdown file, or anything under an `_agent/` dir. */
+export function isIdeaspacePath(path: string): boolean {
+  return path.endsWith(".md") || path.split("/").includes("_agent");
+}
+
+/** Staged paths that are ideaspace knowledge (markdown or `_agent/`). */
+export function stagedIdeaspacePaths(cwd?: string): string[] {
+  return stagedPaths(cwd).filter(isIdeaspacePath);
+}
 
 export interface RemoteState {
   /** Upstream ref (e.g. `origin/main`), or null if none configured. */
