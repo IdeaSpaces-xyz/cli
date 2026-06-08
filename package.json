@@ -21,7 +21,7 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build && npm run bundle"
+    "prepare": "npm run build && npm run bundle"
   },
   "dependencies": {
     "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk"
