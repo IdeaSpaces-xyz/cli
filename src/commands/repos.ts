@@ -46,7 +46,7 @@ export const reposCommand: CommandDef = {
       { username: me.username, repos },
       repos.length
         ? repos
-            .map((r) => `${r.slug}  (${r.role}, ${r.member_count} member${r.member_count === 1 ? "" : "s"})`)
+            .map((r) => `${r.slug} (${r.role}, ${r.member_count} member${r.member_count === 1 ? "" : "s"})`)
             .join("\n")
         : "No spaces yet. Create one at your account, or `ideaspaces create`.",
     );
