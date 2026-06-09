@@ -12,6 +12,8 @@ import { skillsCommand } from "./commands/skills.js";
 import { credentialCommand } from "./commands/credential.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { reposCommand } from "./commands/repos.js";
+import { cloneCommand } from "./commands/clone.js";
+import { clonesCommand } from "./commands/clones.js";
 
 // Power commands
 import { logoutCommand } from "./commands/power/logout.js";
@@ -21,6 +23,8 @@ const topLevel: CommandDef[] = [
   loginCommand,
   whoamiCommand,
   reposCommand,
+  cloneCommand,
+  clonesCommand,
   publishCommand,
   writeCommand,
   commitCommand,
