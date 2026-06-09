@@ -19,6 +19,7 @@ let stdoutChunks: string[];
 let originalWrite: typeof process.stdout.write;
 
 beforeEach(() => {
+  loadConfigMock.mockReset();
   stdoutChunks = [];
   originalWrite = process.stdout.write.bind(process.stdout);
   (process.stdout.write as unknown as (s: string) => boolean) = (chunk: string | Uint8Array) => {
@@ -29,7 +30,6 @@ beforeEach(() => {
 
 afterEach(() => {
   (process.stdout.write as unknown as typeof originalWrite) = originalWrite;
-  loadConfigMock.mockReset();
 });
 
 function capturedStdout(): string {
@@ -63,5 +63,14 @@ describe("whoami", () => {
     await whoamiCommand.run([], {}, HUMAN_GLOBAL);
 
     expect(capturedStdout()).toContain("Not logged in");
+  });
+
+  it("prints the API url in human-readable text when logged in", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "secret-key" });
+
+    await whoamiCommand.run([], {}, HUMAN_GLOBAL);
+
+    expect(capturedStdout()).toContain("Logged in to https://api.example.test");
+    expect(capturedStdout()).not.toContain("secret-key");
   });
 });
