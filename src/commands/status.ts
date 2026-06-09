@@ -8,17 +8,18 @@
 
 import { resolve } from "node:path";
 import { gitState } from "@ideaspaces/sdk";
-import { repoRoot, pathStatus, stagedIdeaspacePaths, GitError } from "../git.js";
+import { repoRoot, pathStatus, stagedIdeaspacePaths, fetch as gitFetch, GitError } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
 export const statusCommand: CommandDef = {
   name: "status",
   description: "Show git position and plugin-tracked captures awaiting commit",
-  usage: "ideaspaces status [--path FILE] [--json]",
+  usage: "ideaspaces status [--path FILE] [--fetch] [--json]",
   examples: [
     "ideaspaces status",
     "ideaspaces status --json",
+    "ideaspaces status --fetch  # fetch first, so ahead/behind reflect the remote",
     "ideaspaces status --path notes/a.md  # single-file state + sha (if_match source)",
   ],
   async run(_args, flags, global) {
@@ -56,6 +57,18 @@ export const statusCommand: CommandDef = {
           : `${pathArg}: does not exist`,
       );
       return 0;
+    }
+
+    // --fetch updates remote-tracking so ahead/behind reflect the real remote,
+    // not the last-known state. Read-only: it fetches and reports, never
+    // integrates or pushes (that's `sync`).
+    if (flags.fetch) {
+      try {
+        gitFetch(root);
+      } catch (err) {
+        output.error(err instanceof Error ? err.message : String(err));
+        return 1;
+      }
     }
 
     const gs = await gitState(root);
