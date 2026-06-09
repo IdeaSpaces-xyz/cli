@@ -14,23 +14,33 @@ function git(cwd: string, args: string[]): void {
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
 }
 
-async function statusJson(cwd: string, flags: Record<string, string | boolean>) {
+async function runStatus(cwd: string, flags: Record<string, string | boolean>) {
   const origCwd = process.cwd();
   process.chdir(cwd);
   let out = "";
-  const orig = process.stdout.write.bind(process.stdout);
+  let err = "";
+  const origOut = process.stdout.write.bind(process.stdout);
+  const origErr = process.stderr.write.bind(process.stderr);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (process.stdout as any).write = (s: any) => {
-    out += s;
-    return true;
-  };
+  (process.stdout as any).write = (s: any) => ((out += s), true);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (process.stderr as any).write = (s: any) => ((err += s), true);
+  let exit: number;
   try {
-    await statusCommand.run([], flags, G);
+    exit = await statusCommand.run([], flags, G);
   } finally {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (process.stdout as any).write = orig;
+    (process.stdout as any).write = origOut;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (process.stderr as any).write = origErr;
     process.chdir(origCwd);
   }
+  return { exit, out, err };
+}
+
+async function statusJson(cwd: string, flags: Record<string, string | boolean>) {
+  const { out } = await runStatus(cwd, flags);
+  if (!out) throw new Error("status produced no stdout");
   return JSON.parse(out);
 }
 
@@ -40,6 +50,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "is-status-fetch-"));
   const bare = join(root, "remote.git");
   const a = join(root, "a");
+  const b = join(root, "b");
 
   git(root, ["init", "--bare", "-b", "main", bare]);
   git(root, ["clone", bare, a]);
@@ -50,7 +61,9 @@ beforeEach(async () => {
   git(a, ["commit", "-m", "one"]);
   git(a, ["push", "-u", "origin", "main"]);
   // Second clone `b` starts at "one".
-  git(root, ["clone", bare, join(root, "b")]);
+  git(root, ["clone", bare, b]);
+  git(b, ["config", "user.email", "b@test"]);
+  git(b, ["config", "user.name", "B"]);
 });
 
 afterEach(async () => {
@@ -67,10 +80,17 @@ describe("status --fetch", () => {
     git(a, ["commit", "-am", "two"]);
     git(a, ["push"]);
 
-    const stale = await statusJson(b, {});
-    expect(stale.behind).toBe(0);
+    expect((await statusJson(b, {})).behind).toBe(0);
+    expect((await statusJson(b, { fetch: true })).behind).toBe(1);
+  });
 
-    const fresh = await statusJson(b, { fetch: true });
-    expect(fresh.behind).toBe(1);
+  it("exits 1 with context when the fetch fails", async () => {
+    const b = join(root, "b");
+    git(b, ["remote", "set-url", "origin", "file:///does/not/exist.git"]);
+
+    const { exit, err } = await runStatus(b, { fetch: true });
+
+    expect(exit).toBe(1);
+    expect(err).toContain("git fetch failed");
   });
 });

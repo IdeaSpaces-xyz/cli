@@ -20,6 +20,7 @@ export const statusCommand: CommandDef = {
     "ideaspaces status",
     "ideaspaces status --json",
     "ideaspaces status --fetch  # fetch first, so ahead/behind reflect the remote",
+    "ideaspaces status --fetch --path notes/a.md",
     "ideaspaces status --path notes/a.md  # single-file state + sha (if_match source)",
   ],
   async run(_args, flags, global) {
@@ -59,14 +60,12 @@ export const statusCommand: CommandDef = {
       return 0;
     }
 
-    // --fetch updates remote-tracking so ahead/behind reflect the real remote,
-    // not the last-known state. Read-only: it fetches and reports, never
-    // integrates or pushes (that's `sync`).
+    // Read-only: fetch then report, never integrate (that's `sync`).
     if (flags.fetch) {
       try {
         gitFetch(root);
       } catch (err) {
-        output.error(err instanceof Error ? err.message : String(err));
+        output.error(`git fetch failed: ${err instanceof Error ? err.message : String(err)}`);
         return 1;
       }
     }
