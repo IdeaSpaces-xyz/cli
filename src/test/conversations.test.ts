@@ -72,7 +72,33 @@ describe("conversations", () => {
     const data = JSON.parse(stdout());
     expect(data.repo_id).toBe("repo_abc");
     expect(data.conversations[0]).toMatchObject({ conversation_id: "c1", name: "Kickoff", message_count: 3 });
+    expect(data.has_more).toBe(false);
     expect(fetchConversationsMock).toHaveBeenCalledWith(expect.anything(), "repo_abc");
+  });
+
+  it("flags has_more when the server caps results", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchConversationsMock.mockResolvedValue({
+      total: 75,
+      conversations: [
+        { conversation_id: "c1", name: "A", summary: "", message_count: 1, status: "idle", updated_at: "x" },
+      ],
+    });
+
+    const code = await conversationsCommand.run(["repo_abc"], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout()).has_more).toBe(true);
+  });
+
+  it("surfaces a generic error (non-401)", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchConversationsMock.mockRejectedValue(new Error("GET /conversations → 500: boom"));
+
+    const code = await conversationsCommand.run(["repo_abc"], {}, JSON_GLOBAL);
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("500");
   });
 
   it("requires a repo id", async () => {
