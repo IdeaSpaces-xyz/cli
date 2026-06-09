@@ -152,3 +152,32 @@ export async function createRepo(
 ): Promise<CreateRepoResult> {
   return request<CreateRepoResult>(config, "POST", `${API_V1}/repos`, body, opts);
 }
+
+export interface ConversationSummary {
+  conversation_id: string;
+  name: string;
+  summary: string;
+  message_count: number;
+  status: string;
+  updated_at: string;
+}
+
+export interface ConversationsResponse {
+  conversations: ConversationSummary[];
+  total: number;
+}
+
+/** List a repo's conversations (newest-first is the server's default order). */
+export async function fetchConversations(
+  config: ApiConfig,
+  repoId: string,
+  opts?: RequestOptions,
+): Promise<ConversationsResponse> {
+  return request<ConversationsResponse>(
+    config,
+    "GET",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations?limit=50&offset=0`,
+    undefined,
+    opts,
+  );
+}
