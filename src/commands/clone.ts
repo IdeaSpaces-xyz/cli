@@ -65,6 +65,7 @@ export const cloneCommand: CommandDef = {
     const url = `${deriveGitBase(config.apiUrl)}/${namespace}/${repo.slug}.git`;
     const dir = resolve(args[1] ?? repo.slug);
 
+    output.progress(`Cloning ${namespace}/${repo.slug}…`);
     try {
       cloneRepo(url, dir);
     } catch (err) {
@@ -72,8 +73,13 @@ export const cloneCommand: CommandDef = {
       return 1;
     }
 
-    // Bind the folder to the space so `sync` knows what it is.
-    saveSpace(dir, { repo_id: repo.repo_id, slug: repo.slug, namespace });
+    // Bind the folder to the space so `sync` knows what it is. The clone already
+    // succeeded — a registry write failure is a warning, not a hard failure.
+    try {
+      saveSpace(dir, { repo_id: repo.repo_id, slug: repo.slug, namespace });
+    } catch {
+      output.error("Clone succeeded but the folder could not be bound — re-run clone to bind it.");
+    }
 
     output.result(
       { repo_id: repo.repo_id, slug: repo.slug, namespace, path: dir },

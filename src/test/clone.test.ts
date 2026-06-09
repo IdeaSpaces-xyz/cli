@@ -92,6 +92,56 @@ describe("clone", () => {
     );
   });
 
+  it("resolves a space by namespace/slug", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({
+      username: "alice",
+      repos: [{ repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 }],
+    });
+
+    const code = await cloneCommand.run(["alice/notes"], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(cloneRepoMock).toHaveBeenCalledWith(
+      expect.stringContaining("/alice/notes.git"),
+      expect.anything(),
+    );
+  });
+
+  it("refuses an ambiguous target", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({
+      username: "alice",
+      repos: [
+        { repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 },
+        { repo_id: "r2", slug: "notes", hostname: "acme.com", role: "member", member_count: 3 },
+      ],
+    });
+
+    const code = await cloneCommand.run(["notes"], {}, JSON_GLOBAL);
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("ambiguous");
+    expect(cloneRepoMock).not.toHaveBeenCalled();
+  });
+
+  it("propagates a clone failure and does not bind", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({
+      username: "alice",
+      repos: [{ repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 }],
+    });
+    cloneRepoMock.mockImplementation(() => {
+      throw new Error("destination path 'notes' already exists");
+    });
+
+    const code = await cloneCommand.run(["notes"], {}, JSON_GLOBAL);
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("already exists");
+    expect(saveSpaceMock).not.toHaveBeenCalled();
+  });
+
   it("errors and does not clone when not logged in", async () => {
     loadConfigMock.mockReturnValue(null);
 
