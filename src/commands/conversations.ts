@@ -38,21 +38,17 @@ export const conversationsCommand: CommandDef = {
       return 1;
     }
 
-    const conversations = res.conversations.map((c) => ({
-      conversation_id: c.conversation_id,
-      name: c.name,
-      summary: c.summary,
-      message_count: c.message_count,
-      status: c.status,
-      updated_at: c.updated_at,
-    }));
+    const { conversations, total } = res;
+    // Results are capped at the request limit; `has_more` tells consumers the
+    // list was truncated so `total` isn't read as "all of these are here".
+    const has_more = total > conversations.length;
 
     output.result(
-      { repo_id: repoId, conversations, total: res.total },
+      { repo_id: repoId, conversations, total, has_more },
       conversations.length
         ? conversations
             .map((c) => `${c.name || "(untitled)"} — ${c.message_count} message${c.message_count === 1 ? "" : "s"}`)
-            .join("\n")
+            .join("\n") + (has_more ? `\n… and ${total - conversations.length} more` : "")
         : "No conversations.",
     );
     return 0;
