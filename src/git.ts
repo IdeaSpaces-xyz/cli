@@ -32,6 +32,11 @@ function gitOrThrow(args: string[], cwd?: string): string {
   return r.out;
 }
 
+/** Clone `url` into `dir`. The git credential helper supplies auth. */
+export function cloneRepo(url: string, dir: string): void {
+  gitOrThrow(["clone", url, dir]);
+}
+
 /** Absolute git toplevel for `cwd` (or process cwd). Throws if not in a repo. */
 export function repoRoot(cwd?: string): string {
   const r = git(["rev-parse", "--show-toplevel"], cwd);
