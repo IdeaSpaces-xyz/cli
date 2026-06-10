@@ -2,7 +2,6 @@ import { resolve } from "node:path";
 import {
   deriveGitBase,
   fetchAuthMe,
-  normalizeRepoUrl,
   UnauthorizedError,
   type AuthMeRepo,
   type AuthMeResponse,
@@ -10,7 +9,7 @@ import {
 import { loadConfig } from "../auth/credentials.js";
 import { saveSpace } from "../auth/spaces.js";
 import { identityEmail, identityName } from "../auth/identity.js";
-import { isGitRepo, originUrl, setLocalConfig } from "../git.js";
+import { isGitRepo, normalizeRepoUrl, originUrl, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 

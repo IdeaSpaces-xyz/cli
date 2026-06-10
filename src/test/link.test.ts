@@ -17,15 +17,17 @@ vi.mock("../auth/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/api.js")>();
   return { ...actual, fetchAuthMe: fetchAuthMeMock };
 });
-vi.mock("../git.js", () => ({
-  isGitRepo: isGitRepoMock,
-  originUrl: originUrlMock,
-  setLocalConfig: setLocalConfigMock,
-}));
+// Partial mock: keep the real `normalizeRepoUrl` (URL matching must work), but
+// stub the git-spawning helpers link actually calls.
+vi.mock("../git.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../git.js")>();
+  return { ...actual, isGitRepo: isGitRepoMock, originUrl: originUrlMock, setLocalConfig: setLocalConfigMock };
+});
 vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock }));
 
 const { linkCommand } = await import("../commands/link.js");
-const { normalizeRepoUrl, UnauthorizedError } = await import("../auth/api.js");
+const { normalizeRepoUrl } = await import("../git.js");
+const { UnauthorizedError } = await import("../auth/api.js");
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
 
@@ -110,6 +112,19 @@ describe("link — auto-detect from origin", () => {
     const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);
     expect(code).toBe(0);
     expect(saveSpaceMock).toHaveBeenCalled();
+  });
+
+  it("re-links a folder by overwriting its registry binding (no --force)", async () => {
+    // Re-binding a verified clone is intentionally idempotent — saveSpace is
+    // replace-semantics and the binding is a pointer, not user content, so
+    // there's nothing to destroy. (Verification still gates every bind.)
+    const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);
+    expect(code).toBe(0);
+    expect(saveSpaceMock).toHaveBeenCalledWith(expect.stringContaining("theone"), {
+      repo_id: "r1",
+      slug: "notes",
+      namespace: "alice",
+    });
   });
 
   it("rejects a folder whose origin isn't one of the user's spaces", async () => {
