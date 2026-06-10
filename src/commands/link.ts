@@ -63,6 +63,8 @@ export const linkCommand: CommandDef = {
       return 1;
     }
 
+    output.progress(`Linking ${dir}…`);
+
     let me: AuthMeResponse;
     try {
       me = await fetchAuthMe(config);

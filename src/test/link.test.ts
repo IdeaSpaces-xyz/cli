@@ -25,7 +25,7 @@ vi.mock("../git.js", () => ({
 vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock }));
 
 const { linkCommand } = await import("../commands/link.js");
-const { normalizeRepoUrl } = await import("../auth/api.js");
+const { normalizeRepoUrl, UnauthorizedError } = await import("../auth/api.js");
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
 
@@ -166,6 +166,31 @@ describe("link — guards", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("no `origin`");
     expect(saveSpaceMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unparseable origin URL", async () => {
+    originUrlMock.mockReturnValue("not-a-url");
+    const code = await linkCommand.run(["./weird"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Could not parse the origin remote");
+    expect(saveSpaceMock).not.toHaveBeenCalled();
+  });
+
+  it("errors on session expiry (UnauthorizedError)", async () => {
+    fetchAuthMeMock.mockRejectedValue(new UnauthorizedError());
+    const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Session expired");
+    expect(saveSpaceMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a registry write failure after the folder verifies", async () => {
+    saveSpaceMock.mockImplementation(() => {
+      throw new Error("disk full");
+    });
+    const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("could not write the clone registry");
   });
 
   it("errors when not logged in", async () => {
