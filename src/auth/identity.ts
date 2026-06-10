@@ -15,10 +15,16 @@ export function identityEmail(username: string): string {
 /** True when an email is already an IdeaSpaces identity. */
 const isIdentityEmail = (email: string): boolean => /^person:.+@ideaspaces$/.test(email);
 
+/** Commit display name for an account — its display name, else the username. */
+export function identityName(me: { name: string | null; username: string }): string {
+  return me.name ?? me.username;
+}
+
 /**
- * Ensure a clone's local `user.email` is the OAuth identity, so commits made in
- * it pass the server's attribution pre-receive hook (which otherwise rejects the
- * ambient `git config user.email`, e.g. a default `test@example.com`).
+ * Ensure a clone's local `user.email`/`user.name` reflect the OAuth identity, so
+ * commits made in it pass the server's attribution pre-receive hook (which
+ * otherwise rejects the ambient `git config user.email`, e.g. a default
+ * `test@example.com`) and read cleanly in history.
  *
  * Offline-safe and cheap: a no-op when the local email is already an identity,
  * so only the first commit in a pre-existing clone pays a short network call.
@@ -37,6 +43,7 @@ export async function ensureLocalIdentity(repoDir: string): Promise<void> {
     );
     if (!me.username) return;
     setLocalConfig("user.email", identityEmail(me.username), repoDir);
+    setLocalConfig("user.name", identityName({ name: me.name, username: me.username }), repoDir);
   } catch {
     // Don't block on transient auth/network/git failure.
   }

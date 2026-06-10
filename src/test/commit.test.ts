@@ -142,7 +142,7 @@ describe("ideaspaces commit — git author identity", () => {
     }
   });
 
-  function mockAuthMe(username: string | null) {
+  function mockAuthMe(username: string | null, name: string | null = null) {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
@@ -153,7 +153,7 @@ describe("ideaspaces commit — git author identity", () => {
               user_id: 1,
               username,
               email: null,
-              name: null,
+              name,
               repos: [],
               onboarding_complete: true,
             }),
@@ -165,15 +165,26 @@ describe("ideaspaces commit — git author identity", () => {
     );
   }
 
-  it("attributes the commit to the OAuth identity (sets local user.email)", async () => {
-    mockAuthMe("alice");
+  it("attributes the commit to the OAuth identity (email + display name)", async () => {
+    mockAuthMe("alice", "Alice Smith");
     await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
 
     const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
     expect(exit).toBe(0);
 
     expect(git(["config", "--local", "user.email"])).toBe("person:alice@ideaspaces");
-    expect(git(["log", "-1", "--format=%ae"])).toBe("person:alice@ideaspaces");
+    expect(git(["config", "--local", "user.name"])).toBe("Alice Smith");
+    // The commit author reflects both.
+    expect(git(["log", "-1", "--format=%an <%ae>"])).toBe("Alice Smith <person:alice@ideaspaces>");
+  });
+
+  it("falls back to the username when the account has no display name", async () => {
+    mockAuthMe("alice", null);
+    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+
+    const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
+    expect(exit).toBe(0);
+    expect(git(["config", "--local", "user.name"])).toBe("alice");
   });
 
   it("does not re-fetch when the local identity is already wired", async () => {
