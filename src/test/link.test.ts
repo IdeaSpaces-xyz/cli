@@ -149,6 +149,46 @@ describe("link — explicit target", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("No space matches");
   });
+
+  it("refuses an ambiguous named space (same slug across repos)", async () => {
+    fetchAuthMeMock.mockResolvedValue({
+      ...ALICE,
+      repos: [
+        { repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 },
+        { repo_id: "r2", slug: "notes", hostname: "acme.com", role: "member", member_count: 3 },
+      ],
+    });
+    const code = await linkCommand.run(["./theone", "notes"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("ambiguous");
+    expect(saveSpaceMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("link — identity wiring", () => {
+  it("binds without wiring identity when the account has no username", async () => {
+    // An org space (hostname namespace) resolves without a username, but the
+    // `person:<username>` identity can't be formed — wiring is skipped, not fatal.
+    originUrlMock.mockReturnValue("https://git.example.test/acme.com/team.git");
+    fetchAuthMeMock.mockResolvedValue({
+      username: null,
+      name: null,
+      repos: [{ repo_id: "r9", slug: "team", hostname: "acme.com", role: "member", member_count: 2 }],
+    });
+    const code = await linkCommand.run(["./team"], {}, JSON_GLOBAL);
+    expect(code).toBe(0);
+    expect(saveSpaceMock).toHaveBeenCalled();
+    expect(setLocalConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("still succeeds when wiring the identity throws", async () => {
+    setLocalConfigMock.mockImplementation(() => {
+      throw new Error("config locked");
+    });
+    const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);
+    expect(code).toBe(0);
+    expect(saveSpaceMock).toHaveBeenCalled();
+  });
 });
 
 describe("link — guards", () => {
@@ -177,7 +217,7 @@ describe("link — guards", () => {
   });
 
   it("errors on session expiry (UnauthorizedError)", async () => {
-    fetchAuthMeMock.mockRejectedValue(new UnauthorizedError());
+    fetchAuthMeMock.mockRejectedValue(new UnauthorizedError("session expired"));
     const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("Session expired");
