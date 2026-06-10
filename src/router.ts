@@ -14,6 +14,7 @@ import { whoamiCommand } from "./commands/whoami.js";
 import { reposCommand } from "./commands/repos.js";
 import { cloneCommand } from "./commands/clone.js";
 import { clonesCommand } from "./commands/clones.js";
+import { linkCommand } from "./commands/link.js";
 import { conversationsCommand } from "./commands/conversations.js";
 
 // Power commands
@@ -26,6 +27,7 @@ const topLevel: CommandDef[] = [
   reposCommand,
   cloneCommand,
   clonesCommand,
+  linkCommand,
   conversationsCommand,
   publishCommand,
   writeCommand,
