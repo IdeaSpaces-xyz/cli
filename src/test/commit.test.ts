@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { realpathSync } from "node:fs";
@@ -13,6 +13,7 @@ const G: GlobalFlags = { json: true, quiet: true, yes: false, help: false };
 
 let tmp: string;
 let cwd: string;
+let originalHome: string | undefined;
 
 function git(args: string[]): string {
   const r = spawnSync("git", args, { cwd: tmp, encoding: "utf-8" });
@@ -23,6 +24,10 @@ function git(args: string[]): string {
 beforeEach(async () => {
   tmp = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-commit-")));
   cwd = process.cwd();
+  // Isolate HOME so the identity wiring reads no real credentials and makes no
+  // network call (commit now ensures attribution via the stored OAuth account).
+  originalHome = process.env.HOME;
+  process.env.HOME = tmp;
   process.chdir(tmp);
   git(["init", "-q", "-b", "main"]);
   git(["config", "user.email", "t@e.com"]);
@@ -31,6 +36,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   process.chdir(cwd);
+  if (originalHome !== undefined) process.env.HOME = originalHome;
+  else delete process.env.HOME;
+  vi.unstubAllGlobals();
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -107,5 +115,89 @@ describe("ideaspaces commit", () => {
     expect(c).toBe(0);
     const files = git(["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean);
     expect(files).toEqual(["note.md"]);
+  });
+});
+
+describe("ideaspaces commit — git author identity", () => {
+  // git commit takes the author email from these env vars over local config,
+  // so unset the email ones to let the wired user.email be the source of truth.
+  // Keep the NAME vars for a valid committer on bare CI runners.
+  const ENV_EMAILS = ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"] as const;
+  let savedEmails: Record<string, string | undefined>;
+
+  beforeEach(async () => {
+    savedEmails = Object.fromEntries(ENV_EMAILS.map((k) => [k, process.env[k]]));
+    for (const k of ENV_EMAILS) delete process.env[k];
+    await fs.mkdir(join(tmp, ".ideaspaces"), { recursive: true });
+    await fs.writeFile(
+      join(tmp, ".ideaspaces", "credentials.json"),
+      JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
+    );
+  });
+
+  afterEach(() => {
+    for (const k of ENV_EMAILS) {
+      if (savedEmails[k] !== undefined) process.env[k] = savedEmails[k];
+      else delete process.env[k];
+    }
+  });
+
+  function mockAuthMe(username: string | null) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) {
+          return new Response(
+            JSON.stringify({
+              user_id: 1,
+              username,
+              email: null,
+              name: null,
+              repos: [],
+              onboarding_complete: true,
+            }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+  }
+
+  it("attributes the commit to the OAuth identity (sets local user.email)", async () => {
+    mockAuthMe("alice");
+    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+
+    const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
+    expect(exit).toBe(0);
+
+    expect(git(["config", "--local", "user.email"])).toBe("person:alice@ideaspaces");
+    expect(git(["log", "-1", "--format=%ae"])).toBe("person:alice@ideaspaces");
+  });
+
+  it("does not re-fetch when the local identity is already wired", async () => {
+    git(["config", "user.email", "person:bob@ideaspaces"]);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+
+    const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
+    expect(exit).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(git(["log", "-1", "--format=%ae"])).toBe("person:bob@ideaspaces");
+  });
+
+  it("still commits when not logged in (no credentials, no network)", async () => {
+    await rm(join(tmp, ".ideaspaces"), { recursive: true, force: true });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+
+    const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
+    expect(exit).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Falls back to the ambient identity — push would still be gated server-side.
+    expect(git(["config", "--local", "user.email"])).toBe("t@e.com");
   });
 });

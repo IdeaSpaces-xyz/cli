@@ -37,6 +37,17 @@ export function cloneRepo(url: string, dir: string): void {
   gitOrThrow(["clone", url, dir]);
 }
 
+/** Read a repo-local git config value, or null if unset. */
+export function localConfig(key: string, cwd?: string): string | null {
+  const r = git(["config", "--local", key], cwd);
+  return r.ok ? r.out || null : null;
+}
+
+/** Set a repo-local git config value. */
+export function setLocalConfig(key: string, value: string, cwd?: string): void {
+  gitOrThrow(["config", "--local", key, value], cwd);
+}
+
 /** Absolute git toplevel for `cwd` (or process cwd). Throws if not in a repo. */
 export function repoRoot(cwd?: string): string {
   const r = git(["rev-parse", "--show-toplevel"], cwd);
