@@ -50,6 +50,34 @@ export interface CreateRepoResult {
  * partially-up or slow server. Override via `opts.timeoutMs` per call. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
 
+/**
+ * Canonical `host/path` key for a git remote URL, for comparing two URLs that
+ * point at the same repo through different forms. Strips the scheme, embedded
+ * credentials, a trailing `.git`, and trailing slashes; lowercases the host
+ * (case-insensitive) but preserves the path (namespace/slug are case-sensitive).
+ * Accepts both `https://host/ns/slug.git` and scp-style `git@host:ns/slug.git`.
+ * Returns null when the input can't be parsed as a remote URL.
+ */
+export function normalizeRepoUrl(raw: string): string | null {
+  let s = raw.trim();
+  if (!s) return null;
+  // scp-like syntax (`git@host:ns/slug`) → ssh URL so URL() can parse it.
+  const scp = /^[^/@]+@([^:/]+):(.+)$/.exec(s);
+  if (scp) s = `ssh://${scp[1]}/${scp[2]}`;
+  let host: string;
+  let path: string;
+  try {
+    const u = new URL(s);
+    host = u.hostname;
+    path = u.pathname;
+  } catch {
+    return null;
+  }
+  path = path.replace(/^\/+/, "").replace(/\.git$/i, "").replace(/\/+$/, "");
+  if (!host || !path) return null;
+  return `${host.toLowerCase()}/${path}`;
+}
+
 /** Derive the git host URL from the api URL by swapping the `api.`
  * subdomain for `git.`. `IS_GIT_URL` env override wins for dev/localhost
  * setups where the convention can't be inferred (no `api.` prefix). */

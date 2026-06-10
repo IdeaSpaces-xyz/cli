@@ -37,6 +37,18 @@ export function cloneRepo(url: string, dir: string): void {
   gitOrThrow(["clone", url, dir]);
 }
 
+/** True if `cwd` is inside a git work tree. */
+export function isGitRepo(cwd?: string): boolean {
+  const r = git(["rev-parse", "--is-inside-work-tree"], cwd);
+  return r.ok && r.out === "true";
+}
+
+/** The `origin` remote URL for a repo, or null if unset / not a repo. */
+export function originUrl(cwd?: string): string | null {
+  const r = git(["remote", "get-url", "origin"], cwd);
+  return r.ok ? r.out || null : null;
+}
+
 /** Read a repo-local git config value, or null if unset. */
 export function localConfig(key: string, cwd?: string): string | null {
   const r = git(["config", "--local", key], cwd);
