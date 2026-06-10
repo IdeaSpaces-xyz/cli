@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 import { deriveGitBase, fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { saveSpace } from "../auth/spaces.js";
-import { cloneRepo } from "../git.js";
+import { identityEmail, identityName } from "../auth/identity.js";
+import { cloneRepo, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -79,6 +80,19 @@ export const cloneCommand: CommandDef = {
       saveSpace(dir, { repo_id: repo.repo_id, slug: repo.slug, namespace });
     } catch {
       output.error("Clone succeeded but the folder could not be bound — re-run clone to bind it.");
+    }
+
+    // Wire the OAuth identity into the new clone so commits made in it pass the
+    // server's attribution hook and read cleanly in history. `me` is already in
+    // hand from the clone resolution above — no extra round-trip. Best-effort: a
+    // config failure doesn't undo a successful clone (`commit` re-ensures it).
+    if (me.username) {
+      try {
+        setLocalConfig("user.email", identityEmail(me.username), dir);
+        setLocalConfig("user.name", identityName({ name: me.name, username: me.username }), dir);
+      } catch {
+        // Non-fatal — commit will set it on first use.
+      }
     }
 
     output.result(

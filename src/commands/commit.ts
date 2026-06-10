@@ -17,6 +17,7 @@
 
 import { resolve } from "node:path";
 import { commitPaths, repoRoot, stagedPaths, isIdeaspacePath, GitError } from "../git.js";
+import { ensureLocalIdentity } from "../auth/identity.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -90,6 +91,10 @@ export const commitCommand: CommandDef = {
       );
       return 1;
     }
+
+    // Attribute the commit to the logged-in OAuth identity so the server's
+    // pre-receive hook accepts the eventual push. No-op when already wired.
+    await ensureLocalIdentity(root);
 
     let sha: string;
     try {
