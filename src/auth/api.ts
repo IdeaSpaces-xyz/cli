@@ -383,7 +383,8 @@ export interface SendMessageBody {
 }
 
 /** Extract the JSON payload from one SSE block (`event:`/`data:` lines), or null
- * for keep-alives / unparseable blocks. Multi-line `data:` is concatenated. */
+ * for keep-alives / unparseable blocks. Multi-line `data:` is joined with LF per
+ * the SSE spec (defensive — our JSON events are single-line in practice). */
 function parseSseBlock(block: string): Record<string, unknown> | null {
   const data = block
     .split("\n")
@@ -415,6 +416,7 @@ export async function* streamConversationMessage(
   const r = await fetch(`${config.apiUrl}${path}`, {
     method: "POST",
     headers: {
+      // Keep auth in sync with request() — streaming needs getReader(), not r.json().
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.apiKey}`,
       Accept: "text/event-stream",

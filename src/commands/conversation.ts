@@ -169,7 +169,9 @@ async function cmdMembers(args: string[], output: Output): Promise<number> {
 async function cmdSend(args: string[], flags: Flags, output: Output): Promise<number> {
   const [repoId, convId] = args;
   if (!repoId || !convId) {
-    output.error("Usage: ideaspaces conversation send <repo_id> <conversation_id> --message <text>");
+    output.error(
+      "Usage: ideaspaces conversation send <repo_id> <conversation_id> --message <text> [--model opus] [--thinking]",
+    );
     return 1;
   }
   const message = typeof flags.message === "string" ? flags.message : undefined;
@@ -183,14 +185,19 @@ async function cmdSend(args: string[], flags: Flags, output: Output): Promise<nu
   const body = {
     message,
     ...(typeof flags.model === "string" ? { model_tier: flags.model } : {}),
+    // `--thinking` parses to boolean true; `--thinking=true` to the string "true".
     ...(flags.thinking === true || flags.thinking === "true" ? { thinking: true } : {}),
   };
 
   // Cancel propagation: a SIGINT/SIGTERM (the desktop killing the sidecar) aborts
   // the stream AND tells the server to stop the turn — killing the CLI alone
-  // wouldn't, since the turn runs server-side past disconnect.
+  // wouldn't, since the turn runs server-side past disconnect. Guarded so both
+  // signals (or a repeat) don't fire a second cancel.
   const controller = new AbortController();
+  let signalled = false;
   const onSignal = () => {
+    if (signalled) return;
+    signalled = true;
     controller.abort();
     void cancelConversationTurn(config, repoId, convId).catch(() => {});
   };
@@ -228,7 +235,10 @@ async function cmdGet(args: string[], output: Output): Promise<number> {
       detail,
       detail.history.length
         ? detail.history
-            .map((m) => `${m.role}: ${m.content.replace(/\s+/g, " ").slice(0, 80)}`)
+            .map((m) => {
+              const preview = m.content.replace(/\s+/g, " ");
+              return `${m.role}: ${preview.length > 80 ? preview.slice(0, 79) + "…" : preview}`;
+            })
             .join("\n")
         : "No messages yet.",
     );

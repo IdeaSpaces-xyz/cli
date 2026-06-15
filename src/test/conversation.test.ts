@@ -315,6 +315,14 @@ describe("conversation get", () => {
     await conversationCommand.run(["get", "repo_abc", "c1"], {}, HUMAN_GLOBAL);
     expect(stdout()).toContain("No messages yet");
   });
+
+  it("requires repo and conversation", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    const code = await conversationCommand.run(["get", "repo_abc"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Usage");
+    expect(getConversationMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("conversation cancel", () => {
@@ -324,6 +332,14 @@ describe("conversation cancel", () => {
     const code = await conversationCommand.run(["cancel", "repo_abc", "c1"], {}, JSON_GLOBAL);
     expect(code).toBe(0);
     expect(JSON.parse(stdout()).status).toBe("cancelling");
+  });
+
+  it("requires repo and conversation", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    const code = await conversationCommand.run(["cancel", "repo_abc"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Usage");
+    expect(cancelConversationTurnMock).not.toHaveBeenCalled();
   });
 });
 
