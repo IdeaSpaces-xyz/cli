@@ -303,3 +303,161 @@ export async function fetchRepoMembers(
     opts,
   );
 }
+
+export interface ConversationHistoryMessage {
+  role: "user" | "assistant" | "tool";
+  content: string;
+  created_at?: string;
+  author?: string;
+  tool_calls?: { id: string; name: string; args: Record<string, unknown> }[];
+  tool_call_id?: string;
+  tool_name?: string;
+  is_error?: boolean;
+  usage?: Record<string, unknown>;
+}
+
+/** Node ids the agent touched in a turn — the two-writer coherence signal. */
+export interface ConversationWorkspace {
+  created: string[];
+  modified: string[];
+  deleted: string[];
+  read: string[];
+  mentioned: string[];
+}
+
+export interface ConversationDetail {
+  conversation_id: string;
+  repo_id: string;
+  name: string;
+  node_id?: string;
+  owner?: string;
+  history: ConversationHistoryMessage[];
+  active_turn: { task_id: string; status: string; thread_id?: string; event_count?: number } | null;
+  workspace?: ConversationWorkspace;
+  turn_count?: number;
+  model_tier?: string;
+  updated_at?: string | null;
+}
+
+/** A conversation's full detail + message history (drives the thread render). */
+export async function getConversation(
+  config: ApiConfig,
+  repoId: string,
+  conversationId: string,
+  opts?: RequestOptions,
+): Promise<ConversationDetail> {
+  return request<ConversationDetail>(
+    config,
+    "GET",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}`,
+    undefined,
+    opts,
+  );
+}
+
+export interface CancelTurnResult {
+  status: string;
+  conversation_id: string;
+}
+
+/** Cancel the conversation's active turn (owner-only). */
+export async function cancelConversationTurn(
+  config: ApiConfig,
+  repoId: string,
+  conversationId: string,
+  opts?: RequestOptions,
+): Promise<CancelTurnResult> {
+  return request<CancelTurnResult>(
+    config,
+    "DELETE",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}/current`,
+    undefined,
+    opts,
+  );
+}
+
+export interface SendMessageBody {
+  message: string;
+  model_tier?: string;
+  thinking?: boolean;
+}
+
+/** Extract the JSON payload from one SSE block (`event:`/`data:` lines), or null
+ * for keep-alives / unparseable blocks. Multi-line `data:` is concatenated. */
+function parseSseBlock(block: string): Record<string, unknown> | null {
+  const data = block
+    .split("\n")
+    .filter((l) => l.startsWith("data:"))
+    .map((l) => l.slice(5).replace(/^ /, ""))
+    .join("\n");
+  if (!data || data === "[DONE]") return null;
+  try {
+    return JSON.parse(data) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stream an agent turn: POST the message and yield each parsed SSE event as it
+ * arrives. No request timeout — a turn runs as long as it runs; cancellation is
+ * via the `signal`. The server keeps the turn alive past disconnect, so a
+ * dropped stream isn't lost work (re-fetch the conversation to see the result).
+ */
+export async function* streamConversationMessage(
+  config: ApiConfig,
+  repoId: string,
+  conversationId: string,
+  body: SendMessageBody,
+  signal?: AbortSignal,
+): AsyncGenerator<Record<string, unknown>, void, unknown> {
+  const path = `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}/messages/stream`;
+  const r = await fetch(`${config.apiUrl}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.apiKey}`,
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    if (r.status === 401) {
+      throw new UnauthorizedError(`POST ${path} → 401: ${text || r.statusText}`);
+    }
+    throw new Error(`POST ${path} → ${r.status}: ${text || r.statusText}`);
+  }
+  if (!r.body) throw new Error("stream: server returned no response body");
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      // Chunks split anywhere — even mid-line. Buffer, normalize CRLF, and only
+      // emit blocks terminated by a blank line; keep the incomplete tail.
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.replace(/\r\n/g, "\n").split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const event = parseSseBlock(block);
+        if (event) yield event;
+      }
+    }
+    const tail = (buffer + decoder.decode()).replace(/\r\n/g, "\n").trim();
+    if (tail) {
+      const event = parseSseBlock(tail);
+      if (event) yield event;
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // Reader already closed/errored — nothing to release.
+    }
+  }
+}
