@@ -1,9 +1,12 @@
 import {
   addParticipant,
+  cancelConversationTurn,
   createConversation,
   fetchRepoMembers,
+  getConversation,
   listParticipants,
   removeParticipant,
+  streamConversationMessage,
   UnauthorizedError,
   type ApiConfig,
 } from "../auth/api.js";
@@ -163,7 +166,108 @@ async function cmdMembers(args: string[], output: Output): Promise<number> {
   }
 }
 
-const USAGE = "Usage: ideaspaces conversation <new|participants|add|remove|members> …";
+async function cmdSend(args: string[], flags: Flags, output: Output): Promise<number> {
+  const [repoId, convId] = args;
+  if (!repoId || !convId) {
+    output.error(
+      "Usage: ideaspaces conversation send <repo_id> <conversation_id> --message <text> [--model opus] [--thinking]",
+    );
+    return 1;
+  }
+  const message = typeof flags.message === "string" ? flags.message : undefined;
+  if (!message) {
+    output.error("A message is required: --message <text>");
+    return 1;
+  }
+  const config = requireConfig(output);
+  if (!config) return 1;
+
+  const body = {
+    message,
+    ...(typeof flags.model === "string" ? { model_tier: flags.model } : {}),
+    // `--thinking` parses to boolean true; `--thinking=true` to the string "true".
+    ...(flags.thinking === true || flags.thinking === "true" ? { thinking: true } : {}),
+  };
+
+  // Cancel propagation: a SIGINT/SIGTERM (the desktop killing the sidecar) aborts
+  // the stream AND tells the server to stop the turn — killing the CLI alone
+  // wouldn't, since the turn runs server-side past disconnect. Guarded so both
+  // signals (or a repeat) don't fire a second cancel.
+  const controller = new AbortController();
+  let signalled = false;
+  const onSignal = () => {
+    if (signalled) return;
+    signalled = true;
+    controller.abort();
+    void cancelConversationTurn(config, repoId, convId).catch(() => {});
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
+  try {
+    // A streaming verb: emit one JSON object per line as events arrive (not the
+    // usual single result), so the desktop can read it incrementally.
+    for await (const event of streamConversationMessage(config, repoId, convId, body, controller.signal)) {
+      process.stdout.write(JSON.stringify(event) + "\n");
+    }
+    return 0;
+  } catch (err) {
+    if (controller.signal.aborted) return 0; // cancelled cleanly
+    return reportError(err, output);
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+  }
+}
+
+async function cmdGet(args: string[], output: Output): Promise<number> {
+  const [repoId, convId] = args;
+  if (!repoId || !convId) {
+    output.error("Usage: ideaspaces conversation get <repo_id> <conversation_id>");
+    return 1;
+  }
+  const config = requireConfig(output);
+  if (!config) return 1;
+
+  try {
+    const detail = await getConversation(config, repoId, convId);
+    output.result(
+      detail,
+      detail.history.length
+        ? detail.history
+            .map((m) => {
+              const preview = m.content.replace(/\s+/g, " ");
+              return `${m.role}: ${preview.length > 80 ? preview.slice(0, 79) + "…" : preview}`;
+            })
+            .join("\n")
+        : "No messages yet.",
+    );
+    return 0;
+  } catch (err) {
+    return reportError(err, output);
+  }
+}
+
+async function cmdCancel(args: string[], output: Output): Promise<number> {
+  const [repoId, convId] = args;
+  if (!repoId || !convId) {
+    output.error("Usage: ideaspaces conversation cancel <repo_id> <conversation_id>");
+    return 1;
+  }
+  const config = requireConfig(output);
+  if (!config) return 1;
+
+  try {
+    const res = await cancelConversationTurn(config, repoId, convId);
+    output.result(res, `Cancel: ${res.status}`);
+    return 0;
+  } catch (err) {
+    return reportError(err, output);
+  }
+}
+
+const USAGE =
+  "Usage: ideaspaces conversation <new|participants|add|remove|members|send|get|cancel> …";
 
 export const conversationCommand: CommandDef = {
   name: "conversation",
@@ -175,6 +279,9 @@ export const conversationCommand: CommandDef = {
     "ideaspaces conversation add repo_abc c_123 alice  # add a person",
     "ideaspaces conversation participants repo_abc c_123",
     "ideaspaces conversation remove repo_abc c_123 alice",
+    "ideaspaces conversation send repo_abc c_123 --message 'Hi'  # streams JSON lines",
+    "ideaspaces conversation get repo_abc c_123        # detail + history",
+    "ideaspaces conversation cancel repo_abc c_123     # stop the active turn",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
@@ -190,6 +297,12 @@ export const conversationCommand: CommandDef = {
         return cmdRemove(rest, output);
       case "members":
         return cmdMembers(rest, output);
+      case "send":
+        return cmdSend(rest, flags, output);
+      case "get":
+        return cmdGet(rest, output);
+      case "cancel":
+        return cmdCancel(rest, output);
       default:
         output.error(USAGE);
         return 1;

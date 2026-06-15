@@ -9,6 +9,9 @@ const {
   addParticipantMock,
   removeParticipantMock,
   fetchRepoMembersMock,
+  streamConversationMessageMock,
+  getConversationMock,
+  cancelConversationTurnMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   createConversationMock: vi.fn(),
@@ -16,6 +19,9 @@ const {
   addParticipantMock: vi.fn(),
   removeParticipantMock: vi.fn(),
   fetchRepoMembersMock: vi.fn(),
+  streamConversationMessageMock: vi.fn(),
+  getConversationMock: vi.fn(),
+  cancelConversationTurnMock: vi.fn(),
 }));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
@@ -28,6 +34,9 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     addParticipant: addParticipantMock,
     removeParticipant: removeParticipantMock,
     fetchRepoMembers: fetchRepoMembersMock,
+    streamConversationMessage: streamConversationMessageMock,
+    getConversation: getConversationMock,
+    cancelConversationTurn: cancelConversationTurnMock,
   };
 });
 
@@ -50,6 +59,9 @@ beforeEach(() => {
   addParticipantMock.mockReset();
   removeParticipantMock.mockReset();
   fetchRepoMembersMock.mockReset();
+  streamConversationMessageMock.mockReset();
+  getConversationMock.mockReset();
+  cancelConversationTurnMock.mockReset();
   stdoutChunks = [];
   stderrChunks = [];
   originalOut = process.stdout.write.bind(process.stdout);
@@ -209,6 +221,152 @@ describe("conversation members", () => {
     const code = await conversationCommand.run(["members", "repo_abc"], {}, JSON_GLOBAL);
     expect(code).toBe(0);
     expect(JSON.parse(stdout()).members[0].username).toBe("alice");
+  });
+});
+
+describe("conversation send", () => {
+  it("emits one JSON line per streamed event", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    streamConversationMessageMock.mockImplementation(async function* () {
+      yield { type: "text_delta", delta: "Hi" };
+      yield { type: "turn_complete", result: { workspace: { created: ["n1"] } } };
+    });
+    const code = await conversationCommand.run(
+      ["send", "repo_abc", "c1"],
+      { message: "hey" },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(0);
+    expect(stdout()).toBe(
+      '{"type":"text_delta","delta":"Hi"}\n' +
+        '{"type":"turn_complete","result":{"workspace":{"created":["n1"]}}}\n',
+    );
+  });
+
+  it("passes model_tier and thinking through to the stream body", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    streamConversationMessageMock.mockImplementation(async function* () {
+      // no events
+    });
+    await conversationCommand.run(
+      ["send", "repo_abc", "c1"],
+      { message: "hey", model: "opus", thinking: true },
+      JSON_GLOBAL,
+    );
+    expect(streamConversationMessageMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "repo_abc",
+      "c1",
+      { message: "hey", model_tier: "opus", thinking: true },
+      expect.anything(),
+    );
+  });
+
+  it("requires a --message", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    const code = await conversationCommand.run(["send", "repo_abc", "c1"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("message is required");
+    expect(streamConversationMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a stream error", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    streamConversationMessageMock.mockImplementation(async function* () {
+      throw new Error("POST … → 402: out of credits");
+    });
+    const code = await conversationCommand.run(
+      ["send", "repo_abc", "c1"],
+      { message: "hey" },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+    expect(stderr()).toContain("402");
+  });
+
+  it("on a cancel signal, aborts the stream and cancels the server turn", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    cancelConversationTurnMock.mockResolvedValue({ status: "cancelling", conversation_id: "c1" });
+
+    // Capture the SIGINT handler the command registers so we can fire it
+    // directly — raising a real signal could be intercepted by the test runner.
+    const onSpy = vi.spyOn(process, "on");
+    streamConversationMessageMock.mockImplementation(
+      // eslint-disable-next-line require-yield
+      async function* (_c: unknown, _r: string, _cv: string, _b: unknown, signal: AbortSignal) {
+        yield { type: "text_delta", delta: "a" };
+        const reg = onSpy.mock.calls.find(([sig]) => sig === "SIGINT");
+        (reg?.[1] as (() => void) | undefined)?.();
+        expect(signal.aborted).toBe(true);
+      },
+    );
+
+    const code = await conversationCommand.run(
+      ["send", "repo_abc", "c1"],
+      { message: "hey" },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(0);
+    expect(cancelConversationTurnMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", "c1");
+    onSpy.mockRestore();
+  });
+});
+
+describe("conversation get", () => {
+  it("renders the history (human)", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    getConversationMock.mockResolvedValue({
+      conversation_id: "c1",
+      repo_id: "repo_abc",
+      name: "Kickoff",
+      history: [
+        { role: "user", content: "hello there" },
+        { role: "assistant", content: "hi — how can I help?" },
+      ],
+      active_turn: null,
+    });
+    const code = await conversationCommand.run(["get", "repo_abc", "c1"], {}, HUMAN_GLOBAL);
+    expect(code).toBe(0);
+    expect(stdout()).toContain("assistant: hi — how can I help?");
+  });
+
+  it("empty-state when there are no messages", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    getConversationMock.mockResolvedValue({
+      conversation_id: "c1",
+      repo_id: "repo_abc",
+      name: "Empty",
+      history: [],
+      active_turn: null,
+    });
+    await conversationCommand.run(["get", "repo_abc", "c1"], {}, HUMAN_GLOBAL);
+    expect(stdout()).toContain("No messages yet");
+  });
+
+  it("requires repo and conversation", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    const code = await conversationCommand.run(["get", "repo_abc"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Usage");
+    expect(getConversationMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("conversation cancel", () => {
+  it("cancels the active turn", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    cancelConversationTurnMock.mockResolvedValue({ status: "cancelling", conversation_id: "c1" });
+    const code = await conversationCommand.run(["cancel", "repo_abc", "c1"], {}, JSON_GLOBAL);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout()).status).toBe("cancelling");
+  });
+
+  it("requires repo and conversation", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    const code = await conversationCommand.run(["cancel", "repo_abc"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Usage");
+    expect(cancelConversationTurnMock).not.toHaveBeenCalled();
   });
 });
 
