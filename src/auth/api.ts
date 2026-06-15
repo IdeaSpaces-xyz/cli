@@ -96,6 +96,16 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/** Auth + JSON headers, shared so the streaming path can't drift from request()
+ * if auth ever grows (versioned header, signature, …). */
+function authHeaders(config: ApiConfig, extra?: Record<string, string>): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${config.apiKey}`,
+    ...extra,
+  };
+}
+
 async function request<T>(
   config: ApiConfig,
   method: string,
@@ -109,10 +119,7 @@ async function request<T>(
   try {
     const r = await fetch(`${config.apiUrl}${path}`, {
       method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
-      },
+      headers: authHeaders(config),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
     });
@@ -413,14 +420,10 @@ export async function* streamConversationMessage(
   signal?: AbortSignal,
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
   const path = `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}/messages/stream`;
+  // Same auth as request(), but streaming needs getReader(), not r.json().
   const r = await fetch(`${config.apiUrl}${path}`, {
     method: "POST",
-    headers: {
-      // Keep auth in sync with request() — streaming needs getReader(), not r.json().
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-      Accept: "text/event-stream",
-    },
+    headers: authHeaders(config, { Accept: "text/event-stream" }),
     body: JSON.stringify(body),
     signal,
   });

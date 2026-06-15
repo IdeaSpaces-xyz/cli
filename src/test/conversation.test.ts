@@ -283,6 +283,33 @@ describe("conversation send", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("402");
   });
+
+  it("on a cancel signal, aborts the stream and cancels the server turn", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    cancelConversationTurnMock.mockResolvedValue({ status: "cancelling", conversation_id: "c1" });
+
+    // Capture the SIGINT handler the command registers so we can fire it
+    // directly — raising a real signal could be intercepted by the test runner.
+    const onSpy = vi.spyOn(process, "on");
+    streamConversationMessageMock.mockImplementation(
+      // eslint-disable-next-line require-yield
+      async function* (_c: unknown, _r: string, _cv: string, _b: unknown, signal: AbortSignal) {
+        yield { type: "text_delta", delta: "a" };
+        const reg = onSpy.mock.calls.find(([sig]) => sig === "SIGINT");
+        (reg?.[1] as (() => void) | undefined)?.();
+        expect(signal.aborted).toBe(true);
+      },
+    );
+
+    const code = await conversationCommand.run(
+      ["send", "repo_abc", "c1"],
+      { message: "hey" },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(0);
+    expect(cancelConversationTurnMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", "c1");
+    onSpy.mockRestore();
+  });
 });
 
 describe("conversation get", () => {
