@@ -181,3 +181,125 @@ export async function fetchConversations(
     opts,
   );
 }
+
+export interface CreateConversationBody {
+  name?: string;
+}
+
+export interface CreateConversationResult {
+  conversation_id: string;
+  node_id?: string;
+  repo_id?: string;
+  name?: string;
+  selected_agent_node_id?: string;
+  ephemeral?: boolean;
+}
+
+/** Create a bare conversation shell (no message). The server fills defaults
+ * (name "New conversation", agent `keeper`) for omitted fields. */
+export async function createConversation(
+  config: ApiConfig,
+  repoId: string,
+  body: CreateConversationBody = {},
+  opts?: RequestOptions,
+): Promise<CreateConversationResult> {
+  return request<CreateConversationResult>(
+    config,
+    "POST",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations`,
+    body,
+    opts,
+  );
+}
+
+export type ParticipantRole = "owner" | "member" | "reader";
+
+export interface ConversationParticipant {
+  id: string | null;
+  process_node_id: string;
+  /** Canonical principal: `person:{username}` / `agent:{node}` / `node:{id}`. */
+  participant: string;
+  role: ParticipantRole;
+  joined_at: string | null;
+  joined_via: string | null;
+  revoked_at: string | null;
+}
+
+export interface ParticipantsResponse {
+  participants: ConversationParticipant[];
+}
+
+/** List a conversation's active participants (owner is synthesized; revoked
+ * rows are excluded). Conversation-keyed — no Space required. */
+export async function listParticipants(
+  config: ApiConfig,
+  repoId: string,
+  conversationId: string,
+  opts?: RequestOptions,
+): Promise<ParticipantsResponse> {
+  return request<ParticipantsResponse>(
+    config,
+    "GET",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}/participants`,
+    undefined,
+    opts,
+  );
+}
+
+/** Add a participant by raw principal (`person:`/`agent:`/`node:`). Owner only.
+ * The server does not resolve usernames — the caller builds the principal. */
+export async function addParticipant(
+  config: ApiConfig,
+  repoId: string,
+  conversationId: string,
+  participant: string,
+  role: "member" | "reader" = "member",
+  opts?: RequestOptions,
+): Promise<ConversationParticipant> {
+  return request<ConversationParticipant>(
+    config,
+    "POST",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}/participants`,
+    { participant, role },
+    opts,
+  );
+}
+
+/** Revoke a participant by raw principal. Owner only. */
+export async function removeParticipant(
+  config: ApiConfig,
+  repoId: string,
+  conversationId: string,
+  participant: string,
+  opts?: RequestOptions,
+): Promise<ConversationParticipant> {
+  return request<ConversationParticipant>(
+    config,
+    "DELETE",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}/participants/${encodeURIComponent(participant)}`,
+    undefined,
+    opts,
+  );
+}
+
+export interface RepoMember {
+  user_id: number;
+  username: string | null;
+  email: string | null;
+  role: string;
+}
+
+/** List a repo's members — the people addable to one of its conversations. */
+export async function fetchRepoMembers(
+  config: ApiConfig,
+  repoId: string,
+  opts?: RequestOptions,
+): Promise<RepoMember[]> {
+  return request<RepoMember[]>(
+    config,
+    "GET",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/members`,
+    undefined,
+    opts,
+  );
+}
