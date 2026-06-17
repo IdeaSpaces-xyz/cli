@@ -191,6 +191,10 @@ export async function fetchConversations(
 
 export interface CreateConversationBody {
   name?: string;
+  /** Agent Actor node_id to run the conversation. Accepted by the server and
+   * honored once backend agent-selection lands — forward-compatible, matching
+   * is_web's start flow (the picker passes it through today). */
+  agent_node_id?: string;
 }
 
 export interface CreateConversationResult {
@@ -217,6 +221,47 @@ export async function createConversation(
     body,
     opts,
   );
+}
+
+export interface Agent {
+  /** Actor node_id that owns this agent (person/org). */
+  owner_actor_node_id: string;
+  /** Agent Actor node_id — what create/select takes. */
+  node_id: string;
+  /** Canonical identity, `agent:{node_id}`. */
+  identity: string;
+  name: string;
+  summary: string;
+  /** Whether the current user may invoke this agent. */
+  can_use: boolean;
+  /** Whether this is the owner's default agent. */
+  is_default: boolean;
+}
+
+interface AgentListResponse {
+  agents: Agent[];
+}
+
+/**
+ * List selectable Agent Actors (`GET /api/v1/agents`). Without `owner`, the
+ * caller's own agents; with it (`person:{username}` | `hostname:{domain}`,
+ * membership-checked server-side), that context's agents. Owner default first,
+ * flagged by `is_default`. User-scoped — no Space required.
+ */
+export async function fetchAgents(
+  config: ApiConfig,
+  owner?: string,
+  opts?: RequestOptions,
+): Promise<Agent[]> {
+  const qs = owner ? `?owner=${encodeURIComponent(owner)}` : "";
+  const res = await request<AgentListResponse>(
+    config,
+    "GET",
+    `${API_V1}/agents${qs}`,
+    undefined,
+    opts,
+  );
+  return res.agents;
 }
 
 export type ParticipantRole = "owner" | "member" | "reader";
