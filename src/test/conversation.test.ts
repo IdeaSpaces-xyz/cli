@@ -126,6 +126,15 @@ describe("conversation new", () => {
     expect(createConversationMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", {});
   });
 
+  it("passes the chosen agent through to create", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    createConversationMock.mockResolvedValue({ conversation_id: "c9", name: "New conversation" });
+    await conversationCommand.run(["new", "repo_abc"], { agent: "agent_xyz" }, JSON_GLOBAL);
+    expect(createConversationMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", {
+      agent_node_id: "agent_xyz",
+    });
+  });
+
   it("requires a repo id", async () => {
     loadConfigMock.mockReturnValue(CFG);
     const code = await conversationCommand.run(["new"], {}, JSON_GLOBAL);

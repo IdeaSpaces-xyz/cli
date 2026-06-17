@@ -9,6 +9,7 @@ import {
   streamConversationMessage,
   UnauthorizedError,
   type ApiConfig,
+  type CreateConversationBody,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
@@ -57,15 +58,19 @@ function reportError(err: unknown, output: Output): number {
 async function cmdNew(args: string[], flags: Flags, output: Output): Promise<number> {
   const repoId = args[0];
   if (!repoId) {
-    output.error("Usage: ideaspaces conversation new <repo_id> [--name <name>]");
+    output.error("Usage: ideaspaces conversation new <repo_id> [--name <name>] [--agent <node_id>]");
     return 1;
   }
   const config = requireConfig(output);
   if (!config) return 1;
 
-  const name = typeof flags.name === "string" ? flags.name : undefined;
+  const body: CreateConversationBody = {};
+  if (typeof flags.name === "string") body.name = flags.name;
+  // The agent Actor that runs the conversation. The server accepts it and will
+  // honor it once backend agent-selection lands (matches is_web's pass-through).
+  if (typeof flags.agent === "string") body.agent_node_id = flags.agent;
   try {
-    const conv = await createConversation(config, repoId, name ? { name } : {});
+    const conv = await createConversation(config, repoId, body);
     output.result(conv, `Created conversation ${conv.name || "(untitled)"} (${conv.conversation_id})`);
     return 0;
   } catch (err) {
@@ -275,6 +280,7 @@ export const conversationCommand: CommandDef = {
   usage: USAGE,
   examples: [
     "ideaspaces conversation new repo_abc --name 'Kickoff'",
+    "ideaspaces conversation new repo_abc --agent agent_node_xyz  # pick the agent",
     "ideaspaces conversation members repo_abc          # who you can add",
     "ideaspaces conversation add repo_abc c_123 alice  # add a person",
     "ideaspaces conversation participants repo_abc c_123",
