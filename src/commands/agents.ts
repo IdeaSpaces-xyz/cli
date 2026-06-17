@@ -43,7 +43,7 @@ export const agentsCommand: CommandDef = {
         ? agents
             .map(
               (a) =>
-                `${a.name}${a.is_default ? " (default)" : ""}${a.can_use ? "" : " — no access"}  ${a.node_id}`,
+                `${a.name}${a.is_default ? " (default)" : ""}${a.can_use ? "" : " — no access"} → ${a.node_id}`,
             )
             .join("\n")
         : "No agents.",

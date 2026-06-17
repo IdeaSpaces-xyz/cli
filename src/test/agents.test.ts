@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { UnauthorizedError } from "../auth/api.js";
 import type { GlobalFlags } from "../types.js";
 
 const { loadConfigMock, fetchAgentsMock } = vi.hoisted(() => ({
@@ -88,5 +89,15 @@ describe("agents", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("Not logged in");
     expect(fetchAgentsMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces session-expired when the API returns 401", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    fetchAgentsMock.mockRejectedValue(new UnauthorizedError("401"));
+
+    const code = await agentsCommand.run([], {}, JSON_GLOBAL);
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Session expired");
   });
 });
