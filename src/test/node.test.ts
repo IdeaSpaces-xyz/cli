@@ -18,6 +18,7 @@ const { nodeCommand } = await import("../commands/node.js");
 
 const CFG = { apiUrl: "https://api.example.test", apiKey: "k" };
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
+const TEXT_GLOBAL: GlobalFlags = { json: false, quiet: false, yes: false, help: false };
 
 let stdoutChunks: string[];
 let stderrChunks: string[];
@@ -95,5 +96,32 @@ describe("node get", () => {
     const code = await nodeCommand.run(["get", "repo_abc", "n1"], {}, JSON_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("Session expired");
+  });
+
+  it("surfaces a generic error (e.g. 404 / network)", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    fetchNodeMock.mockRejectedValue(new Error("404: node not found"));
+    const code = await nodeCommand.run(["get", "repo_abc", "n1"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("node not found");
+  });
+
+  it("human output prefers name_display and previews the content", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    fetchNodeMock.mockResolvedValue({
+      node_id: "n1",
+      name: "space",
+      name_display: "The Space",
+      path: "core/space.md",
+      content: "# Space\n\nKnowledge compounds here.",
+      node_type: "note",
+    });
+
+    const code = await nodeCommand.run(["get", "repo_abc", "n1"], {}, TEXT_GLOBAL);
+
+    expect(code).toBe(0);
+    const out = stdout();
+    expect(out).toContain("The Space (core/space.md)");
+    expect(out).toContain("Knowledge compounds here.");
   });
 });

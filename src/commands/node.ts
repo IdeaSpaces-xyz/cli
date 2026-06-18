@@ -6,10 +6,12 @@ import type { CommandDef, GlobalFlags } from "../types.js";
 // Resolve a node by id — name, path, content. Backs the desktop/web conversation
 // workspace strip + preview (a conversation's `workspace` is bare node-ids).
 
+const USAGE = "Usage: ideaspaces node get <repo_id> <node_id>";
+
 async function cmdGet(args: string[], output: Output): Promise<number> {
   const [repoId, nodeId] = args;
   if (!repoId || !nodeId) {
-    output.error("Usage: ideaspaces node get <repo_id> <node_id>");
+    output.error(USAGE);
     return 1;
   }
 
@@ -21,7 +23,11 @@ async function cmdGet(args: string[], output: Output): Promise<number> {
 
   try {
     const node = await fetchNode(config, repoId, nodeId);
-    output.result(node, `${node.name_display || node.name}  (${node.path})`);
+    // Human mode gets a content preview too; the desktop drives `--json`.
+    const preview = node.content.replace(/\s+/g, " ").trim();
+    const snippet = preview.length > 120 ? `${preview.slice(0, 119)}…` : preview;
+    const header = `${node.name_display || node.name} (${node.path})`;
+    output.result(node, snippet ? `${header}\n${snippet}` : header);
     return 0;
   } catch (err) {
     if (err instanceof UnauthorizedError) {
@@ -33,11 +39,9 @@ async function cmdGet(args: string[], output: Output): Promise<number> {
   }
 }
 
-const USAGE = "Usage: ideaspaces node get <repo_id> <node_id>";
-
 export const nodeCommand: CommandDef = {
   name: "node",
-  description: "Resolve a node by id — name, path, content",
+  description: "Resolve a node by id — name, path, content (use --json for the full node)",
   usage: USAGE,
   examples: [
     "ideaspaces node get repo_abc node_xyz",
@@ -46,8 +50,12 @@ export const nodeCommand: CommandDef = {
   async run(args, _flags, global: GlobalFlags) {
     const output = createOutput(global);
     const [sub, ...rest] = args;
-    if (sub === "get") return cmdGet(rest, output);
-    output.error(USAGE);
-    return 1;
+    switch (sub) {
+      case "get":
+        return cmdGet(rest, output);
+      default:
+        output.error(USAGE);
+        return 1;
+    }
   },
 };
