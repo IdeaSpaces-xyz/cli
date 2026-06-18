@@ -264,6 +264,40 @@ export async function fetchAgents(
   return res.agents;
 }
 
+export interface NodeDetail {
+  node_id: string;
+  name: string;
+  /** Display-name override from frontmatter, when present. */
+  name_display?: string;
+  summary?: string;
+  content: string;
+  path: string;
+  node_type: string;
+  tags?: string[];
+  updated_at?: string | null;
+  created_at?: string | null;
+}
+
+/**
+ * Fetch a node's detail by id (`GET /api/v1/repos/{id}/nodes/{nodeId}`) — name,
+ * path, and content. Backs resolving a conversation's workspace node-ids to
+ * names + a preview (no batch endpoint yet, so callers resolve per node).
+ */
+export async function fetchNode(
+  config: ApiConfig,
+  repoId: string,
+  nodeId: string,
+  opts?: RequestOptions,
+): Promise<NodeDetail> {
+  return request<NodeDetail>(
+    config,
+    "GET",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/nodes/${encodeURIComponent(nodeId)}`,
+    undefined,
+    opts,
+  );
+}
+
 export type ParticipantRole = "owner" | "member" | "reader";
 
 export interface ConversationParticipant {
