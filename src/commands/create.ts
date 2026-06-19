@@ -367,36 +367,51 @@ function runGit(cwd: string, args: string[]): void {
 }
 
 /**
+ * Real path of `target`, resolving symlinks on the portion that already exists
+ * and re-appending the not-yet-created tail. Needed because git reports
+ * realpaths while `resolve()`-d user input keeps symlinks (e.g. macOS `/tmp` →
+ * `/private/tmp`) — comparing or relativizing the two raw forms is wrong.
+ */
+function effectiveRealPath(target: string): string {
+  let probe = target;
+  const suffix: string[] = [];
+  while (!existsSync(probe)) {
+    const parent = resolve(probe, "..");
+    if (parent === probe) return target; // nothing on the path exists
+    suffix.unshift(basename(probe));
+    probe = parent;
+  }
+  const real = realpathSync(probe);
+  return suffix.length ? join(real, ...suffix) : real;
+}
+
+/**
  * Root of a git repo that *encloses* `targetDir` without being it — the parent
  * repo a new nested ideaspace would land inside. Returns null when the target
  * isn't under any repo, or is itself a repo root (then there's no nesting).
  * Probes from the nearest existing ancestor so it works before the dir exists.
  */
 function enclosingRepoRoot(targetDir: string): string | null {
-  // Walk up to the nearest existing ancestor, remembering the not-yet-created
-  // suffix so we can reconstruct the target's real path for an exact compare.
   let probe = targetDir;
-  const suffix: string[] = [];
   while (!existsSync(probe)) {
     const parent = resolve(probe, "..");
     if (parent === probe) return null;
-    suffix.unshift(basename(probe));
     probe = parent;
   }
   const r = spawnSync("git", ["-C", probe, "rev-parse", "--show-toplevel"], { encoding: "utf-8" });
   if (r.status !== 0) return null;
   const root = r.stdout.trim();
   if (!root) return null;
-  // git reports realpaths; resolve symlinks on the existing portion too so the
-  // "is the target itself the repo root?" compare holds (notably on macOS).
-  const realProbe = realpathSync(probe);
-  const effectiveTarget = suffix.length ? join(realProbe, ...suffix) : realProbe;
-  return root !== effectiveTarget ? root : null;
+  // Compare against the target's real path so "is the target itself the repo
+  // root?" holds even when git's toplevel is a realpath (notably on macOS).
+  return root !== effectiveRealPath(targetDir) ? root : null;
 }
 
 /** Heads-up that a new repo is being nested inside an existing one. */
 function nestingNotice(targetDir: string, parentRoot: string): string {
-  const rel = relative(parentRoot, targetDir) || basename(targetDir);
+  // Relativize against the target's real path: parentRoot is git's realpath, so
+  // a raw symlinked targetDir would yield a bogus `../../` traversal hint.
+  const rel = relative(parentRoot, effectiveRealPath(targetDir)) || basename(targetDir);
   return (
     `Note: this folder is inside git repo ${parentRoot}.\n` +
     `  Creating an independent ideaspace repo here — ${parentRoot} will see \`${rel}/\` as an untracked nested repo.\n` +

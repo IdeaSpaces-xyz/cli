@@ -106,6 +106,17 @@ describe("ideaspaces create", () => {
     expect(result.plan.some((s: { op: string }) => s.op === "git-init")).toBe(true);
   });
 
+  it("nesting notice shows the correct relative path for a deep, not-yet-created target", async () => {
+    spawnSync("git", ["-C", tmp, "init", "-q", "-b", "main"]);
+    // Human mode so the notice text is rendered; a/b don't exist yet.
+    const captured = await captureStdout(() =>
+      createCommand.run(["a/b/space"], {}, { ...baseGlobal, json: false }),
+    );
+    expect(captured.exit).toBe(0);
+    expect(captured.out).toContain("`a/b/space/`"); // real relative path
+    expect(captured.out).not.toContain(".."); // no bogus symlink traversal (macOS)
+  });
+
   it("does not flag nesting for a top-level (non-nested) create", async () => {
     const captured = await captureStdout(() => createCommand.run([], {}, baseGlobal));
     expect(captured.exit).toBe(0);
