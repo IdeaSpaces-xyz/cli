@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeCommand } from "../commands/write.js";
+import { captureJson } from "./helpers.js";
 import type { GlobalFlags } from "../types.js";
 
 const G: GlobalFlags = { json: true, quiet: true, yes: false, help: false };
@@ -15,22 +16,6 @@ let cwd: string;
 
 function git(args: string[]): string {
   return spawnSync("git", args, { cwd: tmp, encoding: "utf-8" }).stdout.trim();
-}
-
-// Capture the JSON written to stdout by output.result (G has json: true).
-async function captureJson(fn: () => Promise<number>): Promise<{ exit: number; json: any }> {
-  const chunks: string[] = [];
-  const orig = process.stdout.write.bind(process.stdout);
-  process.stdout.write = ((s: string | Uint8Array) => {
-    chunks.push(typeof s === "string" ? s : Buffer.from(s).toString("utf-8"));
-    return true;
-  }) as typeof process.stdout.write;
-  try {
-    const exit = await fn();
-    return { exit, json: JSON.parse(chunks.join("")) };
-  } finally {
-    process.stdout.write = orig;
-  }
 }
 
 async function seed(rel: string, body: string): Promise<void> {

@@ -44,7 +44,7 @@ export const writeCommand: CommandDef = {
   name: "write",
   description: "Create or update a Note (local file with Layer 1 frontmatter)",
   usage:
-    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to ent1,ent2] [--content TEXT] [--if-match SHA] [--force] [--stage=false]  |  ideaspaces write <dir>|<files...> [--stage=false]",
+    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to ent1,ent2] [--content TEXT] [--if-match SHA] [--force] [--stage=false]",
   examples: [
     'echo "# My Note\\nContent here" | ideaspaces write notes/my-note.md --name "My Note"',
     'ideaspaces write notes/test.md --name "Test" --content "# Test\\nHello"',
@@ -197,6 +197,8 @@ async function runBatchStage(
   let staged = false;
   if (stage) {
     try {
+      // `files` are absolute (resolved in collectMarkdown); git stages them
+      // relative to the work tree, so every path must be inside the repo cwd.
       stagePaths(files);
       staged = true;
     } catch (err) {

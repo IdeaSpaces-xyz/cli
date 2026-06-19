@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCommand } from "../commands/create.js";
+import { captureStdout } from "./helpers.js";
 import type { GlobalFlags } from "../types.js";
 
 const baseGlobal: GlobalFlags = {
@@ -42,23 +43,6 @@ afterEach(async () => {
 function configureGitIdentity(cwd: string): void {
   spawnSync("git", ["-C", cwd, "config", "user.email", "test@example.com"]);
   spawnSync("git", ["-C", cwd, "config", "user.name", "Test"]);
-}
-
-async function captureStdout(
-  fn: () => Promise<number>,
-): Promise<{ exit: number; out: string }> {
-  const chunks: string[] = [];
-  const original = process.stdout.write.bind(process.stdout);
-  process.stdout.write = ((s: string | Uint8Array) => {
-    chunks.push(typeof s === "string" ? s : Buffer.from(s).toString("utf-8"));
-    return true;
-  }) as typeof process.stdout.write;
-  try {
-    const exit = await fn();
-    return { exit, out: chunks.join("") };
-  } finally {
-    process.stdout.write = original;
-  }
 }
 
 async function expectNoNodeId(path: string): Promise<void> {
