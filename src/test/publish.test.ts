@@ -37,6 +37,9 @@ beforeEach(async () => {
 afterEach(async () => {
   process.chdir(originalCwd);
   process.env.HOME = originalHome;
+  // setupBareRemote sets IS_GIT_URL to a path under tmp; clear it so it can't
+  // leak a now-deleted remote into a later test that doesn't set its own.
+  delete process.env.IS_GIT_URL;
   vi.unstubAllGlobals();
   await rm(tmp, { recursive: true, force: true });
 });
@@ -86,9 +89,14 @@ function authMeResponse(username = "ernests_s", repoIds: string[] = []): Respons
   );
 }
 
+// Provision a fresh, empty bare repo — models the server creating a bare repo
+// on POST /repos. Always starts empty (wipes any prior one at this path) so a
+// re-provision matches production: a new repo_id is a new empty server repo,
+// and the publish push is a ref *creation* (ZERO_OID), never a non-fast-forward.
 function setupBareRemote(namespace: string, slug: string): string {
   const root = join(tmp, "bare-root");
   const target = join(root, namespace, `${slug}.git`);
+  rmSync(target, { recursive: true, force: true });
   mkdirSync(join(root, namespace), { recursive: true });
   spawnSync("git", ["init", "--bare", "-q", "-b", "main", target]);
   process.env.IS_GIT_URL = `file://${root}`;
@@ -382,7 +390,10 @@ describe("ideaspaces publish", () => {
     expect(createCallCount).toBe(1);
     expect(readSpaceRecord().repo_id).toBe("repo_first");
 
-    // --force opts into a fresh remote and replaces the local mapping.
+    // --force opts into a fresh remote and replaces the local mapping. The
+    // server provisions a new empty bare repo for repo_second; model that so
+    // the amended (rewritten) tip pushes as a ref creation, not a non-ff.
+    setupBareRemote("ernests_s", "reused");
     expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
     expect(createCallCount).toBe(2);
     expect(readSpaceRecord().repo_id).toBe("repo_second");
@@ -466,7 +477,9 @@ describe("ideaspaces publish", () => {
     // Simulate server-side deletion.
     ownedRepoIds.length = 0;
 
-    // --force skips the stale-mapping check and creates a fresh repo.
+    // --force skips the stale-mapping check and creates a fresh repo. Model the
+    // new empty server bare repo so the rewritten tip pushes as a ref creation.
+    setupBareRemote("ernests_s", "stale-force");
     expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
     expect(createCallCount).toBe(2);
   });
@@ -739,7 +752,10 @@ describe("ideaspaces publish", () => {
       }).stdout.trim();
       expect(before).toBe("wrong@example.com");
 
-      // --force opens the create branch and the amend guard.
+      // --force opens the create branch and the amend guard. The forced
+      // re-publish provisions a new empty server repo, so model that here —
+      // the rewritten tip pushes as a ref creation, not a non-fast-forward.
+      setupBareRemote("ernests_s", "force-rewrite");
       expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
 
       const after = spawnSync("git", ["-C", dir, "log", "-1", "--format=%ae"], {
