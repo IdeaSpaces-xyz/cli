@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GlobalFlags } from "../types.js";
 
-const { loadConfigMock, fetchAuthMeMock, isGitRepoMock, originUrlMock, setLocalConfigMock, saveSpaceMock } =
+const { loadConfigMock, fetchAuthMeMock, isInsideWorkTreeMock, originUrlMock, setLocalConfigMock, saveSpaceMock } =
   vi.hoisted(() => ({
     loadConfigMock: vi.fn(),
     fetchAuthMeMock: vi.fn(),
-    isGitRepoMock: vi.fn(),
+    isInsideWorkTreeMock: vi.fn(),
     originUrlMock: vi.fn(),
     setLocalConfigMock: vi.fn(),
     saveSpaceMock: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock("../auth/api.js", async (importOriginal) => {
 // stub the git-spawning helpers link actually calls.
 vi.mock("../git.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../git.js")>();
-  return { ...actual, isGitRepo: isGitRepoMock, originUrl: originUrlMock, setLocalConfig: setLocalConfigMock };
+  return { ...actual, isInsideWorkTree: isInsideWorkTreeMock, originUrl: originUrlMock, setLocalConfig: setLocalConfigMock };
 });
 vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock }));
 
@@ -47,7 +47,7 @@ const ALICE = {
 beforeEach(() => {
   loadConfigMock.mockReset().mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
   fetchAuthMeMock.mockReset().mockResolvedValue(ALICE);
-  isGitRepoMock.mockReset().mockReturnValue(true);
+  isInsideWorkTreeMock.mockReset().mockReturnValue(true);
   originUrlMock.mockReset().mockReturnValue(NOTES_ORIGIN);
   setLocalConfigMock.mockReset();
   saveSpaceMock.mockReset();
@@ -208,7 +208,7 @@ describe("link — identity wiring", () => {
 
 describe("link — guards", () => {
   it("refuses a non-git folder", async () => {
-    isGitRepoMock.mockReturnValue(false);
+    isInsideWorkTreeMock.mockReturnValue(false);
     const code = await linkCommand.run(["./plain"], {}, JSON_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("not a git repository");

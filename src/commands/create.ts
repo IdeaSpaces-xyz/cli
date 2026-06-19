@@ -19,9 +19,9 @@
  */
 
 import { promises as fs } from "node:fs";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join, resolve, basename } from "node:path";
+import { join, resolve, relative, basename } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe } from "../auth/api.js";
@@ -39,6 +39,13 @@ type Shape = "greenfield" | "content-existing" | "code-repo" | "old-shape" | "co
 interface Inspection {
   exists: boolean;
   isGitRepo: boolean;
+  /**
+   * Root of an enclosing git repo when the target will become a NEW nested
+   * repo inside it — i.e. the target isn't itself that repo's root. Null
+   * otherwise. Drives the "you're nesting a repo" notice; create still inits
+   * an independent repo (the safe default), but says so instead of silently.
+   */
+  nestedInRepo: string | null;
   hasNewAgent: boolean;
   hasOldAgent: boolean;
   hasClaude: boolean;
@@ -97,8 +104,8 @@ export const createCommand: CommandDef = {
 
     if (!apply) {
       output.result(
-        { target: targetDir, shape, privateAgent, plan: plan.steps },
-        renderPlanText({ targetDir, name, shape, privateAgent, plan }),
+        { target: targetDir, shape, privateAgent, nestedInRepo: inspection.nestedInRepo, plan: plan.steps },
+        renderPlanText({ targetDir, name, shape, privateAgent, plan, nestedInRepo: inspection.nestedInRepo }),
       );
       return 0;
     }
@@ -115,8 +122,13 @@ export const createCommand: CommandDef = {
     const where = name ? `./${name}` : "this directory";
     const lines = [
       `Scaffolded ${describeTarget(targetDir, name)} (${shape}${privateAgent ? ", private _agent/" : ""}).`,
-      `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
     ];
+    if (inspection.nestedInRepo) {
+      lines.push(nestingNotice(targetDir, inspection.nestedInRepo));
+    }
+    lines.push(
+      `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
+    );
     if (loadStoredCredentials()) {
       lines.push(`When ready to host this remotely, run \`ideaspaces publish\` from inside ${where}.`);
     }
@@ -129,10 +141,12 @@ export const createCommand: CommandDef = {
 };
 
 async function inspect(targetDir: string): Promise<Inspection> {
+  const nestedInRepo = enclosingRepoRoot(targetDir);
   if (!existsSync(targetDir)) {
     return {
       exists: false,
       isGitRepo: false,
+      nestedInRepo,
       hasNewAgent: false,
       hasOldAgent: false,
       hasClaude: false,
@@ -172,6 +186,7 @@ async function inspect(targetDir: string): Promise<Inspection> {
   return {
     exists: true,
     isGitRepo,
+    nestedInRepo,
     hasNewAgent,
     hasOldAgent,
     hasClaude,
@@ -251,10 +266,15 @@ function renderPlanText(opts: {
   shape: Shape;
   privateAgent: boolean;
   plan: Plan;
+  nestedInRepo: string | null;
 }): string {
-  const { targetDir, name, shape, privateAgent, plan } = opts;
+  const { targetDir, name, shape, privateAgent, plan, nestedInRepo } = opts;
   const lines: string[] = [];
   lines.push(`Plan for ${describeTarget(targetDir, name)} — shape: ${shape}${privateAgent ? " (private _agent/)" : ""}`);
+  if (nestedInRepo) {
+    lines.push("");
+    lines.push(nestingNotice(targetDir, nestedInRepo));
+  }
   lines.push("");
   for (const step of plan.steps) {
     const tag = step.op.toUpperCase().padEnd(9);
@@ -344,6 +364,59 @@ function runGit(cwd: string, args: string[]): void {
     const message = r.stderr.trim() || r.stdout.trim() || `exit ${r.status}`;
     throw new Error(`git ${args.join(" ")}: ${message}`);
   }
+}
+
+/**
+ * Real path of `target`, resolving symlinks on the portion that already exists
+ * and re-appending the not-yet-created tail. Needed because git reports
+ * realpaths while `resolve()`-d user input keeps symlinks (e.g. macOS `/tmp` →
+ * `/private/tmp`) — comparing or relativizing the two raw forms is wrong.
+ */
+function effectiveRealPath(target: string): string {
+  let probe = target;
+  const suffix: string[] = [];
+  while (!existsSync(probe)) {
+    const parent = resolve(probe, "..");
+    if (parent === probe) return target; // nothing on the path exists
+    suffix.unshift(basename(probe));
+    probe = parent;
+  }
+  const real = realpathSync(probe);
+  return suffix.length ? join(real, ...suffix) : real;
+}
+
+/**
+ * Root of a git repo that *encloses* `targetDir` without being it — the parent
+ * repo a new nested ideaspace would land inside. Returns null when the target
+ * isn't under any repo, or is itself a repo root (then there's no nesting).
+ * Probes from the nearest existing ancestor so it works before the dir exists.
+ */
+function enclosingRepoRoot(targetDir: string): string | null {
+  let probe = targetDir;
+  while (!existsSync(probe)) {
+    const parent = resolve(probe, "..");
+    if (parent === probe) return null;
+    probe = parent;
+  }
+  const r = spawnSync("git", ["-C", probe, "rev-parse", "--show-toplevel"], { encoding: "utf-8" });
+  if (r.status !== 0) return null;
+  const root = r.stdout.trim();
+  if (!root) return null;
+  // Compare against the target's real path so "is the target itself the repo
+  // root?" holds even when git's toplevel is a realpath (notably on macOS).
+  return root !== effectiveRealPath(targetDir) ? root : null;
+}
+
+/** Heads-up that a new repo is being nested inside an existing one. */
+function nestingNotice(targetDir: string, parentRoot: string): string {
+  // Relativize against the target's real path: parentRoot is git's realpath, so
+  // a raw symlinked targetDir would yield a bogus `../../` traversal hint.
+  const rel = relative(parentRoot, effectiveRealPath(targetDir)) || basename(targetDir);
+  return (
+    `Note: this folder is inside git repo ${parentRoot}.\n` +
+    `  Creating an independent ideaspace repo here — ${parentRoot} will see \`${rel}/\` as an untracked nested repo.\n` +
+    `  Add \`${rel}/\` to ${join(parentRoot, ".gitignore")} to keep them separate.`
+  );
 }
 
 function describeTarget(targetDir: string, name?: string): string {

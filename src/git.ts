@@ -37,8 +37,15 @@ export function cloneRepo(url: string, dir: string): void {
   gitOrThrow(["clone", url, dir]);
 }
 
-/** True if `cwd` is inside a git work tree. */
-export function isGitRepo(cwd?: string): boolean {
+/**
+ * True if `cwd` is inside a git work tree — including a *subdirectory* of one.
+ *
+ * This answers "am I somewhere under a repo?", NOT "is this dir a repo root".
+ * Do not gate `git init` on it: it returns true for any nested path, so an
+ * init decision keyed off it would skip init and write into the parent repo.
+ * For "should I create a repo here", compare `repoRoot(dir)` to `dir` instead.
+ */
+export function isInsideWorkTree(cwd?: string): boolean {
   const r = git(["rev-parse", "--is-inside-work-tree"], cwd);
   return r.ok && r.out === "true";
 }

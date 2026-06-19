@@ -9,7 +9,7 @@ import {
 import { loadConfig } from "../auth/credentials.js";
 import { saveSpace } from "../auth/spaces.js";
 import { identityEmail, identityName } from "../auth/identity.js";
-import { isGitRepo, normalizeRepoUrl, originUrl, setLocalConfig } from "../git.js";
+import { isInsideWorkTree, normalizeRepoUrl, originUrl, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -41,7 +41,7 @@ export const linkCommand: CommandDef = {
     // The folder must be a clone we can verify — never bind a non-repo (sync
     // would have nothing to push to) or a repo with no origin (can't tell which
     // space it is).
-    if (!isGitRepo(dir)) {
+    if (!isInsideWorkTree(dir)) {
       output.error(`${dir} is not a git repository. Use \`clone\` to make one, or point at an existing clone.`);
       return 1;
     }
