@@ -1,10 +1,6 @@
 /** Shared test helpers for capturing command output. */
 
-/**
- * Capture everything a command writes to stdout while `fn` runs, restoring the
- * real stream afterward. Commands write results via `process.stdout.write`, so
- * this is the seam for asserting on `--json` payloads or human text.
- */
+/** Monkeypatches process.stdout.write for the duration of `fn`; restores on exit. */
 export async function captureStdout(
   fn: () => Promise<number>,
 ): Promise<{ exit: number; out: string }> {
