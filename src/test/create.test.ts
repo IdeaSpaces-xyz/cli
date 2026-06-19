@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -44,6 +44,23 @@ function configureGitIdentity(cwd: string): void {
   spawnSync("git", ["-C", cwd, "config", "user.name", "Test"]);
 }
 
+async function captureStdout(
+  fn: () => Promise<number>,
+): Promise<{ exit: number; out: string }> {
+  const chunks: string[] = [];
+  const original = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((s: string | Uint8Array) => {
+    chunks.push(typeof s === "string" ? s : Buffer.from(s).toString("utf-8"));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    const exit = await fn();
+    return { exit, out: chunks.join("") };
+  } finally {
+    process.stdout.write = original;
+  }
+}
+
 async function expectNoNodeId(path: string): Promise<void> {
   const content = await fs.readFile(path, "utf-8");
   expect(content).not.toMatch(/^node_id:/m);
@@ -74,6 +91,25 @@ describe("ideaspaces create", () => {
     expect(existsSync(join(tmp, ".gitignore"))).toBe(true);
     expect(existsSync(join(tmp, ".gitattributes"))).toBe(true);
     expect(existsSync(join(tmp, ".git"))).toBe(true);
+  });
+
+  it("flags nesting when creating inside an existing repo, but does not block", async () => {
+    // tmp is a parent git repo; create a child space inside it.
+    spawnSync("git", ["-C", tmp, "init", "-q", "-b", "main"]);
+    const captured = await captureStdout(() => createCommand.run(["child"], {}, baseGlobal));
+    expect(captured.exit).toBe(0);
+    const result = JSON.parse(captured.out);
+    // Surfaced (not silent), pointing at the parent repo root.
+    expect(result.nestedInRepo).toBe(realpathSync(tmp));
+    // Plan still inits an independent repo for the child — nesting is a notice,
+    // not a refusal.
+    expect(result.plan.some((s: { op: string }) => s.op === "git-init")).toBe(true);
+  });
+
+  it("does not flag nesting for a top-level (non-nested) create", async () => {
+    const captured = await captureStdout(() => createCommand.run([], {}, baseGlobal));
+    expect(captured.exit).toBe(0);
+    expect(JSON.parse(captured.out).nestedInRepo).toBeNull();
   });
 
   it("creates `./<name>/` and scaffolds inside it", async () => {
