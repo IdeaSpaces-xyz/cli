@@ -175,9 +175,12 @@ async function runBatchStage(
   output: Output,
 ): Promise<number> {
   const stage = parseBool(flags.stage, true);
-  const { files, missing } = await collectMarkdown(targets);
+  const { files, missing, skipped } = await collectMarkdown(targets);
   if (missing.length) {
-    output.log(`Not found (skipped): ${missing.join(", ")}`);
+    output.log(`Not found: ${missing.join(", ")}`);
+  }
+  if (skipped.length) {
+    output.log(`Skipped (not .md): ${skipped.join(", ")}`);
   }
   if (!files.length) {
     output.error(`No .md files found in: ${targets.join(", ")}`);
@@ -215,25 +218,33 @@ async function runBatchStage(
   return 0;
 }
 
-/** Resolve targets into a deduped, sorted list of `.md` files, plus misses. */
+/**
+ * Resolve targets into a deduped, sorted list of `.md` files. Targets that
+ * don't exist come back in `missing`; an explicitly-named file that exists but
+ * isn't `.md` comes back in `skipped` — never silently dropped (callers pass
+ * explicit lists from scripts, so a silent skip would be invisible data loss).
+ * Non-`.md` files merely *encountered* while walking a directory are expected
+ * and not reported.
+ */
 async function collectMarkdown(
   targets: string[],
-): Promise<{ files: string[]; missing: string[] }> {
+): Promise<{ files: string[]; missing: string[]; skipped: string[] }> {
   const files = new Set<string>();
   const missing: string[] = [];
+  const skipped: string[] = [];
   for (const t of targets) {
     const abs = resolve(t);
     if (!existsSync(abs)) {
       missing.push(t);
-      continue;
-    }
-    if (statSync(abs).isDirectory()) {
+    } else if (statSync(abs).isDirectory()) {
       await walkMarkdown(abs, files);
     } else if (abs.endsWith(".md")) {
       files.add(abs);
+    } else {
+      skipped.push(t);
     }
   }
-  return { files: [...files].sort(), missing };
+  return { files: [...files].sort(), missing, skipped };
 }
 
 /** Recurse a directory collecting `.md` files; skips `.git` and `node_modules`. */

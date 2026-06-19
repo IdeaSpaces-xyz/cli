@@ -66,6 +66,28 @@ describe("ideaspaces write — batch stage", () => {
     expect(staged).toEqual(expect.arrayContaining(["a.md", "b.md"]));
   });
 
+  it("surfaces an explicit non-.md file as skipped, still stages the .md", async () => {
+    await seed("a.md", HEALTHY);
+    await seed("readme.txt", "not markdown");
+    const errs: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((s: string | Uint8Array) => {
+      errs.push(typeof s === "string" ? s : Buffer.from(s).toString("utf-8"));
+      return true;
+    }) as typeof process.stderr.write;
+    let exit: number;
+    try {
+      exit = await writeCommand.run(["a.md", "readme.txt"], {}, { ...G, quiet: false });
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(exit).toBe(0);
+    expect(errs.join("")).toContain("Skipped (not .md): readme.txt");
+    const staged = git(["diff", "--cached", "--name-only"]).split("\n");
+    expect(staged).toContain("a.md");
+    expect(staged).not.toContain("readme.txt");
+  });
+
   it("--stage=false checks health without staging", async () => {
     await seed("notes/a.md", HEALTHY);
     const exit = await writeCommand.run(["notes"], { stage: "false" }, G);
