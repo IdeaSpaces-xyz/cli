@@ -214,7 +214,7 @@ async function runBatchStage(
     header,
     ...flagged.map((r) => `  ${relative(process.cwd(), r.path)} — ${r.issues.join(", ")}`),
   ];
-  output.result({ staged, count: files.length, files: report }, lines.join("\n"));
+  output.result({ staged, count: files.length, files: report, missing, skipped }, lines.join("\n"));
   return 0;
 }
 
@@ -247,11 +247,15 @@ async function collectMarkdown(
   return { files: [...files].sort(), missing, skipped };
 }
 
-/** Recurse a directory collecting `.md` files; skips `.git` and `node_modules`. */
+/**
+ * Recurse a directory collecting `.md` files. Skips dot-directories (`.git`,
+ * `.claude`, `.github`, …) and `node_modules` — tool/agent state, not notes.
+ * `_agent/` is not hidden, so contract markdown is still captured.
+ */
 async function walkMarkdown(dir: string, out: Set<string>): Promise<void> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name === ".git" || entry.name === "node_modules") continue;
+    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
     const p = join(dir, entry.name);
     if (entry.isDirectory()) {
       await walkMarkdown(p, out);
@@ -275,7 +279,9 @@ function healthIssues(content: string): string[] {
     issues.push(`malformed frontmatter (${syntax.message})`);
   }
   if (!extractSummary(content)) issues.push("no summary");
-  // Markdown link in the body: `](target)` — a thin proxy for lateral linking.
-  if (!/\]\([^)\s]+\)/.test(stripFrontmatter(content))) issues.push("no outbound links");
+  // Markdown link in the body: `[text](target)` whose `[` isn't preceded by `!`
+  // (that would be an image, not a lateral link). A thin proxy — links in code
+  // blocks still count — but enough of a signal for a health hint.
+  if (!/(?<!!)\[[^\]]*\]\([^)\s]+\)/.test(stripFrontmatter(content))) issues.push("no outbound links");
   return issues;
 }
