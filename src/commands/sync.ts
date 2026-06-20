@@ -25,6 +25,7 @@ import {
   GitError,
 } from "../git.js";
 import { parseBool } from "../argv.js";
+import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -74,6 +75,12 @@ export const syncCommand: CommandDef = {
       output.result({ dry_run: true, ...rs }, plan.join("\n"));
       return 0;
     }
+
+    // Re-assert our credential helper before any network op — self-heals a
+    // config written by an older CLI (bare `!ideaspaces`, unresolvable when we
+    // run as the desktop sidecar) or a moved executable path. Idempotent +
+    // best-effort; only here, past the non-mutating dry-run path above.
+    await registerGitCredentialHelper();
 
     try {
       fetch(root);

@@ -4,6 +4,7 @@ import { loadConfig } from "../auth/credentials.js";
 import { saveSpace } from "../auth/spaces.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { cloneRepo, setLocalConfig } from "../git.js";
+import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -65,6 +66,11 @@ export const cloneCommand: CommandDef = {
 
     const url = `${deriveGitBase(config.apiUrl)}/${namespace}/${repo.slug}.git`;
     const dir = resolve(args[1] ?? repo.slug);
+
+    // Self-heal the credential helper before the clone's network auth — covers
+    // a config written by an older CLI or a moved executable path (idempotent,
+    // best-effort). See git-credential-helper.ts.
+    await registerGitCredentialHelper();
 
     output.progress(`Cloning ${namespace}/${repo.slug}…`);
     try {

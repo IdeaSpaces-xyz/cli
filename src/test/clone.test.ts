@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GlobalFlags } from "../types.js";
 
-const { loadConfigMock, fetchAuthMeMock, cloneRepoMock, saveSpaceMock } = vi.hoisted(() => ({
-  loadConfigMock: vi.fn(),
-  fetchAuthMeMock: vi.fn(),
-  cloneRepoMock: vi.fn(),
-  saveSpaceMock: vi.fn(),
-}));
+const { loadConfigMock, fetchAuthMeMock, cloneRepoMock, saveSpaceMock, registerHelperMock } =
+  vi.hoisted(() => ({
+    loadConfigMock: vi.fn(),
+    fetchAuthMeMock: vi.fn(),
+    cloneRepoMock: vi.fn(),
+    saveSpaceMock: vi.fn(),
+    registerHelperMock: vi.fn(),
+  }));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
 vi.mock("../auth/api.js", async (importOriginal) => {
@@ -16,6 +18,9 @@ vi.mock("../auth/api.js", async (importOriginal) => {
 });
 vi.mock("../git.js", () => ({ cloneRepo: cloneRepoMock }));
 vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock }));
+// Stub the credential-helper self-heal so the test doesn't run real
+// `git config --global` against the developer's ~/.gitconfig.
+vi.mock("../auth/git-credential-helper.js", () => ({ registerGitCredentialHelper: registerHelperMock }));
 
 const { cloneCommand } = await import("../commands/clone.js");
 
