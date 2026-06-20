@@ -36,6 +36,7 @@ beforeEach(() => {
   fetchAuthMeMock.mockReset();
   cloneRepoMock.mockReset();
   saveSpaceMock.mockReset();
+  registerHelperMock.mockReset();
   stdoutChunks = [];
   stderrChunks = [];
   originalOut = process.stdout.write.bind(process.stdout);
@@ -69,6 +70,8 @@ describe("clone", () => {
     const code = await cloneCommand.run(["notes"], {}, JSON_GLOBAL);
 
     expect(code).toBe(0);
+    // The credential helper is (re-)registered before the network clone.
+    expect(registerHelperMock).toHaveBeenCalled();
     expect(cloneRepoMock).toHaveBeenCalledWith(
       expect.stringContaining("/alice/notes.git"),
       expect.stringContaining("notes"),
