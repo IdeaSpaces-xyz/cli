@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
+import { createRepo, fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 
 const config = { apiUrl: "http://api.test", apiKey: "k" };
 
@@ -63,6 +63,16 @@ describe("request() retry on timeout (cold start)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(fetchAuthMe(config, { timeoutMs: 20, retry: false })).rejects.toThrow(/timed out/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a POST on timeout (could double-apply)", async () => {
+    const fetchMock = abortingFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createRepo(config, { name: "x" }, { timeoutMs: 20 }),
+    ).rejects.toThrow(/timed out/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
