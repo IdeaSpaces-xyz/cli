@@ -58,6 +58,14 @@ describe("request() retry on timeout (cold start)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("does not retry when retry:false (latency-sensitive callers)", async () => {
+    const fetchMock = abortingFetch();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchAuthMe(config, { timeoutMs: 20, retry: false })).rejects.toThrow(/timed out/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does not retry a non-timeout error (401)", async () => {
     let calls = 0;
     vi.stubGlobal(

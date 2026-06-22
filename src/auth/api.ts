@@ -85,6 +85,10 @@ export function deriveWebBase(apiUrl: string): string {
 
 export interface RequestOptions {
   timeoutMs?: number;
+  /** Retry an idempotent GET once on timeout (default true). Set false for
+   * latency-sensitive best-effort calls that prefer a fast fallback over
+   * absorbing a cold start. */
+  retry?: boolean;
 }
 
 /** Thrown on 401 so callers can recognize "session expired" without
@@ -119,7 +123,7 @@ async function request<T>(
   // on a warm one (~0.1s), so cold starts self-heal instead of surfacing a
   // timeout. GET only — repeating it is safe; POST/PUT/etc. could double-apply,
   // so they fail fast. Non-timeout errors (401, 5xx, network) never retry.
-  const maxAttempts = method === "GET" ? 2 : 1;
+  const maxAttempts = method === "GET" && opts.retry !== false ? 2 : 1;
   for (let attempt = 1; ; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
