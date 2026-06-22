@@ -85,6 +85,10 @@ export function deriveWebBase(apiUrl: string): string {
 
 export interface RequestOptions {
   timeoutMs?: number;
+  /** Retry an idempotent GET once on timeout (default true). Set false for
+   * latency-sensitive best-effort calls that prefer a fast fallback over
+   * absorbing a cold start. */
+  retry?: boolean;
 }
 
 /** Thrown on 401 so callers can recognize "session expired" without
@@ -114,30 +118,40 @@ async function request<T>(
   opts: RequestOptions = {},
 ): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const r = await fetch(`${config.apiUrl}${path}`, {
-      method,
-      headers: authHeaders(config),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: ctrl.signal,
-    });
-    if (!r.ok) {
-      const text = await r.text();
-      if (r.status === 401) {
-        throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
+  // Retry an idempotent GET once if the first attempt times out: the first call
+  // warms a cold-started server (which can take ~9s), and the retry then lands
+  // on a warm one (~0.1s), so cold starts self-heal instead of surfacing a
+  // timeout. GET only — repeating it is safe; POST/PUT/etc. could double-apply,
+  // so they fail fast. Non-timeout errors (401, 5xx, network) never retry.
+  const maxAttempts = method === "GET" && opts.retry !== false ? 2 : 1;
+  for (let attempt = 1; ; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const r = await fetch(`${config.apiUrl}${path}`, {
+        method,
+        headers: authHeaders(config),
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal,
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        if (r.status === 401) {
+          throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
+        }
+        throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
       }
-      throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
+      return (await r.json()) as T;
+    } catch (err) {
+      const timedOut = err instanceof Error && err.name === "AbortError";
+      if (timedOut && attempt < maxAttempts) continue; // warm-up retry
+      if (timedOut) {
+        throw new Error(`${method} ${path} timed out after ${timeoutMs}ms`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    return (await r.json()) as T;
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`${method} ${path} timed out after ${timeoutMs}ms`);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

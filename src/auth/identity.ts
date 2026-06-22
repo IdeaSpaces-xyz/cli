@@ -37,9 +37,11 @@ export async function ensureLocalIdentity(repoDir: string): Promise<void> {
     if (current && isIdentityEmail(current)) return;
     const stored = loadStoredCredentials();
     if (!stored) return;
+    // Best-effort + latency-sensitive: a tight budget and no cold-start retry,
+    // so scaffolding never stalls — it just falls back to a default identity.
     const me = await fetchAuthMe(
       { apiUrl: stored.api_url, apiKey: stored.api_key },
-      { timeoutMs: 2000 },
+      { timeoutMs: 2000, retry: false },
     );
     if (!me.username) return;
     setLocalConfig("user.email", identityEmail(me.username), repoDir);
