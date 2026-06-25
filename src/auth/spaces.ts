@@ -52,3 +52,17 @@ export function saveSpace(absolutePath: string, record: SpaceRecord): void {
 export function findSpaceFor(absolutePath: string): SpaceRecord | null {
   return loadSpaces()[resolve(absolutePath)] ?? null;
 }
+
+/** Remove a clone's registry binding. Returns false if it wasn't tracked. */
+export function removeSpace(absolutePath: string): boolean {
+  const key = resolve(absolutePath);
+  const map = loadSpaces();
+  if (!(key in map)) return false;
+  delete map[key];
+  const dir = configDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+  writeFileSync(spacesFile(), JSON.stringify(map, null, 2) + "\n", { mode: 0o600 });
+  return true;
+}

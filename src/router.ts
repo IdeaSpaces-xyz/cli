@@ -15,6 +15,7 @@ import { reposCommand } from "./commands/repos.js";
 import { cloneCommand } from "./commands/clone.js";
 import { clonesCommand } from "./commands/clones.js";
 import { linkCommand } from "./commands/link.js";
+import { forgetCommand } from "./commands/forget.js";
 import { conversationsCommand } from "./commands/conversations.js";
 import { conversationCommand } from "./commands/conversation.js";
 import { agentsCommand } from "./commands/agents.js";
@@ -31,6 +32,7 @@ const topLevel: CommandDef[] = [
   cloneCommand,
   clonesCommand,
   linkCommand,
+  forgetCommand,
   conversationsCommand,
   conversationCommand,
   agentsCommand,
