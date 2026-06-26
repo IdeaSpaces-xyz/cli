@@ -271,8 +271,10 @@ async function cmdCancel(args: string[], output: Output): Promise<number> {
   }
 }
 
+// Bare usage — `main.ts` adds the "Usage:" label for `--help`; the error path
+// adds it explicitly. Matches the other commands' `usage:` fields.
 const USAGE =
-  "Usage: ideaspaces conversation <new|participants|add|remove|members|send|get|cancel> …";
+  "ideaspaces conversation <new|participants|add|remove|members|send|get|cancel> …";
 
 export const conversationCommand: CommandDef = {
   name: "conversation",
@@ -310,7 +312,7 @@ export const conversationCommand: CommandDef = {
       case "cancel":
         return cmdCancel(rest, output);
       default:
-        output.error(USAGE);
+        output.error(`Usage: ${USAGE}`);
         return 1;
     }
   },

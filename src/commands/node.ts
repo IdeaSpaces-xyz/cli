@@ -6,12 +6,14 @@ import type { CommandDef, GlobalFlags } from "../types.js";
 // Resolve a node by id — name, path, content. Backs the desktop/web conversation
 // workspace strip + preview (a conversation's `workspace` is bare node-ids).
 
-const USAGE = "Usage: ideaspaces node get <repo_id> <node_id>";
+// Bare usage — `main.ts` adds the "Usage:" label for `--help`; error paths add
+// it explicitly. Keeps `usage:` consistent with the other commands' fields.
+const USAGE = "ideaspaces node get <repo_id> <node_id>";
 
 async function cmdGet(args: string[], output: Output): Promise<number> {
   const [repoId, nodeId] = args;
   if (!repoId || !nodeId) {
-    output.error(USAGE);
+    output.error(`Usage: ${USAGE}`);
     return 1;
   }
 
@@ -54,7 +56,7 @@ export const nodeCommand: CommandDef = {
       case "get":
         return cmdGet(rest, output);
       default:
-        output.error(USAGE);
+        output.error(`Usage: ${USAGE}`);
         return 1;
     }
   },
