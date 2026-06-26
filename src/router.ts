@@ -20,6 +20,7 @@ import { conversationsCommand } from "./commands/conversations.js";
 import { conversationCommand } from "./commands/conversation.js";
 import { agentsCommand } from "./commands/agents.js";
 import { nodeCommand } from "./commands/node.js";
+import { searchCommand } from "./commands/search.js";
 
 // Power commands
 import { logoutCommand } from "./commands/power/logout.js";
@@ -37,6 +38,7 @@ const topLevel: CommandDef[] = [
   conversationCommand,
   agentsCommand,
   nodeCommand,
+  searchCommand,
   publishCommand,
   writeCommand,
   commitCommand,
