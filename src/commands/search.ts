@@ -14,7 +14,10 @@ import { searchDocs, type SearchDoc } from "../search.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-const USAGE = "Usage: ideaspaces search <query> [--limit N] [--json]";
+// Bare usage (no "Usage:" prefix) — `main.ts` adds the label for `--help`, and
+// the error path below adds it explicitly. Matches the convention used by the
+// other commands' `usage:` fields.
+const USAGE = "ideaspaces search <query> [--limit N] [--json]";
 const DEFAULT_LIMIT = 20;
 
 // Lazy: yields one document at a time so the scorer never holds the whole repo
@@ -44,7 +47,7 @@ export const searchCommand: CommandDef = {
 
     const query = args.join(" ").trim();
     if (!query) {
-      output.error(USAGE);
+      output.error(`Usage: ${USAGE}`);
       return 1;
     }
 
