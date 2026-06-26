@@ -204,6 +204,17 @@ export function isIdeaspacePath(path: string): boolean {
   return path.endsWith(".md") || path.split("/").includes("_agent");
 }
 
+/**
+ * Repo-relative paths of tracked + untracked-but-not-ignored files. Uses
+ * `git ls-files` so `.gitignore` and `.git/` are honoured for free — the set
+ * local search walks. Returns [] outside a repo or on error.
+ */
+export function listFiles(cwd?: string): string[] {
+  const r = git(["ls-files", "--cached", "--others", "--exclude-standard"], cwd);
+  if (!r.ok || !r.out) return [];
+  return r.out.split("\n").filter(Boolean);
+}
+
 /** Staged paths that are ideaspace knowledge (markdown or `_agent/`). */
 export function stagedIdeaspacePaths(cwd?: string): string[] {
   return stagedPaths(cwd).filter(isIdeaspacePath);
