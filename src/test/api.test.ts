@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRepo, fetchAuthMe, UnauthorizedError } from "../auth/api.js";
+import { createRepo, fetchAuthMe, putFile, UnauthorizedError } from "../auth/api.js";
 
 const config = { apiUrl: "http://api.test", apiKey: "k" };
 
@@ -90,3 +90,34 @@ describe("request() retry on timeout (cold start)", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("putFile", () => {
+  it("PUTs JSON content to the per-segment-encoded files path with auth", async () => {
+    let captured: { url: string; init?: RequestInit } | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        captured = { url: String(url), init };
+        return Promise.resolve(
+          new Response(JSON.stringify({ path: "notes/a b.md", commit_sha: "abc", node_id: "n1" }), {
+            status: 200,
+          }),
+        );
+      }),
+    );
+
+    const res = await putFile(config, "repo_abc", "notes/a b.md", "# Hi");
+
+    expect(captured?.init?.method).toBe("PUT");
+    // `/` between segments stays a real slash; the space inside a segment is encoded.
+    expect(captured?.url).toBe("http://api.test/api/v1/repos/repo_abc/files/notes/a%20b.md");
+    expect(JSON.parse(String(captured?.init?.body))).toEqual({ content: "# Hi" });
+    expect((captured?.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
+    expect(res.node_id).toBe("n1");
+  });
+
+  it("rejects on a 403 (no write access)", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("forbidden", { status: 403 }))));
+    await expect(putFile(config, "repo_abc", "a.md", "x")).rejects.toThrow();
+  });
+})
