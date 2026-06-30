@@ -220,6 +220,47 @@ export function stagedIdeaspacePaths(cwd?: string): string[] {
   return stagedPaths(cwd).filter(isIdeaspacePath);
 }
 
+export interface FileTimes {
+  /** Repo-relative path (POSIX separators). */
+  path: string;
+  /** First commit that added the file — epoch ms (commit time). */
+  created_at: number;
+  /** Most recent commit that touched the file — epoch ms. */
+  updated_at: number;
+}
+
+/**
+ * Per-markdown-file created/updated times from git history — the meaningful
+ * dates the filesystem can't give (a clone's mtime/birthtime are all the
+ * checkout moment). One `git log` pass, newest commit first: the first time a
+ * path appears is its newest commit (updated); the last time, its oldest
+ * (created). `--no-renames`, so a renamed file's "created" is its rename commit
+ * (follow-across-renames is a deliberate non-goal — it needs a pass per file).
+ * Returns [] outside a repo / on error / for an empty history.
+ */
+export function fileTimes(cwd?: string): FileTimes[] {
+  const r = git(["log", "--format=%ct", "--name-only", "--no-renames"], cwd);
+  if (!r.ok || !r.out) return [];
+  const created = new Map<string, number>();
+  const updated = new Map<string, number>();
+  let ms = 0;
+  for (const line of r.out.split("\n")) {
+    if (/^\d+$/.test(line)) {
+      ms = Number(line) * 1000; // %ct is epoch seconds
+      continue;
+    }
+    const path = line.trim();
+    if (!path || !(path.endsWith(".md") || path.endsWith(".markdown"))) continue;
+    if (!updated.has(path)) updated.set(path, ms); // newest commit wins (first seen)
+    created.set(path, ms); // oldest commit wins (last seen, walking into history)
+  }
+  return [...updated.keys()].map((path) => ({
+    path,
+    created_at: created.get(path) ?? updated.get(path)!,
+    updated_at: updated.get(path)!,
+  }));
+}
+
 export interface RemoteState {
   /** Upstream ref (e.g. `origin/main`), or null if none configured. */
   upstream: string | null;
