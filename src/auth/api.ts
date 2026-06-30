@@ -312,6 +312,35 @@ export async function fetchNode(
   );
 }
 
+export interface WriteFileResponse {
+  path: string;
+  commit_sha: string;
+  node_id: string | null;
+}
+
+// Encode each path segment individually — encodeURIComponent on the whole path
+// would turn `/` into %2F. Mirrors the server's files route.
+function filesPath(repoId: string, path: string): string {
+  const segs = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return `${API_V1}/repos/${encodeURIComponent(repoId)}/files/${segs}`;
+}
+
+/**
+ * Write a file's content on the server (`PUT /repos/{id}/files/{path}`) — the
+ * same endpoint is_web edits through. `name` is omitted, so the backend keeps
+ * the existing display name (body-only edit). 403 when the caller can't write
+ * the repo (surfaced to the user as read-only).
+ */
+export async function putFile(
+  config: ApiConfig,
+  repoId: string,
+  path: string,
+  content: string,
+  opts?: RequestOptions,
+): Promise<WriteFileResponse> {
+  return request<WriteFileResponse>(config, "PUT", filesPath(repoId, path), { content }, opts);
+}
+
 export type ParticipantRole = "owner" | "member" | "reader";
 
 export interface ConversationParticipant {
