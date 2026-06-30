@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createRepo, fetchAuthMe, putFile, UnauthorizedError } from "../auth/api.js";
+import {
+  createRepo,
+  fetchAuthMe,
+  putFile,
+  listRepoMembers,
+  createRepoInvites,
+  removeRepoMember,
+  setSpaceAccess,
+  UnauthorizedError,
+} from "../auth/api.js";
 
 const config = { apiUrl: "http://api.test", apiKey: "k" };
 
@@ -119,5 +128,56 @@ describe("putFile", () => {
   it("rejects on a 403 (no write access)", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("forbidden", { status: 403 }))));
     await expect(putFile(config, "repo_abc", "a.md", "x")).rejects.toThrow();
+  });
+})
+
+describe("sharing (members / invites / access)", () => {
+  function capture(status: number, body: unknown) {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        return Promise.resolve(
+          new Response(body === undefined ? null : JSON.stringify(body), { status }),
+        );
+      }),
+    );
+    return calls;
+  }
+
+  it("lists members (GET /members)", async () => {
+    const calls = capture(200, [{ user_id: 1, username: "a", email: null, role: "OWNER" }]);
+    const members = await listRepoMembers(config, "repo_abc");
+    expect(calls[0].init?.method ?? "GET").toBe("GET");
+    expect(calls[0].url).toBe("http://api.test/api/v1/repos/repo_abc/members");
+    expect(members[0].role).toBe("OWNER");
+  });
+
+  it("creates invites (POST /invites with emails + role)", async () => {
+    const calls = capture(200, { results: [{ email: "a@x.com", status: "sent" }] });
+    const res = await createRepoInvites(config, "repo_abc", ["a@x.com"], "MEMBER");
+    expect(calls[0].init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ emails: ["a@x.com"], role: "MEMBER" });
+    expect(res.results[0].status).toBe("sent");
+  });
+
+  it("sets access (PATCH /space-access)", async () => {
+    const calls = capture(200, {
+      repo_id: "repo_abc",
+      root_node_id: "n",
+      read_public: true,
+      copy_public: false,
+      copy_access: "reader",
+    });
+    const a = await setSpaceAccess(config, "repo_abc", { read_public: true, copy_access: "reader" });
+    expect(calls[0].init?.method).toBe("PATCH");
+    expect(calls[0].url).toBe("http://api.test/api/v1/repos/repo_abc/space-access");
+    expect(a.read_public).toBe(true);
+  });
+
+  it("tolerates a 204 (empty body) on member removal", async () => {
+    capture(204, undefined);
+    await expect(removeRepoMember(config, "repo_abc", 7)).resolves.toBeUndefined();
   });
 })

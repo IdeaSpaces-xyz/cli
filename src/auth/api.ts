@@ -141,7 +141,11 @@ async function request<T>(
         }
         throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
       }
-      return (await r.json()) as T;
+      // Tolerate an empty body (e.g. a 204 from DELETE) — return undefined
+      // rather than throwing on `r.json()` of nothing.
+      if (r.status === 204) return undefined as T;
+      const payload = await r.text();
+      return (payload ? JSON.parse(payload) : undefined) as T;
     } catch (err) {
       const timedOut = err instanceof Error && err.name === "AbortError";
       if (timedOut && attempt < maxAttempts) continue; // warm-up retry
@@ -339,6 +343,106 @@ export async function putFile(
   opts?: RequestOptions,
 ): Promise<WriteFileResponse> {
   return request<WriteFileResponse>(config, "PUT", filesPath(repoId, path), { content }, opts);
+}
+
+// ── Sharing: members, invites, and the public-link access policy ──────────────
+// The data behind the desktop's Share dialog (is_web parity). All owner-gated on
+// the backend — a non-owner caller gets a 403.
+
+export type InviteRole = "MEMBER" | "CLONER" | "READER";
+export type MemberRole = "OWNER" | InviteRole;
+export type CopyAccessLevel = "owner" | "member" | "reader" | "public";
+
+export interface Member {
+  user_id: number;
+  username: string | null;
+  email: string | null;
+  role: MemberRole;
+}
+
+export interface PendingInvite {
+  invite_id: string;
+  invited_email: string;
+  role: InviteRole;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface InviteResult {
+  email: string;
+  status: "sent" | "already_member" | "already_invited" | "invalid_hostname" | "email_failed";
+  invite_id?: string;
+  reason?: string;
+}
+
+export interface CreateInvitesResponse {
+  results: InviteResult[];
+}
+
+export interface SpaceAccessResponse {
+  repo_id: string;
+  root_node_id: string;
+  read_public: boolean;
+  copy_public: boolean;
+  copy_access: CopyAccessLevel;
+}
+
+export interface SpaceAccessUpdate {
+  read_public: boolean;
+  copy_access: CopyAccessLevel;
+}
+
+const repoBase = (repoId: string) => `${API_V1}/repos/${encodeURIComponent(repoId)}`;
+
+export async function listRepoMembers(config: ApiConfig, repoId: string): Promise<Member[]> {
+  return request<Member[]>(config, "GET", `${repoBase(repoId)}/members`);
+}
+
+export async function removeRepoMember(
+  config: ApiConfig,
+  repoId: string,
+  userId: number,
+): Promise<void> {
+  await request(config, "DELETE", `${repoBase(repoId)}/members/${encodeURIComponent(String(userId))}`);
+}
+
+export async function listRepoInvites(config: ApiConfig, repoId: string): Promise<PendingInvite[]> {
+  return request<PendingInvite[]>(config, "GET", `${repoBase(repoId)}/invites`);
+}
+
+export async function createRepoInvites(
+  config: ApiConfig,
+  repoId: string,
+  emails: string[],
+  role: InviteRole,
+): Promise<CreateInvitesResponse> {
+  return request<CreateInvitesResponse>(config, "POST", `${repoBase(repoId)}/invites`, {
+    emails,
+    role,
+  });
+}
+
+export async function revokeRepoInvite(
+  config: ApiConfig,
+  repoId: string,
+  inviteId: string,
+): Promise<void> {
+  await request(config, "DELETE", `${repoBase(repoId)}/invites/${encodeURIComponent(inviteId)}`);
+}
+
+export async function getSpaceAccess(
+  config: ApiConfig,
+  repoId: string,
+): Promise<SpaceAccessResponse> {
+  return request<SpaceAccessResponse>(config, "GET", `${repoBase(repoId)}/space-access`);
+}
+
+export async function setSpaceAccess(
+  config: ApiConfig,
+  repoId: string,
+  update: SpaceAccessUpdate,
+): Promise<SpaceAccessResponse> {
+  return request<SpaceAccessResponse>(config, "PATCH", `${repoBase(repoId)}/space-access`, update);
 }
 
 export type ParticipantRole = "owner" | "member" | "reader";

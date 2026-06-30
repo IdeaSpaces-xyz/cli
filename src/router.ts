@@ -22,6 +22,7 @@ import { agentsCommand } from "./commands/agents.js";
 import { nodeCommand } from "./commands/node.js";
 import { searchCommand } from "./commands/search.js";
 import { timesCommand } from "./commands/times.js";
+import { shareCommand } from "./commands/share.js";
 
 // Power commands
 import { logoutCommand } from "./commands/power/logout.js";
@@ -45,6 +46,7 @@ const topLevel: CommandDef[] = [
   commitCommand,
   statusCommand,
   timesCommand,
+  shareCommand,
   syncCommand,
   skillsCommand,
   credentialCommand,
