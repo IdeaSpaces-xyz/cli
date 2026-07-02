@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { harvestWorkspace } from "../local-agent.js";
+import { harvestWorkspace, deriveConversationName } from "../local-agent.js";
 import type { ToolInvocation } from "@ideaspaces/sdk";
 
 const inv = (name: string, args: Record<string, unknown>, isError = false): ToolInvocation => ({
@@ -42,5 +42,22 @@ describe("harvestWorkspace (pi-is-space tool classification)", () => {
       inv("some_other_tool", { path: "x.md" }),
     ]);
     expect(ws).toEqual({ created: [], modified: [], deleted: [], read: [], mentioned: [] });
+  });
+});
+
+describe("deriveConversationName (first-message naming)", () => {
+  it("uses the first non-empty line, whitespace-collapsed", () => {
+    expect(deriveConversationName("  Plan the   launch\nmore text")).toBe("Plan the launch");
+    expect(deriveConversationName("\n\nSecond line is first real")).toBe("Second line is first real");
+  });
+
+  it("caps long names with an ellipsis", () => {
+    const name = deriveConversationName("x".repeat(100));
+    expect(name.length).toBe(58); // 57 + ellipsis
+    expect(name.endsWith("…")).toBe(true);
+  });
+
+  it("falls back to Untitled on empty input", () => {
+    expect(deriveConversationName("   \n  ")).toBe("Untitled");
   });
 });

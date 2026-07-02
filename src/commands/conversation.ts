@@ -11,6 +11,7 @@ import {
   type ApiConfig,
   type CreateConversationBody,
 } from "../auth/api.js";
+import { join } from "node:path";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
 import { runLocalTurn } from "../local-agent.js";
@@ -226,44 +227,71 @@ async function cmdSend(args: string[], flags: Flags, output: Output): Promise<nu
   }
 }
 
-// `send-local` runs a turn on a LOCAL pi runtime (not the remote Keeper) and
-// emits the same Keeper JSON-lines contract as `send`, so any client renders it
-// identically. The A3 dogfood entry; `send --local` (B1) will fold this in with
-// proper local-conversation identity.
+// `send --local <conv>` runs a turn on a LOCAL pi runtime (not the remote
+// Keeper), context-rooted at cwd (a workspace that may mount repos), resuming
+// the conversation's pi session. Emits the same Keeper JSON-lines contract as
+// remote `send`, so any client renders it identically.
 async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
   const message = typeof flags.message === "string" ? flags.message : undefined;
   if (!message) {
     output.error("A message is required: --message <text>");
     return 1;
   }
-  const extensionPath =
-    typeof flags.ext === "string" ? flags.ext : process.env.IDEASPACES_PI_EXTENSION;
-  if (!extensionPath) {
+  // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
+  // distribution bundles them (D1), the caller supplies the paths.
+  const extFlag = typeof flags.ext === "string" ? flags.ext : process.env.IDEASPACES_PI_EXTENSIONS;
+  const extensionPaths = (extFlag ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!extensionPaths.length) {
     output.error(
-      "The pi-is-space extension path is required: --ext <path> (or set IDEASPACES_PI_EXTENSION)",
+      "Extensions are required: --ext <pi-is-space,pi-local-context> (or set IDEASPACES_PI_EXTENSIONS)",
     );
     return 1;
   }
-  const repoPath = typeof flags.repo === "string" ? flags.repo : process.cwd();
+
+  const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
+  const sessionDir =
+    typeof flags["session-dir"] === "string" ? flags["session-dir"] : join(repoPath, ".pi", "sessions");
+  // Id via --conversation (a flag), not a bare positional: the arg parser has no
+  // command-scoped booleans, so `--local <id>` would swallow the id.
   const conversationId =
     typeof flags.conversation === "string" ? flags.conversation : `local-${Date.now().toString(36)}`;
   const modelTier = typeof flags["model-tier"] === "string" ? flags["model-tier"] : "local";
   const piModel = typeof flags["pi-model"] === "string" ? flags["pi-model"] : undefined;
 
+  // Abort propagation: SIGINT/SIGTERM (or the desktop killing the sidecar) kills
+  // the local pi turn. Guarded so repeats don't double-fire.
+  const controller = new AbortController();
+  let signalled = false;
+  const onSignal = (): void => {
+    if (signalled) return;
+    signalled = true;
+    controller.abort();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
   try {
     for await (const event of runLocalTurn({
       repoPath,
       message,
-      extensionPath,
+      extensionPaths,
       conversationId,
+      sessionDir,
       modelTier,
       piModel,
+      signal: controller.signal,
     })) {
       process.stdout.write(`${JSON.stringify(event)}\n`);
     }
     return 0;
   } catch (err) {
     return reportError(err, output);
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
   }
 }
 
@@ -316,7 +344,7 @@ async function cmdCancel(args: string[], output: Output): Promise<number> {
 // Bare usage — `main.ts` adds the "Usage:" label for `--help`; the error path
 // adds it explicitly. Matches the other commands' `usage:` fields.
 const USAGE =
-  "ideaspaces conversation <new|participants|add|remove|members|send|send-local|get|cancel> …";
+  "ideaspaces conversation <new|participants|add|remove|members|send|get|cancel> … (send --local for a local pi turn)";
 
 export const conversationCommand: CommandDef = {
   name: "conversation",
@@ -348,9 +376,7 @@ export const conversationCommand: CommandDef = {
       case "members":
         return cmdMembers(rest, output);
       case "send":
-        return cmdSend(rest, flags, output);
-      case "send-local":
-        return cmdSendLocal(flags, output);
+        return flags.local ? cmdSendLocal(flags, output) : cmdSend(rest, flags, output);
       case "get":
         return cmdGet(rest, output);
       case "cancel":
