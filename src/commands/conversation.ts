@@ -13,6 +13,7 @@ import {
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
+import { runLocalTurn } from "../local-agent.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
@@ -225,6 +226,47 @@ async function cmdSend(args: string[], flags: Flags, output: Output): Promise<nu
   }
 }
 
+// `send-local` runs a turn on a LOCAL pi runtime (not the remote Keeper) and
+// emits the same Keeper JSON-lines contract as `send`, so any client renders it
+// identically. The A3 dogfood entry; `send --local` (B1) will fold this in with
+// proper local-conversation identity.
+async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
+  const message = typeof flags.message === "string" ? flags.message : undefined;
+  if (!message) {
+    output.error("A message is required: --message <text>");
+    return 1;
+  }
+  const extensionPath =
+    typeof flags.ext === "string" ? flags.ext : process.env.IDEASPACES_PI_EXTENSION;
+  if (!extensionPath) {
+    output.error(
+      "The pi-is-space extension path is required: --ext <path> (or set IDEASPACES_PI_EXTENSION)",
+    );
+    return 1;
+  }
+  const repoPath = typeof flags.repo === "string" ? flags.repo : process.cwd();
+  const conversationId =
+    typeof flags.conversation === "string" ? flags.conversation : `local-${Date.now().toString(36)}`;
+  const modelTier = typeof flags["model-tier"] === "string" ? flags["model-tier"] : "local";
+  const piModel = typeof flags["pi-model"] === "string" ? flags["pi-model"] : undefined;
+
+  try {
+    for await (const event of runLocalTurn({
+      repoPath,
+      message,
+      extensionPath,
+      conversationId,
+      modelTier,
+      piModel,
+    })) {
+      process.stdout.write(`${JSON.stringify(event)}\n`);
+    }
+    return 0;
+  } catch (err) {
+    return reportError(err, output);
+  }
+}
+
 async function cmdGet(args: string[], output: Output): Promise<number> {
   const [repoId, convId] = args;
   if (!repoId || !convId) {
@@ -274,7 +316,7 @@ async function cmdCancel(args: string[], output: Output): Promise<number> {
 // Bare usage — `main.ts` adds the "Usage:" label for `--help`; the error path
 // adds it explicitly. Matches the other commands' `usage:` fields.
 const USAGE =
-  "ideaspaces conversation <new|participants|add|remove|members|send|get|cancel> …";
+  "ideaspaces conversation <new|participants|add|remove|members|send|send-local|get|cancel> …";
 
 export const conversationCommand: CommandDef = {
   name: "conversation",
@@ -307,6 +349,8 @@ export const conversationCommand: CommandDef = {
         return cmdMembers(rest, output);
       case "send":
         return cmdSend(rest, flags, output);
+      case "send-local":
+        return cmdSendLocal(flags, output);
       case "get":
         return cmdGet(rest, output);
       case "cancel":
