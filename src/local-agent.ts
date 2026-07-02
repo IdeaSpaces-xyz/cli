@@ -3,20 +3,29 @@
  * Keeper transcript vocabulary, so every client renders a local turn the same
  * way it renders a remote Keeper turn.
  *
- * Spawn `pi --mode rpc --extension <pi-is-space>` (pi is an external runtime,
- * shelled like git — no npm coupling), send one `prompt`, read pi's `AgentEvent`
- * stream off stdout as JSON-lines, and translate it with the SDK's
- * `KeeperTranslator`. The connector-specific `harvestWorkspace` lives here (it
- * knows pi-is-space's tools); the generic fold lives in the SDK.
+ * Spawn `pi --mode rpc` on the workspace context (cwd) with **both** extensions
+ * (`-e pi-is-space -e pi-local-context`), resuming the conversation's pi session
+ * (`--session-id <conv> --session-dir <root>/.pi/sessions`) so turns have
+ * continuity. pi is an external runtime, shelled like git — no npm coupling. We
+ * send one `prompt`, read pi's `AgentEvent` stream off stdout as JSON-lines, and
+ * translate it with the SDK's `KeeperTranslator`. The connector-specific
+ * `harvestWorkspace` lives here (it knows pi-is-space's tools); the generic fold
+ * lives in the SDK.
  *
- * This is the runner behind `conversation send-local` (the A3 dogfood) and, next,
- * `conversation send --local` (B1). pi RPC events are top-level JSON objects on
- * stdout, interleaved with command `response` acks and fire-and-forget
- * `extension_ui_request` chrome (setStatus/setWidget) — we feed the agent events
- * to the translator and ignore the rest.
+ * This is the runner behind `conversation send --local` (B1). pi RPC events are
+ * top-level JSON objects on stdout, interleaved with command `response` acks and
+ * fire-and-forget `extension_ui_request` chrome (setStatus/setWidget) — we feed
+ * the agent events to the translator and ignore the rest.
+ *
+ * First-message naming: if the resumed session is still unnamed, derive a name
+ * from this message (heuristic — swappable for a small titling call later) and
+ * `set_session_name`. It stays freely updatable by the user or the agent via
+ * pi-local-context's `context_conversation`.
  */
 
 import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import readline from "node:readline";
 import {
   KeeperTranslator,
@@ -75,25 +84,47 @@ function lastPosition(tools: ToolInvocation[]): string {
 }
 
 export interface LocalTurnOptions {
-  /** Working directory (the local ideaspace repo). */
+  /** The workspace/context root (cwd) — an ideaspace that may mount repos. */
   repoPath: string;
   /** The user's message for this turn. */
   message: string;
-  /** Absolute path to the pi-is-space extension entry (its `src/index.ts`). */
-  extensionPath: string;
-  /** Conversation id reported in `message_start` (a pi session id, or minted). */
+  /** Extensions to load, in order — pi-is-space (Space) + pi-local-context. */
+  extensionPaths: string[];
+  /** Conversation id = pi session id; reported in `message_start`, resumed each turn. */
   conversationId: string;
+  /** Where pi stores/looks up sessions — the context's gitignored session dir. */
+  sessionDir: string;
   /** Keeper model-tier label for the events. Default "local". */
   modelTier?: string;
   /** pi model pattern (`--model`), if overriding pi's configured default. */
   piModel?: string;
   /** pi executable. Default "pi" (from PATH). */
   piBin?: string;
+  /** Abort the turn (SIGINT/desktop kill) — kills pi and emits `cancelled`. */
+  signal?: AbortSignal;
+}
+
+/** A conversation name derived from the first message — first non-empty line,
+ * whitespace-collapsed, capped. Swappable for a small titling call later. */
+export function deriveConversationName(message: string): string {
+  const line = message.split("\n").find((l) => l.trim()) ?? message;
+  const clean = line.replace(/\s+/g, " ").trim();
+  if (!clean) return "Untitled";
+  return clean.length > 60 ? `${clean.slice(0, 57)}…` : clean;
+}
+
+/** Ensure the session dir exists and can never be committed (self-ignoring),
+ * so conversation logs stay local working process regardless of repo config. */
+function ensureSessionDir(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  const ignore = join(dir, ".gitignore");
+  if (!existsSync(ignore)) writeFileSync(ignore, "*\n");
 }
 
 /**
- * Run one local turn, yielding Keeper stream events as they arrive. Ends after
- * `turn_complete` (agent_end), or `error` on a failed prompt / pi exit.
+ * Run one local turn, yielding Keeper stream events as they arrive. Resumes the
+ * conversation's pi session for continuity. Ends after `turn_complete`
+ * (agent_end), `cancelled` (abort), or `error` (failed prompt / pi exit).
  */
 export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<KeeperStreamEvent> {
   const modelTier = opts.modelTier ?? "local";
@@ -109,7 +140,15 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
     },
   });
 
-  const args = ["--mode", "rpc", "--extension", opts.extensionPath, "-a"];
+  ensureSessionDir(opts.sessionDir);
+
+  const args = [
+    "--mode", "rpc",
+    "--session-id", opts.conversationId,
+    "--session-dir", opts.sessionDir,
+    "-a",
+  ];
+  for (const ext of opts.extensionPaths) args.push("--extension", ext);
   if (opts.piModel) args.push("--model", opts.piModel);
   const pi = spawn(opts.piBin ?? "pi", args, { cwd: opts.repoPath, stdio: ["pipe", "pipe", "pipe"] });
 
@@ -118,7 +157,32 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
     stderr += String(d);
   });
 
-  pi.stdin.write(`${JSON.stringify({ type: "prompt", message: opts.message, id: "p1" })}\n`);
+  let aborted = false;
+  const onAbort = (): void => {
+    aborted = true;
+    try {
+      pi.kill("SIGTERM");
+    } catch {
+      /* already gone */
+    }
+  };
+  if (opts.signal) {
+    if (opts.signal.aborted) onAbort();
+    else opts.signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  // Ask whether the session is already named before we prompt, so we can derive
+  // a first-message name only for a fresh conversation.
+  let sessionName: string | undefined;
+  const send = (obj: Record<string, unknown>): void => {
+    try {
+      pi.stdin.write(`${JSON.stringify(obj)}\n`);
+    } catch {
+      /* pi gone */
+    }
+  };
+  send({ type: "get_state", id: "__state" });
+  send({ type: "prompt", message: opts.message, id: "p1" });
 
   const rl = readline.createInterface({ input: pi.stdout, terminal: false });
   try {
@@ -133,7 +197,11 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
       }
       const type = typeof msg.type === "string" ? msg.type : "";
       if (NON_AGENT_TYPES.has(type)) {
-        if (type === "response" && msg.success === false) {
+        if (type === "response" && msg.command === "get_state" && msg.success !== false) {
+          const data = msg.data as { sessionName?: string } | undefined;
+          sessionName = data?.sessionName;
+        }
+        if (type === "response" && msg.success === false && msg.command === "prompt") {
           yield translator.error("pi_error", String(msg.error ?? "prompt failed"));
           return;
         }
@@ -144,13 +212,23 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         if (ke.type === "turn_complete") ke.result.position = lastPosition(turnTools);
         yield ke;
       }
-      if (type === "agent_end") return; // turn complete
+      if (type === "agent_end") {
+        // Name a still-unnamed conversation from its first message before we exit.
+        if (!sessionName || !sessionName.trim()) {
+          send({ type: "set_session_name", name: deriveConversationName(opts.message), id: "__name" });
+          await new Promise((r) => setTimeout(r, 250)); // let pi persist it
+        }
+        return;
+      }
     }
-    // stdout closed without agent_end — surface it.
-    if (!translator.isEnded) {
+    // stdout closed without a terminal event.
+    if (aborted && !translator.isEnded) {
+      yield translator.cancelled("aborted");
+    } else if (!translator.isEnded) {
       yield translator.error("pi_exit", stderr.trim() || "pi ended without completing the turn");
     }
   } finally {
+    opts.signal?.removeEventListener("abort", onAbort);
     rl.close();
     try {
       pi.stdin.end();
