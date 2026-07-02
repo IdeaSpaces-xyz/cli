@@ -1,18 +1,35 @@
 import { fetchConversations, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
+import { listLocalConversations } from "../local-conversations.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
 export const conversationsCommand: CommandDef = {
   name: "conversations",
-  description: "List a repo's conversations",
-  usage: "ideaspaces conversations <repo_id> [--json]",
+  description: "List a repo's conversations (--local for the current context)",
+  usage: "ideaspaces conversations <repo_id> [--json] | conversations --local [--context <path>]",
   examples: [
     "ideaspaces conversations repo_abc123",
     "ideaspaces conversations repo_abc123 --json",
+    "ideaspaces conversations --local",
   ],
-  async run(args, _flags, global) {
+  async run(args, flags, global) {
     const output = createOutput(global);
+
+    // Local: list the current context's pi sessions — no repo, no server.
+    if (flags.local) {
+      const contextRoot = typeof flags.context === "string" ? flags.context : process.cwd();
+      const { conversations, total } = listLocalConversations(contextRoot);
+      output.result(
+        { context: contextRoot, conversations, total, has_more: false },
+        conversations.length
+          ? conversations
+              .map((c) => `${c.name || "(untitled)"} — ${c.message_count} message${c.message_count === 1 ? "" : "s"}`)
+              .join("\n")
+          : "No local conversations.",
+      );
+      return 0;
+    }
 
     const repoId = args[0];
     if (!repoId) {
