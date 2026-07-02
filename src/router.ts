@@ -8,6 +8,8 @@ import { writeCommand } from "./commands/write.js";
 import { commitCommand } from "./commands/commit.js";
 import { statusCommand } from "./commands/status.js";
 import { syncCommand } from "./commands/sync.js";
+import { pushCommand } from "./commands/push.js";
+import { pullCommand } from "./commands/pull.js";
 import { skillsCommand } from "./commands/skills.js";
 import { credentialCommand } from "./commands/credential.js";
 import { whoamiCommand } from "./commands/whoami.js";
@@ -47,6 +49,8 @@ const topLevel: CommandDef[] = [
   statusCommand,
   timesCommand,
   shareCommand,
+  pullCommand,
+  pushCommand,
   syncCommand,
   skillsCommand,
   credentialCommand,
