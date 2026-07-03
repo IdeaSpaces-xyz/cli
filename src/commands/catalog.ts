@@ -13,7 +13,7 @@ import { gitState } from "@ideaspaces/sdk";
 import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import type { AuthMeRepo, AuthMeResponse } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { loadSpaces } from "../auth/spaces.js";
+import { listClones } from "../auth/spaces.js";
 import type { SpaceRecord } from "../auth/spaces.js";
 import { fetch as gitFetch } from "../git.js";
 import { createOutput } from "../output.js";
@@ -199,17 +199,25 @@ export const catalogCommand: CommandDef = {
       notes.push("Not logged in — showing local clones only. `ideaspaces login` adds the remote tier.");
     }
 
-    const clones: CloneEntry[] = Object.entries(loadSpaces()).map(([path, record]) => ({ path, record }));
+    const clones: CloneEntry[] = listClones();
 
     // --fetch is opt-in and sequential (git fetch is synchronous); it refreshes
     // remote-tracking refs so ahead/behind reflect the server, not last contact.
+    // One bad remote must not fail the listing, but a silent stale result would
+    // lie about freshness — so surface a count when any fetch fails.
     if (flags.fetch) {
+      let fetchFailed = 0;
       for (const c of clones) {
         try {
           gitFetch(c.path);
         } catch {
-          // Best-effort: a clone we can't fetch keeps its last-known state.
+          fetchFailed++;
         }
+      }
+      if (fetchFailed > 0) {
+        notes.push(
+          `${fetchFailed} of ${clones.length} clone(s) could not be fetched — their ahead/behind may be stale.`,
+        );
       }
     }
 

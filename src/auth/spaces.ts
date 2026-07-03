@@ -53,6 +53,11 @@ export function findSpaceFor(absolutePath: string): SpaceRecord | null {
   return loadSpaces()[resolve(absolutePath)] ?? null;
 }
 
+/** The clone registry as a list of `{ path, record }` — the shape consumers join on. */
+export function listClones(): Array<{ path: string; record: SpaceRecord }> {
+  return Object.entries(loadSpaces()).map(([path, record]) => ({ path, record }));
+}
+
 /** Remove a clone's registry binding. Returns false if it wasn't tracked. */
 export function removeSpace(absolutePath: string): boolean {
   const key = resolve(absolutePath);
