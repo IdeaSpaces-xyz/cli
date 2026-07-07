@@ -22,7 +22,24 @@ import { ensureLocalIdentity } from "../auth/identity.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-const OPS: readonly Op[] = ["create", "update", "move", "delete", "restructure", "capture"];
+// `satisfies Record<Op, true>` makes this exhaustive against the SDK's `Op`
+// union at compile time: if the SDK adds an op, the build fails here until it's
+// added, instead of the CLI silently rejecting a now-valid op at runtime.
+const OP_SET = {
+  create: true,
+  update: true,
+  move: true,
+  delete: true,
+  restructure: true,
+  capture: true,
+} satisfies Record<Op, true>;
+const OPS = Object.keys(OP_SET) as Op[];
+
+// Principals are prefixed by kind (person:/agent:/node:), per this repo's
+// convention (conversation.ts `toPrincipal`). Trailers are permanent git
+// history, so a Co-authored-by without a prefix is validated out rather than
+// silently stamped and unfixable later.
+const PRINCIPAL_PREFIX = /^(person|agent|node):/;
 
 /**
  * Read the Change-layer trailer flags and fold them into the message. Stateless
@@ -40,7 +57,7 @@ export function applyTrailerFlags(message: string, flags: Record<string, string 
 
   const op = typeof flags.op === "string" ? flags.op.trim() : "";
   if (op) {
-    if (!OPS.includes(op as Op)) {
+    if (!(op in OP_SET)) {
       throw new Error(`Invalid --op "${op}". Expected one of: ${OPS.join(", ")}.`);
     }
     trailers.op = op as Op;
@@ -61,6 +78,11 @@ export function applyTrailerFlags(message: string, flags: Record<string, string 
   // the one multi-valued trailer.
   const coAuthor = typeof flags["co-author"] === "string" ? flags["co-author"] : "";
   const coAuthors = coAuthor.split(",").map((s) => s.trim()).filter(Boolean);
+  for (const a of coAuthors) {
+    if (!PRINCIPAL_PREFIX.test(a)) {
+      throw new Error(`Invalid --co-author "${a}". Expected a person:/agent:/node: principal (e.g. agent:me-claude).`);
+    }
+  }
   if (coAuthors.length) trailers.coAuthoredBy = coAuthors;
 
   const anySet = trailers.op || trailers.changeId || trailers.conversation || trailers.coAuthoredBy;

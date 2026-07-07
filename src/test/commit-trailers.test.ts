@@ -36,6 +36,12 @@ describe("applyTrailerFlags", () => {
     expect(() => applyTrailerFlags("msg", { op: "frobnicate" })).toThrow(/Invalid --op/);
   });
 
+  it("rejects a co-author without a person:/agent:/node: prefix", () => {
+    expect(() => applyTrailerFlags("msg", { "co-author": "me-claude" })).toThrow(/Invalid --co-author/);
+    // One bad value in a list fails the whole commit — trailers are permanent.
+    expect(() => applyTrailerFlags("msg", { "co-author": "agent:ok, bare" })).toThrow(/Invalid --co-author/);
+  });
+
   it("ignores empty-string trailer flags", () => {
     expect(applyTrailerFlags("msg", { op: "", "change-id": "", conversation: "", "co-author": "" })).toBe("msg");
   });

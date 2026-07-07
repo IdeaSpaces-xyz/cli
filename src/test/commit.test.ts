@@ -212,3 +212,57 @@ describe("ideaspaces commit — git author identity", () => {
     expect(git(["config", "--local", "user.email"])).toBe("t@e.com");
   });
 });
+
+describe("ideaspaces commit — Change-layer trailers (end-to-end)", () => {
+  async function stageNote(name = "note.md"): Promise<void> {
+    await fs.writeFile(join(tmp, name), "# Note", "utf-8");
+    git(["add", name]);
+  }
+
+  it("stamps the trailer block onto the real commit message", async () => {
+    await stageNote();
+    const exit = await commitCommand.run(
+      ["note.md"],
+      {
+        m: "Capture auth decision",
+        op: "capture",
+        "change-id": "chg_auth-1a2b",
+        conversation: "sess_9",
+        "co-author": "agent:me-claude,agent:pair",
+      },
+      G,
+    );
+    expect(exit).toBe(0);
+    const msg = git(["log", "-1", "--format=%B"]);
+    expect(msg).toContain("Capture auth decision");
+    expect(msg).toContain("Op: capture");
+    expect(msg).toContain("Conversation: sess_9");
+    expect(msg).toContain("Co-authored-by: agent:me-claude");
+    expect(msg).toContain("Co-authored-by: agent:pair");
+    expect(msg).toContain("Change-Id: chg_auth-1a2b");
+  });
+
+  it("leaves the message plain when no trailer flags are given", async () => {
+    await stageNote();
+    expect(await commitCommand.run(["note.md"], { m: "plain save" }, G)).toBe(0);
+    expect(git(["log", "-1", "--format=%B"]).trim()).toBe("plain save");
+  });
+
+  it("refuses an invalid --change-id without creating a commit", async () => {
+    await stageNote();
+    expect(await commitCommand.run(["note.md"], { m: "x", "change-id": "NOTVALID" }, G)).toBe(1);
+    expect(git(["rev-list", "--count", "--all"])).toBe("0");
+  });
+
+  it("refuses an unknown --op without creating a commit", async () => {
+    await stageNote();
+    expect(await commitCommand.run(["note.md"], { m: "x", op: "frobnicate" }, G)).toBe(1);
+    expect(git(["rev-list", "--count", "--all"])).toBe("0");
+  });
+
+  it("refuses a prefix-less --co-author without creating a commit", async () => {
+    await stageNote();
+    expect(await commitCommand.run(["note.md"], { m: "x", "co-author": "me-claude" }, G)).toBe(1);
+    expect(git(["rev-list", "--count", "--all"])).toBe("0");
+  });
+});

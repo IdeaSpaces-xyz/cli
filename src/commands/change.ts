@@ -18,17 +18,28 @@ type Flags = Record<string, string | boolean>;
 
 const USAGE = "ideaspaces change new [<handle>] [--handle <text>]";
 
+/**
+ * Resolve the decision handle from `--handle` or the first positional. The flag
+ * parser (argv.ts) hands back boolean `true` for a value-less `--handle` (last
+ * token, or followed by another flag), so guard for a string — mirroring how
+ * commit.ts reads its trailer flags. An empty handle is valid: `chg_<suffix>`.
+ */
+export function resolveHandle(flags: Flags, args: string[]): string {
+  const fromFlag = typeof flags.handle === "string" ? flags.handle : "";
+  return (fromFlag || args[0] || "").trim();
+}
+
 // Mint a fresh Change-Id from an optional short decision handle (2–4 words).
-// An empty handle is valid — it yields `chg_<suffix>`.
 function cmdNew(args: string[], flags: Flags, output: Output): number {
-  const handle = String(flags.handle ?? args[0] ?? "").trim();
-  const changeId = mintChangeId(handle);
+  const changeId = mintChangeId(resolveHandle(flags, args));
   // mintChangeId always returns a well-formed id; assert the invariant so a
   // future change to the minter can't silently emit something unstampable.
   if (!isValidChangeId(changeId)) {
     output.error(`Minted an invalid Change-Id: ${changeId}`);
     return 1;
   }
+  // Human output is the bare id (not a sentence like `conversation new`) so it
+  // captures cleanly in a shell: `id=$(ideaspaces change new "handle")`.
   output.result({ change_id: changeId }, changeId);
   return 0;
 }
