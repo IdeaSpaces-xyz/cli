@@ -33,7 +33,8 @@ async function runNavigate(args: string[], flags: Record<string, string | boolea
   } finally {
     (process.stdout as unknown as { write: typeof process.stdout.write }).write = orig;
   }
-  return { exit, data: JSON.parse(chunks.join("")) };
+  const out = chunks.join("");
+  return { exit, data: out ? JSON.parse(out) : null };
 }
 
 beforeEach(async () => {
@@ -78,9 +79,9 @@ describe("ideaspaces navigate", () => {
     expect(data.root).toBe(tmp);
   });
 
-  it("refuses a non-directory path", async () => {
-    const { exit } = await runNavigate(["_agent/now.md"]).catch(() => ({ exit: 1 }));
-    expect(exit).toBe(1);
+  it("refuses a non-directory path and a missing path", async () => {
+    expect((await runNavigate(["_agent/now.md"])).exit).toBe(1);
+    expect((await runNavigate(["does/not/exist"])).exit).toBe(1);
   });
 
   it("surfaces missing-direction drift when purpose/now are absent", async () => {
@@ -91,6 +92,23 @@ describe("ideaspaces navigate", () => {
     const { data } = await runNavigate(["."]);
     expect(data.text).toContain("`_agent/now.md` not yet captured");
     expect(data.text).toContain("`_agent/purpose.md` not yet captured");
+  });
+
+  it("reports position relative to the space root outside a git repo", async () => {
+    // A space with an _agent/ but NOT a git repo (tmpdir isn't under git).
+    const nogit = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-nogit-")));
+    try {
+      await fs.mkdir(join(nogit, "_agent"), { recursive: true });
+      await fs.writeFile(join(nogit, "_agent", "foundation.md"), "---\nname: f\n---\nF.\n");
+      await fs.mkdir(join(nogit, "branch"), { recursive: true });
+      const { data } = await runNavigate([join(nogit, "branch")]);
+      expect(data.repoRoot).toBeNull();
+      expect(data.root).toBe(nogit);
+      // Must reflect the real position, not collapse to "." (the fixed bug).
+      expect(data.position).toBe("branch");
+    } finally {
+      await rm(nogit, { recursive: true, force: true });
+    }
   });
 
   it("only persists the seen marker with --mark-seen", async () => {

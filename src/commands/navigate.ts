@@ -17,7 +17,7 @@
  */
 
 import { relative, resolve } from "node:path";
-import { statSync } from "node:fs";
+import { statSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import {
   composeContractAlongPath,
@@ -34,14 +34,6 @@ import type { CommandDef } from "../types.js";
 
 const MAX_DRIFT = 10;
 const SEEN_REF = "refs/ideaspaces/seen";
-
-function isDir(p: string): boolean {
-  try {
-    return statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
-}
 
 function git(cwd: string, args: string[]): string | null {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
@@ -74,24 +66,35 @@ export const navigateCommand: CommandDef = {
 
     const raw = (args[0] ?? ".").trim();
     const target = resolve(raw === "" ? "." : raw);
-    if (!isDir(target)) {
+    // Distinguish "doesn't exist" from "exists but isn't a directory" for a
+    // useful hint. Flags follow the path (`navigate <path> --mark-seen`); the
+    // shared parser would otherwise read a path *after* `--mark-seen` as its value.
+    if (!existsSync(target)) {
+      output.error(`No such path: ${target}`);
+      return 1;
+    }
+    if (!statSync(target).isDirectory()) {
       output.error(`Not a directory: ${target}`);
       return 1;
     }
 
-    // Git root (best-effort; navigate works outside a repo too).
+    // Git root (best-effort; navigate works outside a repo too). `gitState`
+    // returns the queried dir — not null — when there's no repo, so check
+    // explicitly first; otherwise "outside a repo" is indistinguishable and the
+    // position/git-state/stale-docs paths would misbehave.
     let repoRoot: string | null = null;
     let gs: Awaited<ReturnType<typeof gitState>> | undefined;
-    try {
+    if (git(target, ["rev-parse", "--is-inside-work-tree"]) === "true") {
       gs = await gitState(target);
       repoRoot = gs.repoRoot;
-    } catch {
-      repoRoot = null;
     }
 
     // The fractal contract along the path. No space root → no orientation.
     const composed = await composeContractAlongPath(target);
-    const position = relative(repoRoot ?? target, target) || ".";
+    // Position is relative to the repo root, or the space root when there's no
+    // repo (navigate works outside git too), or the target itself as a last
+    // resort. Basing it on `target` alone would always collapse to ".".
+    const position = relative(repoRoot ?? composed.spaceRoot ?? target, target) || ".";
     if (!composed.spaceRoot) {
       output.result(
         { text: null, position, root: null, repoRoot },
