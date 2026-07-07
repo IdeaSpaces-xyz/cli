@@ -15,6 +15,7 @@ import { credentialCommand } from "./commands/credential.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { reposCommand } from "./commands/repos.js";
 import { catalogCommand } from "./commands/catalog.js";
+import { piStatusCommand } from "./commands/pi-status.js";
 import { cloneCommand } from "./commands/clone.js";
 import { clonesCommand } from "./commands/clones.js";
 import { linkCommand } from "./commands/link.js";
@@ -36,6 +37,7 @@ const topLevel: CommandDef[] = [
   whoamiCommand,
   reposCommand,
   catalogCommand,
+  piStatusCommand,
   cloneCommand,
   clonesCommand,
   linkCommand,
