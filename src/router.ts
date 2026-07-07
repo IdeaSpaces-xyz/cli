@@ -6,6 +6,7 @@ import { loginCommand } from "./commands/login.js";
 import { publishCommand } from "./commands/publish.js";
 import { writeCommand } from "./commands/write.js";
 import { commitCommand } from "./commands/commit.js";
+import { changeCommand } from "./commands/change.js";
 import { statusCommand } from "./commands/status.js";
 import { syncCommand } from "./commands/sync.js";
 import { pushCommand } from "./commands/push.js";
@@ -50,6 +51,7 @@ const topLevel: CommandDef[] = [
   publishCommand,
   writeCommand,
   commitCommand,
+  changeCommand,
   statusCommand,
   timesCommand,
   shareCommand,
