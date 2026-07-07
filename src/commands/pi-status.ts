@@ -162,6 +162,8 @@ function formatHuman(s: PiStatus): string {
   if (s.extensions.length) {
     const list = s.extensions.map((e) => `${e.name} (${e.resolvable ? "ok" : "missing"})`).join(", ");
     out.push(`Extensions: ${list}`);
+  } else {
+    out.push("Extensions: none checked — pass --ext or set IDEASPACES_PI_EXTENSIONS");
   }
   out.push(`Ready: ${s.ready ? "yes" : "no"}`);
   return out.join("\n");
@@ -175,6 +177,7 @@ export const piStatusCommand: CommandDef = {
     "ideaspaces pi-status",
     "ideaspaces pi-status --json",
     "ideaspaces pi-status --ext /path/pi-is-space,/path/pi-local-context",
+    "IDEASPACES_PI_EXTENSIONS=/path/pi-is-space,/path/pi-local-context ideaspaces pi-status  # env fallback",
   ],
   async run(_args, flags, global) {
     const output = createOutput(global);
