@@ -29,25 +29,34 @@ import {
   collectDocDependencies,
   staleDocSignals,
 } from "@ideaspaces/sdk";
+import { isInsideWorkTree, headSha } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
 const MAX_DRIFT = 10;
 const SEEN_REF = "refs/ideaspaces/seen";
 
-function git(cwd: string, args: string[]): string | null {
+// The since-last-session marker lives in a local git ref — no `git.ts` helper
+// exists for reading/writing a custom ref, so this thin wrapper is net-new (the
+// standard git ops below reuse `git.ts`'s exports).
+function gitRef(cwd: string, args: string[]): string | null {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
   return r.status === 0 ? r.stdout.trim() || null : null;
 }
 
+// Position section. `base` is the walk/relative root (repo root, or the space
+// root outside a repo); `repoRoot` is shown only when there actually is one.
 function formatPositionSection(
   pos: string,
-  repoRoot: string,
+  base: string,
+  repoRoot: string | null,
   pathContext: Awaited<ReturnType<typeof walkPathContext>>,
 ): string {
   const spaceRoot = spaceRootLevel(pathContext);
   const branch = currentBranchLevel(pathContext);
-  const lines = ["Position:", `  repo: ${repoRoot}`, `  cwd: ${relative(repoRoot, pos) || "."}`];
+  const lines = ["Position:"];
+  if (repoRoot) lines.push(`  repo: ${repoRoot}`);
+  lines.push(`  cwd: ${relative(base, pos) || "."}`);
   if (spaceRoot) lines.push(`  space root: ${spaceRoot.path || "."}`);
   if (branch) lines.push(`  active _agent: ${branch.path || "."}`);
   return lines.join("\n");
@@ -84,7 +93,7 @@ export const navigateCommand: CommandDef = {
     // position/git-state/stale-docs paths would misbehave.
     let repoRoot: string | null = null;
     let gs: Awaited<ReturnType<typeof gitState>> | undefined;
-    if (git(target, ["rev-parse", "--is-inside-work-tree"]) === "true") {
+    if (isInsideWorkTree(target)) {
       gs = await gitState(target);
       repoRoot = gs.repoRoot;
     }
@@ -103,14 +112,18 @@ export const navigateCommand: CommandDef = {
       return 0;
     }
 
-    const lastSha = repoRoot ? git(repoRoot, ["rev-parse", "--verify", "--quiet", SEEN_REF]) ?? undefined : undefined;
+    // Walk/relative base: the repo root, or the space root outside a repo.
+    // `walkPathContext` is a pure filesystem walk (no git), so the Position
+    // section renders in a non-git ideaspace too.
+    const base = repoRoot ?? composed.spaceRoot;
+    const lastSha = repoRoot ? gitRef(repoRoot, ["rev-parse", "--verify", "--quiet", SEEN_REF]) ?? undefined : undefined;
     const [block, pathContext] = await Promise.all([
       assembleAwareness({ root: target, contract: composed.contract, lastSha }),
-      repoRoot ? walkPathContext(repoRoot, target) : Promise.resolve(null),
+      base ? walkPathContext(base, target) : Promise.resolve(null),
     ]);
 
     const sections: string[] = [];
-    if (pathContext && repoRoot) sections.push(formatPositionSection(target, repoRoot, pathContext));
+    if (pathContext && base) sections.push(formatPositionSection(target, base, repoRoot, pathContext));
     if (block.trim()) sections.push(block);
 
     if (repoRoot && gs) {
@@ -136,9 +149,13 @@ export const navigateCommand: CommandDef = {
       }
 
       // Persist the since-last-session baseline only when asked (SessionStart).
+      // Best-effort: an unborn HEAD or ref-write failure must not fail navigate.
       if (flags["mark-seen"]) {
-        const head = git(repoRoot, ["rev-parse", "HEAD"]);
-        if (head) git(repoRoot, ["update-ref", SEEN_REF, head]);
+        try {
+          gitRef(repoRoot, ["update-ref", SEEN_REF, headSha(repoRoot)]);
+        } catch {
+          // no HEAD yet (fresh repo) — nothing to mark
+        }
       }
     }
 

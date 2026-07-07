@@ -19,22 +19,23 @@ function git(args: string[], dir = tmp): string {
   return r.stdout.trim();
 }
 
-/** Capture the JSON object navigateCommand writes to stdout. */
+/** Capture the JSON on stdout and any error text on stderr. */
 async function runNavigate(args: string[], flags: Record<string, string | boolean> = {}): Promise<any> {
-  const chunks: string[] = [];
-  const orig = process.stdout.write.bind(process.stdout);
-  (process.stdout as unknown as { write: typeof process.stdout.write }).write = ((s: string) => {
-    chunks.push(String(s));
-    return true;
-  }) as typeof process.stdout.write;
+  const out: string[] = [];
+  const err: string[] = [];
+  const origOut = process.stdout.write.bind(process.stdout);
+  const origErr = process.stderr.write.bind(process.stderr);
+  (process.stdout as unknown as { write: typeof process.stdout.write }).write = ((s: string) => (out.push(String(s)), true)) as typeof process.stdout.write;
+  (process.stderr as unknown as { write: typeof process.stderr.write }).write = ((s: string) => (err.push(String(s)), true)) as typeof process.stderr.write;
   let exit: number;
   try {
     exit = await navigateCommand.run(args, flags, G);
   } finally {
-    (process.stdout as unknown as { write: typeof process.stdout.write }).write = orig;
+    (process.stdout as unknown as { write: typeof process.stdout.write }).write = origOut;
+    (process.stderr as unknown as { write: typeof process.stderr.write }).write = origErr;
   }
-  const out = chunks.join("");
-  return { exit, data: out ? JSON.parse(out) : null };
+  const stdout = out.join("");
+  return { exit, data: stdout ? JSON.parse(stdout) : null, err: err.join("") };
 }
 
 beforeEach(async () => {
@@ -79,9 +80,13 @@ describe("ideaspaces navigate", () => {
     expect(data.root).toBe(tmp);
   });
 
-  it("refuses a non-directory path and a missing path", async () => {
-    expect((await runNavigate(["_agent/now.md"])).exit).toBe(1);
-    expect((await runNavigate(["does/not/exist"])).exit).toBe(1);
+  it("distinguishes a non-directory path from a missing one", async () => {
+    const file = await runNavigate(["_agent/now.md"]);
+    expect(file.exit).toBe(1);
+    expect(file.err).toContain("Not a directory");
+    const missing = await runNavigate(["does/not/exist"]);
+    expect(missing.exit).toBe(1);
+    expect(missing.err).toContain("No such path");
   });
 
   it("surfaces missing-direction drift when purpose/now are absent", async () => {
@@ -106,6 +111,11 @@ describe("ideaspaces navigate", () => {
       expect(data.root).toBe(nogit);
       // Must reflect the real position, not collapse to "." (the fixed bug).
       expect(data.position).toBe("branch");
+      // The Position section renders outside git too (walkPathContext is fs-only);
+      // no "repo:" line since there's no repo.
+      expect(data.text).toContain("Position:");
+      expect(data.text).toContain("cwd: branch");
+      expect(data.text).not.toContain("repo:");
     } finally {
       await rm(nogit, { recursive: true, force: true });
     }
