@@ -45,4 +45,12 @@ describe("applyTrailerFlags", () => {
   it("ignores empty-string trailer flags", () => {
     expect(applyTrailerFlags("msg", { op: "", "change-id": "", conversation: "", "co-author": "" })).toBe("msg");
   });
+
+  it("surfaces appendTrailers' conflict when a flag disagrees with a trailer already in the message", () => {
+    const existing = "Save\n\nChange-Id: chg_first-aaaa";
+    // A different value for a single-valued trailer is a hard conflict.
+    expect(() => applyTrailerFlags(existing, { "change-id": "chg_second-bbbb" })).toThrow();
+    // The same value is a no-op, not a conflict.
+    expect(parseTrailers(applyTrailerFlags(existing, { "change-id": "chg_first-aaaa" })).changeId).toBe("chg_first-aaaa");
+  });
 });
