@@ -140,6 +140,14 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
     "--session-dir", opts.sessionDir,
     "-a",
   ];
+  // The extensions we pass are authoritative: a local turn must load exactly
+  // these (the desktop's bundled, pinned set), NOT also whatever the user has
+  // globally `pi install`ed — the same extension loaded twice hard-errors on
+  // tool-name conflicts. `--no-extensions` disables discovery of global/project
+  // extensions while explicit `--extension` paths still load (pi's documented
+  // behavior; resource-loader gates on `noExtensions`). Only when we actually
+  // provide extensions — otherwise we'd suppress everything and load none.
+  if (opts.extensionPaths.length) args.push("--no-extensions");
   for (const ext of opts.extensionPaths) args.push("--extension", ext);
   for (const skill of opts.skillPaths ?? []) args.push("--skill", skill);
   if (opts.piModel) args.push("--model", opts.piModel);

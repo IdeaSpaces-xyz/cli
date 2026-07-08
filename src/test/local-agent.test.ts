@@ -82,6 +82,14 @@ describe("buildPiArgs (pi rpc argv)", () => {
     expect(args).toContain("rpc");
   });
 
+  it("adds --no-extensions so explicit extensions are authoritative (no global double-load)", () => {
+    expect(buildPiArgs(baseOpts)).toContain("--no-extensions");
+  });
+
+  it("omits --no-extensions when no extensions are passed (would otherwise load none)", () => {
+    expect(buildPiArgs({ ...baseOpts, extensionPaths: [] })).not.toContain("--no-extensions");
+  });
+
   it("forwards each skill dir as a --skill pair", () => {
     const args = buildPiArgs({ ...baseOpts, skillPaths: ["/ext/pi-is-space/skills", "/ext/pi-local-context/skills"] });
     expect(pairs(args, "--skill")).toEqual(["/ext/pi-is-space/skills", "/ext/pi-local-context/skills"]);
