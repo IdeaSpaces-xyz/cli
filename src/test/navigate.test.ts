@@ -99,6 +99,36 @@ describe("ideaspaces navigate", () => {
     expect(data.text).toContain("`_agent/purpose.md` not yet captured");
   });
 
+  it("renders the local catalog + working set when --workspace is given", async () => {
+    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-ws-")));
+    try {
+      const child = join(ws, "childrepo");
+      await fs.mkdir(child, { recursive: true });
+      git(["init", "-q", "-b", "main"], child);
+      git(["config", "user.email", "t@e.com"], child);
+      git(["config", "user.name", "T"], child);
+      git(["commit", "-q", "-m", "seed", "--allow-empty"], child);
+      const { data } = await runNavigate(["."], { workspace: ws });
+      expect(data.text).toContain("Repos in scope (local):");
+      expect(data.text).toContain("childrepo (local-only)");
+      expect(data.text).toContain("Working set:");
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("renders no catalog without --workspace (no cwd default)", async () => {
+    const { data } = await runNavigate(["."]);
+    expect(data.text).not.toContain("Repos in scope");
+    expect(data.text).not.toContain("Working set:");
+  });
+
+  it("warns and skips the catalog when --workspace is not a readable directory", async () => {
+    const { data } = await runNavigate(["."], { workspace: join(tmp, "does-not-exist") });
+    expect(data.text).toContain("--workspace is not a readable directory");
+    expect(data.text).not.toContain("Repos in scope");
+  });
+
   it("reports position relative to the space root outside a git repo", async () => {
     // A space with an _agent/ but NOT a git repo (tmpdir isn't under git).
     const nogit = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-nogit-")));

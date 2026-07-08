@@ -141,7 +141,12 @@ export const navigateCommand: CommandDef = {
     // `text`; the --json envelope shape is unchanged (rows stay addressable for a
     // future structured field).
     const workspace = typeof flags.workspace === "string" ? resolve(flags.workspace) : null;
-    if (workspace) {
+    if (workspace && (!existsSync(workspace) || !statSync(workspace).isDirectory())) {
+      // A typo'd --workspace would otherwise render an empty catalog that looks
+      // identical to "no repos here" — surface it as a drift line (in `text`,
+      // like navigate's other warnings) rather than failing orientation.
+      sections.push(`⚠ --workspace is not a readable directory: ${workspace} (catalog skipped)`);
+    } else if (workspace) {
       const mounts =
         typeof flags.mount === "string"
           ? flags.mount.split(",").map((m) => m.trim()).filter(Boolean)
