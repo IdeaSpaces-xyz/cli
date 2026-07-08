@@ -58,6 +58,16 @@ function reportError(err: unknown, output: Output): number {
   return 1;
 }
 
+/** A flag's comma-separated value with an env fallback → split, trim, drop
+ * empties. Shared by the local turn's `--ext` and `--skill` resource-dir lists. */
+function parseCommaList(flag: string | boolean | undefined, envFallback: string | undefined): string[] {
+  const raw = typeof flag === "string" ? flag : envFallback;
+  return (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 async function cmdNew(args: string[], flags: Flags, output: Output): Promise<number> {
   const repoId = args[0];
   if (!repoId) {
@@ -240,11 +250,7 @@ async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
   }
   // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
   // distribution bundles them (D1), the caller supplies the paths.
-  const extFlag = typeof flags.ext === "string" ? flags.ext : process.env.IDEASPACES_PI_EXTENSIONS;
-  const extensionPaths = (extFlag ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const extensionPaths = parseCommaList(flags.ext, process.env.IDEASPACES_PI_EXTENSIONS);
   if (!extensionPaths.length) {
     output.error(
       "Extensions are required: --ext <pi-is-space,pi-local-context> (or set IDEASPACES_PI_EXTENSIONS)",
@@ -254,11 +260,7 @@ async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
   // Skill dirs — optional. `--extension` loads extension code but not the
   // package's skills, so a shipped app forwards them here. Empty in dev when the
   // user has `pi install`ed the extensions (skills already in `~/.pi/settings`).
-  const skillFlag = typeof flags.skill === "string" ? flags.skill : process.env.IDEASPACES_PI_SKILLS;
-  const skillPaths = (skillFlag ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const skillPaths = parseCommaList(flags.skill, process.env.IDEASPACES_PI_SKILLS);
 
   const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   const sessionDir =
