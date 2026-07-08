@@ -129,6 +129,22 @@ describe("ideaspaces navigate", () => {
     expect(data.text).not.toContain("Repos in scope");
   });
 
+  it("renders the remote pullable tier from --pullable", async () => {
+    // tmp has no child repos → the local tier is empty, so only the pullable
+    // tier shows: the caller passes the list it fetched via `catalog`.
+    const { data } = await runNavigate(["."], { workspace: tmp, pullable: "team:acme.com,notes:alice" });
+    expect(data.text).toContain("Pullable (remote — not yet local):");
+    expect(data.text).toContain("  team (acme.com)");
+    expect(data.text).toContain("  notes (alice)");
+  });
+
+  it("--no-git suppresses the compact Git line (caller renders its own state)", async () => {
+    const withGit = await runNavigate(["."]);
+    expect(withGit.data.text).toContain("Git: branch main");
+    const noGit = await runNavigate(["."], { "no-git": true });
+    expect(noGit.data.text).not.toContain("Git:");
+  });
+
   it("reports position relative to the space root outside a git repo", async () => {
     // A space with an _agent/ but NOT a git repo (tmpdir isn't under git).
     const nogit = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-nogit-")));
