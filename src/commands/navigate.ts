@@ -9,7 +9,10 @@
  * drift, and missing-direction drift. With `--workspace <dir>` it also renders the
  * local-agent tier — a working set (home + `--mount`s) and the repo catalog (git
  * repos beside the workspace folder, tagged with sync state + POV) — so a local
- * agent shells this instead of composing it in-process. `--pullable <s:ns,…>`
+ * agent shells this instead of composing it in-process. The catalog renders even
+ * with **no `_agent/` contract** (a bare workspace folder's repos are its
+ * orientation); the working set needs a space root and renders only with one.
+ * `--pullable <s:ns,…>`
  * adds the remote/pullable catalog tier the caller already fetched (kept out of
  * navigate so it stays network-free); `--no-git` suppresses the compact git-state
  * line for a caller that renders its own richer state (e.g. pi's `State:` block).
@@ -89,23 +92,26 @@ function parsePullable(raw: string | boolean | undefined): Array<{ slug: string;
 
 // Shown at a bare workspace folder (no `_agent/` contract, not a git repo) where
 // the catalog IS the orientation — a nudge to move into one of the listed repos.
+// At a bare workspace folder (no `_agent/`, not a git repo): with repos listed,
+// nudge into one; with none yet, nudge to clone. Two copies so the empty
+// first-touch folder doesn't say "navigate into a repo below" with nothing below.
 const BARE_FOLDER_HINT =
   "You're at a workspace folder (no `_agent/` contract here). Navigate into a repo below (`ideaspaces navigate <repo>`), or pull one that's behind.";
+const EMPTY_FOLDER_HINT =
+  "You're at a workspace folder with no repos yet. Clone one to get started (`ideaspaces clone`).";
 
-type CatalogResult =
+type CatalogPlan =
   | { kind: "none" }
   | { kind: "warn"; text: string }
-  | { kind: "ok"; mounts: string[]; catalog: string | null };
+  | { kind: "ok"; mounts: string[]; catalog: Promise<string | null> };
 
-// Resolve --workspace and render the local-agent repo catalog (local + pullable
-// tiers). Independent of the `_agent/` contract so it renders at a bare folder
-// too. Working set is rendered by the caller (it needs a space root a bare
-// folder lacks). Returns a warning for an unreadable --workspace, or none when
+// Resolve --workspace and **start** rendering the local-agent repo catalog
+// (local + pullable tiers). Synchronous — it returns the in-flight promise so the
+// caller can await it alongside the awareness block / working set (independent
+// IO, run concurrently). Independent of the `_agent/` contract, so the catalog
+// renders at a bare folder too. Warning for an unreadable --workspace; none when
 // the flag is absent.
-async function catalogSection(
-  flags: Record<string, string | boolean>,
-  povRepoRoot: string | null,
-): Promise<CatalogResult> {
+function planCatalog(flags: Record<string, string | boolean>, povRepoRoot: string | null): CatalogPlan {
   const workspace = typeof flags.workspace === "string" ? resolve(flags.workspace) : null;
   if (!workspace) return { kind: "none" };
   if (!existsSync(workspace) || !statSync(workspace).isDirectory()) {
@@ -115,11 +121,7 @@ async function catalogSection(
   }
   const mounts =
     typeof flags.mount === "string" ? flags.mount.split(",").map((m) => m.trim()).filter(Boolean) : [];
-  const catalog = await formatCatalogSection(workspace, {
-    povRepoRoot,
-    mounts,
-    pullable: parsePullable(flags.pullable),
-  });
+  const catalog = formatCatalogSection(workspace, { povRepoRoot, mounts, pullable: parsePullable(flags.pullable) });
   return { kind: "ok", mounts, catalog };
 }
 
@@ -168,20 +170,21 @@ export const navigateCommand: CommandDef = {
     // resort. Basing it on `target` alone would always collapse to ".".
     const position = relative(repoRoot ?? composed.spaceRoot ?? target, target) || ".";
 
-    // The repo catalog is independent of the `_agent/` contract, so resolve it
-    // up front — at a bare workspace folder (no contract) the catalog IS the
-    // orientation.
-    const cat = await catalogSection(flags, repoRoot);
+    // The repo catalog is independent of the `_agent/` contract, so start it up
+    // front — at a bare workspace folder (no contract) the catalog IS the
+    // orientation. `planCatalog` is sync; the promise resolves where awaited.
+    const cat = planCatalog(flags, repoRoot);
 
     if (!composed.spaceRoot) {
       // No contract here (a bare workspace folder, or a plain repo). With a
-      // --workspace the catalog is the orientation — which repos are here —
-      // plus a nudge to move into one when this is a bare folder (not a repo).
+      // --workspace the catalog is the orientation — which repos are here — plus
+      // a nudge (into a repo if any are listed, else to clone) at a bare folder.
       const bare: string[] = [];
       if (cat.kind === "warn") bare.push(cat.text);
       else if (cat.kind === "ok") {
-        if (cat.catalog) bare.push(cat.catalog);
-        if (!repoRoot) bare.push(BARE_FOLDER_HINT);
+        const catalog = await cat.catalog;
+        if (catalog) bare.push(catalog);
+        if (!repoRoot) bare.push(catalog ? BARE_FOLDER_HINT : EMPTY_FOLDER_HINT);
       }
       output.result(
         { text: bare.length ? bare.join("\n\n") : null, position, root: null, repoRoot },
@@ -195,26 +198,27 @@ export const navigateCommand: CommandDef = {
     // section renders in a non-git ideaspace too.
     const base = repoRoot ?? composed.spaceRoot;
     const lastSha = repoRoot ? gitRef(repoRoot, ["rev-parse", "--verify", "--quiet", SEEN_REF]) ?? undefined : undefined;
-    const [block, pathContext] = await Promise.all([
+    // The awareness block, path walk, catalog, and working set are independent
+    // IO — run them concurrently. Working set needs the space root, so it renders
+    // only on this (contract) path, not at a bare folder.
+    const [block, pathContext, catalog, workingSet] = await Promise.all([
       assembleAwareness({ root: target, contract: composed.contract, lastSha }),
       base ? walkPathContext(base, target) : Promise.resolve(null),
+      cat.kind === "ok" ? cat.catalog : Promise.resolve(null),
+      cat.kind === "ok" ? formatWorkingSetSection(composed.spaceRoot, cat.mounts) : Promise.resolve(null),
     ]);
 
     const sections: string[] = [];
     if (pathContext && base) sections.push(formatPositionSection(target, base, repoRoot, pathContext));
     if (block.trim()) sections.push(block);
 
-    // Local-agent orientation tier: the working set (home + mounts) plus the
-    // catalog (resolved above, `cat`). The working set needs the space root, so
-    // it renders only on this (contract) path, not at a bare folder. A local
-    // agent shells this instead of composing it in-process; the catalog lands in
-    // `text` and the --json envelope is unchanged.
-    if (cat.kind === "warn") {
-      sections.push(cat.text);
-    } else if (cat.kind === "ok") {
-      const workingSet = await formatWorkingSetSection(composed.spaceRoot, cat.mounts);
+    // Local-agent orientation tier: working set (home + mounts) + the catalog.
+    // A local agent shells this instead of composing it in-process; the catalog
+    // lands in `text` and the --json envelope is unchanged.
+    if (cat.kind === "warn") sections.push(cat.text);
+    else if (cat.kind === "ok") {
       if (workingSet) sections.push(workingSet);
-      if (cat.catalog) sections.push(cat.catalog);
+      if (catalog) sections.push(catalog);
     }
 
     if (repoRoot && gs) {
