@@ -6,9 +6,13 @@
  * the path to `<path>` (foundation from the space root + the deepest
  * guide/purpose/now), then renders the standard awareness block — Now/tree/skills
  * and a since-last-session diff, a Position section, a git-state line, stale-doc
- * drift, and missing-direction drift. `--json` returns `{ text, position, root,
- * repoRoot }`; the MCP `is_navigate` tool and the SessionStart hook both shell
- * this so orientation is rendered one way, in one place.
+ * drift, and missing-direction drift. With `--workspace <dir>` it also renders the
+ * local-agent tier — a working set (home + `--mount`s) and the repo catalog (git
+ * repos beside the workspace folder, tagged with sync state + POV) — so a local
+ * agent shells this instead of composing it in-process. `--json` returns
+ * `{ text, position, root, repoRoot }` (the catalog rides in `text`); the MCP
+ * `is_navigate` tool and the SessionStart hook both shell this so orientation is
+ * rendered one way, in one place.
  *
  * `--mark-seen` persists HEAD as the "last seen" marker (a local git ref) so the
  * *next* session's since-last-session diff has a baseline. Only the SessionStart
@@ -30,6 +34,7 @@ import {
   staleDocSignals,
 } from "@ideaspaces/sdk";
 import { isInsideWorkTree, headSha } from "../git.js";
+import { formatWorkingSetSection, formatCatalogSection } from "../catalog.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -65,10 +70,11 @@ function formatPositionSection(
 export const navigateCommand: CommandDef = {
   name: "navigate",
   description: "Re-derive orientation (fractal contract, tree, drift) at a position",
-  usage: "ideaspaces navigate [<path>] [--mark-seen]",
+  usage: "ideaspaces navigate [<path>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>]",
   examples: [
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate roadmap --json    # orient at a branch",
+    "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -125,6 +131,33 @@ export const navigateCommand: CommandDef = {
     const sections: string[] = [];
     if (pathContext && base) sections.push(formatPositionSection(target, base, repoRoot, pathContext));
     if (block.trim()) sections.push(block);
+
+    // Local-agent orientation tier: the working set (home + mounts) and the repo
+    // catalog (git repos that are children of the workspace folder). Rendered
+    // only when a --workspace root is given (no cwd default — a caller that omits
+    // it never triggers a surprise sibling-repo scan). Ported from pi-is-space so
+    // a local agent shells this instead of composing it in-process; the pullable
+    // (remote) tier is deferred (a later --pullable flag). The catalog lands in
+    // `text`; the --json envelope shape is unchanged (rows stay addressable for a
+    // future structured field).
+    const workspace = typeof flags.workspace === "string" ? resolve(flags.workspace) : null;
+    if (workspace && (!existsSync(workspace) || !statSync(workspace).isDirectory())) {
+      // A typo'd --workspace would otherwise render an empty catalog that looks
+      // identical to "no repos here" — surface it as a drift line (in `text`,
+      // like navigate's other warnings) rather than failing orientation.
+      sections.push(`⚠ --workspace is not a readable directory: ${workspace} (catalog skipped)`);
+    } else if (workspace) {
+      const mounts =
+        typeof flags.mount === "string"
+          ? flags.mount.split(",").map((m) => m.trim()).filter(Boolean)
+          : [];
+      const [workingSet, catalog] = await Promise.all([
+        formatWorkingSetSection(composed.spaceRoot, mounts),
+        formatCatalogSection(workspace, { povRepoRoot: repoRoot, mounts, pullable: [] }),
+      ]);
+      if (workingSet) sections.push(workingSet);
+      if (catalog) sections.push(catalog);
+    }
 
     if (repoRoot && gs) {
       const bits: string[] = [];
