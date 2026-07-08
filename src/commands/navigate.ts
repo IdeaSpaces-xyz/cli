@@ -9,10 +9,13 @@
  * drift, and missing-direction drift. With `--workspace <dir>` it also renders the
  * local-agent tier — a working set (home + `--mount`s) and the repo catalog (git
  * repos beside the workspace folder, tagged with sync state + POV) — so a local
- * agent shells this instead of composing it in-process. `--json` returns
- * `{ text, position, root, repoRoot }` (the catalog rides in `text`); the MCP
- * `is_navigate` tool and the SessionStart hook both shell this so orientation is
- * rendered one way, in one place.
+ * agent shells this instead of composing it in-process. `--pullable <s:ns,…>`
+ * adds the remote/pullable catalog tier the caller already fetched (kept out of
+ * navigate so it stays network-free); `--no-git` suppresses the compact git-state
+ * line for a caller that renders its own richer state (e.g. pi's `State:` block).
+ * `--json` returns `{ text, position, root, repoRoot }` (the catalog rides in
+ * `text`); the MCP `is_navigate` tool and the SessionStart hook both shell this so
+ * orientation is rendered one way, in one place.
  *
  * `--mark-seen` persists HEAD as the "last seen" marker (a local git ref) so the
  * *next* session's since-last-session diff has a baseline. Only the SessionStart
@@ -67,14 +70,32 @@ function formatPositionSection(
   return lines.join("\n");
 }
 
+// Parse --pullable: a comma-separated list of `slug:namespace` pairs — the
+// remote/pullable tier the caller already fetched via `catalog` (kept out of
+// navigate so it stays network-free). The flag parser has no arrays, hence the
+// string encoding; entries without a colon are dropped, not half-rendered.
+function parsePullable(raw: string | boolean | undefined): Array<{ slug: string; namespace: string }> {
+  if (typeof raw !== "string") return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const i = p.indexOf(":");
+      return i > 0 ? { slug: p.slice(0, i), namespace: p.slice(i + 1) } : null;
+    })
+    .filter((x): x is { slug: string; namespace: string } => x !== null);
+}
+
 export const navigateCommand: CommandDef = {
   name: "navigate",
   description: "Re-derive orientation (fractal contract, tree, drift) at a position",
-  usage: "ideaspaces navigate [<path>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>]",
+  usage: "ideaspaces navigate [<path>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
   examples: [
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate roadmap --json    # orient at a branch",
     "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
+    "ideaspaces navigate --workspace . --pullable team:acme.com,notes:alice --no-git --json  # + remote tier; caller renders its own state",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -136,10 +157,9 @@ export const navigateCommand: CommandDef = {
     // catalog (git repos that are children of the workspace folder). Rendered
     // only when a --workspace root is given (no cwd default — a caller that omits
     // it never triggers a surprise sibling-repo scan). Ported from pi-is-space so
-    // a local agent shells this instead of composing it in-process; the pullable
-    // (remote) tier is deferred (a later --pullable flag). The catalog lands in
-    // `text`; the --json envelope shape is unchanged (rows stay addressable for a
-    // future structured field).
+    // a local agent shells this instead of composing it in-process. The catalog
+    // lands in `text`; the --json envelope shape is unchanged (rows stay
+    // addressable for a future structured field).
     const workspace = typeof flags.workspace === "string" ? resolve(flags.workspace) : null;
     if (workspace && (!existsSync(workspace) || !statSync(workspace).isDirectory())) {
       // A typo'd --workspace would otherwise render an empty catalog that looks
@@ -153,7 +173,7 @@ export const navigateCommand: CommandDef = {
           : [];
       const [workingSet, catalog] = await Promise.all([
         formatWorkingSetSection(composed.spaceRoot, mounts),
-        formatCatalogSection(workspace, { povRepoRoot: repoRoot, mounts, pullable: [] }),
+        formatCatalogSection(workspace, { povRepoRoot: repoRoot, mounts, pullable: parsePullable(flags.pullable) }),
       ]);
       if (workingSet) sections.push(workingSet);
       if (catalog) sections.push(catalog);
@@ -165,7 +185,10 @@ export const navigateCommand: CommandDef = {
       if (gs.ahead != null && gs.behind != null && (gs.ahead || gs.behind)) bits.push(`↑${gs.ahead} ↓${gs.behind}`);
       if (gs.dirty) bits.push("dirty");
       if (gs.untrackedInTrackedDirs.length) bits.push(`${gs.untrackedInTrackedDirs.length} untracked`);
-      if (bits.length) sections.push(`Git: ${bits.join(", ")}`);
+      // --no-git suppresses the compact Git line for callers that render their
+      // own richer state (e.g. pi's `State:` block from `cli status`) — avoids a
+      // duplicate branch/dirty readout. Stale-docs + mark-seen below are unaffected.
+      if (bits.length && !flags["no-git"]) sections.push(`Git: ${bits.join(", ")}`);
 
       const signals = await staleDocSignals(repoRoot, await collectDocDependencies(repoRoot, repoRoot));
       if (signals.length) {
