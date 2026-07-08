@@ -97,7 +97,15 @@ export function queryPiModels(piBin: string): Promise<PiModelsResult> {
     pi.stderr.on("data", (d) => {
       stderr += String(d);
     });
-    pi.on("error", (err) => finish(() => reject(err)));
+    pi.on("error", (err) =>
+      finish(() =>
+        reject(
+          (err as NodeJS.ErrnoException).code === "ENOENT"
+            ? new Error("pi not found — check the runtime with `ideaspaces pi-status`")
+            : err,
+        ),
+      ),
+    );
     pi.on("exit", (code) => {
       if (settled) return;
       finish(() =>
