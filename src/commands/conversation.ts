@@ -251,6 +251,14 @@ async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
     );
     return 1;
   }
+  // Skill dirs — optional. `--extension` loads extension code but not the
+  // package's skills, so a shipped app forwards them here. Empty in dev when the
+  // user has `pi install`ed the extensions (skills already in `~/.pi/settings`).
+  const skillFlag = typeof flags.skill === "string" ? flags.skill : process.env.IDEASPACES_PI_SKILLS;
+  const skillPaths = (skillFlag ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   const sessionDir =
@@ -279,6 +287,7 @@ async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
       repoPath,
       message,
       extensionPaths,
+      skillPaths,
       conversationId,
       sessionDir,
       modelTier,
@@ -393,6 +402,7 @@ export const conversationCommand: CommandDef = {
     "ideaspaces conversation participants repo_abc c_123",
     "ideaspaces conversation remove repo_abc c_123 alice",
     "ideaspaces conversation send repo_abc c_123 --message 'Hi'  # streams JSON lines",
+    "ideaspaces conversation send --local --context /ws --conversation c1 --message 'Hi' --ext a,b --skill a/skills,b/skills  # local pi turn",
     "ideaspaces conversation get repo_abc c_123        # detail + history",
     "ideaspaces conversation cancel repo_abc c_123     # stop the active turn",
   ],
