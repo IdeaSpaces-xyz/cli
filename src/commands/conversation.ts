@@ -271,6 +271,10 @@ async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
     typeof flags.conversation === "string" ? flags.conversation : `local-${Date.now().toString(36)}`;
   const modelTier = typeof flags["model-tier"] === "string" ? flags["model-tier"] : "local";
   const piModel = typeof flags["pi-model"] === "string" ? flags["pi-model"] : undefined;
+  // The pi binary to spawn — the desktop passes its bundled sidecar here. Absent
+  // → runLocalTurn falls back to PATH `pi` (dev). Without this the bundled pi is
+  // never used, silently falling back to a globally-installed pi.
+  const piBin = typeof flags["pi-bin"] === "string" ? flags["pi-bin"] : undefined;
 
   // Abort propagation: SIGINT/SIGTERM (or the desktop killing the sidecar) kills
   // the local pi turn. Guarded so repeats don't double-fire.
@@ -294,6 +298,7 @@ async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
       sessionDir,
       modelTier,
       piModel,
+      piBin,
       signal: controller.signal,
     })) {
       process.stdout.write(`${JSON.stringify(event)}\n`);
