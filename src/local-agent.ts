@@ -90,6 +90,12 @@ export interface LocalTurnOptions {
   message: string;
   /** Extensions to load, in order — pi-is-space (Space) + pi-local-context. */
   extensionPaths: string[];
+  /** Skill dirs to load. Separate from extensions: `--extension` loads code but
+   * NOT the package's `skills` (pi's loader ignores `manifest.skills`), and a
+   * shipped app can't rely on `pi install` writing them into `~/.pi`. Forward
+   * them explicitly so the intent-layer skills reach pi. Empty in dev when the
+   * user has already `pi install`ed the extensions. */
+  skillPaths?: string[];
   /** Conversation id = pi session id; reported in `message_start`, resumed each turn. */
   conversationId: string;
   /** Where pi stores/looks up sessions — the context's gitignored session dir. */
@@ -122,6 +128,25 @@ function ensureSessionDir(dir: string): void {
 }
 
 /**
+ * The `pi --mode rpc` argv for a turn. Pure, so the extension/skill/model
+ * wiring is unit-testable. Skills ride `--skill` separately from `--extension`
+ * because pi's loader doesn't register a package's `manifest.skills` — a shipped
+ * app forwards the skill dirs explicitly (dev leaves them empty, `pi install`ed).
+ */
+export function buildPiArgs(opts: LocalTurnOptions): string[] {
+  const args = [
+    "--mode", "rpc",
+    "--session-id", opts.conversationId,
+    "--session-dir", opts.sessionDir,
+    "-a",
+  ];
+  for (const ext of opts.extensionPaths) args.push("--extension", ext);
+  for (const skill of opts.skillPaths ?? []) args.push("--skill", skill);
+  if (opts.piModel) args.push("--model", opts.piModel);
+  return args;
+}
+
+/**
  * Run one local turn, yielding Keeper stream events as they arrive. Resumes the
  * conversation's pi session for continuity. Ends after `turn_complete`
  * (agent_end), `cancelled` (abort), or `error` (failed prompt / pi exit).
@@ -142,14 +167,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
 
   ensureSessionDir(opts.sessionDir);
 
-  const args = [
-    "--mode", "rpc",
-    "--session-id", opts.conversationId,
-    "--session-dir", opts.sessionDir,
-    "-a",
-  ];
-  for (const ext of opts.extensionPaths) args.push("--extension", ext);
-  if (opts.piModel) args.push("--model", opts.piModel);
+  const args = buildPiArgs(opts);
   const pi = spawn(opts.piBin ?? "pi", args, { cwd: opts.repoPath, stdio: ["pipe", "pipe", "pipe"] });
 
   let stderr = "";

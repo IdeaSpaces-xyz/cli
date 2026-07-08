@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { harvestWorkspace, deriveConversationName } from "../local-agent.js";
+import { harvestWorkspace, deriveConversationName, buildPiArgs } from "../local-agent.js";
 import type { ToolInvocation } from "@ideaspaces/sdk";
+import type { LocalTurnOptions } from "../local-agent.js";
+
+const baseOpts: LocalTurnOptions = {
+  repoPath: "/ws",
+  message: "hi",
+  extensionPaths: ["/ext/pi-is-space", "/ext/pi-local-context"],
+  conversationId: "local-abc",
+  sessionDir: "/ws/.pi/sessions",
+};
 
 const inv = (name: string, args: Record<string, unknown>, isError = false): ToolInvocation => ({
   name,
@@ -59,5 +68,33 @@ describe("deriveConversationName (first-message naming)", () => {
 
   it("falls back to Untitled on empty input", () => {
     expect(deriveConversationName("   \n  ")).toBe("Untitled");
+  });
+});
+
+describe("buildPiArgs (pi rpc argv)", () => {
+  const pairs = (args: string[], flag: string): string[] =>
+    args.flatMap((a, i) => (args[i - 1] === flag ? [a] : []));
+
+  it("forwards each extension as a --extension pair", () => {
+    const args = buildPiArgs(baseOpts);
+    expect(pairs(args, "--extension")).toEqual(["/ext/pi-is-space", "/ext/pi-local-context"]);
+    expect(args).toContain("--mode");
+    expect(args).toContain("rpc");
+  });
+
+  it("forwards each skill dir as a --skill pair", () => {
+    const args = buildPiArgs({ ...baseOpts, skillPaths: ["/ext/pi-is-space/skills", "/ext/pi-local-context/skills"] });
+    expect(pairs(args, "--skill")).toEqual(["/ext/pi-is-space/skills", "/ext/pi-local-context/skills"]);
+  });
+
+  it("emits no --skill when skillPaths is absent (dev: pi-install'ed)", () => {
+    expect(buildPiArgs(baseOpts)).not.toContain("--skill");
+  });
+
+  it("adds --model only when piModel is set", () => {
+    expect(buildPiArgs(baseOpts)).not.toContain("--model");
+    expect(buildPiArgs({ ...baseOpts, piModel: "sonnet" })).toEqual(
+      expect.arrayContaining(["--model", "sonnet"]),
+    );
   });
 });
