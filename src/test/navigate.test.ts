@@ -145,6 +145,40 @@ describe("ideaspaces navigate", () => {
     expect(noGit.data.text).not.toContain("Git:");
   });
 
+  it("renders the catalog + hint at a bare workspace folder (no _agent contract)", async () => {
+    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-bare-")));
+    try {
+      const child = join(ws, "childrepo");
+      await fs.mkdir(child, { recursive: true });
+      git(["init", "-q", "-b", "main"], child);
+      git(["config", "user.email", "t@e.com"], child);
+      git(["config", "user.name", "T"], child);
+      git(["commit", "-q", "-m", "seed", "--allow-empty"], child);
+      // ws has no _agent and isn't itself a git repo → a bare workspace folder.
+      const { data } = await runNavigate([ws], { workspace: ws });
+      expect(data.root).toBeNull(); // no contract resolves
+      expect(data.text).toContain("Repos in scope (local):");
+      expect(data.text).toContain("childrepo (local-only)");
+      expect(data.text).toContain("Navigate into a repo below"); // the bare-folder hint
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("nudges to clone at an empty bare workspace folder (no repos yet)", async () => {
+    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-empty-")));
+    try {
+      // A fresh workspace folder — no child repos, no _agent, not a git repo.
+      const { data } = await runNavigate([ws], { workspace: ws });
+      expect(data.root).toBeNull();
+      expect(data.text).not.toContain("Repos in scope"); // nothing to list
+      expect(data.text).toContain("no repos yet"); // the empty-folder hint, not "navigate into a repo below"
+      expect(data.text).not.toContain("Navigate into a repo below");
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
   it("reports position relative to the space root outside a git repo", async () => {
     // A space with an _agent/ but NOT a git repo (tmpdir isn't under git).
     const nogit = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-nogit-")));
