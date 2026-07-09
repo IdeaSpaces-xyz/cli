@@ -60,7 +60,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 |---|---|
 | `navigate <path>` | Orient at a position — contract, awareness, what changed |
 | `catalog` | List the nodes at a position |
-| `search <query>` | Semantic + keyword search across a space |
+| `search <query>` | Full-text search (filename + BM25) over the local clone |
 | `status` | Working-copy status (ahead / behind / dirty) |
 | `skills` | List the skill catalog, or print one skill's markdown |
 
