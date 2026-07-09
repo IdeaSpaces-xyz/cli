@@ -2,7 +2,7 @@
 
 > Persistent, searchable knowledge from the command line.
 
-`ideaspaces` is the CLI for [IdeaSpaces](https://ideaspaces.xyz) — a place where teams of people and agents maintain shared understanding. A **space** is a git repository where knowledge compounds: notes are state, conversations are process, and the directory tree is how you navigate. This CLI is the fastest way to work with a space: clone it locally, edit and capture, search, sync, and talk to an agent — online or fully local.
+`ideaspaces` is the CLI for [IdeaSpaces](https://ideaspaces.xyz) — a place where teams of people and agents maintain shared understanding. A **space** is a git repository where knowledge compounds: notes are state, conversations are process, and the directory tree is how you navigate. This CLI is the fastest way to work with a space: clone it locally, edit and capture, search, push and pull, and talk to an agent — online or fully local.
 
 ## Install
 
@@ -15,15 +15,17 @@ This installs the `ideaspaces` command. Node 20+ is required.
 ## Quick start
 
 ```sh
-ideaspaces login                 # authenticate
-ideaspaces clone alice/notes     # clone a space to a local working copy
+ideaspaces login                    # authenticate
+ideaspaces clone alice/notes        # clone a space to a local working copy
 cd notes
-ideaspaces navigate .            # orient: what's here, what changed
-ideaspaces write ideas.md        # edit a note
-ideaspaces sync                  # push local edits, pull remote changes
+ideaspaces navigate .               # orient: what's here, what changed
+ideaspaces write ideas.md           # edit a note
+ideaspaces commit -m "…" ideas.md   # save the capture
+ideaspaces push                     # send your commits to the remote
+ideaspaces pull                     # integrate others' changes
 ```
 
-Everything is local-first: your working copy is a real git clone on disk. Edits are yours until you `sync`.
+Everything is local-first: your working copy is a real git clone on disk. Edits are yours until you `push`.
 
 ## Commands
 
@@ -49,8 +51,8 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 ### Sync & publish
 | Command | What it does |
 |---|---|
-| `sync` | Push local edits and pull remote changes |
-| `push` / `pull` | One-directional sync |
+| `push` | Send your committed captures to the remote |
+| `pull` | Integrate remote changes into your local copy |
 | `publish` | Publish a local space to the server |
 
 ### Navigate & search
@@ -60,6 +62,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 | `catalog` | List the nodes at a position |
 | `search <query>` | Semantic + keyword search across a space |
 | `status` | Working-copy status (ahead / behind / dirty) |
+| `skills` | List the skill catalog, or print one skill's markdown |
 
 ### Collaborate
 | Command | What it does |
@@ -76,6 +79,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 | `login` | Authenticate and store credentials |
 | `whoami` | Show the current identity |
 | `forget` | Remove stored credentials |
+| `power logout` | Log out and clear stored credentials |
 | `credential` | Git credential helper (used by git under the hood) |
 
 ### Local agent (Pi)
