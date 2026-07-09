@@ -26,7 +26,7 @@ export const linkCommand: CommandDef = {
   usage: "ideaspaces link <dir> [space]",
   examples: [
     "ideaspaces link ./theone                  # auto-detect from the git remote",
-    "ideaspaces link ./theone ernests_s/theone # bind to a specific space",
+    "ideaspaces link ./theone alice/theone     # bind to a specific space",
   ],
   async run(args, _flags, global) {
     const output = createOutput(global);

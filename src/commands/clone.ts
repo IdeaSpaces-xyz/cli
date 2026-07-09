@@ -14,7 +14,7 @@ export const cloneCommand: CommandDef = {
   usage: "ideaspaces clone <space> [dir]",
   examples: [
     "ideaspaces clone notes                 # clone into ./notes",
-    "ideaspaces clone ernests_s/notes ./n   # explicit namespace/slug + dir",
+    "ideaspaces clone alice/notes ./n       # explicit namespace/slug + dir",
   ],
   async run(args, _flags, global) {
     const output = createOutput(global);

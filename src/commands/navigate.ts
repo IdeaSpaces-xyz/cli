@@ -131,7 +131,7 @@ export const navigateCommand: CommandDef = {
   usage: "ideaspaces navigate [<path>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
   examples: [
     "ideaspaces navigate --json            # orient at the current directory",
-    "ideaspaces navigate roadmap --json    # orient at a branch",
+    "ideaspaces navigate docs --json       # orient at a branch",
     "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
     "ideaspaces navigate --workspace . --pullable team:acme.com,notes:alice --no-git --json  # + remote tier; caller renders its own state",
   ],

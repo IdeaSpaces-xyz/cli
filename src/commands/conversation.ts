@@ -80,7 +80,7 @@ async function cmdNew(args: string[], flags: Flags, output: Output): Promise<num
   const body: CreateConversationBody = {};
   if (typeof flags.name === "string") body.name = flags.name;
   // The agent Actor that runs the conversation. The server accepts it and will
-  // honor it once backend agent-selection lands (matches is_web's pass-through).
+  // honor it once backend agent-selection lands.
   if (typeof flags.agent === "string") body.agent_node_id = flags.agent;
   try {
     const conv = await createConversation(config, repoId, body);
@@ -249,7 +249,7 @@ async function cmdSendLocal(flags: Flags, output: Output): Promise<number> {
     return 1;
   }
   // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
-  // distribution bundles them (D1), the caller supplies the paths.
+  // distribution bundles them, the caller supplies the paths.
   const extensionPaths = parseCommaList(flags.ext, process.env.IDEASPACES_PI_EXTENSIONS);
   if (!extensionPaths.length) {
     output.error(

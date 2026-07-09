@@ -1,7 +1,7 @@
 /**
  * `ideaspaces pi-status` — is the local pi runtime usable for a local agent?
  *
- * The detection contract for "Connect Pi" (desktop C1), kept in the CLI so no
+ * The detection contract for "Connect Pi", kept in the CLI so no
  * client parses `~/.pi` itself. Three checks, reported as structured data:
  *
  *   - **binary**   — is `pi` resolvable, and what version (`pi --version`)
@@ -10,8 +10,8 @@
  *   - **extensions**— do the pi-is-space / pi-local-context paths resolve as pi
  *                    would load them (a `pi.extensions` manifest, or index.ts/js)
  *
- * `ready` = binary present && ≥1 provider configured — the "dev-first" bar (C1).
- * `extensionsResolvable` is reported separately: it's the D1/distribution concern
+ * `ready` = binary present && ≥1 provider configured — the "dev-first" bar.
+ * `extensionsResolvable` is reported separately: it's the distribution concern
  * (bundling the extensions), not a gate on connecting. Auth-independent — this
  * reads only the local pi install, never the IdeaSpaces account.
  */
@@ -55,7 +55,7 @@ export interface PiStatus {
   extensions: PiExtensionCheck[];
   /** Every supplied extension resolves. False when none were supplied to check. */
   extensionsResolvable: boolean;
-  /** The C1 "Connect Pi" bar: a usable binary + a configured provider. */
+  /** The "Connect Pi" bar: a usable binary + a configured provider. */
   ready: boolean;
 }
 
@@ -187,7 +187,7 @@ export const piStatusCommand: CommandDef = {
     const auth = readPiAuth(join(homedir(), ".pi"));
 
     // Extension paths: same source as `conversation send --local` — the caller
-    // supplies them (env in dev, the D1 bundle when shipped). Absent → we simply
+    // supplies them (env in dev, the bundle when shipped). Absent → we simply
     // report no extension checks (extensionsResolvable stays false).
     const extFlag = typeof flags.ext === "string" ? flags.ext : process.env.IDEASPACES_PI_EXTENSIONS;
     const extensions = (extFlag ?? "")

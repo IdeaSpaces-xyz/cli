@@ -12,7 +12,7 @@
  * `harvestWorkspace` lives here (it knows pi-is-space's tools); the generic fold
  * lives in the SDK.
  *
- * This is the runner behind `conversation send --local` (B1). pi RPC events are
+ * This is the runner behind `conversation send --local`. pi RPC events are
  * top-level JSON objects on stdout, interleaved with command `response` acks and
  * fire-and-forget `extension_ui_request` chrome (setStatus/setWidget) — we feed
  * the agent events to the translator and ignore the rest.

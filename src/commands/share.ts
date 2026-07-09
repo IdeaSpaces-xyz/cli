@@ -1,8 +1,7 @@
 /**
- * `ideaspaces share` — repo access management (the data behind the desktop's
- * Share dialog, is_web parity): members, email invites, and the public-link
- * access policy. All owner-gated on the backend (403 otherwise). `--json`
- * everywhere for the desktop to drive.
+ * `ideaspaces share` — repo access management: members, email invites, and the
+ * public-link access policy. All owner-gated on the backend (403 otherwise).
+ * `--json` everywhere for programmatic use.
  */
 
 import {

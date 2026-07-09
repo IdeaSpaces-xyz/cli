@@ -3,12 +3,11 @@
  * agent's orientation: which git repos sit beside it in a workspace folder, their
  * sync state, and a thin working-set of the home root plus mounts.
  *
- * Ported verbatim from the pi-is-space extension (`src/index.ts`) so the CLI
- * becomes the single producer of this section and pi can shell `navigate`
- * instead of composing it in-process (pi → CLI convergence, roadmap
- * plans/integration/pi-cli-convergence.md). Match-by-construction is deliberate:
- * the render is lifted unchanged (same strings) and locked with a golden fixture,
- * so pi's later swap is provable rather than a reimplementation that can drift.
+ * Lifted verbatim from the pi-is-space extension so the CLI is the single
+ * producer of this section and the agent can shell `navigate` instead of
+ * composing it in-process. Match-by-construction is deliberate: the render is
+ * lifted unchanged (same strings) and locked with a golden fixture, so the
+ * later swap is provable rather than a reimplementation that can drift.
  *
  * Pure composition over two SDK primitives (`extractSummary`, `gitState`) plus
  * filesystem reads; no git side effects.
