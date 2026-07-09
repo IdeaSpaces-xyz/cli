@@ -211,7 +211,7 @@ export interface CreateConversationBody {
   name?: string;
   /** Agent Actor node_id to run the conversation. Accepted by the server and
    * honored once backend agent-selection lands — forward-compatible, matching
-   * is_web's start flow (the picker passes it through today). */
+   * a client's start flow (the picker passes it through today). */
   agent_node_id?: string;
 }
 
@@ -331,7 +331,7 @@ function filesPath(repoId: string, path: string): string {
 
 /**
  * Write a file's content on the server (`PUT /repos/{id}/files/{path}`) — the
- * same endpoint is_web edits through. `name` is omitted, so the backend keeps
+ * same endpoint the web client edits through. `name` is omitted, so the backend keeps
  * the existing display name (body-only edit). 403 when the caller can't write
  * the repo (surfaced to the user as read-only).
  */
@@ -346,7 +346,7 @@ export async function putFile(
 }
 
 // ── Sharing: members, invites, and the public-link access policy ──────────────
-// The data behind the desktop's Share dialog (is_web parity). All owner-gated on
+// The data behind the Share dialog. All owner-gated on
 // the backend — a non-owner caller gets a 403.
 
 export type InviteRole = "MEMBER" | "CLONER" | "READER";

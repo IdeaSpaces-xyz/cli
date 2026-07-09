@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "type": "module",
   "description": "IdeaSpaces CLI — persistent, searchable knowledge from the command line",
+  "keywords": [
+    "ideaspaces",
+    "knowledge",
+    "cli",
+    "markdown",
+    "notes",
+    "git",
+    "local-first",
+    "agent"
+  ],
   "bin": {
     "ideaspaces": "./bundle/ideaspaces.js"
   },
@@ -13,7 +23,8 @@
     }
   },
   "files": [
-    "bundle"
+    "bundle",
+    "dist"
   ],
   "scripts": {
     "build": "tsc",

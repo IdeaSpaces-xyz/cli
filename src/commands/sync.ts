@@ -8,7 +8,7 @@
  *
  * This tombstone stays only so older callers get a clear migration message
  * instead of "unknown command"; it does nothing and always fails. Delete once
- * every consumer (pi-is-space, desktop, plugin, obsidian) has migrated.
+ * every consumer has migrated.
  */
 
 import { createOutput } from "../output.js";

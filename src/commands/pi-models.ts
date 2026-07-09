@@ -1,5 +1,5 @@
 // `ideaspaces pi-models --json` — the models a local Pi turn can use, for a
-// desktop model picker (Connect Pi provider-setup P1).
+// desktop model picker.
 //
 // pi's `--list-models` is table-only, so we use its rpc protocol instead: spawn
 // `pi --mode rpc`, send one `get_available_models` command, read the response,
