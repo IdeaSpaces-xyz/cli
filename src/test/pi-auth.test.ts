@@ -11,7 +11,7 @@ import {
   readAuthFile,
   writeAuthFile,
 } from "../pi-auth.js";
-import type { PiAuth } from "../commands/pi-status.js";
+import type { PiAuth } from "../pi-auth.js";
 
 describe("resolvePiAgentDir / resolvePiAuthPath", () => {
   it("defaults to ~/.pi/agent when the override is unset", () => {

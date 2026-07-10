@@ -21,6 +21,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
 import { readAuthFile, resolvePiAuthPath } from "../pi-auth.js";
+import type { PiAuth } from "../pi-auth.js";
 import type { CommandDef } from "../types.js";
 
 /** One pi provider from `auth.json`, creds redacted to a presence + expiry hint. */
@@ -58,27 +59,6 @@ export interface PiStatus {
   /** The "Connect Pi" bar: a usable binary + a configured provider. */
   ready: boolean;
 }
-
-/**
- * Raw `auth.json` credential — pi's tagged union, one entry per provider:
- *   - **api_key**: `{ type: "api_key", key, env? }`
- *   - **oauth**:   `{ type: "oauth", access, refresh, expires }`
- * Every field is optional here so a partial or hand-written file never throws on
- * parse; validity is derived in {@link derivePiStatus}. `key` is the API-key form,
- * `access`/`refresh` the OAuth tokens — a provider is credentialed if it carries
- * any of them.
- */
-export type PiCredential = {
-  type?: "api_key" | "oauth";
-  key?: string;
-  access?: string;
-  refresh?: string;
-  expires?: number;
-  env?: Record<string, string>;
-};
-
-/** Raw `auth.json` shape — a map of provider → credential record. */
-export type PiAuth = Record<string, PiCredential | undefined>;
 
 /**
  * Pure status derivation — all IO (spawn, file reads, path checks) happens in the

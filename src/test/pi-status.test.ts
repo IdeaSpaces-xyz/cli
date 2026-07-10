@@ -4,7 +4,8 @@ import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { derivePiStatus, resolveExtension } from "../commands/pi-status.js";
-import type { PiAuth, PiBinary, PiExtensionCheck } from "../commands/pi-status.js";
+import type { PiBinary, PiExtensionCheck } from "../commands/pi-status.js";
+import type { PiAuth } from "../pi-auth.js";
 
 const NOW = 1_800_000_000_000; // fixed clock
 const present: PiBinary = { present: true, path: "pi", version: "0.80.3" };

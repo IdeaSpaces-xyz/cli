@@ -13,7 +13,27 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { PiAuth } from "./commands/pi-status.js";
+
+/**
+ * Raw `auth.json` credential — pi's tagged union, one entry per provider:
+ *   - **api_key**: `{ type: "api_key", key, env? }`
+ *   - **oauth**:   `{ type: "oauth", access, refresh, expires }`
+ * Every field is optional here so a partial or hand-written file never throws on
+ * parse; validity is derived (see `derivePiStatus`). `key` is the API-key form,
+ * `access`/`refresh` the OAuth tokens — a provider is credentialed if it carries
+ * any of them.
+ */
+export type PiCredential = {
+  type?: "api_key" | "oauth";
+  key?: string;
+  access?: string;
+  refresh?: string;
+  expires?: number;
+  env?: Record<string, string>;
+};
+
+/** Raw `auth.json` shape — a map of provider → credential record. */
+export type PiAuth = Record<string, PiCredential | undefined>;
 
 /**
  * pi's agent directory — `$PI_CODING_AGENT_DIR` (tilde-expanded) when set, else

@@ -87,6 +87,8 @@ Run an agent over your local working copy — offline, on your own key.
 | Command | What it does |
 |---|---|
 | `pi-status` | Is a local agent runtime available and configured? |
+| `pi-login` | Configure a model provider (writes the local agent's credentials) |
+| `pi-logout` | Remove a configured model provider |
 | `pi-models` | List the models a configured provider offers |
 | `conversation send --local` | Run a local agent turn over a folder |
 
