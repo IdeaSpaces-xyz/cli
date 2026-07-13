@@ -54,21 +54,21 @@ describe("ideaspaces write", () => {
     expect(written).toContain('name: "`ideaspace create` — Adopt and Publish"');
   });
 
-  it("composes tags and attached_to into the frontmatter", async () => {
+  it("composes tags and a singular attached_to into the frontmatter", async () => {
     const exit = await writeCommand.run(
       ["notes/foo.md"],
       {
         content: "# Foo",
         name: "Foo",
         tags: "research,architecture",
-        "attached-to": "person:alice,hostname:acme.com",
+        "attached-to": "person:alice",
       },
       baseGlobal,
     );
     expect(exit).toBe(0);
     const written = await fs.readFile(join(tmp, "notes/foo.md"), "utf-8");
     expect(written).toContain("tags:\n  - research\n  - architecture");
-    expect(written).toContain("attached_to:\n  - person:alice\n  - hostname:acme.com");
+    expect(written).toContain("attached_to: person:alice");
   });
 
   it("refuses to overwrite without --force", async () => {
