@@ -4,7 +4,8 @@ import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { derivePiStatus, resolveExtension } from "../commands/pi-status.js";
-import type { PiAuth, PiBinary, PiExtensionCheck } from "../commands/pi-status.js";
+import type { PiBinary, PiExtensionCheck } from "../commands/pi-status.js";
+import type { PiAuth } from "../pi-auth.js";
 
 const NOW = 1_800_000_000_000; // fixed clock
 const present: PiBinary = { present: true, path: "pi", version: "0.80.3" };
@@ -34,6 +35,28 @@ describe("derivePiStatus", () => {
     expect(s.providers[0].hasCreds).toBe(false);
     expect(s.configured).toBe(false);
     expect(s.ready).toBe(false);
+  });
+
+  it("counts a pi api_key credential as configured (the shape pi-login --api-key writes)", () => {
+    // pi's tagged union: `{ type: "api_key", key }` — no access/refresh. The
+    // earlier hasCreds check keyed only on access/refresh, so this read as
+    // unconfigured and the login→recheck loop never flipped to ready.
+    const auth: PiAuth = { anthropic: { type: "api_key", key: "sk-ant-…" } };
+    const s = derivePiStatus({ binary: present, auth, extensions: [], now: NOW });
+    expect(s.providers[0].hasCreds).toBe(true);
+    expect(s.providers[0].expiresAt).toBeNull(); // an API key has no expiry
+    expect(s.providers[0].expired).toBe(false);
+    expect(s.configured).toBe(true);
+    expect(s.ready).toBe(true);
+  });
+
+  it("counts a pi oauth credential (typed union form) as configured", () => {
+    const auth: PiAuth = {
+      anthropic: { type: "oauth", access: "a", refresh: "r", expires: NOW + 1000 },
+    };
+    const s = derivePiStatus({ binary: present, auth, extensions: [], now: NOW });
+    expect(s.providers[0].hasCreds).toBe(true);
+    expect(s.configured).toBe(true);
   });
 
   it("is not ready when the binary is absent, even with a provider", () => {

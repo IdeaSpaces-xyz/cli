@@ -18,15 +18,16 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
+import { readAuthFile, resolvePiAuthPath } from "../pi-auth.js";
+import type { PiAuth } from "../pi-auth.js";
 import type { CommandDef } from "../types.js";
 
 /** One pi provider from `auth.json`, creds redacted to a presence + expiry hint. */
 export interface PiProvider {
   name: string;
-  /** An access or refresh credential is present (value never exposed). */
+  /** A credential is present — an API key or OAuth token (value never exposed). */
   hasCreds: boolean;
   /** Access-token expiry (epoch ms) when the entry carries one, else null. */
   expiresAt: number | null;
@@ -59,18 +60,16 @@ export interface PiStatus {
   ready: boolean;
 }
 
-/** Raw `auth.json` shape — a map of provider → credential record. */
-export type PiAuth = Record<
-  string,
-  { access?: string; refresh?: string; expires?: number } | undefined
->;
-
 /**
  * Pure status derivation — all IO (spawn, file reads, path checks) happens in the
  * command and is passed in, so this is fully unit-testable. `configured` keys on
  * *presence* of creds, not non-expiry: pi refreshes an expired access token from
  * its refresh token, so an expired entry is still usable. `expired` is surfaced
  * per provider as a hint; real validity is only proven by an actual turn.
+ *
+ * `hasCreds` spans both credential forms: an API key (`key`) or OAuth tokens
+ * (`access`/`refresh`). The earlier check keyed only on `access`/`refresh`, so an
+ * API-key provider — the shape `pi-login --api-key` writes — read as unconfigured.
  */
 export function derivePiStatus(input: {
   binary: PiBinary;
@@ -79,7 +78,7 @@ export function derivePiStatus(input: {
   now: number;
 }): PiStatus {
   const providers: PiProvider[] = Object.entries(input.auth ?? {}).map(([name, v]) => {
-    const hasCreds = Boolean(v && (v.access || v.refresh));
+    const hasCreds = Boolean(v && (v.key || v.access || v.refresh));
     const expiresAt = typeof v?.expires === "number" ? v.expires : null;
     return { name, hasCreds, expiresAt, expired: expiresAt != null && expiresAt <= input.now };
   });
@@ -119,17 +118,6 @@ export function resolveExtension(path: string): PiExtensionCheck {
     }
   }
   return check(existsSync(join(path, "index.ts")) || existsSync(join(path, "index.js")));
-}
-
-/** Read pi's `auth.json` (provider → creds). Absent or unparseable → null. */
-function readPiAuth(piHome: string): PiAuth | null {
-  const file = join(piHome, "agent", "auth.json");
-  if (!existsSync(file)) return null;
-  try {
-    return JSON.parse(readFileSync(file, "utf8")) as PiAuth;
-  } catch {
-    return null;
-  }
 }
 
 /** Probe the pi binary via `--version`; ENOENT/non-zero → not present. */
@@ -184,7 +172,9 @@ export const piStatusCommand: CommandDef = {
 
     const piBin = typeof flags["pi-bin"] === "string" ? flags["pi-bin"] : "pi";
     const binary = probeBinary(piBin);
-    const auth = readPiAuth(join(homedir(), ".pi"));
+    // Same resolved path pi-login writes and the bundled pi reads (honors
+    // PI_CODING_AGENT_DIR), so detection and write can never diverge.
+    const auth = readAuthFile(resolvePiAuthPath());
 
     // Extension paths: same source as `conversation send --local` — the caller
     // supplies them (env in dev, the bundle when shipped). Absent → we simply
