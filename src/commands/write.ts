@@ -44,7 +44,7 @@ export const writeCommand: CommandDef = {
   name: "write",
   description: "Create or update a Note (local file with Layer 1 frontmatter)",
   usage:
-    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to ent1,ent2] [--content TEXT] [--if-match SHA] [--force] [--stage=false]",
+    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to entity] [--content TEXT] [--if-match SHA] [--force] [--stage=false]",
   examples: [
     'echo "# My Note\\nContent here" | ideaspaces write notes/my-note.md --name "My Note"',
     'ideaspaces write notes/test.md --name "Test" --content "# Test\\nHello"',
@@ -85,7 +85,7 @@ export const writeCommand: CommandDef = {
       name: flags.name as string | undefined,
       summary: flags.summary as string | undefined,
       tags: parseList(flags.tags),
-      attached_to: parseList(flags["attached-to"]),
+      attached_to: parseOptionalString(flags["attached-to"]),
     };
     const force = Boolean(flags.force);
     // Stage by default; `--stage=false` writes without touching the index.
@@ -155,6 +155,11 @@ function parseList(value: unknown): string[] | undefined {
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
+}
+
+function parseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value.trim() || undefined;
 }
 
 /** Batch mode triggers on a directory target or 2+ targets; a lone file authors. */
