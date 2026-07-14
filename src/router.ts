@@ -35,7 +35,7 @@ import { logoutCommand } from "./commands/power/logout.js";
 // The Pi connector (src/pi/) — this composition root is the ONLY place that
 // wires it into the core: it registers the Pi-runtime commands and injects the
 // local-conversation handlers. Core commands never import src/pi/ (enforced by
-// an ESLint override on src/commands/**).
+// src/test/pi-boundary.test.ts).
 import {
   piStatusCommand,
   piModelsCommand,
