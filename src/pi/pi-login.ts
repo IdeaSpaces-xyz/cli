@@ -8,7 +8,7 @@
  */
 
 import { createOutput } from "../output.js";
-import { readAuthFile, resolvePiAuthPath, upsertApiKey, writeAuthFile } from "../pi-auth.js";
+import { readAuthFile, resolvePiAuthPath, upsertApiKey, writeAuthFile } from "./pi-auth.js";
 import type { CommandDef } from "../types.js";
 
 export const piLoginCommand: CommandDef = {

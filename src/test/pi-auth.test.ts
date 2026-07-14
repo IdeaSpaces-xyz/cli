@@ -10,8 +10,8 @@ import {
   upsertApiKey,
   readAuthFile,
   writeAuthFile,
-} from "../pi-auth.js";
-import type { PiAuth } from "../pi-auth.js";
+} from "../pi/pi-auth.js";
+import type { PiAuth } from "../pi/pi-auth.js";
 
 describe("resolvePiAgentDir / resolvePiAuthPath", () => {
   it("defaults to ~/.pi/agent when the override is unset", () => {

@@ -40,8 +40,13 @@ vi.mock("../auth/api.js", async (importOriginal) => {
   };
 });
 
-const { conversationCommand } = await import("../commands/conversation.js");
+const { makeConversationCommand } = await import("../commands/conversation.js");
 const { UnauthorizedError } = await import("../auth/api.js");
+
+// These tests exercise only the remote paths; the injected local (Pi) ops are a
+// no-op stub that never runs (no test passes `--local`).
+const stubLocalOps = { send: async () => 0, createNew: () => 0, get: () => 0, list: () => 0 };
+const conversationCommand = makeConversationCommand(stubLocalOps);
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
 const HUMAN_GLOBAL: GlobalFlags = { json: false, quiet: false, yes: false, help: false };
