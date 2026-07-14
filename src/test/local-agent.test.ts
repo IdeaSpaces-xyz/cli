@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { harvestWorkspace, deriveConversationName, buildPiArgs } from "../local-agent.js";
+import { harvestWorkspace, deriveConversationName, buildPiArgs } from "../pi/local-agent.js";
 import type { ToolInvocation } from "@ideaspaces/sdk";
-import type { LocalTurnOptions } from "../local-agent.js";
+import type { LocalTurnOptions } from "../pi/local-agent.js";
 
 const baseOpts: LocalTurnOptions = {
   repoPath: "/ws",

@@ -20,8 +20,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
-import { readAuthFile, resolvePiAuthPath } from "../pi-auth.js";
-import type { PiAuth } from "../pi-auth.js";
+import { readAuthFile, resolvePiAuthPath } from "./pi-auth.js";
+import type { PiAuth } from "./pi-auth.js";
 import type { CommandDef } from "../types.js";
 
 /** One pi provider from `auth.json`, creds redacted to a presence + expiry hint. */

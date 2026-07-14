@@ -28,7 +28,7 @@ import type {
   ConversationHistoryMessage,
   ConversationSummary,
   ConversationsResponse,
-} from "./auth/api.js";
+} from "../auth/api.js";
 
 /** The context's gitignored session dir — where local conversations live. */
 export function localSessionDir(contextRoot: string): string {

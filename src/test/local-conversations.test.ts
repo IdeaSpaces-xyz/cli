@@ -9,7 +9,7 @@ import {
   getLocalConversation,
   listLocalConversations,
   localSessionDir,
-} from "../local-conversations.js";
+} from "../pi/local-conversations.js";
 
 // A fixture mirroring pi's real v3 session JSONL (captured from a live run).
 const FIXTURE = [

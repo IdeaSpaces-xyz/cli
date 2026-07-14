@@ -17,16 +17,12 @@ import { credentialCommand } from "./commands/credential.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { reposCommand } from "./commands/repos.js";
 import { catalogCommand } from "./commands/catalog.js";
-import { piStatusCommand } from "./commands/pi-status.js";
-import { piModelsCommand } from "./commands/pi-models.js";
-import { piLoginCommand } from "./commands/pi-login.js";
-import { piLogoutCommand } from "./commands/pi-logout.js";
 import { cloneCommand } from "./commands/clone.js";
 import { clonesCommand } from "./commands/clones.js";
 import { linkCommand } from "./commands/link.js";
 import { forgetCommand } from "./commands/forget.js";
-import { conversationsCommand } from "./commands/conversations.js";
-import { conversationCommand } from "./commands/conversation.js";
+import { makeConversationsCommand } from "./commands/conversations.js";
+import { makeConversationCommand } from "./commands/conversation.js";
 import { agentsCommand } from "./commands/agents.js";
 import { nodeCommand } from "./commands/node.js";
 import { searchCommand } from "./commands/search.js";
@@ -35,6 +31,21 @@ import { shareCommand } from "./commands/share.js";
 
 // Power commands
 import { logoutCommand } from "./commands/power/logout.js";
+
+// The Pi connector (src/pi/) — this composition root is the ONLY place that
+// wires it into the core: it registers the Pi-runtime commands and injects the
+// local-conversation handlers. Core commands never import src/pi/ (enforced by
+// an ESLint override on src/commands/**).
+import {
+  piStatusCommand,
+  piModelsCommand,
+  piLoginCommand,
+  piLogoutCommand,
+  localConversationOps,
+} from "./pi/index.js";
+
+const conversationCommand = makeConversationCommand(localConversationOps);
+const conversationsCommand = makeConversationsCommand(localConversationOps);
 
 const topLevel: CommandDef[] = [
   createCommand,

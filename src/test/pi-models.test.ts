@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { trimModel } from "../commands/pi-models.js";
+import { trimModel } from "../pi/pi-models.js";
 
 describe("trimModel (pi model → picker shape)", () => {
   it("builds a provider/id ref and maps thinking + image", () => {
