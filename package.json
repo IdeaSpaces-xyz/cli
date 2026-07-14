@@ -35,7 +35,7 @@
     "prepare": "npm run build && npm run bundle"
   },
   "dependencies": {
-    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#7a2593ca32a61980aa1a3fc38a674ef5dcfb2060"
+    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#de0eeddd3ad9431c97b30a34ed97fc6f0be91d84"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
