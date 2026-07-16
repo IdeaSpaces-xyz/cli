@@ -118,6 +118,65 @@ describe("ideaspaces commit", () => {
   });
 });
 
+describe("ideaspaces commit — renames, deletions, unknown paths", () => {
+  // Named paths commit in whatever state the tree holds. The add pre-stage
+  // covers only worktree-existing paths (git add fatals on a mv'd source or
+  // git-rm'd file — they live only in HEAD); the commit pathspec matches HEAD,
+  // so renames and deletions commit, and a never-existed path refuses the
+  // whole commit.
+  async function seed(name: string, content = "x") {
+    await fs.writeFile(join(tmp, name), content, "utf-8");
+    git(["add", name]);
+    git(["commit", "-q", "-m", `seed ${name}`]);
+  }
+
+  it("commits a staged rename when given both paths", async () => {
+    await seed("a.md");
+    git(["mv", "a.md", "b.md"]);
+    const exit = await commitCommand.run(["a.md", "b.md"], { m: "Move a to b" }, G);
+    expect(exit).toBe(0);
+    const status = git(["show", "--name-status", "--format=", "-M", "HEAD"]).trim();
+    expect(status).toBe("R100\ta.md\tb.md");
+  });
+
+  it("commits a git rm'd (staged) deletion", async () => {
+    await seed("gone.md");
+    git(["rm", "-q", "gone.md"]);
+    expect(await commitCommand.run(["gone.md"], { m: "Delete gone" }, G)).toBe(0);
+    expect(git(["show", "--name-status", "--format=", "HEAD"]).trim()).toBe("D\tgone.md");
+  });
+
+  it("commits a plain rm'd (unstaged) deletion", async () => {
+    await seed("gone2.md");
+    await fs.rm(join(tmp, "gone2.md"));
+    expect(await commitCommand.run(["gone2.md"], { m: "Delete gone2" }, G)).toBe(0);
+    expect(git(["show", "--name-status", "--format=", "HEAD"]).trim()).toBe("D\tgone2.md");
+  });
+
+  it("refuses the WHOLE commit when any named path never existed", async () => {
+    await seed("base.md");
+    await fs.writeFile(join(tmp, "good.md"), "y", "utf-8");
+    const head = git(["rev-parse", "HEAD"]);
+    expect(await commitCommand.run(["good.md", "typo.md"], { m: "x" }, G)).toBe(1);
+    expect(git(["rev-parse", "HEAD"])).toBe(head);
+  });
+
+  it("commits a mixed set — rename + new + modified — and nothing else", async () => {
+    await seed("keep.md");
+    await seed("old.md");
+    git(["mv", "old.md", "new.md"]);
+    await fs.writeFile(join(tmp, "keep.md"), "changed", "utf-8");
+    await fs.writeFile(join(tmp, "fresh.md"), "fresh", "utf-8");
+    await fs.writeFile(join(tmp, "bystander.md"), "bystander", "utf-8");
+
+    const exit = await commitCommand.run(["old.md", "new.md", "keep.md", "fresh.md"], { m: "mixed" }, G);
+    expect(exit).toBe(0);
+    const lines = git(["show", "--name-status", "--format=", "-M", "HEAD"]).split("\n").filter(Boolean).sort();
+    expect(lines).toEqual(["A\tfresh.md", "M\tkeep.md", "R100\told.md\tnew.md"].sort());
+    expect(git(["status", "--porcelain", "--", "bystander.md"]).trim()).toBe("?? bystander.md");
+  });
+});
+
 describe("ideaspaces commit — git author identity", () => {
   // git commit takes the author email from these env vars over local config,
   // so unset the email ones to let the wired user.email be the source of truth.
