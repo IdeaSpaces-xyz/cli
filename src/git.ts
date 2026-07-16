@@ -12,6 +12,8 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 export class GitError extends Error {}
 
@@ -116,12 +118,20 @@ export function stagePaths(paths: string[], cwd?: string): void {
  * Commit **only** the given paths. Uses the explicit pathspec form
  * (`git commit -m <msg> -- <p1> <p2>`), so anything else the user has staged
  * is left untouched. Refuses an empty path list — never a bare commit.
+ *
+ * Named paths commit in whatever state the tree holds — content, rename, or
+ * deletion. Only paths that exist in the worktree are staged: `git add`
+ * matches worktree ∪ index and exits fatal on a vanished path (a `git mv`'d
+ * source or `git rm`'d file lives only in HEAD), while the commit pathspec
+ * matches HEAD too, so renames and deletions commit without staging. The add
+ * exists for the one case commit pathspecs reject: untracked new files. A
+ * never-existed path still refuses the whole commit at the commit step.
  */
 export function commitPaths(message: string, paths: string[], cwd?: string): string {
   if (!paths.length) throw new GitError("refusing to commit with no paths");
-  // Stage the named paths first so the commit captures their current content,
-  // then commit exactly those pathspecs.
-  gitOrThrow(["add", "--", ...paths], cwd);
+  const base = cwd ?? process.cwd();
+  const present = paths.filter((p) => existsSync(resolve(base, p)));
+  if (present.length) gitOrThrow(["add", "--", ...present], cwd);
   gitOrThrow(["commit", "-q", "-m", message, "--", ...paths], cwd);
   return headSha(cwd);
 }
