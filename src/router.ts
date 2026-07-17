@@ -26,6 +26,7 @@ import { makeConversationCommand } from "./commands/conversation.js";
 import { agentsCommand } from "./commands/agents.js";
 import { nodeCommand } from "./commands/node.js";
 import { searchCommand } from "./commands/search.js";
+import { lsCommand } from "./commands/ls.js";
 import { timesCommand } from "./commands/times.js";
 import { shareCommand } from "./commands/share.js";
 
@@ -66,6 +67,7 @@ const topLevel: CommandDef[] = [
   agentsCommand,
   nodeCommand,
   searchCommand,
+  lsCommand,
   publishCommand,
   writeCommand,
   commitCommand,
