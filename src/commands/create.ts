@@ -88,7 +88,7 @@ export const createCommand: CommandDef = {
 
     if (shape === "complete") {
       output.error(
-        `${describeTarget(targetDir, name)} is already an ideaspace. Edit \`_agent/\` directly or use \`/is-reflect\` to update direction.`,
+        `${describeTarget(targetDir, name)} is already an ideaspace. Edit \`_agent/\` directly, or ask your agent to reflect on direction.`,
       );
       return 5;
     }
