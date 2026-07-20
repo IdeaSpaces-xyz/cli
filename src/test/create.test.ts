@@ -127,6 +127,19 @@ describe("ideaspaces create", () => {
     expect((await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8")).trim()).toBe("# Foundation");
   });
 
+  it("refuses without pointing at a slash command", async () => {
+    await fs.mkdir(join(tmp, "_agent"), { recursive: true });
+    await fs.writeFile(join(tmp, "_agent", "foundation.md"), "# Foundation", "utf-8");
+    await fs.writeFile(join(tmp, "CLAUDE.md"), "# CLAUDE", "utf-8");
+    const captured = await captureStdout(() =>
+      createCommand.run([], {}, { ...baseGlobal, yes: true }),
+    );
+    expect(captured.exit).toBe(5);
+    // The plugin declares no slash commands, and is-reflect / is-capture /
+    // is-writing set `user-invocable: false` — a `/is-*` hint can never work.
+    expect(captured.out).not.toMatch(/\/is-[a-z-]+/);
+  });
+
   it("refuses on legacy _agent/ shape", async () => {
     await fs.mkdir(join(tmp, "_agent"), { recursive: true });
     await fs.writeFile(join(tmp, "_agent", "always.md"), "# legacy", "utf-8");
