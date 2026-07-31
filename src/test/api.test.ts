@@ -8,6 +8,7 @@ import {
   removeRepoMember,
   setSpaceAccess,
   UnauthorizedError,
+  NetworkError,
 } from "../auth/api.js";
 
 const config = { apiUrl: "http://api.test", apiKey: "k" };
@@ -83,6 +84,19 @@ describe("request() retry on timeout (cold start)", () => {
       createRepo(config, { name: "x" }, { timeoutMs: 20 }),
     ).rejects.toThrow(/timed out/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a NetworkError with a Cowork-aware redirect when the host is unreachable", async () => {
+    // undici throws `TypeError: fetch failed` for connect/DNS failures — the
+    // Cowork sandbox block manifests here, not as an HTTP status.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("fetch failed"))),
+    );
+    const err = await fetchAuthMe(config, { retry: false }).catch((e) => e);
+    expect(err).toBeInstanceOf(NetworkError);
+    expect(err.message).toMatch(/unreachable/i);
+    expect(err.message).toMatch(/Claude Code view/);
   });
 
   it("does not retry a non-timeout error (401)", async () => {
