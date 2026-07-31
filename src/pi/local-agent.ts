@@ -83,6 +83,16 @@ function lastPosition(tools: ToolInvocation[]): string {
   return "";
 }
 
+/** pi's thinking levels, mirroring `VALID_THINKING_LEVELS` in pi's cli/args.ts
+ * (the upstream contract we pass through). `off` explicitly disables reasoning;
+ * omitting the flag entirely leaves pi on the model/session default. */
+export const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type PiThinkingLevel = (typeof PI_THINKING_LEVELS)[number];
+
+export function isValidPiThinkingLevel(level: string): level is PiThinkingLevel {
+  return (PI_THINKING_LEVELS as readonly string[]).includes(level);
+}
+
 export interface LocalTurnOptions {
   /** The workspace/context root (cwd) — an ideaspace that may mount repos. */
   repoPath: string;
@@ -104,6 +114,9 @@ export interface LocalTurnOptions {
   modelTier?: string;
   /** pi model pattern (`--model`), if overriding pi's configured default. */
   piModel?: string;
+  /** pi thinking level (`--thinking`), if overriding the model/session default.
+   * Omitted → pi keeps its default; one of {@link PI_THINKING_LEVELS} otherwise. */
+  thinkingLevel?: PiThinkingLevel;
   /** pi executable. Default "pi" (from PATH). */
   piBin?: string;
   /** Abort the turn (SIGINT/desktop kill) — kills pi and emits `cancelled`. */
@@ -151,6 +164,7 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
   for (const ext of opts.extensionPaths) args.push("--extension", ext);
   for (const skill of opts.skillPaths ?? []) args.push("--skill", skill);
   if (opts.piModel) args.push("--model", opts.piModel);
+  if (opts.thinkingLevel) args.push("--thinking", opts.thinkingLevel);
   return args;
 }
 

@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { harvestWorkspace, deriveConversationName, buildPiArgs } from "../pi/local-agent.js";
+import {
+  harvestWorkspace,
+  deriveConversationName,
+  buildPiArgs,
+  isValidPiThinkingLevel,
+} from "../pi/local-agent.js";
 import type { ToolInvocation } from "@ideaspaces/sdk";
 import type { LocalTurnOptions } from "../pi/local-agent.js";
 
@@ -104,5 +109,27 @@ describe("buildPiArgs (pi rpc argv)", () => {
     expect(buildPiArgs({ ...baseOpts, piModel: "sonnet" })).toEqual(
       expect.arrayContaining(["--model", "sonnet"]),
     );
+  });
+
+  it("adds --thinking only when thinkingLevel is set", () => {
+    // Absent → no flag, so pi keeps the model/session default (not forced off).
+    expect(buildPiArgs(baseOpts)).not.toContain("--thinking");
+    expect(buildPiArgs({ ...baseOpts, thinkingLevel: "high" })).toEqual(
+      expect.arrayContaining(["--thinking", "high"]),
+    );
+  });
+});
+
+describe("isValidPiThinkingLevel (pi thinking-level guard)", () => {
+  it("accepts every level pi's args.ts defines, including off", () => {
+    for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+      expect(isValidPiThinkingLevel(level)).toBe(true);
+    }
+  });
+
+  it("rejects unknown or malformed levels", () => {
+    expect(isValidPiThinkingLevel("HIGH")).toBe(false); // case-sensitive
+    expect(isValidPiThinkingLevel("ultra")).toBe(false);
+    expect(isValidPiThinkingLevel("")).toBe(false);
   });
 });
