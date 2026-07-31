@@ -57,6 +57,32 @@ describe("ideaspaces create", () => {
     expect(existsSync(join(tmp, "_agent"))).toBe(false);
   });
 
+  it("degrades gracefully when git is unavailable — usable space, no repo", async () => {
+    // Point PATH at a git-less dir so gitAvailable() sees ENOENT. create only
+    // ever spawns `git`; we're already inside node, so nothing else breaks.
+    const gitless = await mkdtemp(join(tmpdir(), "is-cli-nogit-"));
+    const savedPath = process.env.PATH;
+    process.env.PATH = gitless;
+    try {
+      const { exit, out } = await captureStdout(() =>
+        createCommand.run(["nogit-space"], {}, { ...baseGlobal, yes: true, json: false }),
+      );
+      expect(exit).toBe(0); // graceful, not the old exit-1 crash
+      const dir = join(tmp, "nogit-space");
+      // Files materialized despite no git...
+      expect(existsSync(join(dir, "_agent", "foundation.md"))).toBe(true);
+      expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
+      // ...and no repo was created (git init never ran).
+      expect(existsSync(join(dir, ".git"))).toBe(false);
+      // ...with actionable guidance instead of a crash.
+      expect(out).toMatch(/no version history/i);
+      expect(out).toMatch(/git not found/i);
+    } finally {
+      process.env.PATH = savedPath;
+      await rm(gitless, { recursive: true, force: true });
+    }
+  });
+
   it("scaffolds greenfield with --yes", async () => {
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);

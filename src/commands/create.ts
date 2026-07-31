@@ -14,8 +14,9 @@
  * without matching files, and proposes capturing them in conversation.
  *
  * Without `--yes`, prints the plan and exits 0 without applying. With
- * `--yes`, applies. Errors don't roll back partial scaffolds — git is the
- * recovery surface.
+ * `--yes`, applies. Files are materialized first; git (init + initial commit)
+ * is a best-effort finalize — a missing git binary or unconfigured identity
+ * leaves a usable, unversioned local space rather than a partial abort.
  */
 
 import { promises as fs } from "node:fs";
@@ -26,6 +27,7 @@ import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe } from "../auth/api.js";
 import { identityEmail } from "../auth/identity.js";
+import { gitAvailable, GIT_MISSING_HINT } from "../git.js";
 import type { CommandDef } from "../types.js";
 import {
   CLAUDE_MD,
@@ -110,12 +112,13 @@ export const createCommand: CommandDef = {
       return 0;
     }
 
+    let versioned: boolean;
+    let gitNote: string | undefined;
     try {
-      await applyPlan({ targetDir, inspection, privateAgent });
+      ({ versioned, gitNote } = await applyPlan({ targetDir, inspection, privateAgent }));
     } catch (err) {
-      output.error(
-        `Scaffold failed midway: ${err instanceof Error ? err.message : String(err)}\nUse \`git status\` / \`git restore\` to recover.`,
-      );
+      // A genuine filesystem failure — the files themselves couldn't be written.
+      output.error(`Scaffold failed: ${err instanceof Error ? err.message : String(err)}`);
       return 1;
     }
 
@@ -126,14 +129,20 @@ export const createCommand: CommandDef = {
     if (inspection.nestedInRepo) {
       lines.push(nestingNotice(targetDir, inspection.nestedInRepo));
     }
+    if (!versioned) {
+      lines.push(
+        `Working locally — no version history yet. ${gitNote ?? ""}`.trim(),
+        `Once git is ready, from ${where}: \`git init -b main && git add . && git commit -m "Initial ideaspace scaffold"\`.`,
+      );
+    }
     lines.push(
       `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
     );
-    if (loadStoredCredentials()) {
+    if (versioned && loadStoredCredentials()) {
       lines.push(`When ready to host this remotely, run \`ideaspaces publish\` from inside ${where}.`);
     }
     output.result(
-      { target: targetDir, shape, privateAgent, scaffolded: true },
+      { target: targetDir, shape, privateAgent, scaffolded: true, versioned },
       lines.join("\n"),
     );
     return 0;
@@ -291,18 +300,11 @@ async function applyPlan(opts: {
   targetDir: string;
   inspection: Inspection;
   privateAgent: boolean;
-}): Promise<void> {
+}): Promise<{ versioned: boolean; gitNote?: string }> {
   const { targetDir, inspection, privateAgent } = opts;
 
+  // 1. Materialize files. The local space always succeeds — git or not.
   await fs.mkdir(targetDir, { recursive: true });
-
-  if (!inspection.isGitRepo) {
-    runGit(targetDir, ["init", "-q", "-b", "main"]);
-  }
-
-  // Set local user.email before the initial commit so publish's pre-receive author check passes without an amend.
-  await maybeSetIdentity(targetDir);
-
   await fs.mkdir(join(targetDir, "_agent"), { recursive: true });
   for (const [name, content] of Object.entries(CONTRACT_TEMPLATES)) {
     await fs.writeFile(join(targetDir, "_agent", `${name}.md`), content, "utf-8");
@@ -333,10 +335,22 @@ async function applyPlan(opts: {
     await fs.writeFile(gitignorePath, additions.replace(/^\n/, ""), "utf-8");
   }
 
-  // Stage and commit. If user has no git identity configured, the commit will
-  // fail; the caller surfaces that error.
-  runGit(targetDir, ["add", "."]);
-  runGit(targetDir, ["commit", "-q", "-m", "Initial ideaspace scaffold"]);
+  // 2. Best-effort git finalize: init → identity → initial commit. Any failure
+  // (no git binary, no configured identity, …) leaves the materialized space
+  // intact and reports how to add history later — never a partial abort.
+  if (!gitAvailable()) return { versioned: false, gitNote: GIT_MISSING_HINT };
+  try {
+    if (!inspection.isGitRepo) {
+      runGit(targetDir, ["init", "-q", "-b", "main"]);
+    }
+    // Set local user.email before the initial commit so publish's pre-receive author check passes without an amend.
+    await maybeSetIdentity(targetDir);
+    runGit(targetDir, ["add", "."]);
+    runGit(targetDir, ["commit", "-q", "-m", "Initial ideaspace scaffold"]);
+    return { versioned: true };
+  } catch (err) {
+    return { versioned: false, gitNote: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Set repo-local `user.email` to the IdeaSpaces identity; silent no-op if not logged in or network fails. */
@@ -360,8 +374,12 @@ async function maybeSetIdentity(targetDir: string): Promise<void> {
 
 function runGit(cwd: string, args: string[]): void {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
+  if (r.error) {
+    // Spawn failure (e.g. git not on PATH) — status is null, streams undefined.
+    throw new Error(`git ${args.join(" ")}: ${r.error.message}`);
+  }
   if (r.status !== 0) {
-    const message = r.stderr.trim() || r.stdout.trim() || `exit ${r.status}`;
+    const message = (r.stderr ?? "").trim() || (r.stdout ?? "").trim() || `exit ${r.status}`;
     throw new Error(`git ${args.join(" ")}: ${message}`);
   }
 }
