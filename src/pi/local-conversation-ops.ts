@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
-import { runLocalTurn } from "./local-agent.js";
+import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 
 type Flags = Record<string, string | boolean>;
@@ -62,6 +62,14 @@ async function send(flags: Flags, output: Output): Promise<number> {
     typeof flags.conversation === "string" ? flags.conversation : `local-${Date.now().toString(36)}`;
   const modelTier = typeof flags["model-tier"] === "string" ? flags["model-tier"] : "local";
   const piModel = typeof flags["pi-model"] === "string" ? flags["pi-model"] : undefined;
+  // Thinking level — validated here (the public seam) so a bad value fails fast
+  // with a clear message instead of spawning pi just to have it reject. Absent →
+  // undefined → pi keeps the model/session default.
+  const piThinking = typeof flags["pi-thinking"] === "string" ? flags["pi-thinking"] : undefined;
+  if (piThinking !== undefined && !isValidPiThinkingLevel(piThinking)) {
+    output.error(`Invalid thinking level "${piThinking}". Valid values: ${PI_THINKING_LEVELS.join(", ")}`);
+    return 1;
+  }
   // The pi binary to spawn — the desktop passes its bundled sidecar here. Absent
   // → runLocalTurn falls back to PATH `pi` (dev). Without this the bundled pi is
   // never used, silently falling back to a globally-installed pi.
@@ -89,6 +97,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
       sessionDir,
       modelTier,
       piModel,
+      thinkingLevel: piThinking,
       piBin,
       signal: controller.signal,
     })) {
