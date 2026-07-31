@@ -100,6 +100,38 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/** Thrown when the API host can't be reached — distinct from HTTP/auth errors,
+ * so callers (and the Cowork redirect) can tell "network unreachable" apart. */
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NetworkError";
+  }
+}
+
+/** undici's fetch throws `TypeError: fetch failed` for connect/DNS/reset errors
+ * (the errno rides on `.cause`) — as opposed to an HTTP status or a JSON parse
+ * error, which surface as ordinary Errors / SyntaxErrors. */
+function isConnectionFailure(err: unknown): boolean {
+  return err instanceof TypeError && /fetch failed/i.test(err.message);
+}
+
+/** Unreachable-host message with the conditional Cowork redirect. We can't
+ * detect Cowork, so we suggest rather than assert; `timedOut` keeps the softer
+ * "timed out" wording (a slow cold start is also possible). */
+function unreachableMessage(apiUrl: string, timedOut: boolean): string {
+  let host = apiUrl;
+  try {
+    host = new URL(apiUrl).host;
+  } catch {
+    // Non-URL apiUrl — fall back to the raw string.
+  }
+  const lead = timedOut
+    ? `Reaching ${host} timed out — the server may be slow, or the network unreachable.`
+    : `Can't reach ${host} — the network looks unreachable.`;
+  return `${lead} If you're in Cowork, its sandbox blocks remote access — switch to Claude Code view to browse and sync (local capture still works).`;
+}
+
 /** Auth + JSON headers, shared so the streaming path can't drift from request()
  * if auth ever grows (versioned header, signature, …). */
 function authHeaders(config: ApiConfig, extra?: Record<string, string>): Record<string, string> {
@@ -150,7 +182,10 @@ async function request<T>(
       const timedOut = err instanceof Error && err.name === "AbortError";
       if (timedOut && attempt < maxAttempts) continue; // warm-up retry
       if (timedOut) {
-        throw new Error(`${method} ${path} timed out after ${timeoutMs}ms`);
+        throw new NetworkError(unreachableMessage(config.apiUrl, true));
+      }
+      if (isConnectionFailure(err)) {
+        throw new NetworkError(unreachableMessage(config.apiUrl, false));
       }
       throw err;
     } finally {
