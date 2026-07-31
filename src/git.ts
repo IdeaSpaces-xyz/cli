@@ -17,8 +17,23 @@ import { resolve } from "node:path";
 
 export class GitError extends Error {}
 
+/** Per-OS install hint, surfaced whenever git is missing from PATH. */
+export const GIT_MISSING_HINT =
+  "git not found — install it and retry (macOS: `brew install git`; Windows: `winget install Git.Git`; Linux: your package manager).";
+
+/** True if a `git` executable is on PATH. Reused by the doctor. */
+export function gitAvailable(): boolean {
+  return spawnSync("git", ["--version"]).error === undefined;
+}
+
 function git(args: string[], cwd?: string): { ok: boolean; out: string; err: string } {
   const r = spawnSync("git", args, { encoding: "utf-8", cwd });
+  // ENOENT & friends — git not on PATH. spawnSync sets r.error and leaves
+  // status null; surface the actionable hint instead of a blank "git … failed".
+  if (r.error) {
+    const code = (r.error as NodeJS.ErrnoException).code;
+    return { ok: false, out: "", err: code === "ENOENT" ? GIT_MISSING_HINT : `git could not run: ${r.error.message}` };
+  }
   return { ok: r.status === 0, out: (r.stdout ?? "").trim(), err: (r.stderr ?? "").trim() };
 }
 
