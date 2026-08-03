@@ -25,7 +25,7 @@ import {
   inspectFrontmatterSyntax,
   extractSummary,
   type Frontmatter,
-} from "@ideaspaces/sdk";
+} from "@ideaspaces/protocol";
 import { stagePaths, blobSha, GitError } from "../git.js";
 import { parseBool } from "../argv.js";
 import { createOutput, type Output } from "../output.js";

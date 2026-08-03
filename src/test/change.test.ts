@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidChangeId } from "@ideaspaces/sdk";
+import { isValidChangeId } from "@ideaspaces/protocol";
 import { changeCommand, resolveHandle } from "../commands/change.js";
 import type { GlobalFlags } from "../types.js";
 

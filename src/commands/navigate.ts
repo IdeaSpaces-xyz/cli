@@ -2,28 +2,19 @@
  * `ideaspaces navigate [<path>] [--mark-seen]` — re-derive orientation at a
  * position without changing the working directory.
  *
- * This is the single awareness producer: it composes the fractal contract along
- * the path to `<path>` (foundation from the space root + the deepest
- * guide/purpose/now), then renders the standard awareness block — Now/tree/skills
- * and a since-last-session diff, a Position section, a git-state line, stale-doc
- * drift, and missing-direction drift. With `--workspace <dir>` it also renders the
- * local-agent tier — a working set (home + `--mount`s) and the repo catalog (git
- * repos beside the workspace folder, tagged with sync state + POV) — so a local
- * agent shells this instead of composing it in-process. The catalog renders even
- * with **no `_agent/` contract** (a bare workspace folder's repos are its
- * orientation); the working set needs a space root and renders only with one.
- * `--pullable <s:ns,…>`
- * adds the remote/pullable catalog tier the caller already fetched (kept out of
- * navigate so it stays network-free); `--no-git` suppresses the compact git-state
- * line for a caller that renders its own richer state (e.g. pi's `State:` block).
- * `--json` returns `{ text, position, root, repoRoot }` (the catalog rides in
- * `text`); the MCP `is_navigate` tool and the SessionStart hook both shell this so
- * orientation is rendered one way, in one place.
+ * It composes the fractal contract along `<path>` and renders orientation from
+ * protocol-owned contract, awareness, Position, git, and drift primitives. The
+ * CLI retains its harness-specific presentation: with `--workspace <dir>` it
+ * adds a working set (home + `--mount`s) and repository catalog tagged with sync
+ * state + POV. The catalog renders even with **no `_agent/` contract** (a bare
+ * workspace folder's repos are its orientation); the working set needs a space
+ * root and renders only with one. `--pullable <s:ns,…>` adds the remote tier the
+ * caller already fetched, keeping navigate network-free. `--no-git` suppresses
+ * the compact git-state line for callers that render richer state. `--json`
+ * returns `{ text, position, root, repoRoot }`.
  *
- * `--mark-seen` persists HEAD as the "last seen" marker (a local git ref) so the
- * *next* session's since-last-session diff has a baseline. Only the SessionStart
- * hook passes it — a mid-session `navigate` is read-only orientation and must not
- * advance the baseline.
+ * `--mark-seen` persists HEAD as the "last seen" marker for lifecycle callers.
+ * Ordinary `navigate` is read-only orientation and does not advance the baseline.
  */
 
 import { relative, resolve } from "node:path";
@@ -34,11 +25,10 @@ import {
   assembleAwareness,
   gitState,
   walkPathContext,
-  spaceRootLevel,
-  currentBranchLevel,
+  renderPosition,
   collectDocDependencies,
   staleDocSignals,
-} from "@ideaspaces/sdk";
+} from "@ideaspaces/protocol";
 import { isInsideWorkTree, headSha } from "../git.js";
 import { formatWorkingSetSection, formatCatalogSection } from "../catalog.js";
 import { createOutput } from "../output.js";
@@ -53,24 +43,6 @@ const SEEN_REF = "refs/ideaspaces/seen";
 function gitRef(cwd: string, args: string[]): string | null {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
   return r.status === 0 ? r.stdout.trim() || null : null;
-}
-
-// Position section. `base` is the walk/relative root (repo root, or the space
-// root outside a repo); `repoRoot` is shown only when there actually is one.
-function formatPositionSection(
-  pos: string,
-  base: string,
-  repoRoot: string | null,
-  pathContext: Awaited<ReturnType<typeof walkPathContext>>,
-): string {
-  const spaceRoot = spaceRootLevel(pathContext);
-  const branch = currentBranchLevel(pathContext);
-  const lines = ["Position:"];
-  if (repoRoot) lines.push(`  repo: ${repoRoot}`);
-  lines.push(`  cwd: ${relative(base, pos) || "."}`);
-  if (spaceRoot) lines.push(`  space root: ${spaceRoot.path || "."}`);
-  if (branch) lines.push(`  active _agent: ${branch.path || "."}`);
-  return lines.join("\n");
 }
 
 // Parse --pullable: a comma-separated list of `slug:namespace` pairs — the
@@ -209,12 +181,13 @@ export const navigateCommand: CommandDef = {
     ]);
 
     const sections: string[] = [];
-    if (pathContext && base) sections.push(formatPositionSection(target, base, repoRoot, pathContext));
+    if (pathContext && base) {
+      sections.push(renderPosition({ pos: target, base, repoRoot, ctx: pathContext }));
+    }
     if (block.trim()) sections.push(block);
 
-    // Local-agent orientation tier: working set (home + mounts) + the catalog.
-    // A local agent shells this instead of composing it in-process; the catalog
-    // lands in `text` and the --json envelope is unchanged.
+    // CLI-specific orientation tier: working set (home + mounts) + catalog.
+    // It lands in `text`; the --json envelope stays unchanged.
     if (cat.kind === "warn") sections.push(cat.text);
     else if (cat.kind === "ok") {
       if (workingSet) sections.push(workingSet);

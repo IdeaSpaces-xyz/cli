@@ -23,10 +23,9 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      # @ideaspaces/sdk is a public dep, but package-lock pins it as
-      # git+ssh://git@github.com/... and the CI runner has no SSH key. Rewrite
-      # that to anonymous HTTPS, which works now that the SDK repo is public.
-      # No token needed.
+      # Public IdeaSpaces dependencies are git-pinned, but package-lock records
+      # GitHub SSH URLs and the CI runner has no SSH key. Rewrite them to
+      # anonymous HTTPS; no token is needed.
       - name: Force HTTPS for GitHub git fetch
         run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
 

@@ -43,7 +43,7 @@ describe("ideaspaces write", () => {
   });
 
   it("quotes leading-backtick names", async () => {
-    // Scalar quoting belongs to the SDK; this keeps the CLI write path covered.
+    // Scalar quoting belongs to the protocol; this keeps the CLI write path covered.
     const exit = await writeCommand.run(
       ["notes/plan.md"],
       { content: "# Plan", name: "`ideaspace create` — Adopt and Publish" },

@@ -7,7 +7,7 @@
  * here so that rule lives in exactly one place.
  *
  * Synchronous (spawnSync) to match the rest of the CLI — these are short-lived
- * one-shot invocations. The SDK's async `gitState` covers the read side; this
+ * one-shot invocations. The protocol's async `gitState` covers the read side; this
  * module owns the writes git can't do read-only.
  */
 

@@ -19,8 +19,12 @@ function git(args: string[], dir = tmp): string {
   return r.stdout.trim();
 }
 
-/** Capture the JSON on stdout and any error text on stderr. */
-async function runNavigate(args: string[], flags: Record<string, string | boolean> = {}): Promise<any> {
+/** Capture stdout bytes and any error text; parse stdout in JSON mode. */
+async function runNavigate(
+  args: string[],
+  flags: Record<string, string | boolean> = {},
+  global: GlobalFlags = G,
+): Promise<any> {
   const out: string[] = [];
   const err: string[] = [];
   const origOut = process.stdout.write.bind(process.stdout);
@@ -29,13 +33,18 @@ async function runNavigate(args: string[], flags: Record<string, string | boolea
   (process.stderr as unknown as { write: typeof process.stderr.write }).write = ((s: string) => (err.push(String(s)), true)) as typeof process.stderr.write;
   let exit: number;
   try {
-    exit = await navigateCommand.run(args, flags, G);
+    exit = await navigateCommand.run(args, flags, global);
   } finally {
     (process.stdout as unknown as { write: typeof process.stdout.write }).write = origOut;
     (process.stderr as unknown as { write: typeof process.stderr.write }).write = origErr;
   }
   const stdout = out.join("");
-  return { exit, data: stdout ? JSON.parse(stdout) : null, err: err.join("") };
+  return {
+    exit,
+    data: global.json && stdout ? JSON.parse(stdout) : null,
+    stdout,
+    err: err.join(""),
+  };
 }
 
 beforeEach(async () => {
@@ -60,14 +69,27 @@ afterEach(async () => {
 });
 
 describe("ideaspaces navigate", () => {
-  it("orients at the root: text + position + root + repoRoot", async () => {
-    const { exit, data } = await runNavigate(["."]);
+  it("renders the protocol Position bytes and preserves the output newline", async () => {
+    const expectedPosition = [
+      "Position:",
+      `  repo: ${tmp}`,
+      "  cwd: .",
+      "  space root: .",
+      "  active _agent: .",
+    ].join("\n");
+
+    const { exit, data, stdout } = await runNavigate(["."]);
     expect(exit).toBe(0);
     expect(data.position).toBe(".");
     expect(data.root).toBe(tmp);
     expect(data.repoRoot).toBe(tmp);
+    expect(data.text.split("\n\n")[0]).toBe(expectedPosition);
     expect(data.text).toContain("Now:");
-    expect(data.text).toContain("Position:");
+    expect(stdout.endsWith("\n")).toBe(true);
+
+    const human = await runNavigate(["."], {}, { ...G, json: false });
+    expect(human.stdout.startsWith(`${expectedPosition}\n\n`)).toBe(true);
+    expect(human.stdout.endsWith("\n")).toBe(true);
   });
 
   it("tracks position when navigating into a subdir (fractal contract from root)", async () => {
@@ -78,6 +100,15 @@ describe("ideaspaces navigate", () => {
     // root space — root stays the space root, position moves.
     expect(data.position).toBe("sub");
     expect(data.root).toBe(tmp);
+    expect(data.text.split("\n\n")[0]).toBe(
+      [
+        "Position:",
+        `  repo: ${tmp}`,
+        "  cwd: sub",
+        "  space root: .",
+        "  active _agent: .",
+      ].join("\n"),
+    );
   });
 
   it("distinguishes a non-directory path from a missing one", async () => {
@@ -191,11 +222,15 @@ describe("ideaspaces navigate", () => {
       expect(data.root).toBe(nogit);
       // Must reflect the real position, not collapse to "." (the fixed bug).
       expect(data.position).toBe("branch");
-      // The Position section renders outside git too (walkPathContext is fs-only);
-      // no "repo:" line since there's no repo.
-      expect(data.text).toContain("Position:");
-      expect(data.text).toContain("cwd: branch");
-      expect(data.text).not.toContain("repo:");
+      // The protocol Position renderer works outside git too; no repo line.
+      expect(data.text.split("\n\n")[0]).toBe(
+        [
+          "Position:",
+          "  cwd: branch",
+          "  space root: .",
+          "  active _agent: .",
+        ].join("\n"),
+      );
     } finally {
       await rm(nogit, { recursive: true, force: true });
     }

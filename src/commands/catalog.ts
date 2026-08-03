@@ -9,7 +9,7 @@
  * themselves; the `--json` output carries raw `ahead`/`behind`/`dirty`.
  */
 
-import { gitState } from "@ideaspaces/sdk";
+import { gitState } from "@ideaspaces/protocol";
 import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import type { AuthMeRepo, AuthMeResponse } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
