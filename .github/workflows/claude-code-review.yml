@@ -32,10 +32,10 @@ jobs:
             Review this pull request using our SLC (Simple, Lovable, Complete) principles for the IdeaSpaces CLI.
 
             ## Context
-            - This repo: TypeScript Node CLI (`@ideaspaces/cli`). Bundles via esbuild for distribution as part of the IdeaSpaces plugin.
-            - Local-first: post-pivot, the CLI exposes `create`, `login`, `write`, `credential`, `power logout`. Server-flavored commands have been stripped; recoverable from git history when sync ships.
-            - Architecture invariant: thin CLI; logic lives in SDK / domain modules. New capabilities go in the SDK first; CLI exposes them.
-            - Reference: monorepo CLAUDE.md (root principles), ideaspace/architecture/plans/plugin-local-first/ (the active plan).
+            - This repo: TypeScript Node CLI (`@ideaspaces/cli`). It bundles via esbuild and is distributed both directly and inside agent integrations.
+            - Architecture boundary: `@ideaspaces/protocol` owns portable, platform-neutral knowledge-repo shape and read-only reference primitives; `@ideaspaces/sdk` owns platform transport contracts; the CLI owns command orchestration, presentation, auth/sync, and local write workflows.
+            - Thin CLI means reusing the owning layer directly: shape imports come from the protocol, platform transport imports come from the SDK, and CLI-local code should be limited to harness/client behavior.
+            - Preserve local-first safety: explicit capture/commit scope, no surprise writes, and no network access in local shape reads.
 
             ## SLC label context
             - `slc:simple` / `slc:lovable` / `slc:complete`: quick validation for labeled dimensions, deeper review for unlabeled.
@@ -46,9 +46,9 @@ jobs:
 
             ### Simple 🎯
             - Is this the simplest implementation that solves the user problem?
-            - Does it reuse existing patterns (SDK primitives, output, argv, auth helpers)?
+            - Does it reuse existing patterns and the owning layer directly (protocol shape primitives, SDK platform transport, CLI output/argv/auth helpers)?
             - Any unnecessary new abstractions or framework-like complexity?
-            - Avoidable code paths that should sit in the SDK or be deferred?
+            - Avoidable code paths that should sit in the protocol or SDK, according to the boundary above, or be deferred?
 
             ### Lovable ❤️
             - CLI UX: clear `--help`, sensible defaults, plan-then-confirm for destructive ops, useful error messages with hints.
