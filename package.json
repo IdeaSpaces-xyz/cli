@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#197a82e6319cc98536570c9e1d312cf19335bc17",
-    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#de0eeddd3ad9431c97b30a34ed97fc6f0be91d84"
+    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#7ed027a6b4f51dfc8c546d94eb4d26e62843c58b"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
