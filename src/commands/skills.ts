@@ -1,9 +1,9 @@
 /**
  * `ideaspaces skills [<name>]` — list the skill catalog, or print one skill's
- * markdown. The MCP server shells this so it needn't depend on the SDK itself.
+ * markdown. The catalog is protocol-owned; this command is its CLI presentation.
  */
 
-import { listSkills, readSkill } from "@ideaspaces/sdk";
+import { listSkills, readSkill } from "@ideaspaces/protocol";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 

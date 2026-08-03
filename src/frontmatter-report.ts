@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { relative } from "node:path";
-import { inspectFrontmatterSyntax } from "@ideaspaces/sdk";
+import { inspectFrontmatterSyntax } from "@ideaspaces/protocol";
 
 export interface FrontmatterSyntaxFileStatus {
   path: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTrailers } from "@ideaspaces/sdk";
+import { parseTrailers } from "@ideaspaces/protocol";
 import { applyTrailerFlags } from "../commands/commit.js";
 
 describe("applyTrailerFlags", () => {

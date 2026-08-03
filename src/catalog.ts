@@ -3,20 +3,16 @@
  * agent's orientation: which git repos sit beside it in a workspace folder, their
  * sync state, and a thin working-set of the home root plus mounts.
  *
- * Lifted verbatim from the pi-is-space extension so the CLI is the single
- * producer of this section and the agent can shell `navigate` instead of
- * composing it in-process. Match-by-construction is deliberate: the render is
- * lifted unchanged (same strings) and locked with a golden fixture, so the
- * later swap is provable rather than a reimplementation that can drift.
- *
- * Pure composition over two SDK primitives (`extractSummary`, `gitState`) plus
- * filesystem reads; no git side effects.
+ * The CLI owns this harness-specific rendering — home/mount/POV roles and the
+ * pullable tier are not portable knowledge-repo shape. Portable parsing and git
+ * facts come directly from the protocol; filesystem orchestration stays local.
+ * No git side effects.
  */
 
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, resolve as resolvePath } from "node:path";
-import { extractSummary, gitState } from "@ideaspaces/sdk";
+import { extractSummary, gitState } from "@ideaspaces/protocol";
 
 // Noise dirs skipped when scanning a folder for child repos / counting dirs.
 export const AUTOCOMPLETE_EXCLUDES = [".git", "node_modules", "backups", ".pi", ".claude"];

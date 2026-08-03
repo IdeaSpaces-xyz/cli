@@ -1,13 +1,13 @@
 /**
  * `ideaspaces status` — where the capture stands.
  *
- * Surfaces the working-tree git position (SDK `gitState`) plus the staged
+ * Surfaces the working-tree git position (protocol `gitState`) plus the staged
  * knowledge paths (markdown + `_agent/`) read straight from git's index, shown
  * separately so the user sees what's awaiting the explicit `commit` save.
  */
 
 import { resolve } from "node:path";
-import { gitState } from "@ideaspaces/sdk";
+import { gitState } from "@ideaspaces/protocol";
 import { repoRoot, pathStatus, stagedIdeaspacePaths, fetch as gitFetch, GitError } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";

@@ -19,8 +19,8 @@ vi.mock("../auth/spaces.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/spaces.js")>();
   return { ...actual, listClones: listClonesMock };
 });
-vi.mock("@ideaspaces/sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@ideaspaces/sdk")>();
+vi.mock("@ideaspaces/protocol", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@ideaspaces/protocol")>();
   return { ...actual, gitState: gitStateMock };
 });
 vi.mock("../git.js", async (importOriginal) => {

@@ -10,7 +10,7 @@
  * this command is deliberately just `new`; there is no open/close state here.
  */
 
-import { mintChangeId, isValidChangeId } from "@ideaspaces/sdk";
+import { mintChangeId, isValidChangeId } from "@ideaspaces/protocol";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 

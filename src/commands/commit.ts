@@ -16,14 +16,14 @@
  */
 
 import { resolve } from "node:path";
-import { appendTrailers, isValidChangeId, type Op, type Trailers } from "@ideaspaces/sdk";
+import { appendTrailers, isValidChangeId, type Op, type Trailers } from "@ideaspaces/protocol";
 import { commitPaths, repoRoot, stagedPaths, isIdeaspacePath, GitError } from "../git.js";
 import { ensureLocalIdentity } from "../auth/identity.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-// `satisfies Record<Op, true>` makes this exhaustive against the SDK's `Op`
-// union at compile time: if the SDK adds an op, the build fails here until it's
+// `satisfies Record<Op, true>` makes this exhaustive against the protocol's `Op`
+// union at compile time: if the protocol adds an op, the build fails here until it's
 // added, instead of the CLI silently rejecting a now-valid op at runtime.
 const OP_SET = {
   create: true,
