@@ -1,8 +1,12 @@
-# ideaspaces
+# IdeaSpaces CLI
 
-> Persistent, searchable knowledge from the command line.
+> Capture durable agent knowledge from the command line.
 
-`ideaspaces` is the CLI for [IdeaSpaces](https://ideaspaces.xyz) — a place where teams of people and agents maintain shared understanding. A **space** is a git repository where knowledge compounds: notes are state, conversations are process, and the directory tree is how you navigate. This CLI is the fastest way to work with a space: clone it locally, edit and capture, search, push and pull, and talk to an agent — online or fully local.
+The [Ideaspace Protocol](https://github.com/IdeaSpaces-xyz/ideaspace-protocol) is the open standard for how agents turn useful work into durable, portable knowledge. `ideaspaces` implements the common command-line mechanics: create and orient in a space, write and commit captures safely, then optionally publish, push, or pull.
+
+A **space** is a git repository where knowledge compounds as ordinary Markdown. The CLI keeps the workflow local-first and scriptable; protocol-aware plugins use the protocol directly for local reads and rely on CLI capabilities for platform operations and transitional writes.
+
+Want your agent to follow the standard automatically? Install [IdeaSpaces for Claude Code and Cowork](https://github.com/IdeaSpaces-xyz/claude-code-plugin) or [IdeaSpaces for Pi](https://github.com/IdeaSpaces-xyz/pi-is-space). Use this package directly for terminal workflows, automation, and integration development.
 
 ## Install
 
@@ -15,17 +19,20 @@ This installs the `ideaspaces` command. Node 20+ is required.
 ## Quick start
 
 ```sh
-ideaspaces login                    # authenticate
-ideaspaces clone alice/notes        # clone a space to a local working copy
-cd notes
+ideaspaces create my-space --yes    # create the standard repository shape
+cd my-space
 ideaspaces navigate .               # orient: what's here, what changed
-ideaspaces write ideas.md           # edit a note
-ideaspaces commit -m "…" ideas.md   # save the capture
-ideaspaces push                     # send your commits to the remote
-ideaspaces pull                     # integrate others' changes
+ideaspaces write decisions/idea.md --content "Idea body text"
+ideaspaces commit -m "Capture idea" decisions/idea.md
+
+# Optional: host or collaborate remotely
+ideaspaces login
+ideaspaces publish
+ideaspaces push
+ideaspaces pull
 ```
 
-Everything is local-first: your working copy is a real git clone on disk. Edits are yours until you `push`.
+Everything is local-first: your working copy is a real git repository on disk. Captures are yours until you choose to publish or push them.
 
 ## Commands
 
