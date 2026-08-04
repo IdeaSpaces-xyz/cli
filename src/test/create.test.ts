@@ -94,6 +94,11 @@ describe("ideaspaces create", () => {
     for (const file of ["purpose", "now", "next"]) {
       expect(existsSync(join(tmp, "_agent", `${file}.md`))).toBe(false);
     }
+    // Convention READMEs only — the character layer, no bundled content.
+    expect(existsSync(join(tmp, "_agent", "skills", "README.md"))).toBe(true);
+    expect(existsSync(join(tmp, "_agent", "perspectives", "README.md"))).toBe(true);
+    const skillsDir = await fs.readdir(join(tmp, "_agent", "skills"));
+    expect(skillsDir).toEqual(["README.md"]);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(true);
     await expectNoNodeId(join(tmp, "CLAUDE.md"));
     await expectNoNodeId(join(tmp, "_agent", "foundation.md"));
@@ -208,6 +213,60 @@ describe("ideaspaces create", () => {
     const gitignore = await fs.readFile(join(tmp, ".gitignore"), "utf-8");
     expect(gitignore.startsWith("node_modules/\ndist/\n")).toBe(true);
     expect(gitignore).toContain("# ideaspace defaults");
+  });
+
+  it("commits only scaffold paths — pre-staged and untracked user files stay out", async () => {
+    spawnSync("git", ["-C", tmp, "init", "-q", "-b", "main"]);
+    configureGitIdentity(tmp);
+    await fs.writeFile(join(tmp, "notes.md"), "# existing", "utf-8");
+    spawnSync("git", ["-C", tmp, "add", "."]);
+    spawnSync("git", ["-C", tmp, "commit", "-q", "-m", "first"]);
+    // A concurrent session's staged-but-uncommitted capture, plus loose scratch.
+    await fs.writeFile(join(tmp, "secret-draft.md"), "# staged by someone else", "utf-8");
+    spawnSync("git", ["-C", tmp, "add", "secret-draft.md"]);
+    await fs.writeFile(join(tmp, "untracked.md"), "# loose", "utf-8");
+
+    const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+
+    // The scaffold commit contains only scaffold paths.
+    const shown = spawnSync(
+      "git",
+      ["-C", tmp, "show", "--name-only", "--format=", "HEAD"],
+      { encoding: "utf-8" },
+    ).stdout;
+    expect(shown).toContain("_agent/foundation.md");
+    expect(shown).toContain("_agent/skills/README.md");
+    expect(shown).not.toContain("secret-draft.md");
+    expect(shown).not.toContain("untracked.md");
+
+    // The foreign staged file is still staged, uncommitted; scratch untouched.
+    const status = spawnSync("git", ["-C", tmp, "status", "--porcelain"], {
+      encoding: "utf-8",
+    }).stdout;
+    expect(status).toContain("A  secret-draft.md");
+    expect(status).toContain("?? untracked.md");
+  });
+
+  it("private code-repo shape commits only the boundary files, not _agent/", async () => {
+    await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
+    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
+    spawnSync("git", ["config", "--global", "user.name", "Test"]);
+    const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+    const shown = spawnSync(
+      "git",
+      ["-C", tmp, "show", "--name-only", "--format=", "HEAD"],
+      { encoding: "utf-8" },
+    ).stdout;
+    // Boundary files committed; gitignored agent context and user code stay out.
+    expect(shown).toContain(".gitignore");
+    expect(shown).toContain(".gitattributes");
+    expect(shown).not.toContain("_agent/");
+    expect(shown).not.toContain("CLAUDE.local.md");
+    expect(shown).not.toContain("package.json");
+    // The private agent context still materialized on disk.
+    expect(existsSync(join(tmp, "_agent", "skills", "README.md"))).toBe(true);
   });
 
   it("does not re-init git when target is already a repo", async () => {
