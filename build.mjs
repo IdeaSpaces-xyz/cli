@@ -1,4 +1,7 @@
 import * as esbuild from "esbuild";
+import { chmod } from "node:fs/promises";
+
+const outfile = "bundle/ideaspaces.js";
 
 await esbuild.build({
   entryPoints: ["dist/main.js"],
@@ -6,7 +9,7 @@ await esbuild.build({
   platform: "node",
   target: "node20",
   format: "esm",
-  outfile: "bundle/ideaspaces.js",
+  outfile,
   // Some transitive CommonJS dependencies call dynamic require() at runtime.
   // ESM bundles need a real Node require binding so those paths work in
   // credential-helper invocations too.
@@ -15,3 +18,7 @@ await esbuild.build({
   },
   external: [],
 });
+
+// npm strips invalid bin entries during publication. esbuild creates files as
+// 0644, so make the declared CLI entrypoint executable before packing it.
+await chmod(outfile, 0o755);

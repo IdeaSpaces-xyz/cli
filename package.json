@@ -14,31 +14,24 @@
     "agent"
   ],
   "bin": {
-    "ideaspaces": "./bundle/ideaspaces.js"
-  },
-  "exports": {
-    ".": {
-      "import": "./dist/main.js",
-      "types": "./dist/main.d.ts"
-    }
+    "ideaspaces": "bundle/ideaspaces.js"
   },
   "files": [
-    "bundle",
-    "dist"
+    "bundle"
   ],
   "scripts": {
-    "build": "tsc",
+    "clean": "node -e \"const fs=require('node:fs'); for (const path of ['bundle', 'dist']) fs.rmSync(path, { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc && npm run bundle",
     "bundle": "node build.mjs",
+    "check:package": "npm run build && node scripts/check-package.mjs",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepare": "npm run build && npm run bundle"
-  },
-  "dependencies": {
-    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#197a82e6319cc98536570c9e1d312cf19335bc17",
-    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#7ed027a6b4f51dfc8c546d94eb4d26e62843c58b"
+    "prepare": "npm run build"
   },
   "devDependencies": {
+    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#197a82e6319cc98536570c9e1d312cf19335bc17",
+    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#7ed027a6b4f51dfc8c546d94eb4d26e62843c58b",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.0",
     "typescript": "^5.8.3",
@@ -48,8 +41,16 @@
     "node": ">=20"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/IdeaSpaces-xyz/cli"
+    "url": "git+https://github.com/IdeaSpaces-xyz/cli.git"
+  },
+  "homepage": "https://ideaspaces.xyz/developers",
+  "bugs": {
+    "url": "https://github.com/IdeaSpaces-xyz/cli/issues"
   }
 }
