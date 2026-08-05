@@ -8,15 +8,18 @@
  * old-shape, complete) and applies the right scaffold. Never overwrites
  * user content or existing CLAUDE.md / .gitignore — appends only.
  *
- * Scaffolds the seed of the contract: foundation.md + guide.md + CLAUDE.md
- * + .gitignore + .gitattributes. purpose.md / now.md / next.md are emergent
- * — the agent on first session reads foundation+guide, sees those names
- * without matching files, and proposes capturing them in conversation.
+ * Scaffolds the seed of the contract: foundation.md + guide.md + the
+ * skills/ and perspectives/ convention READMEs + CLAUDE.md + .gitignore
+ * + .gitattributes. purpose.md / now.md / next.md are emergent — the agent
+ * on first session reads foundation+guide, sees those names without
+ * matching files, and proposes capturing them in conversation.
  *
  * Without `--yes`, prints the plan and exits 0 without applying. With
  * `--yes`, applies. Files are materialized first; git (init + initial commit)
  * is a best-effort finalize — a missing git binary or unconfigured identity
  * leaves a usable, unversioned local space rather than a partial abort.
+ * The initial commit is scoped to the paths the scaffold wrote — anything
+ * the user already had staged in an existing repo is left untouched.
  */
 
 import { promises as fs } from "node:fs";
@@ -33,8 +36,15 @@ import {
   CLAUDE_MD,
   CONTRACT_TEMPLATES,
   GITATTRIBUTES,
+  PERSPECTIVES_README_MD,
+  SKILLS_README_MD,
   gitignoreDefaults,
 } from "../templates/default.js";
+
+const CONVENTION_READMES: Record<string, string> = {
+  skills: SKILLS_README_MD,
+  perspectives: PERSPECTIVES_README_MD,
+};
 
 type Shape = "greenfield" | "content-existing" | "code-repo" | "old-shape" | "complete";
 
@@ -114,8 +124,13 @@ export const createCommand: CommandDef = {
 
     let versioned: boolean;
     let gitNote: string | undefined;
+    let committablePaths: string[];
     try {
-      ({ versioned, gitNote } = await applyPlan({ targetDir, inspection, privateAgent }));
+      ({ versioned, gitNote, commitPaths: committablePaths } = await applyPlan({
+        targetDir,
+        inspection,
+        privateAgent,
+      }));
     } catch (err) {
       // A genuine filesystem failure — the files themselves couldn't be written.
       output.error(`Scaffold failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -132,7 +147,7 @@ export const createCommand: CommandDef = {
     if (!versioned) {
       lines.push(
         `Working locally — no version history yet. ${gitNote ?? ""}`.trim(),
-        `Once git is ready, from ${where}: \`git init -b main && git add . && git commit -m "Initial ideaspace scaffold"\`.`,
+        `Once git is ready, from ${where}: \`git init -b main && git add ${committablePaths.join(" ")} && git commit -m "Initial ideaspace scaffold"\`.`,
       );
     }
     lines.push(
@@ -245,6 +260,14 @@ function buildPlan(opts: {
     steps.push({ op: "write", path: join(targetDir, "_agent", `${fileName}.md`) });
   }
 
+  for (const dim of Object.keys(CONVENTION_READMES)) {
+    steps.push({
+      op: "write",
+      path: join(targetDir, "_agent", dim, "README.md"),
+      detail: "convention README",
+    });
+  }
+
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";
   if (!inspection.hasClaude) {
     steps.push({ op: "write", path: join(targetDir, claudeFile) });
@@ -264,7 +287,7 @@ function buildPlan(opts: {
     detail: privateAgent ? "private _agent/ defaults" : "content-space defaults",
   });
 
-  steps.push({ op: "commit", detail: "Initial ideaspace scaffold" });
+  steps.push({ op: "commit", detail: "Initial ideaspace scaffold (scaffold paths only)" });
 
   return { steps };
 }
@@ -300,24 +323,44 @@ async function applyPlan(opts: {
   targetDir: string;
   inspection: Inspection;
   privateAgent: boolean;
-}): Promise<{ versioned: boolean; gitNote?: string }> {
+}): Promise<{ versioned: boolean; gitNote?: string; commitPaths: string[] }> {
   const { targetDir, inspection, privateAgent } = opts;
+
+  // Relative paths this scaffold wrote that belong in the initial commit.
+  // In the private-_agent/ shape, `_agent/` and CLAUDE.local.md are gitignored
+  // by design — they are written but never staged.
+  const commitPaths: string[] = [];
+  const trackAgent = !privateAgent;
 
   // 1. Materialize files. The local space always succeeds — git or not.
   await fs.mkdir(targetDir, { recursive: true });
   await fs.mkdir(join(targetDir, "_agent"), { recursive: true });
   for (const [name, content] of Object.entries(CONTRACT_TEMPLATES)) {
-    await fs.writeFile(join(targetDir, "_agent", `${name}.md`), content, "utf-8");
+    const rel = join("_agent", `${name}.md`);
+    await fs.writeFile(join(targetDir, rel), content, "utf-8");
+    if (trackAgent) commitPaths.push(rel);
+  }
+
+  for (const [dim, content] of Object.entries(CONVENTION_READMES)) {
+    const rel = join("_agent", dim, "README.md");
+    const abs = join(targetDir, rel);
+    if (!existsSync(abs)) {
+      await fs.mkdir(join(targetDir, "_agent", dim), { recursive: true });
+      await fs.writeFile(abs, content, "utf-8");
+    }
+    if (trackAgent) commitPaths.push(rel);
   }
 
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";
   if (!inspection.hasClaude) {
     await fs.writeFile(join(targetDir, claudeFile), CLAUDE_MD, "utf-8");
+    if (!privateAgent) commitPaths.push(claudeFile);
   }
 
   const gitattributesPath = join(targetDir, ".gitattributes");
   if (!existsSync(gitattributesPath)) {
     await fs.writeFile(gitattributesPath, GITATTRIBUTES, "utf-8");
+    commitPaths.push(".gitattributes");
   }
 
   const gitignorePath = join(targetDir, ".gitignore");
@@ -330,26 +373,41 @@ async function applyPlan(opts: {
         existing.endsWith("\n") ? existing + additions : existing + "\n" + additions,
         "utf-8",
       );
+      commitPaths.push(".gitignore");
     }
   } else {
     await fs.writeFile(gitignorePath, additions.replace(/^\n/, ""), "utf-8");
+    commitPaths.push(".gitignore");
   }
 
   // 2. Best-effort git finalize: init → identity → initial commit. Any failure
   // (no git binary, no configured identity, …) leaves the materialized space
   // intact and reports how to add history later — never a partial abort.
-  if (!gitAvailable()) return { versioned: false, gitNote: GIT_MISSING_HINT };
+  // The commit is pathspec-scoped to what this scaffold wrote: `git add .`
+  // followed by a bare commit would sweep anything the user already had
+  // staged (or untracked) in an existing repo into the scaffold commit.
+  if (!gitAvailable()) return { versioned: false, gitNote: GIT_MISSING_HINT, commitPaths };
   try {
     if (!inspection.isGitRepo) {
       runGit(targetDir, ["init", "-q", "-b", "main"]);
     }
     // Set local user.email before the initial commit so publish's pre-receive author check passes without an amend.
     await maybeSetIdentity(targetDir);
-    runGit(targetDir, ["add", "."]);
-    runGit(targetDir, ["commit", "-q", "-m", "Initial ideaspace scaffold"]);
-    return { versioned: true };
+    // Never fall through to a bare `git commit` — an empty pathspec list would
+    // commit the whole index. Empty only occurs in an existing repo where the
+    // scaffold had nothing committable to add (e.g. private _agent/ shape with
+    // boundary files already in place).
+    if (commitPaths.length) {
+      runGit(targetDir, ["add", "--", ...commitPaths]);
+      runGit(targetDir, ["commit", "-q", "-m", "Initial ideaspace scaffold", "--", ...commitPaths]);
+    }
+    return { versioned: true, commitPaths };
   } catch (err) {
-    return { versioned: false, gitNote: err instanceof Error ? err.message : String(err) };
+    return {
+      versioned: false,
+      gitNote: err instanceof Error ? err.message : String(err),
+      commitPaths,
+    };
   }
 }
 

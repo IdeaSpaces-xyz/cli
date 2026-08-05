@@ -2,11 +2,15 @@
  * Default template — minimal scaffolding for `ideaspaces create`.
  *
  * Templates ship as inline string constants compiled into the CLI bundle.
- * Only `foundation.md` and `guide.md` are scaffolded — they describe the
- * five-file contract that names `purpose.md`, `now.md`, and `next.md`.
- * The agent reading these on first session sees those names without
- * matching files and the drift rule fires: propose creating them in
+ * Only `foundation.md` and `guide.md` are scaffolded as contract files —
+ * they describe the five-file contract that names `purpose.md`, `now.md`,
+ * and `next.md`. The agent reading these on first session sees those names
+ * without matching files and the drift rule fires: propose creating them in
  * conversation. Real content from real exchange beats placeholder filler.
+ *
+ * `skills/` and `perspectives/` get convention READMEs only — no content.
+ * The universal skills are catalog-served (`ideaspaces skills`); these
+ * folders are the character layer, holding what is specific to the space.
  *
  * Two shapes for `_agent/` visibility (set by the create command per the
  * detected target shape):
@@ -48,11 +52,15 @@ Only \`foundation.md\` and \`guide.md\` are scaffolded at create time.
 reads this contract and finds those files missing, propose creating
 them in conversation. Real content from real exchange.
 
-Optional dimensions inside \`_agent/\` (add as the space earns them):
+Dimensions inside \`_agent/\` (grown as the space earns them):
 
-- \`skills/\` — operating procedures the agent should follow here. Each
-  skill is a markdown file (e.g., \`commit.md\` for the commit shape).
-  Surfaced at session start by name + summary; body loads on demand.
+- \`skills/\` — operating procedures specific to this space — the character
+  layer. Universal skills (capture, writing, awareness, …) come from the
+  protocol catalog (\`ideaspaces skills\`) and are not copied here. Each
+  skill is a markdown file whose \`description\` is its trigger; skills
+  compose along the path, a deeper same-named skill shadowing an ancestor's.
+- \`perspectives/\` — reusable thinking patterns: how to see, where skills
+  are how to do. User-authored; none are bundled.
 
 \`CLAUDE.md\` at the space root tells Claude Code where this contract lives.
 
@@ -123,6 +131,45 @@ If \`now.md\` stops matching reality, or [foundation](foundation.md)
 contradicts current practice, or this guide is silent on something we keep
 doing — surface it. Update this guide for this scope, or revisit foundation
 if a baseline needs to shift.
+`;
+
+export const SKILLS_README_MD = `---
+name: Skills
+summary: Space-specific operating procedures — the character layer. Universal
+  skills come from the protocol catalog; this folder holds what makes this
+  space's agent distinct.
+---
+
+# Skills
+
+Operating procedures the agent should follow here — the **character layer**.
+
+The universal operating skills (capture, writing, awareness, guide, …) are
+served by the protocol catalog — \`ideaspaces skills\` lists them — and are
+not copied into spaces. This folder holds what is distinct about working
+*here*: procedures worth repeating that only make sense in this space.
+
+Each skill is a markdown file with \`name\` + \`description\` frontmatter;
+the description is the trigger — it tells the agent when the skill applies.
+Skills compose along the path: a skill here reaches every position below,
+and a deeper \`_agent/skills/\` file with the same name shadows this one.
+`;
+
+export const PERSPECTIVES_README_MD = `---
+name: Perspectives
+summary: Reusable thinking patterns for this space — how to see, where skills
+  are how to do. User-authored; none are bundled.
+---
+
+# Perspectives
+
+Reusable thinking patterns — how to *see*, where [skills](../skills/README.md)
+are how to *do*.
+
+Perspectives are user-authored; none are bundled on purpose. When a way of
+evaluating or analyzing keeps recurring, capture it here in three parts —
+lens (what to look at), framework (how to think it through), and expected
+output — so anyone, human or agent, can apply the same way of looking.
 `;
 
 export const GITATTRIBUTES = `*.md diff=markdown text eol=lf
