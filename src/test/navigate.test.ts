@@ -236,6 +236,59 @@ describe("ideaspaces navigate", () => {
     }
   });
 
+  it("exposes the structured manifest in the JSON envelope", async () => {
+    const { data } = await runNavigate(["."]);
+    expect(data.manifest).toMatchObject({ kind: "content", spaceRoot: tmp });
+    expect(data.manifest.contract.map((e: { name: string }) => e.name)).toContain("foundation");
+    // Bare path carries an explicit null, not an absent field.
+    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-mf-")));
+    try {
+      const bare = await runNavigate([ws]);
+      expect(bare.data.manifest).toBeNull();
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it("shows the full contract stack and inherited skills at a branch", async () => {
+    await fs.mkdir(join(tmp, "_agent", "skills"), { recursive: true });
+    await fs.writeFile(
+      join(tmp, "_agent", "skills", "review.md"),
+      "---\nname: review\nsummary: Root review procedure.\n---\nR.\n",
+    );
+    await fs.mkdir(join(tmp, "branch", "_agent"), { recursive: true });
+    await fs.writeFile(
+      join(tmp, "branch", "_agent", "guide.md"),
+      "---\nname: guide\nsummary: Branch guide.\n---\nG.\n",
+    );
+    const { data } = await runNavigate(["branch"]);
+    // Branch-level contract entries are annotated with their composing level.
+    expect(data.text).toContain("guide (branch/) — Branch guide.");
+    // A root skill reaches the branch — inherited along the path, where the
+    // legacy block showed nothing at a position without its own _agent/skills.
+    expect(data.text).toContain("review — Root review procedure.");
+  });
+
+  it("keeps the map tier between the stable block and the drift tail", async () => {
+    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-order-")));
+    try {
+      const child = join(ws, "childrepo");
+      await fs.mkdir(child, { recursive: true });
+      git(["init", "-q", "-b", "main"], child);
+      git(["config", "user.email", "t@e.com"], child);
+      git(["config", "user.name", "T"], child);
+      git(["commit", "-q", "-m", "seed", "--allow-empty"], child);
+      const { data } = await runNavigate(["."], { workspace: ws });
+      const t: string = data.text;
+      // Disclosure ladder: stable block → map tier (handles) → drift tail.
+      expect(t.indexOf("Working set:")).toBeGreaterThan(t.indexOf("Now:"));
+      expect(t.indexOf("Repos in scope (local):")).toBeGreaterThan(t.indexOf("Working set:"));
+      expect(t.indexOf("Git: branch")).toBeGreaterThan(t.indexOf("Repos in scope (local):"));
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
   it("only persists the seen marker with --mark-seen", async () => {
     const ref = () => spawnSync("git", ["-C", tmp, "rev-parse", "--verify", "--quiet", "refs/ideaspaces/seen"], { encoding: "utf-8" }).stdout.trim();
     await runNavigate(["."]);

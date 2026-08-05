@@ -2,16 +2,26 @@
  * `ideaspaces navigate [<path>] [--mark-seen]` — re-derive orientation at a
  * position without changing the working directory.
  *
- * It composes the fractal contract along `<path>` and renders orientation from
- * protocol-owned contract, awareness, Position, git, and drift primitives. The
- * CLI retains its harness-specific presentation: with `--workspace <dir>` it
- * adds a working set (home + `--mount`s) and repository catalog tagged with sync
- * state + POV. The catalog renders even with **no `_agent/` contract** (a bare
- * workspace folder's repos are its orientation); the working set needs a space
- * root and renders only with one. `--pullable <s:ns,…>` adds the remote tier the
- * caller already fetched, keeping navigate network-free. `--no-git` suppresses
- * the compact git-state line for callers that render richer state. `--json`
- * returns `{ text, position, root, repoRoot }`.
+ * One structured protocol assembly (`assembleContentAwareness`) supplies every
+ * fact; the CLI owns placement. The output follows the disclosure ladder:
+ *
+ *   1. stable block  — position, Now, tree, contract, skills, activity
+ *                      (the vantage and the focal point's loaded depth)
+ *   2. map tier      — working set (home + `--mount`s) + repository catalog:
+ *                      other roots as thin handles; `--pullable <s:ns,…>` adds
+ *                      the released/re-fetchable remote tier the caller already
+ *                      fetched, keeping navigate network-free
+ *   3. drift tail    — git state, stale docs, direction drift: the volatile
+ *                      check-before-acting layer, rendered last
+ *
+ * Two selective renders around the CLI's map tier are the protocol's placement
+ * seam working as designed — wording stays protocol-owned, placement stays
+ * harness-owned. The catalog renders even with **no `_agent/` contract** (a
+ * bare workspace folder's repos are its orientation); the working set needs a
+ * space root. `--no-git` suppresses the compact git-state line for callers
+ * that render richer state. `--json` returns `{ text, position, root,
+ * repoRoot, manifest }` — the manifest is the structured awareness the text
+ * was rendered from, so tooling gets facts without parsing prose.
  *
  * `--mark-seen` persists HEAD as the "last seen" marker for lifecycle callers.
  * Ordinary `navigate` is read-only orientation and does not advance the baseline.
@@ -21,15 +31,12 @@ import { relative, resolve } from "node:path";
 import { statSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import {
-  composeContractAlongPath,
-  assembleAwareness,
-  gitState,
-  walkPathContext,
-  renderPosition,
-  collectDocDependencies,
-  staleDocSignals,
+  assembleContentAwareness,
+  renderContentAwareness,
+  resolveRepoRoot,
+  type ContentAwarenessSection,
 } from "@ideaspaces/protocol";
-import { isInsideWorkTree, headSha } from "../git.js";
+import { headSha } from "../git.js";
 import { formatWorkingSetSection, formatCatalogSection } from "../catalog.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -37,9 +44,20 @@ import type { CommandDef } from "../types.js";
 const MAX_DRIFT = 10;
 const SEEN_REF = "refs/ideaspaces/seen";
 
+// The stable block ends at activity; the drift tail starts at git. The CLI's
+// map tier renders between them (see the header comment).
+const STABLE_SECTIONS: readonly ContentAwarenessSection[] = [
+  "position",
+  "now",
+  "tree",
+  "contract",
+  "skills",
+  "activity",
+];
+
 // The since-last-session marker lives in a local git ref — no `git.ts` helper
-// exists for reading/writing a custom ref, so this thin wrapper is net-new (the
-// standard git ops below reuse `git.ts`'s exports).
+// exists for writing a custom ref, so this thin wrapper is net-new. (Reading it
+// is the protocol's job now: `assembleContentAwareness` consumes the seen ref.)
 function gitRef(cwd: string, args: string[]): string | null {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
   return r.status === 0 ? r.stdout.trim() || null : null;
@@ -64,9 +82,8 @@ function parsePullable(raw: string | boolean | undefined): Array<{ slug: string;
 
 // Shown at a bare workspace folder (no `_agent/` contract, not a git repo) where
 // the catalog IS the orientation — a nudge to move into one of the listed repos.
-// At a bare workspace folder (no `_agent/`, not a git repo): with repos listed,
-// nudge into one; with none yet, nudge to clone. Two copies so the empty
-// first-touch folder doesn't say "navigate into a repo below" with nothing below.
+// Two copies so the empty first-touch folder doesn't say "navigate into a repo
+// below" with nothing below.
 const BARE_FOLDER_HINT =
   "You're at a workspace folder (no `_agent/` contract here). Navigate into a repo below (`ideaspaces navigate <repo>`), or pull one that's behind.";
 const EMPTY_FOLDER_HINT =
@@ -79,10 +96,10 @@ type CatalogPlan =
 
 // Resolve --workspace and **start** rendering the local-agent repo catalog
 // (local + pullable tiers). Synchronous — it returns the in-flight promise so the
-// caller can await it alongside the awareness block / working set (independent
-// IO, run concurrently). Independent of the `_agent/` contract, so the catalog
-// renders at a bare folder too. Warning for an unreadable --workspace; none when
-// the flag is absent.
+// caller can await it alongside the awareness assembly (independent IO, run
+// concurrently). Independent of the `_agent/` contract, so the catalog renders
+// at a bare folder too. Warning for an unreadable --workspace; none when the
+// flag is absent.
 function planCatalog(flags: Record<string, string | boolean>, povRepoRoot: string | null): CatalogPlan {
   const workspace = typeof flags.workspace === "string" ? resolve(flags.workspace) : null;
   if (!workspace) return { kind: "none" };
@@ -124,33 +141,26 @@ export const navigateCommand: CommandDef = {
       return 1;
     }
 
-    // Git root (best-effort; navigate works outside a repo too). `gitState`
-    // returns the queried dir — not null — when there's no repo, so check
-    // explicitly first; otherwise "outside a repo" is indistinguishable and the
-    // position/git-state/stale-docs paths would misbehave.
-    let repoRoot: string | null = null;
-    let gs: Awaited<ReturnType<typeof gitState>> | undefined;
-    if (isInsideWorkTree(target)) {
-      gs = await gitState(target);
-      repoRoot = gs.repoRoot;
-    }
-
-    // The fractal contract along the path. No space root → no orientation.
-    const composed = await composeContractAlongPath(target);
-    // Position is relative to the repo root, or the space root when there's no
-    // repo (navigate works outside git too), or the target itself as a last
-    // resort. Basing it on `target` alone would always collapse to ".".
-    const position = relative(repoRoot ?? composed.spaceRoot ?? target, target) || ".";
+    // Canonical git root, or null outside a repo — the bare path needs it for
+    // the hint choice and the catalog's POV tag. On the contract path the
+    // manifest re-derives it with the same canonicalization.
+    const repoRoot = await resolveRepoRoot(target);
 
     // The repo catalog is independent of the `_agent/` contract, so start it up
     // front — at a bare workspace folder (no contract) the catalog IS the
     // orientation. `planCatalog` is sync; the promise resolves where awaited.
     const cat = planCatalog(flags, repoRoot);
 
-    if (!composed.spaceRoot) {
+    // One structured assembly replaces the previous six protocol calls: the
+    // position walk, contract composition, awareness block, git state,
+    // stale-doc signals, and the seen-ref read all happen inside, concurrently.
+    const manifest = await assembleContentAwareness({ position: target });
+
+    if (!manifest) {
       // No contract here (a bare workspace folder, or a plain repo). With a
       // --workspace the catalog is the orientation — which repos are here — plus
       // a nudge (into a repo if any are listed, else to clone) at a bare folder.
+      const position = relative(repoRoot ?? target, target) || ".";
       const bare: string[] = [];
       if (cat.kind === "warn") bare.push(cat.text);
       else if (cat.kind === "ok") {
@@ -159,91 +169,58 @@ export const navigateCommand: CommandDef = {
         if (!repoRoot) bare.push(catalog ? BARE_FOLDER_HINT : EMPTY_FOLDER_HINT);
       }
       output.result(
-        { text: bare.length ? bare.join("\n\n") : null, position, root: null, repoRoot },
+        { text: bare.length ? bare.join("\n\n") : null, position, root: null, repoRoot, manifest: null },
         bare.length ? bare.join("\n\n") : "No _agent/ contract resolves at this position.",
       );
       return 0;
     }
 
-    // Walk/relative base: the repo root, or the space root outside a repo.
-    // `walkPathContext` is a pure filesystem walk (no git), so the Position
-    // section renders in a non-git ideaspace too.
-    const base = repoRoot ?? composed.spaceRoot;
-    const lastSha = repoRoot ? gitRef(repoRoot, ["rev-parse", "--verify", "--quiet", SEEN_REF]) ?? undefined : undefined;
-    // The awareness block, path walk, catalog, and working set are independent
-    // IO — run them concurrently. Working set needs the space root, so it renders
-    // only on this (contract) path, not at a bare folder.
-    const [block, pathContext, catalog, workingSet] = await Promise.all([
-      assembleAwareness({ root: target, contract: composed.contract, lastSha }),
-      base ? walkPathContext(base, target) : Promise.resolve(null),
+    // The catalog and working set are independent IO started above; the working
+    // set needs the space root, so it renders only on this (contract) path.
+    const [catalog, workingSet] = await Promise.all([
       cat.kind === "ok" ? cat.catalog : Promise.resolve(null),
-      cat.kind === "ok" ? formatWorkingSetSection(composed.spaceRoot, cat.mounts) : Promise.resolve(null),
+      cat.kind === "ok" ? formatWorkingSetSection(manifest.spaceRoot, cat.mounts) : Promise.resolve(null),
     ]);
 
     const sections: string[] = [];
-    if (pathContext && base) {
-      sections.push(renderPosition({ pos: target, base, repoRoot, ctx: pathContext }));
-    }
-    if (block.trim()) sections.push(block);
 
-    // CLI-specific orientation tier: working set (home + mounts) + catalog.
-    // It lands in `text`; the --json envelope stays unchanged.
+    // 1. Stable block — the vantage and the focal point's loaded depth.
+    const stable = renderContentAwareness(manifest, { sections: STABLE_SECTIONS });
+    if (stable.trim()) sections.push(stable);
+
+    // 2. Map tier — other roots as handles (CLI-owned rendering and placement).
     if (cat.kind === "warn") sections.push(cat.text);
     else if (cat.kind === "ok") {
       if (workingSet) sections.push(workingSet);
       if (catalog) sections.push(catalog);
     }
 
-    if (repoRoot && gs) {
-      const bits: string[] = [];
-      if (gs.branch) bits.push(`branch ${gs.branch}`);
-      if (gs.ahead != null && gs.behind != null && (gs.ahead || gs.behind)) bits.push(`↑${gs.ahead} ↓${gs.behind}`);
-      if (gs.dirty) bits.push("dirty");
-      if (gs.untrackedInTrackedDirs.length) bits.push(`${gs.untrackedInTrackedDirs.length} untracked`);
-      // --no-git suppresses the compact Git line for callers that render their
-      // own richer state (e.g. pi's `State:` block from `cli status`) — avoids a
-      // duplicate branch/dirty readout. Stale-docs + mark-seen below are unaffected.
-      if (bits.length && !flags["no-git"]) sections.push(`Git: ${bits.join(", ")}`);
+    // 3. Drift tail — volatile state last, closest to action. --no-git
+    // suppresses the compact Git line for callers that render their own richer
+    // state (e.g. pi's `State:` block from `cli status`).
+    const tailSections: ContentAwarenessSection[] = [
+      ...(flags["no-git"] ? [] : (["git"] as const)),
+      "stale-docs",
+      "direction-drift",
+    ];
+    const tail = renderContentAwareness(manifest, { sections: tailSections, maxDrift: MAX_DRIFT });
+    if (tail.trim()) sections.push(tail);
 
-      const signals = await staleDocSignals(repoRoot, await collectDocDependencies(repoRoot, repoRoot));
-      if (signals.length) {
-        const lines = ["⚠ Possible stale docs — verify before quoting their status:"];
-        for (const s of signals.slice(0, MAX_DRIFT)) {
-          lines.push(
-            s.kind === "stale"
-              ? `  ${s.doc} — \`${s.newestCode}\` was committed after the doc`
-              : `  ${s.doc} — references missing path(s): ${s.missing.join(", ")}`,
-          );
-        }
-        if (signals.length > MAX_DRIFT) lines.push(`  … and ${signals.length - MAX_DRIFT} more`);
-        sections.push(lines.join("\n"));
-      }
-
-      // Persist the since-last-session baseline only when asked (SessionStart).
-      // Best-effort: an unborn HEAD or ref-write failure must not fail navigate.
-      if (flags["mark-seen"]) {
-        try {
-          gitRef(repoRoot, ["update-ref", SEEN_REF, headSha(repoRoot)]);
-        } catch {
-          // no HEAD yet (fresh repo) — nothing to mark
-        }
+    // Persist the since-last-session baseline only when asked (SessionStart).
+    // Best-effort: an unborn HEAD or ref-write failure must not fail navigate.
+    const canonicalRepoRoot = manifest.position.repoRoot;
+    if (canonicalRepoRoot && flags["mark-seen"]) {
+      try {
+        gitRef(canonicalRepoRoot, ["update-ref", SEEN_REF, headSha(canonicalRepoRoot)]);
+      } catch {
+        // no HEAD yet (fresh repo) — nothing to mark
       }
     }
 
-    const direction: string[] = [];
-    if (!composed.contract.purpose) {
-      direction.push(
-        "⚠ `_agent/purpose.md` not yet captured. The contract names it; suggest capturing at a natural moment.",
-      );
-    }
-    if (!composed.contract.now) {
-      direction.push("⚠ `_agent/now.md` not yet captured. Suggest capturing what's currently active.");
-    }
-    if (direction.length) sections.push(direction.join("\n"));
-
+    const position = relative(manifest.position.base, manifest.position.path) || ".";
     const text = sections.join("\n\n");
     output.result(
-      { text: text || null, position, root: composed.spaceRoot, repoRoot },
+      { text: text || null, position, root: manifest.spaceRoot, repoRoot: canonicalRepoRoot, manifest },
       text || "(no orientation)",
     );
     return 0;
