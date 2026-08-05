@@ -269,7 +269,7 @@ describe("ideaspaces navigate", () => {
     expect(data.text).toContain("review — Root review procedure.");
   });
 
-  it("keeps the map tier between the stable block and the drift tail", async () => {
+  it("keeps the forest handles between the stable block and the drift tail", async () => {
     const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-order-")));
     try {
       const child = join(ws, "childrepo");
@@ -280,7 +280,7 @@ describe("ideaspaces navigate", () => {
       git(["commit", "-q", "-m", "seed", "--allow-empty"], child);
       const { data } = await runNavigate(["."], { workspace: ws });
       const t: string = data.text;
-      // Disclosure ladder: stable block → map tier (handles) → drift tail.
+      // Handle-depth index order: stable block → forest handles → drift tail.
       expect(t.indexOf("Working set:")).toBeGreaterThan(t.indexOf("Now:"));
       expect(t.indexOf("Repos in scope (local):")).toBeGreaterThan(t.indexOf("Working set:"));
       expect(t.indexOf("Git: branch")).toBeGreaterThan(t.indexOf("Repos in scope (local):"));

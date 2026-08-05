@@ -3,25 +3,27 @@
  * position without changing the working directory.
  *
  * One structured protocol assembly (`assembleContentAwareness`) supplies every
- * fact; the CLI owns placement. The output follows the disclosure ladder:
+ * fact; the CLI owns placement. The output is the derived active-context index
+ * rendered at handle depth — navigate builds handles and never loads content
+ * (`read` is the loading tier) — in three tiers:
  *
- *   1. stable block  — position, Now, tree, contract, skills, activity
- *                      (the vantage and the focal point's loaded depth)
- *   2. map tier      — working set (home + `--mount`s) + repository catalog:
- *                      other roots as thin handles; `--pullable <s:ns,…>` adds
- *                      the released/re-fetchable remote tier the caller already
- *                      fetched, keeping navigate network-free
- *   3. drift tail    — git state, stale docs, direction drift: the volatile
- *                      check-before-acting layer, rendered last
+ *   1. stable block   — position, Now, tree, contract, skills, activity:
+ *                       the vantage plus the focus position's local handles
+ *   2. forest handles — working set (home + `--mount`s) + repository catalog:
+ *                       other roots as thin handles; `--pullable <s:ns,…>` adds
+ *                       the re-fetchable remote tier the caller already
+ *                       fetched, keeping navigate network-free
+ *   3. drift tail     — git state, stale docs, direction drift: the volatile
+ *                       check-before-acting layer, rendered last
  *
- * Two selective renders around the CLI's map tier are the protocol's placement
- * seam working as designed — wording stays protocol-owned, placement stays
- * harness-owned. The catalog renders even with **no `_agent/` contract** (a
- * bare workspace folder's repos are its orientation); the working set needs a
- * space root. `--no-git` suppresses the compact git-state line for callers
+ * Two selective renders around the CLI's forest handles are the protocol's
+ * placement seam working as designed — wording stays protocol-owned, placement
+ * stays harness-owned. The catalog renders even with **no `_agent/` contract**
+ * (a bare workspace folder's repos are its orientation); the working set needs
+ * a space root. `--no-git` suppresses the compact git-state line for callers
  * that render richer state. `--json` returns `{ text, position, root,
- * repoRoot, manifest }` — the manifest is the structured awareness the text
- * was rendered from, so tooling gets facts without parsing prose.
+ * repoRoot, manifest }` — the manifest is the derived projection fragment the
+ * text was rendered from, so tooling gets facts without parsing prose.
  *
  * `--mark-seen` persists HEAD as the "last seen" marker for lifecycle callers.
  * Ordinary `navigate` is read-only orientation and does not advance the baseline.
@@ -184,11 +186,11 @@ export const navigateCommand: CommandDef = {
 
     const sections: string[] = [];
 
-    // 1. Stable block — the vantage and the focal point's loaded depth.
+    // 1. Stable block — the vantage plus the focus position's local handles.
     const stable = renderContentAwareness(manifest, { sections: STABLE_SECTIONS });
     if (stable.trim()) sections.push(stable);
 
-    // 2. Map tier — other roots as handles (CLI-owned rendering and placement).
+    // 2. Forest handles — other roots as handles (CLI-owned rendering and placement).
     if (cat.kind === "warn") sections.push(cat.text);
     else if (cat.kind === "ok") {
       if (workingSet) sections.push(workingSet);
