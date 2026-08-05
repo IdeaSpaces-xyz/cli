@@ -289,6 +289,31 @@ describe("ideaspaces navigate", () => {
     }
   });
 
+  it("--depth probes the map: summaries at level 1, name-rung outline below", async () => {
+    await fs.mkdir(join(tmp, "research", "deep"), { recursive: true });
+    await fs.writeFile(
+      join(tmp, "research", "README.md"),
+      "---\nname: Research\nsummary: EU landscape sweep.\n---\n# R\n",
+    );
+    await fs.writeFile(join(tmp, "research", "notes.md"), "# Notes\n");
+    await fs.writeFile(join(tmp, "research", "deep", "more.md"), "# More\n");
+
+    // Default stays the depth-1 ambient orientation — no outline.
+    const ambient = await runNavigate(["."]);
+    expect(ambient.data.text).toContain("research/ (3) — EU landscape sweep.");
+    expect(ambient.data.text).not.toContain("deep/ (1)");
+
+    const probed = await runNavigate(["."], { depth: "2" });
+    expect(probed.data.text).toContain("research/ (3) — EU landscape sweep.");
+    expect(probed.data.text).toContain("    deep/ (1)");
+    expect(probed.data.text).toContain("    notes.md");
+    // The manifest carries the probe structurally too.
+    expect(probed.data.manifest.tree.entries[0].children).toMatchObject([
+      { name: "deep", kind: "directory" },
+      { name: "notes.md", kind: "markdown" },
+    ]);
+  });
+
   it("only persists the seen marker with --mark-seen", async () => {
     const ref = () => spawnSync("git", ["-C", tmp, "rev-parse", "--verify", "--quiet", "refs/ideaspaces/seen"], { encoding: "utf-8" }).stdout.trim();
     await runNavigate(["."]);

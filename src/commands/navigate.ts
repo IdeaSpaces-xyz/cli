@@ -119,10 +119,11 @@ function planCatalog(flags: Record<string, string | boolean>, povRepoRoot: strin
 export const navigateCommand: CommandDef = {
   name: "navigate",
   description: "Re-derive orientation (fractal contract, tree, drift) at a position",
-  usage: "ideaspaces navigate [<path>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
+  usage: "ideaspaces navigate [<path>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
   examples: [
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate docs --json       # orient at a branch",
+    "ideaspaces navigate --depth 2 --json  # probe the map: name-rung outline one level below",
     "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
     "ideaspaces navigate --workspace . --pullable team:acme.com,notes:alice --no-git --json  # + remote tier; caller renders its own state",
   ],
@@ -156,7 +157,13 @@ export const navigateCommand: CommandDef = {
     // One structured assembly replaces the previous six protocol calls: the
     // position walk, contract composition, awareness block, git state,
     // stale-doc signals, and the seen-ref read all happen inside, concurrently.
-    const manifest = await assembleContentAwareness({ position: target });
+    // --depth is deliberate map-probing (the protocol soft-caps to 1..4);
+    // ambient callers omit it and stay at the depth-1 orientation default.
+    const depth = typeof flags.depth === "string" ? Number.parseInt(flags.depth, 10) : undefined;
+    const manifest = await assembleContentAwareness({
+      position: target,
+      ...(depth && Number.isFinite(depth) ? { treeDepth: depth } : {}),
+    });
 
     if (!manifest) {
       // No contract here (a bare workspace folder, or a plain repo). With a
