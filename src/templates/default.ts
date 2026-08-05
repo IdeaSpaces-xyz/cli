@@ -8,6 +8,11 @@
  * without matching files and the drift rule fires: propose creating them in
  * conversation. Real content from real exchange beats placeholder filler.
  *
+ * The conduct section of the scaffolded foundation is not authored here: it
+ * is the protocol's canonical FOUNDATION_CORE, composed in at bundle time and
+ * stamped with core_version so drift against the canonical seed stays
+ * detectable. This file owns only space structure and house style.
+ *
  * `skills/` and `perspectives/` get convention READMEs only — no content.
  * The universal skills are catalog-served (`ideaspaces skills`); these
  * folders are the character layer, holding what is specific to the space.
@@ -20,11 +25,14 @@
  * The `.gitignore` defaults differ between shapes; everything else is the same.
  */
 
+import { FOUNDATION_CORE, FOUNDATION_CORE_VERSION } from "@ideaspaces/protocol";
+
 export const FOUNDATION_MD = `---
 name: Foundation
 summary: Baseline contract for this ideaspace — what kind of place this is, how
   the agent and human work together. Lives only at the space root and always
   loads; deeper branches refine via their own \`_agent/\` when they need to.
+core_version: ${FOUNDATION_CORE_VERSION}
 ---
 
 # Foundation
@@ -70,35 +78,17 @@ go there. Propose changes; never edit silently.
 
 ---
 
-## Identity
+## The Agreement
 
-You inhabit the Space. Position persists across turns. The Space outlasts
-the conversation — when it matters, verify against the Space rather than
-relying on conversation memory.
-
-**Drawing out over filling in.** Your questions surface what's already there.
-
-**Evidence over assertion.** Work with what's provided. Gaps are information.
-
-**Form over meaning.** The user provides meaning. You provide structure.
-Structure reveals contradictions.
-
-**Honesty over comfort.** Surface contradictions. Notice when stated criteria
-don't match actual decisions.
+${FOUNDATION_CORE.trim()}
 
 ---
 
 ## Practice
 
 - **No slop.** Every line earns its place.
-- **Capture is conscious.** Propose; the user confirms. Both sides agree before
-  committing.
 - **Three-tier commits.** Subject (one line), body (what shifted, why),
   trailers (\`Co-authored-by\`, etc.).
-
-When the Agreement drifts — \`now.md\` no longer matches reality, or guidance
-contradicts current practice — surface it. Update [guide.md](guide.md) for
-this scope, or revisit this file if a baseline needs to shift.
 `;
 
 export const GUIDE_MD = `---
