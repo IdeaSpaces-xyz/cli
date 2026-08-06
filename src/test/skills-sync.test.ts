@@ -67,6 +67,28 @@ describe("skills sync", () => {
     expect(again?.unchanged).toBe(2);
   });
 
+  it("rewrites a pointer when the canonical skill changes", async () => {
+    await writeSkill("_agent/skills/review.md", "name: review\ndescription: Old trigger.");
+    await syncSkillPointers(tmp);
+
+    await writeSkill("_agent/skills/review.md", "name: review\ndescription: New trigger.");
+    const checked = await syncSkillPointers(tmp, { check: true });
+    expect(checked?.updated).toEqual([join(".claude", "skills", "review", "SKILL.md")]);
+    // --check reported the drift but wrote nothing.
+    expect(
+      await fs.readFile(join(tmp, ".claude", "skills", "review", "SKILL.md"), "utf-8"),
+    ).toContain("Old trigger.");
+
+    const synced = await syncSkillPointers(tmp);
+    expect(synced?.updated).toEqual([join(".claude", "skills", "review", "SKILL.md")]);
+    const pointer = await fs.readFile(
+      join(tmp, ".claude", "skills", "review", "SKILL.md"),
+      "utf-8",
+    );
+    expect(pointer).toContain("New trigger.");
+    expect(pointer).not.toContain("Old trigger.");
+  });
+
   it("falls back to summary as the pointer description", async () => {
     await writeSkill("_agent/skills/review.md", "name: Review\nsummary: Verify before claiming done.");
     await syncSkillPointers(tmp);

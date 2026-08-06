@@ -26,6 +26,10 @@ export const skillsCommand: CommandDef = {
     const output = createOutput(global);
     const name = args[0];
     if (name === "sync") {
+      if (args.length > 1) {
+        output.error(`Unexpected argument \`${args[1]}\` — usage: ideaspaces skills sync [--check]`);
+        return 1;
+      }
       const check = Boolean(flags.check);
       const report = await syncSkillPointers(process.cwd(), { check });
       if (!report) {
