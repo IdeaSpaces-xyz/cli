@@ -11,8 +11,8 @@
  *   5. git remote add origin → git push -u origin main. The server's bare
  *      repo accepts the ref creation; force-push guard short-circuits on
  *      ZERO_OID for new refs.
- *   6. Persist {repo_id, slug, namespace} to ~/.ideaspaces/spaces.json
- *      keyed by absolute folder path.
+ *   6. Persist stable root identity plus route projection to
+ *      ~/.ideaspaces/spaces.json, keyed by absolute folder path.
  *
  * Pre-receive enforces a 200KB per-blob size cap and identity strict-match
  * on the tip commit. Local git config picks up the identity automatically;
@@ -25,7 +25,12 @@ import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe, createRepo, deriveGitBase, deriveWebBase, UnauthorizedError } from "../auth/api.js";
-import { findSpaceFor, saveSpace } from "../auth/spaces.js";
+import { findSpaceFor, saveSpace, type SpaceRecord } from "../auth/spaces.js";
+import {
+  canonicalGitUrl,
+  canonicalSpaceUrl,
+  spaceRecordForRepo,
+} from "../space-locator.js";
 import { identityEmail as formatIdentityEmail } from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
 import {
@@ -55,11 +60,11 @@ function runGit(cwd: string, args: string[]): { ok: boolean; stderr: string; std
   };
 }
 
-function defaultGitUrl(apiUrl: string, namespace: string, slug: string): string {
+function legacyGitUrl(apiUrl: string, namespace: string, slug: string): string {
   return `${deriveGitBase(apiUrl)}/${namespace}/${slug}.git`;
 }
 
-function spaceWebUrl(apiUrl: string, namespace: string, slug: string): string {
+function legacyWebUrl(apiUrl: string, namespace: string, slug: string): string {
   return `${deriveWebBase(apiUrl)}/${namespace}/${slug}`;
 }
 
@@ -261,7 +266,7 @@ export const publishCommand: CommandDef = {
     // `--force` opts into a fresh remote (drops the old mapping locally —
     // the orphaned server repo stays accessible by repo_id).
     const existing = findSpaceFor(cwd);
-    let repo: { repo_id: string; slug: string; name: string };
+    let repo: { repo_id: string; root_node_id?: string; slug: string; name: string };
     let namespace: string;
 
     if (existing && !flags.force) {
@@ -305,7 +310,13 @@ export const publishCommand: CommandDef = {
           `Use --force to provision a new one — the old server repo isn't deleted, ` +
           `just unlinked from this folder.`,
       );
-      repo = { repo_id: existing.repo_id, slug: existing.slug, name: existing.slug };
+      const projected = me.repos.find((candidate) => candidate.repo_id === existing.repo_id);
+      repo = {
+        repo_id: existing.repo_id,
+        root_node_id: projected?.root_node_id ?? existing.root_node_id ?? undefined,
+        slug: existing.slug,
+        name: existing.slug,
+      };
       namespace = existing.namespace;
     } else {
       const folderName = basename(cwd);
@@ -376,7 +387,9 @@ export const publishCommand: CommandDef = {
       }
     }
 
-    const remoteUrl = defaultGitUrl(config.apiUrl, namespace, repo.slug);
+    const remoteUrl = repo.root_node_id
+      ? canonicalGitUrl(config.apiUrl, repo.root_node_id)
+      : legacyGitUrl(config.apiUrl, namespace, repo.slug);
     // Replace any existing origin (idempotent re-publish from same dir).
     const existingRemote = runGit(cwd, ["remote", "get-url", "origin"]);
     if (existingRemote.ok) {
@@ -407,26 +420,54 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
-    saveSpace(cwd, {
-      repo_id: repo.repo_id,
-      slug: repo.slug,
-      namespace,
-    });
+    let projected = me.repos.find((candidate) => candidate.repo_id === repo.repo_id);
+    if (repo.root_node_id && !projected) {
+      try {
+        const refreshed = await fetchAuthMe(config);
+        projected = refreshed.repos.find((candidate) => candidate.repo_id === repo.repo_id);
+      } catch {
+        output.log("Published successfully, but current route metadata could not be refreshed; stable Space identity was saved.");
+      }
+    }
 
-    const webUrl = spaceWebUrl(config.apiUrl, namespace, repo.slug);
+    const record: SpaceRecord = projected
+      ? spaceRecordForRepo(projected, me.username)
+      : {
+          repo_id: repo.repo_id,
+          slug: repo.slug,
+          namespace,
+          ...(repo.root_node_id
+            ? {
+                root_node_id: repo.root_node_id,
+                route_status: "unavailable" as const,
+                route_namespace: null,
+                route_slug: null,
+                canonical_path: `/spaces/${repo.root_node_id}`,
+              }
+            : {}),
+        };
+    saveSpace(cwd, record);
+
+    const webUrl = repo.root_node_id
+      ? canonicalSpaceUrl(config.apiUrl, repo.root_node_id)
+      : legacyWebUrl(config.apiUrl, namespace, repo.slug);
     output.result(
       {
         repo_id: repo.repo_id,
+        root_node_id: repo.root_node_id ?? record.root_node_id ?? null,
         slug: repo.slug,
         namespace,
+        route_status: record.route_status ?? null,
+        route_namespace: record.route_namespace ?? null,
+        route_slug: record.route_slug ?? null,
         remote_url: remoteUrl,
+        space_url: webUrl,
         web_url: webUrl,
         identity_email: identityEmail,
       },
       [
         `Published ${repo.name}.`,
-        `View: ${webUrl}`,
-        `Git remote: ${remoteUrl}`,
+        `Space: ${webUrl}`,
         `Local git identity set to ${identityEmail} (this dir only — your global git config is untouched).`,
       ].join("\n"),
     );

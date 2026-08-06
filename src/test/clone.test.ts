@@ -60,6 +60,71 @@ const stdout = () => stdoutChunks.join("");
 const stderr = () => stderrChunks.join("");
 
 describe("clone", () => {
+  it("clones an exact Space URL through the root-addressed Git endpoint", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({
+      username: "alice",
+      name: "Alice",
+      repos: [
+        {
+          repo_id: "r1",
+          root_node_id: rootNodeId,
+          slug: "notes",
+          hostname: null,
+          role: "OWNER",
+          member_count: 1,
+          route_status: "resolved",
+          route_namespace: "alice",
+          route_slug: "notes",
+          canonical_path: `/spaces/${rootNodeId}`,
+        },
+      ],
+    });
+
+    const code = await cloneCommand.run(
+      [`https://example.test/spaces/${rootNodeId}`, "./local-notes"],
+      {},
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(cloneRepoMock).toHaveBeenCalledWith(
+      `https://git.example.test/spaces/${rootNodeId}.git`,
+      expect.stringContaining("local-notes"),
+    );
+    expect(saveSpaceMock).toHaveBeenCalledWith(expect.stringContaining("local-notes"), {
+      repo_id: "r1",
+      root_node_id: rootNodeId,
+      slug: "notes",
+      namespace: "alice",
+      route_status: "resolved",
+      route_namespace: "alice",
+      route_slug: "notes",
+      canonical_path: `/spaces/${rootNodeId}`,
+    });
+    expect(JSON.parse(stdout())).toMatchObject({
+      root_node_id: rootNodeId,
+      space_url: `https://example.test/spaces/${rootNodeId}`,
+      remote_url: `https://git.example.test/spaces/${rootNodeId}.git`,
+    });
+  });
+
+  it("rejects arbitrary URLs instead of handing them to Git", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({ username: "alice", repos: [] });
+
+    const code = await cloneCommand.run(
+      ["https://evil.test/spaces/n_0123456789abcdef01234567"],
+      {},
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("configured host");
+    expect(cloneRepoMock).not.toHaveBeenCalled();
+  });
+
   it("resolves a space by slug, clones, and binds the folder", async () => {
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({

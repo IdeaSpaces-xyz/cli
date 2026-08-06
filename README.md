@@ -41,7 +41,8 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 ### Spaces & content
 | Command | What it does |
 |---|---|
-| `clone <namespace/slug> [dir]` | Clone a space into a local working copy |
+| `clone <space-url> [dir]` | Clone an authorized Space by stable identity into a local working copy |
+| `fork <space-url> [dir]` | Create and clone an independent current-content copy without source history |
 | `clones` | List your local working copies |
 | `create <name>` | Create a new space |
 | `repos` | List spaces you can access |

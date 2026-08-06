@@ -103,6 +103,10 @@ function setupBareRemote(namespace: string, slug: string): string {
   return target;
 }
 
+function setupRootBareRemote(rootNodeId: string): string {
+  return setupBareRemote("spaces", rootNodeId);
+}
+
 describe("ideaspaces publish", () => {
   it("errors when not in a git repo", async () => {
     await writeCredentials();
@@ -264,6 +268,86 @@ describe("ideaspaces publish", () => {
     const map = JSON.parse(readFileSync(join(tmp, ".ideaspaces", "spaces.json"), "utf-8"));
     const key = Object.keys(map).find((k) => k.endsWith("my-space"))!;
     expect(map[key]).toEqual({ repo_id: "repo_abc", slug: "my-space", namespace: "ernests_s" });
+  });
+
+  it("publishes through stable root identity and stores canonical route metadata", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    const dir = initLocalRepo("canonical");
+    process.chdir(dir);
+    await writeCredentials();
+
+    let authCalls = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) {
+        authCalls++;
+        if (authCalls === 1) return authMeResponse();
+        return new Response(
+          JSON.stringify({
+            user_id: 1,
+            username: "ernests_s",
+            email: null,
+            name: null,
+            repos: [
+              {
+                repo_id: "repo_canonical",
+                root_node_id: rootNodeId,
+                slug: "canonical",
+                hostname: null,
+                role: "OWNER",
+                member_count: 1,
+                route_status: "resolved",
+                route_kind: "person",
+                route_namespace: "ernests_s",
+                route_slug: "canonical",
+                canonical_path: `/spaces/${rootNodeId}`,
+                legacy_path: "/ernests_s/canonical",
+                route_reason_codes: [],
+              },
+            ],
+            onboarding_complete: true,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/repos")) {
+        return new Response(
+          JSON.stringify({
+            repo_id: "repo_canonical",
+            root_node_id: rootNodeId,
+            slug: "canonical",
+            name: "canonical",
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setupRootBareRemote(rootNodeId);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    const exit = await publishCommand.run([], {}, baseGlobal);
+
+    expect(exit).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const origin = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], {
+      encoding: "utf-8",
+    }).stdout.trim();
+    expect(origin).toContain(`/spaces/${rootNodeId}.git`);
+
+    const map = JSON.parse(readFileSync(join(tmp, ".ideaspaces", "spaces.json"), "utf-8"));
+    const key = Object.keys(map).find((candidate) => candidate.endsWith("canonical"))!;
+    expect(map[key]).toEqual({
+      repo_id: "repo_canonical",
+      root_node_id: rootNodeId,
+      slug: "canonical",
+      namespace: "ernests_s",
+      route_status: "resolved",
+      route_namespace: "ernests_s",
+      route_slug: "canonical",
+      canonical_path: `/spaces/${rootNodeId}`,
+    });
   });
 
   it("uses --hostname for org spaces", async () => {

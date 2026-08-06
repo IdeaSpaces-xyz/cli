@@ -11,13 +11,31 @@ import { saveSpace } from "../auth/spaces.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { isInsideWorkTree, normalizeRepoUrl, originUrl, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
+import {
+  canonicalGitUrl,
+  repoRouteNamespace,
+  spaceRecordForRepo,
+} from "../space-locator.js";
 import type { CommandDef } from "../types.js";
 
-/** Canonical `host/ns/slug` key for one of the user's spaces, or null. */
-function repoKey(repo: AuthMeRepo, me: AuthMeResponse, gitBase: string): string | null {
-  const namespace = repo.hostname ?? me.username;
-  if (!namespace) return null;
-  return normalizeRepoUrl(`${gitBase}/${namespace}/${repo.slug}.git`);
+/** Canonical transport key plus any still-resolved compatibility alias. */
+function repoKeys(
+  repo: AuthMeRepo,
+  me: AuthMeResponse,
+  gitBase: string,
+  apiUrl: string,
+): string[] {
+  const keys: string[] = [];
+  if (repo.root_node_id) {
+    const canonical = normalizeRepoUrl(canonicalGitUrl(apiUrl, repo.root_node_id));
+    if (canonical) keys.push(canonical);
+  }
+  const namespace = repoRouteNamespace(repo, me.username);
+  if (namespace) {
+    const legacy = normalizeRepoUrl(`${gitBase}/${namespace}/${repo.route_slug ?? repo.slug}.git`);
+    if (legacy) keys.push(legacy);
+  }
+  return keys;
 }
 
 export const linkCommand: CommandDef = {
@@ -83,8 +101,9 @@ export const linkCommand: CommandDef = {
     if (target) {
       // Explicit: resolve the named space, then confirm the folder is its clone.
       const matches = me.repos.filter((r) => {
-        const namespace = r.hostname ?? me.username;
-        return r.repo_id === target || r.slug === target || `${namespace}/${r.slug}` === target;
+        const namespace = repoRouteNamespace(r, me.username);
+        const slug = r.route_slug ?? r.slug;
+        return r.repo_id === target || r.root_node_id === target || slug === target || `${namespace}/${slug}` === target;
       });
       if (matches.length === 0) {
         output.error(`No space matches "${target}". Run \`ideaspaces repos\` to list yours.`);
@@ -95,17 +114,21 @@ export const linkCommand: CommandDef = {
         return 1;
       }
       repo = matches[0];
-      if (repoKey(repo, me, gitBase) !== originKey) {
-        const namespace = repo.hostname ?? me.username;
+      if (!repoKeys(repo, me, gitBase, config.apiUrl).includes(originKey)) {
+        const expected = repo.root_node_id
+          ? canonicalGitUrl(config.apiUrl, repo.root_node_id)
+          : `${gitBase}/${repoRouteNamespace(repo, me.username)}/${repo.route_slug ?? repo.slug}.git`;
         output.error(
           `${dir}'s origin (${origin}) doesn't match ${repo.slug}.\n` +
-            `Expected a clone of ${gitBase}/${namespace}/${repo.slug}.git.`,
+            `Expected a clone of ${expected}.`,
         );
         return 1;
       }
     } else {
       // Auto-detect: the origin must match exactly one of the user's spaces.
-      const matches = me.repos.filter((r) => repoKey(r, me, gitBase) === originKey);
+      const matches = me.repos.filter((r) =>
+        repoKeys(r, me, gitBase, config.apiUrl).includes(originKey),
+      );
       if (matches.length === 0) {
         output.error(
           `${dir}'s origin (${origin}) isn't a clone of one of your spaces.\n` +
@@ -122,15 +145,15 @@ export const linkCommand: CommandDef = {
       repo = matches[0];
     }
 
-    const namespace = repo.hostname ?? me.username;
+    const namespace = repoRouteNamespace(repo, me.username) ?? repo.hostname ?? me.username;
     if (!namespace) {
-      output.error("Could not resolve the space namespace.");
+      output.error("Could not resolve the Space route for display.");
       return 1;
     }
 
     // Bind the folder so `sync`/the desktop treat it as a clone of this space.
     try {
-      saveSpace(dir, { repo_id: repo.repo_id, slug: repo.slug, namespace });
+      saveSpace(dir, spaceRecordForRepo(repo, me.username));
     } catch {
       output.error("Verified the folder, but could not write the clone registry.");
       return 1;
@@ -149,7 +172,7 @@ export const linkCommand: CommandDef = {
     }
 
     output.result(
-      { repo_id: repo.repo_id, slug: repo.slug, namespace, path: dir },
+      { repo_id: repo.repo_id, root_node_id: repo.root_node_id ?? null, slug: repo.slug, namespace, path: dir },
       `Linked ${namespace}/${repo.slug} → ${dir}`,
     );
     return 0;

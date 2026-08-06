@@ -38,6 +38,27 @@ describe("auth/spaces", () => {
     expect(map["/Users/u/proj-b"]).toEqual({ repo_id: "r_b", slug: "b", namespace: "acme.com" });
   });
 
+  it("stores stable identity and route metadata additively", async () => {
+    const { saveSpace, loadSpaces } = await import("../auth/spaces.js");
+    saveSpace("/canonical", {
+      repo_id: "r",
+      root_node_id: "n_0123456789abcdef01234567",
+      slug: "notes",
+      namespace: "alice",
+      route_status: "resolved",
+      route_namespace: "alice",
+      route_slug: "notes",
+      canonical_path: "/spaces/n_0123456789abcdef01234567",
+    });
+
+    expect(loadSpaces()["/canonical"]).toMatchObject({
+      repo_id: "r",
+      root_node_id: "n_0123456789abcdef01234567",
+      route_status: "resolved",
+      route_namespace: "alice",
+    });
+  });
+
   it("findSpaceFor returns the record for a known absolute path", async () => {
     const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
     saveSpace("/abs/path", { repo_id: "r", slug: "s", namespace: "n" });

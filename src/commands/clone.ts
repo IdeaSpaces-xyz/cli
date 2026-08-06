@@ -6,15 +6,22 @@ import { identityEmail, identityName } from "../auth/identity.js";
 import { cloneRepo, setLocalConfig } from "../git.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
+import {
+  canonicalGitUrl,
+  canonicalSpaceUrl,
+  parseSpaceLocator,
+  repoRouteNamespace,
+  spaceRecordForRepo,
+} from "../space-locator.js";
 import type { CommandDef } from "../types.js";
 
 export const cloneCommand: CommandDef = {
   name: "clone",
-  description: "Clone one of your spaces into a local folder",
-  usage: "ideaspaces clone <space> [dir]",
+  description: "Clone an authorized Space into a local folder",
+  usage: "ideaspaces clone <space-url|legacy-space> [dir]",
   examples: [
-    "ideaspaces clone notes                 # clone into ./notes",
-    "ideaspaces clone alice/notes ./n       # explicit namespace/slug + dir",
+    "ideaspaces clone https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567",
+    "ideaspaces clone alice/notes ./n       # legacy compatibility locator",
   ],
   async run(args, _flags, global) {
     const output = createOutput(global);
@@ -43,36 +50,56 @@ export const cloneCommand: CommandDef = {
       return 1;
     }
 
-    // Resolve the space by repo_id, slug, or namespace/slug.
+    const urlLike = /^[a-z][a-z0-9+.-]*:/i.test(target);
+    let rootNodeId: string | undefined;
+    if (urlLike) {
+      try {
+        rootNodeId = parseSpaceLocator(target, config.apiUrl).rootNodeId;
+      } catch (err) {
+        output.error(err instanceof Error ? err.message : String(err));
+        return 1;
+      }
+    }
+
+    // Canonical URLs match stable root identity. Legacy repo ID, slug, and
+    // namespace/slug inputs remain compatibility locators during migration.
     const matches = me.repos.filter((r) => {
-      const namespace = r.hostname ?? me.username;
-      return r.repo_id === target || r.slug === target || `${namespace}/${r.slug}` === target;
+      if (rootNodeId) return r.root_node_id === rootNodeId;
+      const namespace = repoRouteNamespace(r, me.username);
+      const slug = r.route_slug ?? r.slug;
+      return r.repo_id === target || slug === target || `${namespace}/${slug}` === target;
     });
     if (matches.length === 0) {
-      output.error(`No space matches "${target}". Run \`ideaspaces repos\` to list yours.`);
+      output.error(`No space matches "${target}" in your Git-access catalog. Run \`ideaspaces repos\` to list yours.`);
       return 1;
     }
     if (matches.length > 1) {
-      output.error(`"${target}" is ambiguous — use namespace/slug or the repo_id.`);
+      output.error(`"${target}" is ambiguous — use its canonical Space URL.`);
       return 1;
     }
 
     const repo = matches[0];
-    const namespace = repo.hostname ?? me.username;
-    if (!namespace) {
-      output.error("Could not resolve the space namespace.");
+    const namespace = repoRouteNamespace(repo, me.username);
+    const slug = repo.route_slug ?? repo.slug;
+    const stableRoot = repo.root_node_id ?? rootNodeId;
+    if (!stableRoot && !namespace) {
+      output.error("Could not resolve stable Space identity or a compatibility route.");
       return 1;
     }
 
-    const url = `${deriveGitBase(config.apiUrl)}/${namespace}/${repo.slug}.git`;
-    const dir = resolve(args[1] ?? repo.slug);
+    const url = stableRoot
+      ? canonicalGitUrl(config.apiUrl, stableRoot)
+      : `${deriveGitBase(config.apiUrl)}/${namespace}/${slug}.git`;
+    const dir = resolve(args[1] ?? slug);
 
     // Self-heal the credential helper before the clone's network auth — covers
     // a config written by an older CLI or a moved executable path (idempotent,
     // best-effort). See git-credential-helper.ts.
     await registerGitCredentialHelper();
 
-    output.progress(`Cloning ${namespace}/${repo.slug}…`);
+    output.progress(
+      `Cloning ${stableRoot ? canonicalSpaceUrl(config.apiUrl, stableRoot) : `${namespace}/${slug}`}…`,
+    );
     try {
       cloneRepo(url, dir);
     } catch (err) {
@@ -83,7 +110,7 @@ export const cloneCommand: CommandDef = {
     // Bind the folder to the space so `sync` knows what it is. The clone already
     // succeeded — a registry write failure is a warning, not a hard failure.
     try {
-      saveSpace(dir, { repo_id: repo.repo_id, slug: repo.slug, namespace });
+      saveSpace(dir, spaceRecordForRepo(repo, me.username));
     } catch {
       output.error("Clone succeeded but the folder could not be bound — re-run clone to bind it.");
     }
@@ -101,9 +128,18 @@ export const cloneCommand: CommandDef = {
       }
     }
 
+    const spaceUrl = stableRoot ? canonicalSpaceUrl(config.apiUrl, stableRoot) : null;
     output.result(
-      { repo_id: repo.repo_id, slug: repo.slug, namespace, path: dir },
-      `Cloned ${namespace}/${repo.slug} → ${dir}`,
+      {
+        repo_id: repo.repo_id,
+        root_node_id: stableRoot ?? null,
+        slug,
+        namespace,
+        space_url: spaceUrl,
+        remote_url: url,
+        path: dir,
+      },
+      `Cloned ${spaceUrl ?? `${namespace}/${slug}`} → ${dir}`,
     );
     return 0;
   },
