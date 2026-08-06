@@ -17,6 +17,7 @@ import { listClones } from "../auth/spaces.js";
 import type { SpaceRecord } from "../auth/spaces.js";
 import { fetch as gitFetch } from "../git.js";
 import { createOutput } from "../output.js";
+import { repoRouteNamespace } from "../space-locator.js";
 import type { CommandDef } from "../types.js";
 
 /** Where a repo lives relative to this machine + account. */
@@ -87,7 +88,7 @@ export function deriveCatalog(
   const entries: CatalogEntry[] = [];
   const used = new Set<string>();
   for (const repo of me.repos) {
-    const namespace = repo.hostname ?? me.username ?? "";
+    const namespace = repoRouteNamespace(repo, me.username) ?? "";
     const matching = clonesByRepo.get(repo.repo_id) ?? [];
     if (matching.length === 0) {
       entries.push({

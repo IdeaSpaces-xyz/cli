@@ -1,6 +1,7 @@
 import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
+import { canonicalSpaceUrl, repoRouteNamespace } from "../space-locator.js";
 import type { CommandDef } from "../types.js";
 
 export const reposCommand: CommandDef = {
@@ -36,8 +37,10 @@ export const reposCommand: CommandDef = {
       repo_id: r.repo_id,
       slug: r.slug,
       hostname: r.hostname,
-      // Namespace for clone-URL construction: org hostname, else the username.
-      namespace: r.hostname ?? me.username,
+      root_node_id: r.root_node_id ?? null,
+      route_status: r.route_status ?? null,
+      namespace: repoRouteNamespace(r, me.username),
+      space_url: r.root_node_id ? canonicalSpaceUrl(config.apiUrl, r.root_node_id) : null,
       role: r.role,
       member_count: r.member_count,
     }));

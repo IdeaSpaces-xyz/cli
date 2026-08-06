@@ -107,6 +107,40 @@ describe("link — auto-detect from origin", () => {
     expect(JSON.parse(stdout())).toMatchObject({ repo_id: "r1", slug: "notes", namespace: "alice" });
   });
 
+  it.each([
+    "https://git.example.test/spaces/n_0123456789abcdef01234567.git",
+    "https://git.example.test/alice/notes.git",
+  ])("matches canonical and compatibility origins after root migration: %s", async (origin) => {
+    fetchAuthMeMock.mockResolvedValue({
+      ...ALICE,
+      repos: [
+        {
+          ...ALICE.repos[0],
+          root_node_id: "n_0123456789abcdef01234567",
+          route_status: "resolved",
+          route_namespace: "alice",
+          route_slug: "notes",
+          canonical_path: "/spaces/n_0123456789abcdef01234567",
+        },
+      ],
+    });
+    originUrlMock.mockReturnValue(origin);
+
+    const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(saveSpaceMock).toHaveBeenCalledWith(expect.stringContaining("theone"), {
+      repo_id: "r1",
+      root_node_id: "n_0123456789abcdef01234567",
+      slug: "notes",
+      namespace: "alice",
+      route_status: "resolved",
+      route_namespace: "alice",
+      route_slug: "notes",
+      canonical_path: "/spaces/n_0123456789abcdef01234567",
+    });
+  });
+
   it("matches scp-style and .git-less origins through normalization", async () => {
     originUrlMock.mockReturnValue("git@git.example.test:alice/notes");
     const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);

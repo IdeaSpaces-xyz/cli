@@ -17,12 +17,22 @@ export interface ApiConfig {
   apiKey: string;
 }
 
+export type RepoRouteStatus = "resolved" | "unresolved" | "conflict" | "unavailable";
+
 export interface AuthMeRepo {
   repo_id: string;
   slug: string;
   hostname: string | null;
   role: string;
+  root_node_id?: string | null;
   member_count: number;
+  route_status?: RepoRouteStatus;
+  route_kind?: "person" | "hostname" | null;
+  route_namespace?: string | null;
+  route_slug?: string | null;
+  canonical_path?: string | null;
+  legacy_path?: string | null;
+  route_reason_codes?: string[];
 }
 
 export interface AuthMeResponse {
@@ -42,8 +52,40 @@ export interface CreateRepoBody {
 
 export interface CreateRepoResult {
   repo_id: string;
+  root_node_id: string;
   slug: string;
   name: string;
+}
+
+export interface PublicSpaceResult {
+  kind: "space";
+  node_id: string;
+  container_node_id: string;
+  name: string;
+  canonical_url: string;
+  copy_enabled: boolean;
+  login_required_to_copy: boolean;
+  summary: string | null;
+  readme_markdown: string | null;
+}
+
+export interface CopySpaceBody {
+  name: string;
+  slug?: string;
+  hostname: string | null;
+}
+
+export interface CopySpaceResult {
+  repo_id: string;
+  root_node_id: string;
+  slug: string;
+  name: string;
+  source_head: string;
+  markdown_file_count: number;
+  markdown_bytes: number;
+  indexed_files: number;
+  index_status: "fresh" | "unindexed";
+  last_index_error: string | null;
 }
 
 /** Default request timeout — protects callers from indefinite hangs on a
@@ -211,6 +253,35 @@ export async function createRepo(
   opts?: RequestOptions,
 ): Promise<CreateRepoResult> {
   return request<CreateRepoResult>(config, "POST", `${API_V1}/repos`, body, opts);
+}
+
+export async function getSpace(
+  config: ApiConfig,
+  rootNodeId: string,
+  opts?: RequestOptions,
+): Promise<PublicSpaceResult> {
+  return request<PublicSpaceResult>(
+    config,
+    "GET",
+    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}`,
+    undefined,
+    opts,
+  );
+}
+
+export async function copySpace(
+  config: ApiConfig,
+  rootNodeId: string,
+  body: CopySpaceBody,
+  opts?: RequestOptions,
+): Promise<CopySpaceResult> {
+  return request<CopySpaceResult>(
+    config,
+    "POST",
+    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/copy`,
+    body,
+    opts,
+  );
 }
 
 export interface ConversationSummary {

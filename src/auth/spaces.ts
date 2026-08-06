@@ -18,8 +18,14 @@ function spacesFile(): string {
 export interface SpaceRecord {
   repo_id: string;
   slug: string;
-  /** Username (personal space) or hostname (org space). Used for clone-URL construction. */
+  /** Deprecated display fallback for records written before canonical root locators. */
   namespace: string;
+  /** Stable Space identity. Optional only for reading legacy spaces.json records. */
+  root_node_id?: string;
+  route_status?: "resolved" | "unresolved" | "conflict" | "unavailable";
+  route_namespace?: string | null;
+  route_slug?: string | null;
+  canonical_path?: string | null;
 }
 
 /** Map of absolute folder path → space record. */
