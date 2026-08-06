@@ -33,6 +33,8 @@ import { identityEmail } from "../auth/identity.js";
 import { gitAvailable, GIT_MISSING_HINT } from "../git.js";
 import type { CommandDef } from "../types.js";
 import {
+  agentClaudeMd,
+  agentContractTemplates,
   CLAUDE_MD,
   CONTRACT_TEMPLATES,
   GITATTRIBUTES,
@@ -81,12 +83,13 @@ const OLD_AGENT_FILES = ["always.md", "rules.md", "soul.md", "guidance.md"];
 export const createCommand: CommandDef = {
   name: "create",
   description: "Scaffold an ideaspace (seed _agent/ contract + CLAUDE.md + .gitignore defaults)",
-  usage: "ideaspaces create [name] [--yes] [--shared]",
+  usage: "ideaspaces create [name] [--yes] [--shared] [--agent]",
   examples: [
     "ideaspaces create my-space             # plan in ./my-space/, exit without applying",
     "ideaspaces create my-space --yes       # scaffold and commit",
     "ideaspaces create --yes                # scaffold in current directory",
     "ideaspaces create --yes --shared       # in a code repo, opt into shared (committed) _agent/",
+    "ideaspaces create scribe --yes --agent # agent vantage: the space IS the character",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -111,12 +114,23 @@ export const createCommand: CommandDef = {
       return 5;
     }
 
+    const agentMode = Boolean(flags.agent);
+    if (agentMode && shape === "code-repo") {
+      output.error(
+        `${describeTarget(targetDir, name)} looks like a code repo. An agent vantage is its own space — the tree is the agent's memory, not a codebase. Create it in a fresh folder: \`ideaspaces create <name> --agent\`.`,
+      );
+      return 5;
+    }
+
     const privateAgent = shape === "code-repo" && !sharedFlag;
-    const plan = buildPlan({ targetDir, name, shape, inspection, privateAgent });
+    const agentName = name ?? basename(targetDir);
+    const contract = agentMode ? agentContractTemplates(agentName) : CONTRACT_TEMPLATES;
+    const claudeMd = agentMode ? agentClaudeMd(agentName) : CLAUDE_MD;
+    const plan = buildPlan({ targetDir, name, shape, inspection, privateAgent, contract });
 
     if (!apply) {
       output.result(
-        { target: targetDir, shape, privateAgent, nestedInRepo: inspection.nestedInRepo, plan: plan.steps },
+        { target: targetDir, shape, privateAgent, agent: agentMode, nestedInRepo: inspection.nestedInRepo, plan: plan.steps },
         renderPlanText({ targetDir, name, shape, privateAgent, plan, nestedInRepo: inspection.nestedInRepo }),
       );
       return 0;
@@ -130,6 +144,8 @@ export const createCommand: CommandDef = {
         targetDir,
         inspection,
         privateAgent,
+        contract,
+        claudeMd,
       }));
     } catch (err) {
       // A genuine filesystem failure — the files themselves couldn't be written.
@@ -139,7 +155,7 @@ export const createCommand: CommandDef = {
 
     const where = name ? `./${name}` : "this directory";
     const lines = [
-      `Scaffolded ${describeTarget(targetDir, name)} (${shape}${privateAgent ? ", private _agent/" : ""}).`,
+      `Scaffolded ${describeTarget(targetDir, name)} (${agentMode ? `agent vantage: ${agentName}` : shape}${privateAgent ? ", private _agent/" : ""}).`,
     ];
     if (inspection.nestedInRepo) {
       lines.push(nestingNotice(targetDir, inspection.nestedInRepo));
@@ -151,13 +167,15 @@ export const createCommand: CommandDef = {
       );
     }
     lines.push(
-      `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
+      agentMode
+        ? `Next: open Claude Code in ${where} — the agent will read the vantage contract and help you shape ${agentName}'s character in conversation.`
+        : `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
     );
     if (versioned && loadStoredCredentials()) {
       lines.push(`When ready to host this remotely, run \`ideaspaces publish\` from inside ${where}.`);
     }
     output.result(
-      { target: targetDir, shape, privateAgent, scaffolded: true, versioned },
+      { target: targetDir, shape, privateAgent, agent: agentMode, scaffolded: true, versioned },
       lines.join("\n"),
     );
     return 0;
@@ -245,8 +263,9 @@ function buildPlan(opts: {
   shape: Shape;
   inspection: Inspection;
   privateAgent: boolean;
+  contract: Record<string, string>;
 }): Plan {
-  const { targetDir, name, inspection, privateAgent } = opts;
+  const { targetDir, name, inspection, privateAgent, contract } = opts;
   const steps: PlanStep[] = [];
 
   if (name && !inspection.exists) {
@@ -256,7 +275,7 @@ function buildPlan(opts: {
     steps.push({ op: "git-init", path: targetDir });
   }
 
-  for (const fileName of Object.keys(CONTRACT_TEMPLATES)) {
+  for (const fileName of Object.keys(contract)) {
     steps.push({ op: "write", path: join(targetDir, "_agent", `${fileName}.md`) });
   }
 
@@ -323,8 +342,10 @@ async function applyPlan(opts: {
   targetDir: string;
   inspection: Inspection;
   privateAgent: boolean;
+  contract: Record<string, string>;
+  claudeMd: string;
 }): Promise<{ versioned: boolean; gitNote?: string; commitPaths: string[] }> {
-  const { targetDir, inspection, privateAgent } = opts;
+  const { targetDir, inspection, privateAgent, contract, claudeMd } = opts;
 
   // Relative paths this scaffold wrote that belong in the initial commit.
   // In the private-_agent/ shape, `_agent/` and CLAUDE.local.md are gitignored
@@ -335,7 +356,7 @@ async function applyPlan(opts: {
   // 1. Materialize files. The local space always succeeds — git or not.
   await fs.mkdir(targetDir, { recursive: true });
   await fs.mkdir(join(targetDir, "_agent"), { recursive: true });
-  for (const [name, content] of Object.entries(CONTRACT_TEMPLATES)) {
+  for (const [name, content] of Object.entries(contract)) {
     const rel = join("_agent", `${name}.md`);
     await fs.writeFile(join(targetDir, rel), content, "utf-8");
     if (trackAgent) commitPaths.push(rel);
@@ -353,7 +374,7 @@ async function applyPlan(opts: {
 
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";
   if (!inspection.hasClaude) {
-    await fs.writeFile(join(targetDir, claudeFile), CLAUDE_MD, "utf-8");
+    await fs.writeFile(join(targetDir, claudeFile), claudeMd, "utf-8");
     if (!privateAgent) commitPaths.push(claudeFile);
   }
 

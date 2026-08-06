@@ -215,6 +215,45 @@ describe("ideaspaces create", () => {
     expect(gitignore).toContain("# ideaspace defaults");
   });
 
+  it("scaffolds an agent vantage with --agent", async () => {
+    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
+    spawnSync("git", ["config", "--global", "user.name", "Test"]);
+    const exit = await createCommand.run(["scribe"], { agent: true }, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+    const dir = join(tmp, "scribe");
+    const foundation = await fs.readFile(join(dir, "_agent", "foundation.md"), "utf-8");
+    expect(foundation).toContain("Foundation — scribe");
+    expect(foundation).toContain("vantage**, not a subject");
+    expect(foundation).toContain("core_version:"); // protocol conduct core still composed in
+    expect(foundation).toContain("## The Agreement");
+    const claude = await fs.readFile(join(dir, "CLAUDE.md"), "utf-8");
+    expect(claude).toContain("inhabiting scribe");
+    // Character layer scaffolds identically to a subject space.
+    expect(existsSync(join(dir, "_agent", "skills", "README.md"))).toBe(true);
+    expect(existsSync(join(dir, "_agent", "perspectives", "README.md"))).toBe(true);
+    // Direction files stay emergent.
+    for (const file of ["purpose", "now", "next"]) {
+      expect(existsSync(join(dir, "_agent", `${file}.md`))).toBe(false);
+    }
+  });
+
+  it("uses the directory name when --agent scaffolds the current directory", async () => {
+    const exit = await createCommand.run([], { agent: true }, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+    const foundation = await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8");
+    const dirName = tmp.split("/").pop() as string;
+    expect(foundation).toContain(`Foundation — ${dirName}`);
+  });
+
+  it("refuses --agent in a code repo", async () => {
+    await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
+    const captured = await captureStdout(() =>
+      createCommand.run([], { agent: true }, { ...baseGlobal, yes: true }),
+    );
+    expect(captured.exit).toBe(5);
+    expect(existsSync(join(tmp, "_agent"))).toBe(false);
+  });
+
   it("commits only scaffold paths — pre-staged and untracked user files stay out", async () => {
     spawnSync("git", ["-C", tmp, "init", "-q", "-b", "main"]);
     configureGitIdentity(tmp);
