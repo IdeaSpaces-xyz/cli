@@ -35,6 +35,7 @@ import type { CommandDef } from "../types.js";
 import {
   agentClaudeMd,
   agentContractTemplates,
+  isSafeAgentName,
   CLAUDE_MD,
   CONTRACT_TEMPLATES,
   GITATTRIBUTES,
@@ -124,6 +125,13 @@ export const createCommand: CommandDef = {
 
     const privateAgent = shape === "code-repo" && !sharedFlag;
     const agentName = name ?? basename(targetDir);
+    if (agentMode && !isSafeAgentName(agentName)) {
+      // The name lands verbatim in YAML frontmatter — refuse rather than escape.
+      output.error(
+        `Agent name \`${agentName}\` contains characters that don't survive frontmatter (allowed: letters, digits, spaces, . _ -). ${name ? "Pick a simpler name." : "This directory's name isn't usable — pass a name: `ideaspaces create <name> --agent`."}`,
+      );
+      return 5;
+    }
     const contract = agentMode ? agentContractTemplates(agentName) : CONTRACT_TEMPLATES;
     const claudeMd = agentMode ? agentClaudeMd(agentName) : CLAUDE_MD;
     const plan = buildPlan({ targetDir, name, shape, inspection, privateAgent, contract });
@@ -131,7 +139,7 @@ export const createCommand: CommandDef = {
     if (!apply) {
       output.result(
         { target: targetDir, shape, privateAgent, agent: agentMode, nestedInRepo: inspection.nestedInRepo, plan: plan.steps },
-        renderPlanText({ targetDir, name, shape, privateAgent, plan, nestedInRepo: inspection.nestedInRepo }),
+        renderPlanText({ targetDir, name, shape, privateAgent, plan, nestedInRepo: inspection.nestedInRepo, agentName: agentMode ? agentName : undefined }),
       );
       return 0;
     }
@@ -318,10 +326,14 @@ function renderPlanText(opts: {
   privateAgent: boolean;
   plan: Plan;
   nestedInRepo: string | null;
+  /** Present when scaffolding an agent vantage — the plan must say so before --yes. */
+  agentName?: string;
 }): string {
-  const { targetDir, name, shape, privateAgent, plan, nestedInRepo } = opts;
+  const { targetDir, name, shape, privateAgent, plan, nestedInRepo, agentName } = opts;
   const lines: string[] = [];
-  lines.push(`Plan for ${describeTarget(targetDir, name)} — shape: ${shape}${privateAgent ? " (private _agent/)" : ""}`);
+  lines.push(
+    `Plan for ${describeTarget(targetDir, name)} — ${agentName ? `agent vantage: ${agentName} (the space IS the character)` : `shape: ${shape}`}${privateAgent ? " (private _agent/)" : ""}`,
+  );
   if (nestedInRepo) {
     lines.push("");
     lines.push(nestingNotice(targetDir, nestedInRepo));

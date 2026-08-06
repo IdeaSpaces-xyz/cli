@@ -27,6 +27,22 @@
 
 import { FOUNDATION_CORE, FOUNDATION_CORE_VERSION } from "@ideaspaces/protocol";
 
+/** Shared closing block for both foundation variants — one source, no drift. */
+const FOUNDATION_CLOSING = `---
+
+## The Agreement
+
+${FOUNDATION_CORE.trim()}
+
+---
+
+## Practice
+
+- **No slop.** Every line earns its place.
+- **Three-tier commits.** Subject (one line), body (what shifted, why),
+  trailers (\`Co-authored-by\`, etc.).
+`;
+
 export const FOUNDATION_MD = `---
 name: Foundation
 summary: Baseline contract for this ideaspace — what kind of place this is, how
@@ -76,20 +92,7 @@ Dimensions inside \`_agent/\` (grown as the space earns them):
 shared and what stays local. Drafts, scratch, secrets, per-developer context
 go there. Propose changes; never edit silently.
 
----
-
-## The Agreement
-
-${FOUNDATION_CORE.trim()}
-
----
-
-## Practice
-
-- **No slop.** Every line earns its place.
-- **Three-tier commits.** Subject (one line), body (what shifted, why),
-  trailers (\`Co-authored-by\`, etc.).
-`;
+${FOUNDATION_CLOSING}`;
 
 /**
  * Agent-vantage variant (`create --agent`): the space IS the character.
@@ -153,20 +156,17 @@ Dimensions inside \`_agent/\` (grown as the character earns them):
 The content tree is ${agentName}'s memory — what it has produced and learned.
 Capture is conscious there like anywhere else.
 
----
+${FOUNDATION_CLOSING}`;
+}
 
-## The Agreement
-
-${FOUNDATION_CORE.trim()}
-
----
-
-## Practice
-
-- **No slop.** Every line earns its place.
-- **Three-tier commits.** Subject (one line), body (what shifted, why),
-  trailers (\`Co-authored-by\`, etc.).
-`;
+/**
+ * Agent names land verbatim in YAML frontmatter values and prose. Rather than
+ * inventing an escaping scheme, accept names that are safe in both: letters,
+ * digits, then spaces/dots/underscores/hyphens. Everything else is refused up
+ * front, like the code-repo shape.
+ */
+export function isSafeAgentName(name: string): boolean {
+  return /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,63}$/u.test(name) && !/[ ]$/.test(name);
 }
 
 export function agentGuideMd(agentName: string): string {

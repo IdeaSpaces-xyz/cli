@@ -245,6 +245,23 @@ describe("ideaspaces create", () => {
     expect(foundation).toContain(`Foundation — ${dirName}`);
   });
 
+  it("refuses an agent name that would not survive frontmatter", async () => {
+    const captured = await captureStdout(() =>
+      createCommand.run(["scribe: v2"], { agent: true }, { ...baseGlobal, yes: true }),
+    );
+    expect(captured.exit).toBe(5);
+    expect(existsSync(join(tmp, "scribe: v2", "_agent"))).toBe(false);
+  });
+
+  it("agent-mode dry run says so in the plan header", async () => {
+    const captured = await captureStdout(() =>
+      createCommand.run(["scribe"], { agent: true }, { ...baseGlobal, json: false }),
+    );
+    expect(captured.exit).toBe(0);
+    expect(captured.out).toContain("agent vantage: scribe");
+    expect(existsSync(join(tmp, "scribe"))).toBe(false); // still a dry run
+  });
+
   it("refuses --agent in a code repo", async () => {
     await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
     const captured = await captureStdout(() =>
