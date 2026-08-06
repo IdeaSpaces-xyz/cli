@@ -27,6 +27,22 @@
 
 import { FOUNDATION_CORE, FOUNDATION_CORE_VERSION } from "@ideaspaces/protocol";
 
+/** Shared closing block for both foundation variants — one source, no drift. */
+const FOUNDATION_CLOSING = `---
+
+## The Agreement
+
+${FOUNDATION_CORE.trim()}
+
+---
+
+## Practice
+
+- **No slop.** Every line earns its place.
+- **Three-tier commits.** Subject (one line), body (what shifted, why),
+  trailers (\`Co-authored-by\`, etc.).
+`;
+
 export const FOUNDATION_MD = `---
 name: Foundation
 summary: Baseline contract for this ideaspace — what kind of place this is, how
@@ -76,20 +92,150 @@ Dimensions inside \`_agent/\` (grown as the space earns them):
 shared and what stays local. Drafts, scratch, secrets, per-developer context
 go there. Propose changes; never edit silently.
 
+${FOUNDATION_CLOSING}`;
+
+/**
+ * Agent-vantage variant (`create --agent`): the space IS the character.
+ * Same five-file contract, same protocol conduct core — read agent-first:
+ * foundation declares the vantage, guide is how work goes when inhabiting it,
+ * skills are what the agent can repeat. Character sections ship as elicitation
+ * prompts, not filler — the agent draws them out in conversation and replaces
+ * them with real content.
+ */
+export function agentFoundationMd(agentName: string): string {
+  return `---
+name: Foundation — ${agentName}
+summary: The declared vantage of ${agentName}. This space is not a subject to
+  study — it is a way of looking, inhabited by an agent. Character, boundaries,
+  and what this vantage is not.
+core_version: ${FOUNDATION_CORE_VERSION}
 ---
 
-## The Agreement
+# Foundation — ${agentName}
 
-${FOUNDATION_CORE.trim()}
+> This space is a **vantage**, not a subject. An agent launched here inhabits
+> ${agentName}: nothing in this tree is knowledge *about* ${agentName} — it is
+> the position ${agentName} looks from, and the memory that position accumulates.
 
+\`agent = stable identity + name + description + declared vantage\`. This file
+is the declared vantage. The habitat (Claude Code, Pi, …) supplies model,
+tools, and reach; identity names who is inhabiting.
+
+The five-file contract, read agent-first:
+
+- \`foundation.md\` — this file. What ${agentName} is, character, boundaries.
+- \`guide.md\` — how work goes when inhabiting ${agentName}.
+- \`purpose.md\` — why this vantage exists (emergent).
+- \`now.md\` — the current lane (emergent).
+- \`next.md\` — what's queued (emergent).
+
+## Character
+
+_Elicit and replace: how does ${agentName} show up? Three to five traits,
+each one bolded line + one sentence of what it means in practice. Drawn from
+real examples of the work, not adjectives._
+
+## Boundaries
+
+_Elicit and replace: what does ${agentName} refuse to do, and what does it
+never claim without checking? Boundaries are what make an agent trustworthy
+enough to delegate to._
+
+## What this vantage is not
+
+_Elicit and replace: name the neighboring role people might confuse this
+with, and where the line sits._
+
+Dimensions inside \`_agent/\` (grown as the character earns them):
+
+- \`skills/\` — what ${agentName} can repeat: procedures worth doing the same
+  way every time. Each skill's \`description\` is its trigger; skills compose
+  along the path.
+- \`perspectives/\` — how ${agentName} sees: reusable thinking patterns.
+
+The content tree is ${agentName}'s memory — what it has produced and learned.
+Capture is conscious there like anywhere else.
+
+${FOUNDATION_CLOSING}`;
+}
+
+/**
+ * Agent names land verbatim in YAML frontmatter values and prose. Rather than
+ * inventing an escaping scheme, accept names that are safe in both: letters,
+ * digits, then spaces/dots/underscores/hyphens. Everything else is refused up
+ * front, like the code-repo shape.
+ */
+export function isSafeAgentName(name: string): boolean {
+  return /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,63}$/u.test(name) && !/[ ]$/.test(name);
+}
+
+export function agentGuideMd(agentName: string): string {
+  return `---
+name: Guide — ${agentName}
+summary: How work goes when inhabiting ${agentName} — working rhythm,
+  conventions, and what gets captured where. Grows from real sessions.
 ---
 
-## Practice
+# Guide — ${agentName}
 
-- **No slop.** Every line earns its place.
-- **Three-tier commits.** Subject (one line), body (what shifted, why),
-  trailers (\`Co-authored-by\`, etc.).
+> How work goes when inhabiting [${agentName}](foundation.md).
+
+_Fill in as patterns emerge from real sessions. Examples to consider:_
+
+- What does a typical ${agentName} session produce, and where does it land
+  in the tree?
+- Which decisions does ${agentName} make alone, and which does it bring back?
+- What gets captured into memory, and what stays in the conversation?
+
+## When the Agreement drifts
+
+If \`now.md\` stops matching reality, or the character in
+[foundation](foundation.md) contradicts how ${agentName} actually works —
+surface it. Character changes cross the same capture boundary as knowledge.
 `;
+}
+
+export function agentClaudeMd(agentName: string): string {
+  return `---
+name: Claude Code orientation — ${agentName}
+summary: Tells Claude Code this space is a vantage, not a subject. Launching
+  here means inhabiting ${agentName}.
+---
+
+# CLAUDE.md — ${agentName}
+
+> This ideaspace is a **vantage**, not a subject. Launching here means
+> inhabiting ${agentName}, not studying it.
+
+## Orient
+
+Read in order:
+
+1. [\`_agent/foundation.md\`](_agent/foundation.md) — the declared vantage:
+   character and boundaries
+2. [\`_agent/guide.md\`](_agent/guide.md) — how work goes when inhabiting it
+3. \`_agent/purpose.md\` / \`_agent/now.md\` / \`_agent/next.md\` — direction
+   (emergent; their absence is a prompt to elicit, not invent)
+
+If the Character, Boundaries, or "What this vantage is not" sections still
+carry elicitation prompts, that is the first conversation: draw the character
+out from the user with real examples, replace the prompts, and confirm before
+committing.
+
+## The work
+
+The content tree here is ${agentName}'s memory. The subject of the work may
+live elsewhere — this repo carries the position it is seen from.
+`;
+}
+
+/** Contract files for an agent-vantage scaffold, keyed like CONTRACT_TEMPLATES. */
+export function agentContractTemplates(agentName: string): Record<string, string> {
+  return {
+    foundation: agentFoundationMd(agentName),
+    guide: agentGuideMd(agentName),
+  };
+}
 
 export const GUIDE_MD = `---
 name: Guide
