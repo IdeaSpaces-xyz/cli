@@ -30,12 +30,13 @@
     "prepare": "npm run build"
   },
   "devDependencies": {
-    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#63f6f2b0e70ef37b829bc08d918104ada15be876",
+    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#f052e07ea9bc3de5d80001c4c72bacb775612f7b",
     "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#7ed027a6b4f51dfc8c546d94eb4d26e62843c58b",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.0",
     "typescript": "^5.8.3",
-    "vitest": "^3.1.1"
+    "vitest": "^3.1.1",
+    "yaml": "^2.9.0"
   },
   "engines": {
     "node": ">=20"
