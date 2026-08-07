@@ -9,4 +9,8 @@ describe("router", () => {
   it("exposes the explicit history-free fork command", () => {
     expect(findCommand_("fork")?.name).toBe("fork");
   });
+
+  it("exposes local progressive Markdown inspection", () => {
+    expect(findCommand_("inspect")?.name).toBe("inspect");
+  });
 });

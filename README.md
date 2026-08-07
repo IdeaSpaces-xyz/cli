@@ -22,6 +22,7 @@ This installs the `ideaspaces` command. Node 20+ is required.
 ideaspaces create my-space --yes    # create the standard repository shape
 cd my-space
 ideaspaces navigate .               # orient: what's here, what changed
+ideaspaces inspect work/Next.md      # deepen one document, summary first
 ideaspaces write decisions/idea.md --content "Idea body text"
 ideaspaces commit -m "Capture idea" decisions/idea.md
 
@@ -67,6 +68,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 | Command | What it does |
 |---|---|
 | `navigate <path>` | Orient at a position — contract, awareness, what changed |
+| `inspect <path>` | Inspect one local Markdown file by summary, outline, or selected section |
 | `catalog` | List the nodes at a position |
 | `ls [<path>]` | List files and folders under a path, typed (folder / repo / ideaspace) |
 | `search <query>` | Full-text search (filename + BM25) over the local clone |
