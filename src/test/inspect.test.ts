@@ -162,6 +162,29 @@ describe("ideaspaces inspect", () => {
     expect(selected.json.markdown).not.toContain("First review.");
   });
 
+  it("reports a missing exact heading without falling through to a body read", async () => {
+    const result = await run([path], {
+      mode: "section",
+      heading: "Unknown priority",
+    });
+    expect(result.exit).toBe(1);
+    expect(result.json).toMatchObject({
+      mode: "section",
+      status: "not-found",
+      query: { heading: "Unknown priority" },
+      matches: [],
+    });
+
+    const human = await run(
+      [path],
+      { mode: "section", heading: "Unknown priority" },
+      HUMAN_GLOBAL,
+    );
+    expect(human.exit).toBe(1);
+    expect(human.stdout).toBe("Heading not found: Unknown priority\n");
+    expect(human.stdout).not.toContain("OVERVIEW_BODY_SENTINEL");
+  });
+
   it("bounds large section output at a UTF-8 boundary and reports omitted bytes", async () => {
     const large = join(dir, "Large.md");
     await writeFile(large, `# Large\n\n${"🙂".repeat(100)}\n`);
@@ -213,6 +236,18 @@ describe("ideaspaces inspect", () => {
     const wrongMode = await run([path], { mode: "body" });
     expect(wrongMode.exit).toBe(1);
     expect(wrongMode.stderr).toContain("summary, outline, or section");
+
+    const invalidBound = await run([path], { "max-bytes": "unbounded" });
+    expect(invalidBound.exit).toBe(1);
+    expect(invalidBound.stderr).toContain("128 to 1048576");
+
+    const tooSmall = await run([path], { "max-bytes": "127" });
+    expect(tooSmall.exit).toBe(1);
+    expect(tooSmall.stderr).toContain("128 to 1048576");
+
+    const directory = await run([dir]);
+    expect(directory.exit).toBe(1);
+    expect(directory.stderr).toContain("Not a file");
 
     const missing = await run([join(dir, "missing.md")]);
     expect(missing.exit).toBe(1);

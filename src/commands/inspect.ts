@@ -27,6 +27,11 @@ interface BoundedInspection {
   truncation: Truncation;
 }
 
+interface BoundedHeadings {
+  headings: MarkdownHeading[];
+  truncation: Truncation;
+}
+
 function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
 }
@@ -48,6 +53,40 @@ function stringTruncation(value: string, returned: string, limitBytes: number): 
     originalBytes,
     returnedBytes,
     limitBytes,
+  };
+}
+
+function boundHeadings(
+  headings: MarkdownHeading[],
+  limitBytes: number,
+): BoundedHeadings {
+  const originalBytes = byteLength(JSON.stringify(headings));
+  if (originalBytes <= limitBytes) {
+    return {
+      headings,
+      truncation: {
+        truncated: false,
+        originalBytes,
+        returnedBytes: originalBytes,
+        limitBytes,
+      },
+    };
+  }
+
+  const returned: MarkdownHeading[] = [];
+  for (const heading of headings) {
+    const candidate = [...returned, heading];
+    if (byteLength(JSON.stringify(candidate)) > limitBytes) break;
+    returned.push(heading);
+  }
+  return {
+    headings: returned,
+    truncation: {
+      truncated: true,
+      originalBytes,
+      returnedBytes: byteLength(JSON.stringify(returned)),
+      limitBytes,
+    },
   };
 }
 
@@ -80,60 +119,20 @@ export function boundInspection(
   }
 
   if (inspection.mode === "outline") {
-    const originalBytes = byteLength(JSON.stringify(inspection.headings));
-    if (originalBytes <= limitBytes) {
-      return {
-        inspection,
-        truncation: {
-          truncated: false,
-          originalBytes,
-          returnedBytes: originalBytes,
-          limitBytes,
-        },
-      };
-    }
-
-    const headings: MarkdownHeading[] = [];
-    for (const heading of inspection.headings) {
-      const candidate = [...headings, heading];
-      if (byteLength(JSON.stringify(candidate)) > limitBytes) break;
-      headings.push(heading);
-    }
-    const returnedBytes = byteLength(JSON.stringify(headings));
+    const bounded = boundHeadings(inspection.headings, limitBytes);
     return {
-      inspection: { mode: "outline", headings },
-      truncation: {
-        truncated: true,
-        originalBytes,
-        returnedBytes,
-        limitBytes,
-      },
+      inspection: { mode: "outline", headings: bounded.headings },
+      truncation: bounded.truncation,
     };
   }
 
   if (inspection.status !== "found") {
-    const payload = JSON.stringify(inspection.matches);
-    const bytes = byteLength(payload);
-    // Match lists are heading outlines too. Reuse the same complete-record
-    // prefix behavior so pathological duplicate sets cannot bypass the bound.
-    if (bytes > limitBytes) {
-      const bounded = boundInspection(
-        { mode: "outline", headings: inspection.matches },
-        limitBytes,
-      );
-      return {
-        inspection: { ...inspection, matches: bounded.inspection.mode === "outline" ? bounded.inspection.headings : [] },
-        truncation: bounded.truncation,
-      };
-    }
+    // Match lists are heading outlines too. Keep complete records so
+    // pathological duplicate sets cannot bypass the bound.
+    const bounded = boundHeadings(inspection.matches, limitBytes);
     return {
-      inspection,
-      truncation: {
-        truncated: false,
-        originalBytes: bytes,
-        returnedBytes: bytes,
-        limitBytes,
-      },
+      inspection: { ...inspection, matches: bounded.headings },
+      truncation: bounded.truncation,
     };
   }
 
