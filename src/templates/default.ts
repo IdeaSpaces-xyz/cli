@@ -360,7 +360,14 @@ export function gitignoreDefaults(opts: { privateAgent: boolean }): string {
       "CLAUDE.local.md",
     );
   }
-  lines.push("*.draft.md", "scratch/", "_local/", "");
+  lines.push(
+    "*.draft.md",
+    "scratch/",
+    "_local/",
+    "# Local-only material — yours, on this machine. Never synced or shared.",
+    "*.local.md",
+    "",
+  );
   return lines.join("\n");
 }
 

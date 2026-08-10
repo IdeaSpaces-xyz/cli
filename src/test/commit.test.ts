@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { commitCommand } from "../commands/commit.js";
+import { gitignoreDefaults } from "../templates/default.js";
 import { writeCommand } from "../commands/write.js";
 import type { GlobalFlags } from "../types.js";
 
@@ -323,5 +324,57 @@ describe("ideaspaces commit — Change-layer trailers (end-to-end)", () => {
     await stageNote();
     expect(await commitCommand.run(["note.md"], { m: "x", "co-author": "me-claude" }, G)).toBe(1);
     expect(git(["rev-list", "--count", "--all"])).toBe("0");
+  });
+
+  // Local-only state — the progress a Guide keeps on the person's own machine.
+  // The scaffolded rules are what a fork receives; these assert what they buy.
+  describe("local-only paths", () => {
+    async function scaffoldIgnore() {
+      await fs.writeFile(join(tmp, ".gitignore"), gitignoreDefaults({ privateAgent: false }));
+      git(["add", ".gitignore"]);
+      git(["commit", "-q", "-m", "ignore"]);
+    }
+
+    it("leaves the tree clean when local progress is written", async () => {
+      await scaffoldIgnore();
+      await fs.writeFile(join(tmp, "progress.local.md"), "# done: first space\n");
+      expect(git(["status", "--porcelain"])).toBe("");
+    });
+
+    it("refuses to commit a local-only path, and commits nothing", async () => {
+      await scaffoldIgnore();
+      await fs.writeFile(join(tmp, "progress.local.md"), "# done: first space\n");
+      const before = git(["rev-parse", "HEAD"]);
+
+      expect(await commitCommand.run(["progress.local.md"], { m: "save progress" }, G)).toBe(1);
+      expect(git(["rev-parse", "HEAD"])).toBe(before);
+    });
+
+    it("refuses the whole commit when one named path is local-only", async () => {
+      await scaffoldIgnore();
+      await fs.writeFile(join(tmp, "note.md"), "# note\n");
+      await fs.writeFile(join(tmp, "progress.local.md"), "# progress\n");
+      const before = git(["rev-parse", "HEAD"]);
+
+      expect(
+        await commitCommand.run(["note.md", "progress.local.md"], { m: "both" }, G),
+      ).toBe(1);
+      // Not a partial save: the good path stays uncommitted too.
+      expect(git(["rev-parse", "HEAD"])).toBe(before);
+      expect(git(["status", "--porcelain"])).toContain("note.md");
+    });
+
+    it("still commits a tracked file that a later rule would match", async () => {
+      // An ignore rule over an already-tracked path is inert in git, and the
+      // refusal must not be stricter than git itself.
+      await fs.writeFile(join(tmp, "kept.local.md"), "# tracked before the rule\n");
+      git(["add", "-f", "kept.local.md"]);
+      git(["commit", "-q", "-m", "track it"]);
+      await scaffoldIgnore();
+      await fs.writeFile(join(tmp, "kept.local.md"), "# edited after the rule\n");
+
+      expect(await commitCommand.run(["kept.local.md"], { m: "edit tracked" }, G)).toBe(0);
+      expect(git(["log", "-1", "--format=%s"])).toBe("edit tracked");
+    });
   });
 });

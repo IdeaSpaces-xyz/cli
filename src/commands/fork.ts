@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   copySpace,
   fetchAuthMe,
@@ -11,8 +11,9 @@ import { loadConfig } from "../auth/credentials.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { saveSpace, type SpaceRecord } from "../auth/spaces.js";
-import { cloneRepo, setLocalConfig } from "../git.js";
+import { cloneRepo, commitPaths, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
+import { gitignoreDefaults } from "../templates/default.js";
 import {
   canonicalGitUrl,
   canonicalSpaceUrl,
@@ -43,6 +44,43 @@ function fallbackRecord(
     route_slug: null,
     canonical_path: `/spaces/${result.root_node_id}`,
   };
+}
+
+/**
+ * Give the clone the ignore rules the copy could not carry.
+ *
+ * A forked Space arrives with **no `.gitignore`** — the platform copy is
+ * markdown-only, so ignore rules cannot cross the boundary and `create`'s
+ * scaffold never runs on this path. Without this, local-only files in a fork
+ * are stageable by default, and the first `commit --all` or `publish` takes
+ * them with it.
+ *
+ * Best-effort by design, like `create`'s git finalize: a fork that already
+ * succeeded must not fail because its ignore commit did. Returns whether the
+ * rules ended up committed.
+ */
+function scaffoldIgnoreRules(dir: string, output: ReturnType<typeof createOutput>): boolean {
+  const path = join(dir, ".gitignore");
+  try {
+    const additions = gitignoreDefaults({ privateAgent: false });
+    if (existsSync(path)) {
+      // Not reachable through today's markdown-only copy, but a copy that one
+      // day carries more must not have its rules replaced.
+      const existing = readFileSync(path, "utf-8");
+      if (existing.includes("# ideaspace defaults")) return false;
+      writeFileSync(path, existing.endsWith("\n") ? existing + additions : existing + "\n" + additions);
+    } else {
+      writeFileSync(path, additions.replace(/^\n/, ""));
+    }
+    commitPaths("Ignore local-only files", [".gitignore"], dir);
+    return true;
+  } catch (err) {
+    output.log(
+      `Fork succeeded, but its ignore rules could not be committed: ${err instanceof Error ? err.message : String(err)}. ` +
+        "Local-only files are unprotected here until a `.gitignore` exists.",
+    );
+    return false;
+  }
 }
 
 export const forkCommand: CommandDef = {
@@ -200,10 +238,15 @@ export const forkCommand: CommandDef = {
       }
     }
 
+    // Identity first, then the ignore commit: this is the clone's tip, and
+    // publish's pre-receive check reads the tip author.
+    const ignoreScaffolded = scaffoldIgnoreRules(dir, output);
+
     output.result(
       {
         source_root_node_id: sourceRoot,
         source_head: pinnedHead,
+        ignore_rules_written: ignoreScaffolded,
         repo_id: copied.repo_id,
         root_node_id: copied.root_node_id,
         slug: copied.slug,
