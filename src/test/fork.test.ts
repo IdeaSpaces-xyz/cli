@@ -245,6 +245,31 @@ describe("fork", () => {
     expect(JSON.parse(stdout()).ignore_rules_active).toBe(true);
   });
 
+  it("says so on every surface when the rules could not be written at all", async () => {
+    fetchAuthMeMock
+      .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
+      .mockResolvedValueOnce({ username: "alice", repos: [] });
+    getSpaceMock.mockResolvedValue(sourceResult());
+    copySpaceMock.mockResolvedValue(copyResult());
+    // Clone into a path the scaffold cannot write: the destination is a file.
+    cloneRepoMock.mockImplementation((_url: string, target: string) => {
+      mkdirSync(join(target, ".gitignore"), { recursive: true });
+    });
+
+    const dir = join(tmpRoot, "unwritable");
+    // --quiet, no --json: the surface where a suppressed log would be the only
+    // signal that nothing in this clone is ignored.
+    const code = await forkCommand.run(
+      [SOURCE_URL, dir],
+      {},
+      { json: false, quiet: true, yes: false, help: false },
+    );
+
+    expect(code).toBe(0);
+    expect(stderr()).toContain("unprotected");
+    expect(stdout()).toContain("NOT ignored");
+  });
+
   it("keeps the fork when its ignore rules cannot be committed", async () => {
     fetchAuthMeMock
       .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })

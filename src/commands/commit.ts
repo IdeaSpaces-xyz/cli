@@ -174,11 +174,14 @@ export const commitCommand: CommandDef = {
     const ignored = ignoredPaths(paths, root);
     if (ignored.length) {
       const shown = ignored.map((p) => `  ${relative(root, p) || p}`).join("\n");
+      // Deliberately does not name `.gitignore`: check-ignore also honors
+      // `.git/info/exclude` and the user's global excludes, so pointing at one
+      // file would be wrong for the others. `-v` names whichever it was.
       output.error(
-        `Refusing to commit ${ignored.length} local-only path(s) — a .gitignore rule covers them:\n` +
+        `Refusing to commit ${ignored.length} local-only path(s) — an ignore rule covers them:\n` +
           `${shown}\n` +
           "These stay on this machine by design: they are never staged, committed, pushed, or published.\n" +
-          "If a rule is wrong, change `.gitignore` and commit that instead.",
+          `If that is wrong, \`git check-ignore -v ${ignored.length === 1 ? relative(root, ignored[0]) || ignored[0] : "<path>"}\` names the rule to change.`,
       );
       return 1;
     }

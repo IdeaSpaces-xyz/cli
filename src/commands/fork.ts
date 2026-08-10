@@ -79,13 +79,19 @@ function scaffoldIgnoreRules(dir: string, output: ReturnType<typeof createOutput
     return true;
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    output.log(
-      written
-        ? `Fork succeeded and its .gitignore is in force, but committing it failed: ${reason}. ` +
-            "Local-only files are ignored here; commit `.gitignore` to keep it that way."
-        : `Fork succeeded, but its ignore rules could not be written: ${reason}. ` +
-            "Local-only files are unprotected in this clone.",
-    );
+    if (written) {
+      output.log(
+        `Fork succeeded and its .gitignore is in force, but committing it failed: ${reason}. ` +
+          "Local-only files are ignored here; commit `.gitignore` to keep it that way.",
+      );
+    } else {
+      // error(), not log(): --quiet suppresses log, and a clone where nothing
+      // is ignored must not exit 0 in silence.
+      output.error(
+        `Fork succeeded, but its ignore rules could not be written: ${reason}. ` +
+          "Local-only files are unprotected in this clone.",
+      );
+    }
     return written;
   }
 }
@@ -272,6 +278,11 @@ export const forkCommand: CommandDef = {
         copied.index_status === "unindexed"
           ? "Content is cloned; hosted indexing needs recovery."
           : "Hosted index is fresh.",
+        // A degraded safety state belongs in the summary, not only in a log
+        // line — the human-readable path is where most people will see it.
+        ...(ignoreRulesActive
+          ? []
+          : ["Local-only files are NOT ignored in this clone — see the warning above."]),
       ].join("\n"),
     );
     return 0;
