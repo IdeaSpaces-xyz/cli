@@ -313,6 +313,37 @@ export interface RemoteState {
   behind: number;
 }
 
+/**
+ * Newest common ancestor of HEAD and its upstream, or null when there is none.
+ *
+ * This — not local HEAD — is the commit to ask the server about. A clone that
+ * is both ahead and behind holds commits the server has never seen, so asking
+ * "what changed since my HEAD" would name a commit the server cannot resolve.
+ * The merge base is the last point both sides agree on, which is exactly the
+ * question "what happened while I was away" means.
+ */
+export function mergeBaseWithUpstream(cwd?: string): string | null {
+  const r = git(["merge-base", "HEAD", "@{upstream}"], cwd);
+  return r.ok && r.out ? r.out : null;
+}
+
+/** Commits on HEAD that the upstream does not have, newest first. */
+export function commitsAheadOfUpstream(cwd?: string): Array<{ sha: string; subject: string }> {
+  const r = git(["log", "--format=%H%x00%s", "@{upstream}..HEAD"], cwd);
+  if (!r.ok || !r.out) return [];
+  return r.out.split("\n").flatMap((line) => {
+    const [sha, subject] = line.split("\0");
+    return sha ? [{ sha, subject: subject ?? "" }] : [];
+  });
+}
+
+/** Paths those unpushed commits touch, deduplicated. */
+export function pathsAheadOfUpstream(cwd?: string): string[] {
+  const r = git(["diff", "--name-only", "@{upstream}...HEAD"], cwd);
+  if (!r.ok || !r.out) return [];
+  return [...new Set(r.out.split("\n").map((p) => p.trim()).filter(Boolean))];
+}
+
 /** Fetch from the upstream remote. Throws on failure (e.g. no network). */
 export function fetch(cwd?: string): void {
   gitOrThrow(["fetch"], cwd);

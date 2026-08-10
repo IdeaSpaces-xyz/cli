@@ -60,7 +60,7 @@ export const statusCommand: CommandDef = {
       return 0;
     }
 
-    // Read-only: fetch then report, never integrate (that's `sync`).
+    // Read-only: fetch then report, never integrate (that's `pull`).
     if (flags.fetch) {
       try {
         gitFetch(root);
