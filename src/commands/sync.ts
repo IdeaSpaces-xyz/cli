@@ -11,10 +11,12 @@
  *   what changed    →  the Space's trail, read by root node id
  *
  * **It never integrates.** No merge, no rebase, no push, no checkout, nothing
- * written to the working tree. `git status` is byte-identical afterwards. It
- * does `git fetch`, which moves remote-tracking refs and no files — the same
- * thing `status --fetch` already does, and the only way to know your position
- * without asking the network to guess.
+ * written to the working tree or to the Space. `git status` is byte-identical
+ * afterwards. Two things it does touch, both outside that boundary: `git fetch`
+ * moves remote-tracking refs and no files — the same thing `status --fetch`
+ * already does, and the only way to know your position without asking the
+ * network to guess — and `registerGitCredentialHelper` writes the global git
+ * config, as it does for `pull`, `push`, and `clone`.
  *
  * Reading the remote trail needs the Space registered (`spaces.json` supplies
  * the root node id) and a login. Without either, the local half still reports
@@ -56,9 +58,12 @@ function describeChange(change: TrailChange): string {
   return change.old_path ? `  ${verb}  ${change.old_path} → ${change.path}` : `  ${verb}  ${change.path}`;
 }
 
-function describeCommit(commit: TrailCommit): string {
-  const subject = commit.message.split("\n")[0];
-  return `  ${commit.sha.slice(0, 8)}  ${subject}`;
+function describeCommit(sha: string, subject: string): string {
+  return `  ${sha.slice(0, 8)}  ${subject}`;
+}
+
+function describeTrailCommit(commit: TrailCommit): string {
+  return describeCommit(commit.sha, commit.message.split("\n")[0]);
 }
 
 export const syncCommand: CommandDef = {
@@ -121,7 +126,7 @@ export const syncCommand: CommandDef = {
     const outgoingPaths = rs.ahead ? pathsAheadOfUpstream(root) : [];
     if (rs.ahead) {
       lines.push("", `Yours, not sent yet (${outgoingCommits.length}):`);
-      for (const c of outgoingCommits.slice(0, limit)) lines.push(describeCommit({ sha: c.sha, message: c.subject, date: "", author: "" }));
+      for (const c of outgoingCommits.slice(0, limit)) lines.push(describeCommit(c.sha, c.subject));
       if (outgoingCommits.length > limit) lines.push(`  … and ${outgoingCommits.length - limit} more`);
       if (outgoingPaths.length) {
         lines.push(`  paths: ${outgoingPaths.slice(0, 10).join(", ")}${outgoingPaths.length > 10 ? ` … +${outgoingPaths.length - 10}` : ""}`);
@@ -146,15 +151,25 @@ export const syncCommand: CommandDef = {
           "This clone isn't bound to a Space record, so its trail can't be addressed. Repair with: ideaspaces link";
       } else {
         const since = mergeBaseWithUpstream(root);
-        try {
-          const [log, changes] = await Promise.all([
-            fetchTrailLog(config, rootNodeId, limit),
-            since
-              ? fetchTrailChanges(config, rootNodeId, since)
-              : Promise.resolve({ op: "changes", since: "", changes: [] as TrailChange[] }),
-          ]);
-          incoming = { commits: log.entries ?? [], changes: changes.changes ?? [] };
-        } catch (err) {
+        // Settled independently: the commit list is worth showing even when the
+        // path list fails, and vice versa. All-or-nothing would drop a good half
+        // for a transient failure in the other.
+        const [log, changes] = await Promise.allSettled([
+          fetchTrailLog(config, rootNodeId, limit),
+          since
+            ? fetchTrailChanges(config, rootNodeId, since)
+            : Promise.resolve({ op: "changes", since: "", changes: [] as TrailChange[] }),
+        ]);
+
+        if (log.status === "fulfilled" || changes.status === "fulfilled") {
+          incoming = {
+            commits: log.status === "fulfilled" ? (log.value.entries ?? []) : [],
+            changes: changes.status === "fulfilled" ? (changes.value.changes ?? []) : [],
+          };
+          const failed = log.status === "rejected" ? log.reason : changes.status === "rejected" ? changes.reason : null;
+          if (failed) incomingNote = `Partial: ${failed instanceof Error ? failed.message : String(failed)}`;
+        } else {
+          const err = log.reason;
           incomingNote =
             err instanceof UnauthorizedError
               ? "Session expired — run `ideaspaces login` to read the Space's trail."
@@ -164,11 +179,13 @@ export const syncCommand: CommandDef = {
 
       lines.push("", `Theirs, not here yet (behind ${rs.behind}):`);
       if (incoming) {
-        for (const c of incoming.commits.slice(0, limit)) lines.push(describeCommit(c));
+        for (const c of incoming.commits.slice(0, limit)) lines.push(describeTrailCommit(c));
         if (incoming.changes.length) {
           lines.push("", "What changed:");
           for (const change of incoming.changes) lines.push(describeChange(change));
         }
+        // A half-answer must say which half is missing, or it reads as whole.
+        if (incomingNote) lines.push(`  ${incomingNote}`);
         lines.push("", "Integrate them when you're ready: ideaspaces pull");
       } else {
         lines.push(`  ${incomingNote}`);
@@ -187,7 +204,10 @@ export const syncCommand: CommandDef = {
           ? { commits: outgoingCommits, paths: outgoingPaths }
           : null,
         incoming: incoming ? { commits: incoming.commits, changes: incoming.changes } : null,
-        incoming_unavailable: incoming ? null : incomingNote,
+        // Set on a partial read too, not only a total one — a caller that sees
+        // an empty change list needs to know whether that means "nothing
+        // changed" or "we could not find out".
+        incoming_unavailable: incomingNote,
         // Stated in the payload, not only in the prose: nothing moved.
         integrated: false,
       },

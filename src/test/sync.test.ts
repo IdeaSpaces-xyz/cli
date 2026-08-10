@@ -206,6 +206,19 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(out.incoming_unavailable).toContain("ideaspaces login");
   });
 
+  it("shows the commits it did get when the change list fails", async () => {
+    advanceOrigin();
+    fetchTrailChangesMock.mockRejectedValue(new Error("changes timed out"));
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    // Half an answer beats none: the commit list survives its sibling failing.
+    expect(out.incoming.commits).toHaveLength(1);
+    expect(out.incoming.changes).toEqual([]);
+    expect(out.incoming_unavailable).toContain("changes timed out");
+  });
+
   it("says the clone is unbound rather than guessing a coordinate", async () => {
     advanceOrigin();
     findSpaceForMock.mockReturnValue(null);
@@ -241,9 +254,24 @@ describe("ideaspaces sync — the integration boundary", () => {
     return readFileSync(new URL("../commands/sync.ts", import.meta.url), "utf-8");
   }
 
-  it("takes only read-only helpers from git.ts", () => {
-    const imported = (syncSource().match(/import\s*\{([\s\S]*?)\}\s*from\s*"\.\.\/git\.js"/)?.[1] ?? "")
-      .split(",")
+  it("takes only read-only helpers from git.ts, through exactly one import", () => {
+    const source = syncSource();
+
+    // Every route from this file into git.ts, not just the first one. A second
+    // `import { mergeUpstream } from "../git.js"` is legal TypeScript and no
+    // lint rule here forbids it, so counting is part of the assertion.
+    const routes = [...source.matchAll(/from\s*"\.\.\/git\.js"/g)];
+    expect(routes).toHaveLength(1);
+
+    // …and that one route must be a named import. `import * as git` would put
+    // the whole module in reach while satisfying every check below.
+    expect(source).not.toMatch(/import\s+\*\s+as\s+\w+\s+from\s*"\.\.\/git\.js"/);
+
+    const statements = [...source.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*"\.\.\/git\.js"/g)];
+    expect(statements).toHaveLength(1);
+
+    const imported = statements
+      .flatMap((match) => match[1].split(","))
       .map((s) => s.trim())
       .filter(Boolean);
 
@@ -254,6 +282,19 @@ describe("ideaspaces sync — the integration boundary", () => {
     for (const forbidden of ["rebaseOntoUpstream", "mergeUpstream", "push", "stagePaths", "commitPaths"]) {
       expect(imported).not.toContain(forbidden);
     }
+  });
+
+  it("catches a second import statement sneaking an integrating verb in", () => {
+    // Proves the assertion above actually bites — the bug it replaces passed
+    // this exact shape. Mirrors the real check against a doctored source.
+    const doctored =
+      'import { repoRoot } from "../git.js";\nimport { mergeUpstream } from "../git.js";\n';
+    const routes = [...doctored.matchAll(/from\s*"\.\.\/git\.js"/g)];
+    expect(routes).toHaveLength(2);
+
+    const firstOnly = doctored.match(/import\s*\{([\s\S]*?)\}\s*from\s*"\.\.\/git\.js"/)?.[1];
+    // The old single-match read saw only `repoRoot` and passed.
+    expect(firstOnly?.trim()).toBe("repoRoot");
   });
 
   it("cannot run git itself, and cannot write to the tree", () => {
