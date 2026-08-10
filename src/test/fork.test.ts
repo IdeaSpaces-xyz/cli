@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -218,7 +218,31 @@ describe("fork", () => {
     expect(setLocalConfigMock.mock.invocationCallOrder[0]).toBeLessThan(
       commitPathsMock.mock.invocationCallOrder[0],
     );
-    expect(JSON.parse(stdout()).ignore_rules_written).toBe(true);
+    expect(JSON.parse(stdout()).ignore_rules_active).toBe(true);
+  });
+
+  it("leaves a copy that already carries the defaults alone", async () => {
+    fetchAuthMeMock
+      .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
+      .mockResolvedValueOnce({ username: "alice", repos: [] });
+    getSpaceMock.mockResolvedValue(sourceResult());
+    copySpaceMock.mockResolvedValue(copyResult());
+    // A copy that one day carries more than markdown; today it never does.
+    const carried = "node_modules/\n\n# ideaspace defaults\n*.local.md\n";
+    cloneRepoMock.mockImplementation((_url: string, target: string) => {
+      mkdirSync(target, { recursive: true });
+      writeFileSync(join(target, ".gitignore"), carried);
+    });
+
+    const dir = join(tmpRoot, "already-ignored");
+    const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    // Already protected: nothing rewritten, nothing committed, and the answer
+    // is still that local-only files are ignored here.
+    expect(readFileSync(join(dir, ".gitignore"), "utf-8")).toBe(carried);
+    expect(commitPathsMock).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout()).ignore_rules_active).toBe(true);
   });
 
   it("keeps the fork when its ignore rules cannot be committed", async () => {
@@ -234,11 +258,13 @@ describe("fork", () => {
     const dir = join(tmpRoot, "commit-fails");
     const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
 
-    // The fork already happened on the server — a failed ignore commit reports
-    // what is unprotected, it does not fail the command.
+    // The fork already happened on the server — a failed ignore commit does not
+    // fail the command, and the rules it wrote are already in force: git reads
+    // .gitignore from the working tree, committed or not.
     expect(code).toBe(0);
-    expect(JSON.parse(stdout()).ignore_rules_written).toBe(false);
-    expect(stderr()).toContain("unprotected");
+    expect(readFileSync(join(dir, ".gitignore"), "utf-8")).toContain("*.local.md");
+    expect(JSON.parse(stdout()).ignore_rules_active).toBe(true);
+    expect(stderr()).toContain("commit `.gitignore`");
   });
 
   it("records lineage on the fallback record when route metadata is unavailable", async () => {
