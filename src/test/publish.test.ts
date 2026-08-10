@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { slugify, preflightSize, renderSizeProblems } from "../commands/publish.js";
+import { gitignoreDefaults } from "../templates/default.js";
 import type { GlobalFlags } from "../types.js";
 
 const baseGlobal: GlobalFlags = {
@@ -268,6 +269,48 @@ describe("ideaspaces publish", () => {
     const map = JSON.parse(readFileSync(join(tmp, ".ideaspaces", "spaces.json"), "utf-8"));
     const key = Object.keys(map).find((k) => k.endsWith("my-space"))!;
     expect(map[key]).toEqual({ repo_id: "repo_abc", slug: "my-space", namespace: "ernests_s" });
+  });
+
+  it("never carries a local-only file to the remote", async () => {
+    const dir = initLocalRepo("guided");
+    process.chdir(dir);
+    await writeCredentials();
+
+    // The state a fork arrives in after its ignore rules are scaffolded…
+    writeFileSync(join(dir, ".gitignore"), gitignoreDefaults({ privateAgent: false }));
+    spawnSync("git", ["-C", dir, "add", ".gitignore"]);
+    spawnSync("git", ["-C", dir, "commit", "-q", "-m", "Ignore local-only files"]);
+    // …and the progress the person then keeps in it.
+    writeFileSync(join(dir, "progress.local.md"), "# done: first space\n");
+
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) return authMeResponse();
+      if (url.endsWith("/repos")) {
+        return new Response(
+          JSON.stringify({ repo_id: "repo_guided", slug: "guided", name: "guided" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const bare = setupBareRemote("ernests_s", "guided");
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+
+    // What actually reached the server, read from the remote itself.
+    const pushed = spawnSync("git", ["-C", bare, "ls-tree", "-r", "--name-only", "main"], {
+      encoding: "utf-8",
+    }).stdout.split("\n").filter(Boolean);
+    expect(pushed).toContain("foo.md");
+    expect(pushed).toContain(".gitignore");
+    expect(pushed).not.toContain("progress.local.md");
+    // Still on disk, and still invisible to git.
+    expect(existsSync(join(dir, "progress.local.md"))).toBe(true);
+    const status = spawnSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf-8" });
+    expect(status.stdout.trim()).toBe("");
   });
 
   it("publishes through stable root identity and stores canonical route metadata", async () => {

@@ -41,7 +41,7 @@ import {
   GITATTRIBUTES,
   PERSPECTIVES_README_MD,
   SKILLS_README_MD,
-  gitignoreDefaults,
+  gitignoreWithDefaults,
 } from "../templates/default.js";
 
 const CONVENTION_READMES: Record<string, string> = {
@@ -397,19 +397,13 @@ async function applyPlan(opts: {
   }
 
   const gitignorePath = join(targetDir, ".gitignore");
-  const additions = gitignoreDefaults({ privateAgent });
-  if (inspection.hasGitignore) {
-    const existing = await fs.readFile(gitignorePath, "utf-8");
-    if (!existing.includes("# ideaspace defaults")) {
-      await fs.writeFile(
-        gitignorePath,
-        existing.endsWith("\n") ? existing + additions : existing + "\n" + additions,
-        "utf-8",
-      );
-      commitPaths.push(".gitignore");
-    }
-  } else {
-    await fs.writeFile(gitignorePath, additions.replace(/^\n/, ""), "utf-8");
+  const existingIgnore = inspection.hasGitignore
+    ? await fs.readFile(gitignorePath, "utf-8")
+    : null;
+  // null means the defaults are already there — leave the file untouched.
+  const mergedIgnore = gitignoreWithDefaults(existingIgnore, { privateAgent });
+  if (mergedIgnore !== null) {
+    await fs.writeFile(gitignorePath, mergedIgnore, "utf-8");
     commitPaths.push(".gitignore");
   }
 

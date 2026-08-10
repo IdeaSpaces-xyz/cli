@@ -15,9 +15,16 @@
  * straight from git; there is no separate session ledger of "what we captured".
  */
 
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { appendTrailers, isValidChangeId, type Op, type Trailers } from "@ideaspaces/protocol";
-import { commitPaths, repoRoot, stagedPaths, isIdeaspacePath, GitError } from "../git.js";
+import {
+  commitPaths,
+  repoRoot,
+  stagedPaths,
+  isIdeaspacePath,
+  ignoredPaths,
+  GitError,
+} from "../git.js";
 import { ensureLocalIdentity } from "../auth/identity.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -157,6 +164,24 @@ export const commitCommand: CommandDef = {
         'Refusing to commit with no paths. Name the paths to save:\n' +
           '  ideaspaces commit -m "<message>" <path>...\n' +
           "or use --all.",
+      );
+      return 1;
+    }
+
+    // Local-only paths are refused here rather than at `git add`, which would
+    // report the same thing while hinting at `-f`. Nothing the user names is
+    // partially committed: one ignored path refuses the whole call.
+    const ignored = ignoredPaths(paths, root);
+    if (ignored.length) {
+      const shown = ignored.map((p) => `  ${relative(root, p) || p}`).join("\n");
+      // Deliberately does not name `.gitignore`: check-ignore also honors
+      // `.git/info/exclude` and the user's global excludes, so pointing at one
+      // file would be wrong for the others. `-v` names whichever it was.
+      output.error(
+        `Refusing to commit ${ignored.length} local-only path(s) — an ignore rule covers them:\n` +
+          `${shown}\n` +
+          "These stay on this machine by design: they are never staged, committed, pushed, or published.\n" +
+          `If that is wrong, \`git check-ignore -v ${ignored.length === 1 ? relative(root, ignored[0]) || ignored[0] : "<path>"}\` names the rule to change.`,
       );
       return 1;
     }

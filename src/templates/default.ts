@@ -360,8 +360,33 @@ export function gitignoreDefaults(opts: { privateAgent: boolean }): string {
       "CLAUDE.local.md",
     );
   }
-  lines.push("*.draft.md", "scratch/", "_local/", "");
+  lines.push(
+    "*.draft.md",
+    "scratch/",
+    "_local/",
+    "# Local-only material — yours, on this machine. Never synced or shared.",
+    "*.local.md",
+    "",
+  );
   return lines.join("\n");
+}
+
+/**
+ * The `.gitignore` a scaffold should write, or `null` when the defaults are
+ * already in place and the file must be left alone.
+ *
+ * Shared by `create` and `fork` so the two scaffolds cannot drift on what
+ * local-only means. Pass `null` for `existing` when there is no `.gitignore` —
+ * the state every forked Space arrives in.
+ */
+export function gitignoreWithDefaults(
+  existing: string | null,
+  opts: { privateAgent: boolean },
+): string | null {
+  const additions = gitignoreDefaults(opts);
+  if (existing === null) return additions.replace(/^\n/, "");
+  if (existing.includes("# ideaspace defaults")) return null;
+  return existing.endsWith("\n") ? existing + additions : existing + "\n" + additions;
 }
 
 /** Seed contract files keyed by name.

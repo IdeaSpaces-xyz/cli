@@ -152,6 +152,26 @@ export function commitPaths(message: string, paths: string[], cwd?: string): str
 }
 
 /**
+ * The subset of `paths` git would refuse to stage because a `.gitignore` rule
+ * covers them and nothing tracks them yet.
+ *
+ * Two exit codes are both answers here: `check-ignore` exits 1 for "nothing
+ * matched", which is not a failure. And an ignore rule over an *already
+ * tracked* path is inert — `git add` honors the index over `.gitignore` — so
+ * those are filtered out rather than reported as refusals that would not happen.
+ */
+export function ignoredPaths(paths: string[], cwd?: string): string[] {
+  if (!paths.length) return [];
+  const matched = git(["check-ignore", "--", ...paths], cwd)
+    .out.split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return matched.filter(
+    (path) => gitExit(["ls-files", "--error-unmatch", "--", path], cwd) !== 0,
+  );
+}
+
+/**
  * Content blob sha of a file (`git hash-object`), or null if it doesn't exist.
  *
  * This is the optimistic-concurrency token: it depends only on file content,

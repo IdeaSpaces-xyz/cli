@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,7 @@ const {
   saveSpaceMock,
   registerHelperMock,
   setLocalConfigMock,
+  commitPathsMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   fetchAuthMeMock: vi.fn(),
@@ -22,6 +23,7 @@ const {
   saveSpaceMock: vi.fn(),
   registerHelperMock: vi.fn(),
   setLocalConfigMock: vi.fn(),
+  commitPathsMock: vi.fn(),
 }));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
@@ -34,7 +36,11 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     copySpace: copySpaceMock,
   };
 });
-vi.mock("../git.js", () => ({ cloneRepo: cloneRepoMock, setLocalConfig: setLocalConfigMock }));
+vi.mock("../git.js", () => ({
+  cloneRepo: cloneRepoMock,
+  setLocalConfig: setLocalConfigMock,
+  commitPaths: commitPathsMock,
+}));
 vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock }));
 vi.mock("../auth/git-credential-helper.js", () => ({ registerGitCredentialHelper: registerHelperMock }));
 
@@ -49,8 +55,13 @@ let stdoutChunks: string[];
 let stderrChunks: string[];
 let originalOut: typeof process.stdout.write;
 let originalErr: typeof process.stderr.write;
+// The clone mock now materializes the destination, so each test needs its own
+// root: fork refuses a directory that already exists, and a leftover from a
+// previous run would make these fail for the wrong reason.
+let tmpRoot: string;
 
 beforeEach(() => {
+  tmpRoot = mkdtempSync(join(tmpdir(), "is-cli-fork-"));
   for (const mock of [
     loadConfigMock,
     fetchAuthMeMock,
@@ -60,9 +71,14 @@ beforeEach(() => {
     saveSpaceMock,
     registerHelperMock,
     setLocalConfigMock,
+    commitPathsMock,
   ]) {
     mock.mockReset();
   }
+  // The real clone creates the destination; the ignore scaffold writes into it.
+  cloneRepoMock.mockImplementation((_url: string, dir: string) => {
+    mkdirSync(dir, { recursive: true });
+  });
   loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
   stdoutChunks = [];
   stderrChunks = [];
@@ -81,6 +97,7 @@ beforeEach(() => {
 afterEach(() => {
   (process.stdout.write as unknown as typeof originalOut) = originalOut;
   (process.stderr.write as unknown as typeof originalErr) = originalErr;
+  rmSync(tmpRoot, { recursive: true, force: true });
 });
 
 const stdout = () => stdoutChunks.join("");
@@ -139,7 +156,7 @@ describe("fork", () => {
     getSpaceMock.mockResolvedValue(sourceResult());
     copySpaceMock.mockResolvedValue(copyResult());
 
-    const dir = `/tmp/is-cli-fork-${process.pid}-success`;
+    const dir = join(tmpRoot, "success");
     const code = await forkCommand.run(
       [SOURCE_URL, dir],
       { location: "acme.com" },
@@ -178,6 +195,103 @@ describe("fork", () => {
     });
   });
 
+  it("writes and commits ignore rules into the clone the copy could not carry", async () => {
+    fetchAuthMeMock
+      .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
+      .mockResolvedValueOnce({ username: "alice", repos: [] });
+    getSpaceMock.mockResolvedValue(sourceResult());
+    copySpaceMock.mockResolvedValue(copyResult());
+
+    const dir = join(tmpRoot, "ignored");
+    const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    const written = readFileSync(join(dir, ".gitignore"), "utf-8");
+    expect(written).toContain("*.local.md");
+    expect(commitPathsMock).toHaveBeenCalledWith(
+      "Ignore local-only files",
+      [".gitignore"],
+      dir,
+    );
+    // Identity is wired before the ignore commit — it becomes the clone's tip,
+    // and publish's pre-receive check reads the tip author.
+    expect(setLocalConfigMock.mock.invocationCallOrder[0]).toBeLessThan(
+      commitPathsMock.mock.invocationCallOrder[0],
+    );
+    expect(JSON.parse(stdout()).ignore_rules_active).toBe(true);
+  });
+
+  it("leaves a copy that already carries the defaults alone", async () => {
+    fetchAuthMeMock
+      .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
+      .mockResolvedValueOnce({ username: "alice", repos: [] });
+    getSpaceMock.mockResolvedValue(sourceResult());
+    copySpaceMock.mockResolvedValue(copyResult());
+    // A copy that one day carries more than markdown; today it never does.
+    const carried = "node_modules/\n\n# ideaspace defaults\n*.local.md\n";
+    cloneRepoMock.mockImplementation((_url: string, target: string) => {
+      mkdirSync(target, { recursive: true });
+      writeFileSync(join(target, ".gitignore"), carried);
+    });
+
+    const dir = join(tmpRoot, "already-ignored");
+    const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    // Already protected: nothing rewritten, nothing committed, and the answer
+    // is still that local-only files are ignored here.
+    expect(readFileSync(join(dir, ".gitignore"), "utf-8")).toBe(carried);
+    expect(commitPathsMock).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout()).ignore_rules_active).toBe(true);
+  });
+
+  it("says so on every surface when the rules could not be written at all", async () => {
+    fetchAuthMeMock
+      .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
+      .mockResolvedValueOnce({ username: "alice", repos: [] });
+    getSpaceMock.mockResolvedValue(sourceResult());
+    copySpaceMock.mockResolvedValue(copyResult());
+    // Clone into a path the scaffold cannot write: the destination is a file.
+    cloneRepoMock.mockImplementation((_url: string, target: string) => {
+      mkdirSync(join(target, ".gitignore"), { recursive: true });
+    });
+
+    const dir = join(tmpRoot, "unwritable");
+    // --quiet, no --json: the surface where a suppressed log would be the only
+    // signal that nothing in this clone is ignored.
+    const code = await forkCommand.run(
+      [SOURCE_URL, dir],
+      {},
+      { json: false, quiet: true, yes: false, help: false },
+    );
+
+    expect(code).toBe(0);
+    expect(stderr()).toContain("unprotected");
+    expect(stdout()).toContain("NOT ignored");
+  });
+
+  it("keeps the fork when its ignore rules cannot be committed", async () => {
+    fetchAuthMeMock
+      .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
+      .mockResolvedValueOnce({ username: "alice", repos: [] });
+    getSpaceMock.mockResolvedValue(sourceResult());
+    copySpaceMock.mockResolvedValue(copyResult());
+    commitPathsMock.mockImplementation(() => {
+      throw new Error("no identity configured");
+    });
+
+    const dir = join(tmpRoot, "commit-fails");
+    const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
+
+    // The fork already happened on the server — a failed ignore commit does not
+    // fail the command, and the rules it wrote are already in force: git reads
+    // .gitignore from the working tree, committed or not.
+    expect(code).toBe(0);
+    expect(readFileSync(join(dir, ".gitignore"), "utf-8")).toContain("*.local.md");
+    expect(JSON.parse(stdout()).ignore_rules_active).toBe(true);
+    expect(stderr()).toContain("commit `.gitignore`");
+  });
+
   it("records lineage on the fallback record when route metadata is unavailable", async () => {
     fetchAuthMeMock
       .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
@@ -185,7 +299,7 @@ describe("fork", () => {
     getSpaceMock.mockResolvedValue(sourceResult());
     copySpaceMock.mockResolvedValue(copyResult());
 
-    const dir = `/tmp/is-cli-fork-${process.pid}-fallback`;
+    const dir = join(tmpRoot, "fallback");
     const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
 
     expect(code).toBe(0);
@@ -206,7 +320,7 @@ describe("fork", () => {
     getSpaceMock.mockResolvedValue(sourceResult());
     copySpaceMock.mockResolvedValue({ ...copyResult(), source_head: "  " });
 
-    const dir = `/tmp/is-cli-fork-${process.pid}-nohead`;
+    const dir = join(tmpRoot, "nohead");
     const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
 
     expect(code).toBe(0);
@@ -301,7 +415,7 @@ describe("fork", () => {
     });
 
     const code = await forkCommand.run(
-      [SOURCE_URL, `/tmp/is-cli-fork-${process.pid}-failure`],
+      [SOURCE_URL, join(tmpRoot, "failure")],
       {},
       JSON_GLOBAL,
     );

@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   copySpace,
   fetchAuthMe,
@@ -11,8 +11,9 @@ import { loadConfig } from "../auth/credentials.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { saveSpace, type SpaceRecord } from "../auth/spaces.js";
-import { cloneRepo, setLocalConfig } from "../git.js";
+import { cloneRepo, commitPaths, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
+import { gitignoreWithDefaults } from "../templates/default.js";
 import {
   canonicalGitUrl,
   canonicalSpaceUrl,
@@ -43,6 +44,56 @@ function fallbackRecord(
     route_slug: null,
     canonical_path: `/spaces/${result.root_node_id}`,
   };
+}
+
+/**
+ * Give the clone the ignore rules the copy could not carry.
+ *
+ * A forked Space arrives with **no `.gitignore`** — the platform copy is
+ * markdown-only, so ignore rules cannot cross the boundary and `create`'s
+ * scaffold never runs on this path. Without this, local-only files in a fork
+ * are stageable by default, and the first `commit --all` or `publish` takes
+ * them with it.
+ *
+ * Best-effort by design, like `create`'s git finalize: a fork that already
+ * succeeded must not fail because its ignore commit did.
+ *
+ * Returns whether local-only files are ignored in this clone — which is a
+ * different question from whether we wrote anything. A copy that already
+ * carries the defaults is protected without us, and a `.gitignore` written but
+ * not committed is already in force, because git reads it from the working
+ * tree.
+ */
+function scaffoldIgnoreRules(dir: string, output: ReturnType<typeof createOutput>): boolean {
+  const path = join(dir, ".gitignore");
+  let written = false;
+  try {
+    // The read is for a copy that one day carries more than markdown; today it
+    // always finds nothing.
+    const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
+    const merged = gitignoreWithDefaults(existing, { privateAgent: false });
+    if (merged === null) return true;
+    writeFileSync(path, merged);
+    written = true;
+    commitPaths("Ignore local-only files", [".gitignore"], dir);
+    return true;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    if (written) {
+      output.log(
+        `Fork succeeded and its .gitignore is in force, but committing it failed: ${reason}. ` +
+          "Local-only files are ignored here; commit `.gitignore` to keep it that way.",
+      );
+    } else {
+      // error(), not log(): --quiet suppresses log, and a clone where nothing
+      // is ignored must not exit 0 in silence.
+      output.error(
+        `Fork succeeded, but its ignore rules could not be written: ${reason}. ` +
+          "Local-only files are unprotected in this clone.",
+      );
+    }
+    return written;
+  }
 }
 
 export const forkCommand: CommandDef = {
@@ -200,10 +251,15 @@ export const forkCommand: CommandDef = {
       }
     }
 
+    // Identity first, then the ignore commit: this is the clone's tip, and
+    // publish's pre-receive check reads the tip author.
+    const ignoreRulesActive = scaffoldIgnoreRules(dir, output);
+
     output.result(
       {
         source_root_node_id: sourceRoot,
         source_head: pinnedHead,
+        ignore_rules_active: ignoreRulesActive,
         repo_id: copied.repo_id,
         root_node_id: copied.root_node_id,
         slug: copied.slug,
@@ -222,6 +278,11 @@ export const forkCommand: CommandDef = {
         copied.index_status === "unindexed"
           ? "Content is cloned; hosted indexing needs recovery."
           : "Hosted index is fresh.",
+        // A degraded safety state belongs in the summary, not only in a log
+        // line — the human-readable path is where most people will see it.
+        ...(ignoreRulesActive
+          ? []
+          : ["Local-only files are NOT ignored in this clone — see the warning above."]),
       ].join("\n"),
     );
     return 0;
