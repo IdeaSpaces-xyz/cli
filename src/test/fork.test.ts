@@ -166,13 +166,56 @@ describe("fork", () => {
       route_namespace: "acme.com",
       route_slug: "manual",
       canonical_path: `/spaces/${DEST_ROOT}`,
+      source_root_node_id: SOURCE_ROOT,
+      source_head: "abc123",
     });
     expect(JSON.parse(stdout())).toMatchObject({
       source_root_node_id: SOURCE_ROOT,
+      source_head: "abc123",
       root_node_id: DEST_ROOT,
       space_url: `https://example.test/spaces/${DEST_ROOT}`,
       source_history_copied: false,
     });
+  });
+
+  it("records lineage on the fallback record when route metadata is unavailable", async () => {
+    fetchAuthMeMock
+      .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    getSpaceMock.mockResolvedValue(sourceResult());
+    copySpaceMock.mockResolvedValue(copyResult());
+
+    const dir = `/tmp/is-cli-fork-${process.pid}-fallback`;
+    const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(saveSpaceMock).toHaveBeenCalledWith(
+      dir,
+      expect.objectContaining({
+        source_root_node_id: SOURCE_ROOT,
+        source_head: "abc123",
+        route_status: "unavailable",
+      }),
+    );
+  });
+
+  it("leaves the pin unset when the server reports no source head", async () => {
+    fetchAuthMeMock
+      .mockResolvedValueOnce({ username: "alice", name: "Alice", repos: [] })
+      .mockResolvedValueOnce({ username: "alice", repos: [] });
+    getSpaceMock.mockResolvedValue(sourceResult());
+    copySpaceMock.mockResolvedValue({ ...copyResult(), source_head: "  " });
+
+    const dir = `/tmp/is-cli-fork-${process.pid}-nohead`;
+    const code = await forkCommand.run([SOURCE_URL, dir], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    const record = saveSpaceMock.mock.calls.at(-1)?.[1];
+    expect(record.source_root_node_id).toBe(SOURCE_ROOT);
+    // Absent, not blank — an update path must be able to tell "no pin" from a
+    // pin that is not a commit.
+    expect(record).not.toHaveProperty("source_head");
+    expect(JSON.parse(stdout()).source_head).toBeNull();
   });
 
   it("rejects an unconfigured source URL before any source request", async () => {
