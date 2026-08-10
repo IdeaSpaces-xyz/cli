@@ -59,6 +59,51 @@ describe("auth/spaces", () => {
     });
   });
 
+  it("stores fork lineage and reads it back", async () => {
+    const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
+    saveSpace("/fork", {
+      repo_id: "r_copy",
+      root_node_id: "n_0123456789abcdef01234567",
+      slug: "manual",
+      namespace: "alice",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+    });
+
+    expect(findSpaceFor("/fork")).toMatchObject({
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+    });
+  });
+
+  it("loads a record written before lineage existed", async () => {
+    const dir = join(tmp, ".ideaspaces");
+    const fs = await import("node:fs");
+    fs.mkdirSync(dir, { recursive: true });
+    // Byte-for-byte a pre-lineage record: no source fields at all.
+    fs.writeFileSync(
+      join(dir, "spaces.json"),
+      JSON.stringify({
+        "/legacy": {
+          repo_id: "r_old",
+          slug: "notes",
+          namespace: "alice",
+          root_node_id: "n_0123456789abcdef01234567",
+          route_status: "resolved",
+          route_namespace: "alice",
+          route_slug: "notes",
+          canonical_path: "/spaces/n_0123456789abcdef01234567",
+        },
+      }),
+    );
+
+    const { findSpaceFor } = await import("../auth/spaces.js");
+    const record = findSpaceFor("/legacy");
+    expect(record?.repo_id).toBe("r_old");
+    expect(record?.source_root_node_id).toBeUndefined();
+    expect(record?.source_head).toBeUndefined();
+  });
+
   it("findSpaceFor returns the record for a known absolute path", async () => {
     const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
     saveSpace("/abs/path", { repo_id: "r", slug: "s", namespace: "n" });

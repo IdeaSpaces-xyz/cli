@@ -26,6 +26,17 @@ export interface SpaceRecord {
   route_namespace?: string | null;
   route_slug?: string | null;
   canonical_path?: string | null;
+  /**
+   * Lineage — written by `fork` only, and only when the server reported it.
+   *
+   * A fork's git remote points at the copy, not at the source, so without
+   * these the clone has no way back to where it came from. A clone or a
+   * publish has no source and must leave both unset: absent means "not a
+   * fork", not "a fork we forgot to record".
+   */
+  source_root_node_id?: string;
+  /** Source commit the copy was pinned at — the base any later update reads from. */
+  source_head?: string;
 }
 
 /** Map of absolute folder path → space record. */

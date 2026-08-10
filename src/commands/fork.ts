@@ -132,6 +132,14 @@ export const forkCommand: CommandDef = {
       return 1;
     }
 
+    // Typed as required, but the response is cast rather than validated. A
+    // server that omits it must leave the pin unrecorded — an update path
+    // reading a blank commit is worse than one that reports no pin at all.
+    const pinnedHead =
+      typeof copied.source_head === "string" && copied.source_head.trim()
+        ? copied.source_head.trim()
+        : null;
+
     const destinationUrl = canonicalSpaceUrl(config.apiUrl, copied.root_node_id);
     const remoteUrl = canonicalGitUrl(config.apiUrl, copied.root_node_id);
     const dir = requestedDir ?? resolve(copied.slug);
@@ -164,9 +172,15 @@ export const forkCommand: CommandDef = {
     }
 
     const namespace = hostname ?? me.username ?? "";
-    const record = destinationRepo
-      ? spaceRecordForRepo(destinationRepo, me.username)
-      : fallbackRecord(copied, namespace);
+    // The clone's remote is the copy's own. Record where it came from and at
+    // what commit, or nothing downstream can ever offer an update.
+    const record: SpaceRecord = {
+      ...(destinationRepo
+        ? spaceRecordForRepo(destinationRepo, me.username)
+        : fallbackRecord(copied, namespace)),
+      source_root_node_id: sourceRoot,
+      ...(pinnedHead ? { source_head: pinnedHead } : {}),
+    };
     try {
       saveSpace(dir, record);
     } catch {
@@ -189,6 +203,7 @@ export const forkCommand: CommandDef = {
     output.result(
       {
         source_root_node_id: sourceRoot,
+        source_head: pinnedHead,
         repo_id: copied.repo_id,
         root_node_id: copied.root_node_id,
         slug: copied.slug,
