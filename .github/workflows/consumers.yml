@@ -1,0 +1,37 @@
+name: Consumers
+
+# Reports how far each declared consumer's pin sits behind main. Deliberately a
+# report, not a gate: a PR is not wrong because a downstream repo is behind, and
+# a green check here would imply a coverage this cannot have — the private
+# consumers are unreadable with the default repo-scoped token, and the script
+# says so rather than counting them current.
+#
+# Give it a token with read access to the consumer repos (CONSUMERS_TOKEN) and
+# `--strict` becomes meaningful; until then this is the visible version of a
+# question that previously nobody asked.
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  report:
+    name: Consumer pins
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check consumer pins
+        env:
+          GH_TOKEN: ${{ secrets.CONSUMERS_TOKEN || github.token }}
+        run: |
+          node scripts/check-consumers.mjs | tee report.txt
+          {
+            echo '## Consumer pins'
+            echo '```'
+            cat report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

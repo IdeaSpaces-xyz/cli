@@ -1,0 +1,39 @@
+{
+  "$comment": [
+    "Repos that ship this CLI to someone. Declared here because nothing else knows.",
+    "",
+    "Each of these pins a commit of this repo. When main moves, every pin is silently",
+    "stale until a person happens to look — which is how ideaspaces-plugin sat 6 commits",
+    "behind and pi-is-space 7, both carrying a commit verb that would save a file the",
+    "user was promised would stay local. Neither repo was broken. Nothing asked.",
+    "",
+    "`tracked: false` means a consumer maintains its own bump flow. It is still listed:",
+    "the point of this file is that the set is knowable, not that we drive all of it."
+  ],
+  "consumers": [
+    {
+      "repo": "IdeaSpaces-xyz/claude-code-plugin",
+      "owner": "integrator",
+      "tracked": true,
+      "consumes": "vendored bundle",
+      "pin": { "file": "vendor-lock.json", "path": ["cli", "commit"] },
+      "note": "Ships cli/bundle/ideaspaces.js to Claude Code users. Bump via `npm run vendor` there, then a version bump — Claude Code keys its install cache by plugin version."
+    },
+    {
+      "repo": "IdeaSpaces-xyz/pi-is-space",
+      "owner": "integrator",
+      "tracked": true,
+      "consumes": "npm pin",
+      "pin": { "file": "package.json", "path": ["dependencies", "@ideaspaces/cli"] },
+      "note": "Shells the CLI's commit verb from src/index.ts — both the --all and explicit-path shapes — so a stale pin means the other agent surface behaves differently from Claude Code's."
+    },
+    {
+      "repo": "IdeaSpaces-xyz/is_desktop",
+      "owner": "desktop",
+      "tracked": false,
+      "consumes": "npm pin",
+      "pin": { "file": "package.json", "path": ["devDependencies", "@ideaspaces/cli"] },
+      "note": "Bumped on the desktop vantage's own flow, which runs its own checks. Listed so the set is complete, not to be driven from here. It also depends on pi-is-space, so it can resolve two CLI builds at once — worth knowing when a behaviour differs between its sidecars."
+    }
+  ]
+}
