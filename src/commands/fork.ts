@@ -237,7 +237,7 @@ export const forkCommand: CommandDef = {
     } catch {
       output.error(
         `Fork and clone succeeded at ${destinationUrl}, but the local registry could not be updated. ` +
-          "Run `ideaspaces link` from this clone to repair the binding.",
+          "Run `ideaspaces link .` from this clone to repair the binding.",
       );
       return 1;
     }

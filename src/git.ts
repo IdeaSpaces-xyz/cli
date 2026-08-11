@@ -344,6 +344,28 @@ export function pathsAheadOfUpstream(cwd?: string): string[] {
   return [...new Set(r.out.split("\n").map((p) => p.trim()).filter(Boolean))];
 }
 
+/**
+ * Of `shas`, the ones not already reachable from HEAD — what is genuinely
+ * incoming rather than what we happen to be told about.
+ *
+ * The hosted trail answers "the Space's most recent commits", which is not the
+ * same question as "what I do not have": a clone one commit behind is told
+ * about twenty, nineteen of them its own. Only the local repo can tell the
+ * difference, and it can — after a fetch it holds the objects.
+ *
+ * Returns null when git cannot answer at all. One unknown or ambiguous sha
+ * fails the whole invocation, and the trail speaks in abbreviations, so this is
+ * a real case: callers show the unfiltered list rather than nothing.
+ */
+export function commitsNotInHistory(shas: string[], cwd?: string): Set<string> | null {
+  if (!shas.length) return new Set();
+  const r = git(["rev-list", "--no-walk", ...shas, "--not", "HEAD"], cwd);
+  if (!r.ok) return null;
+  const full = r.out.split("\n").map((s) => s.trim()).filter(Boolean);
+  // rev-list answers in full shas; the trail asked in abbreviated ones.
+  return new Set(shas.filter((sha) => full.some((f) => f.startsWith(sha))));
+}
+
 /** Fetch from the upstream remote. Throws on failure (e.g. no network). */
 export function fetch(cwd?: string): void {
   gitOrThrow(["fetch"], cwd);

@@ -287,6 +287,61 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(out.incoming_unavailable).toContain("trail has not been shared with you");
   });
 
+  it("lists only what is genuinely incoming, not the trail's recent history", async () => {
+    advanceOrigin();
+    // What the endpoint really returns: the Space's most recent commits. Most
+    // of them are ours already — this is the live shape, where a clone one
+    // commit behind was shown twenty, nineteen of them its own.
+    const ours = git(clone, ["rev-parse", "HEAD"]);
+    // Read from the bare origin, not the clone's remote-tracking ref: that ref
+    // is still stale here, because the fetch that updates it is inside the run
+    // under test. Reading it locally would hand the test its own HEAD.
+    const theirs = git(join(tmp, "origin.git"), ["rev-parse", "main"]);
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: theirs, message: "theirs", date: "d", author: "Them" },
+        { sha: ours, message: "seed — already ours", date: "d", author: "Us" },
+      ],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.behind).toBe(1);
+    expect(out.incoming.commits).toHaveLength(1);
+    expect(out.incoming.commits[0].sha).toBe(theirs);
+  });
+
+  it("shows the list whole when git cannot tell them apart", async () => {
+    advanceOrigin();
+    // An unknown sha makes rev-list refuse the whole question. Showing a list
+    // that may include our own beats showing nothing.
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", message: "unknown", date: "d", author: "T" },
+      ],
+    });
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("some may already be yours");
+  });
+
+  it("says so when the trail's window holds nothing new", async () => {
+    advanceOrigin();
+    const ours = git(clone, ["rev-parse", "HEAD"]);
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [{ sha: ours, message: "already ours", date: "d", author: "Us" }],
+    });
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+    // Behind, but everything the window shows is already here — the reader
+    // must not read an empty list as "nothing changed".
+    expect(stdout).toContain("raise --limit");
+  });
+
   it("passes --limit through, and clamps what the endpoint would refuse", async () => {
     advanceOrigin();
 
@@ -426,6 +481,7 @@ describe("ideaspaces sync — the integration boundary", () => {
     "mergeBaseWithUpstream",
     "commitsAheadOfUpstream",
     "pathsAheadOfUpstream",
+    "commitsNotInHistory",
   ];
 
   function syncSource(): string {
