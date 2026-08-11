@@ -179,6 +179,27 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(since).toBe(git(clone, ["merge-base", "HEAD", "@{upstream}"]));
   });
 
+  it("passes --limit through, and clamps what the endpoint would refuse", async () => {
+    advanceOrigin();
+
+    expect(await syncCommand.run([], { limit: "5" }, JSON_G)).toBe(0);
+    expect(fetchTrailLogMock).toHaveBeenCalledWith(expect.anything(), ROOT_NODE_ID, 5);
+
+    // The endpoint refuses 0 and caps at 100 — clamp rather than round-trip a
+    // 422 the user cannot act on.
+    fetchTrailLogMock.mockClear();
+    expect(await syncCommand.run([], { limit: "0" }, JSON_G)).toBe(0);
+    expect(fetchTrailLogMock).toHaveBeenCalledWith(expect.anything(), ROOT_NODE_ID, 1);
+
+    fetchTrailLogMock.mockClear();
+    expect(await syncCommand.run([], { limit: "5000" }, JSON_G)).toBe(0);
+    expect(fetchTrailLogMock).toHaveBeenCalledWith(expect.anything(), ROOT_NODE_ID, 100);
+
+    fetchTrailLogMock.mockClear();
+    expect(await syncCommand.run([], { limit: "not-a-number" }, JSON_G)).toBe(0);
+    expect(fetchTrailLogMock).toHaveBeenCalledWith(expect.anything(), ROOT_NODE_ID, 20);
+  });
+
   it("reports a local-only ideaspace and exits 0", async () => {
     const solo = join(tmp, "solo");
     spawnSync("git", ["init", "-q", "-b", "main", solo]);

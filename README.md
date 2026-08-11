@@ -60,6 +60,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 ### Sync & publish
 | Command | What it does |
 |---|---|
+| `sync` | Report where you and the Space stand — reads only, integrates nothing |
 | `push` | Send your committed captures to the remote |
 | `pull` | Integrate remote changes into your local copy |
 | `publish` | Publish a local space to the server |

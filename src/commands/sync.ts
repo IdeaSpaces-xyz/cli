@@ -83,12 +83,22 @@ export const syncCommand: CommandDef = {
       return 1;
     }
 
+    // Separate from the fetch below on purpose: this writes the global git
+    // config, and folding its failure into the fetch's would report an
+    // unwritable ~/.gitconfig as a network problem and send someone debugging
+    // the wrong thing.
+    try {
+      await registerGitCredentialHelper();
+    } catch {
+      // Non-fatal — an already-registered helper, or a public remote that
+      // needs none. The fetch below reports for real if auth is the problem.
+    }
+
     // Refs only. Failure is not fatal — a stale position beats no answer, and
     // saying the position is stale is more use than exiting 1.
     let fetched = true;
     let fetchError: string | null = null;
     try {
-      await registerGitCredentialHelper();
       gitFetch(root);
     } catch (err) {
       fetched = false;
