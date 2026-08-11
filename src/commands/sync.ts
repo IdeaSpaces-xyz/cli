@@ -134,6 +134,7 @@ export const syncCommand: CommandDef = {
           // Present and null, not absent: a --json caller reads one schema
           // across every exit path, rather than one that varies by branch.
           incoming_unavailable: null,
+          resolved_via: null,
           outgoing: null,
           integrated: false,
         },
@@ -168,19 +169,31 @@ export const syncCommand: CommandDef = {
     // Whether a window came back at all. An empty list means two different
     // things depending on this, and they need opposite advice.
     let windowRead = false;
+    // How this clone was identified. A registry hit and an account lookup are
+    // very different answers when a reader is working out why something looks
+    // wrong, so it is reported rather than kept internal.
+    let resolvedVia: "record" | "origin" | "account" | null = null;
 
     if (rs.behind) {
       const config = loadConfig();
       // Not "is this clone registered" but "which Space is it" — a legacy
       // record without a root node id still knows, and so does the origin.
       const binding = await resolveSpaceBinding(root, config);
-      const rootNodeId = binding?.rootNodeId ?? null;
+      const rootNodeId = "rootNodeId" in binding ? binding.rootNodeId : null;
+      resolvedVia = "via" in binding ? binding.via : null;
       if (!rootNodeId) {
-        // Two different dead ends, and they need different next steps.
-        incomingNote = config
-          ? "Could not tell which Space this clone belongs to — its origin isn't a canonical Space URL " +
-            "and no Space on your account matches it. Bind it explicitly: ideaspaces link . <space>"
-          : "Log in to see what changed on the other side: ideaspaces login";
+        const failure = "failure" in binding ? binding.failure : "no-match";
+        // Each dead end has a different next step, and one of them is not
+        // `link`: when the account could not be reached, `link` makes the same
+        // call and fails the same way.
+        incomingNote = !config
+          ? "Log in to see what changed on the other side: ideaspaces login"
+          : failure === "unreachable"
+            ? "Could not reach your account to work out which Space this clone is. Retry when you're back online."
+            : failure === "ambiguous"
+              ? "This clone's origin matches more than one of your Spaces. Name the right one: ideaspaces link . <space>"
+              : "Could not tell which Space this clone belongs to — its origin isn't a canonical Space URL " +
+                "and no Space on your account matches it. Bind it explicitly: ideaspaces link . <space>";
       } else if (!config) {
         // The coordinate came from the clone itself; reading the trail still
         // needs a session.
@@ -304,6 +317,7 @@ export const syncCommand: CommandDef = {
         // an empty change list needs to know whether that means "nothing
         // changed" or "we could not find out".
         incoming_unavailable: incomingNote,
+        resolved_via: resolvedVia,
         // Stated in the payload, not only in the prose: nothing moved.
         integrated: false,
       },

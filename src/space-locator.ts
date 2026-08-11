@@ -122,22 +122,24 @@ export function repoKeys(
  *
  * `/spaces/{root_node_id}.git` puts the Space's stable identity in the remote
  * itself, so a clone made since that form landed needs no registry entry and no
- * network call to say which Space it is. When the CLI is configured, the host
- * must match: a node id addressed at the wrong deployment is not this Space.
+ * network call to say which Space it is.
+ *
+ * `apiUrl` is required rather than optional: the host must match, because a
+ * node id addressed at the wrong deployment is not this Space, and an optional
+ * argument is a check a future caller can skip by forgetting it. Callers
+ * without a session pass the environment's default.
  */
-export function rootNodeIdFromGitUrl(url: string, apiUrl?: string): string | null {
+export function rootNodeIdFromGitUrl(url: string, apiUrl: string): string | null {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     return null;
   }
-  if (apiUrl) {
-    try {
-      if (parsed.host !== new URL(deriveGitBase(apiUrl)).host) return null;
-    } catch {
-      return null;
-    }
+  try {
+    if (parsed.host !== new URL(deriveGitBase(apiUrl)).host) return null;
+  } catch {
+    return null;
   }
   const match = new RegExp(`^/spaces/(${NODE_ID_PATTERN})\\.git$`).exec(parsed.pathname);
   return match ? match[1] : null;

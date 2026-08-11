@@ -88,7 +88,7 @@ describe("resolveSpaceBinding", () => {
 
     // Logged out is the normal first call for a Grant-only reader. If the check
     // only ran when a session happened to exist, this would be accepted.
-    expect(await resolveSpaceBinding(dir, null)).toBeNull();
+    expect(await resolveSpaceBinding(dir, null)).toEqual({ failure: "no-match" });
   });
 
   it("does not heal a clone it has no record for", async () => {
@@ -109,7 +109,7 @@ describe("resolveSpaceBinding", () => {
     fetchAuthMeMock.mockResolvedValue({ username: "alice", repos: [] });
 
     // A node id addressed at the wrong host is not this Space.
-    expect(await resolveSpaceBinding(dir, CONFIG)).toBeNull();
+    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({ failure: "no-match" });
   });
 
   it("matches a legacy origin against the account and records what it learned", async () => {
@@ -188,7 +188,7 @@ describe("resolveSpaceBinding", () => {
 
     // `ideaspaces link <dir> <space>` exists to be told; guessing would bind
     // the clone to the wrong Space silently.
-    expect(await resolveSpaceBinding(dir, CONFIG)).toBeNull();
+    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({ failure: "ambiguous" });
   });
 
   it("returns null rather than throwing when the account cannot be reached", async () => {
@@ -196,7 +196,9 @@ describe("resolveSpaceBinding", () => {
     const dir = repoWithOrigin("offline", "https://git.example.test/alice/notes.git");
     fetchAuthMeMock.mockRejectedValue(new Error("network down"));
 
-    expect(await resolveSpaceBinding(dir, CONFIG)).toBeNull();
+    // Distinct from "no match": telling this reader to run `link` would be
+    // wrong advice, since `link` makes the same call.
+    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({ failure: "unreachable" });
   });
 
   it("gives up on a clone with no origin at all", async () => {
@@ -204,7 +206,7 @@ describe("resolveSpaceBinding", () => {
     const dir = join(tmp, "no-remote");
     spawnSync("git", ["init", "-q", "-b", "main", dir]);
 
-    expect(await resolveSpaceBinding(realpathSync(dir), CONFIG)).toBeNull();
+    expect(await resolveSpaceBinding(realpathSync(dir), CONFIG)).toEqual({ failure: "no-match" });
     expect(fetchAuthMeMock).not.toHaveBeenCalled();
   });
 });

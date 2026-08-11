@@ -32,9 +32,20 @@ import { repoKeys, rootNodeIdFromGitUrl, spaceRecordForRepo } from "../space-loc
 
 export interface SpaceBinding {
   rootNodeId: string;
-  /** Which rung answered — for reporting, and for telling a heal from a hit. */
+  /** Which rung answered. Surfaced in `--json` so a reader can see how a
+   * clone was identified — a registry hit and an account lookup are very
+   * different answers when something looks wrong. */
   via: "record" | "origin" | "account";
 }
+
+/**
+ * Why resolution failed, when it does.
+ *
+ * The three are not interchangeable advice. Telling someone to run `link`
+ * because their account could not be reached is wrong — `link` makes the same
+ * call and fails the same way.
+ */
+export type BindingFailure = "no-match" | "ambiguous" | "unreachable";
 
 /** Merge a resolved root node id into whatever the registry already held. */
 function healed(existing: SpaceRecord, rootNodeId: string): SpaceRecord {
@@ -50,7 +61,7 @@ function healed(existing: SpaceRecord, rootNodeId: string): SpaceRecord {
 export async function resolveSpaceBinding(
   dir: string,
   config: ApiConfig | null,
-): Promise<SpaceBinding | null> {
+): Promise<SpaceBinding | { failure: BindingFailure }> {
   const record = findSpaceFor(dir);
   if (record?.root_node_id) return { rootNodeId: record.root_node_id, via: "record" };
 
@@ -83,15 +94,15 @@ export async function resolveSpaceBinding(
   }
 
   // Rung 3 — a legacy origin. Ask the account which Space it is.
-  if (!config || !origin) return null;
+  if (!config || !origin) return { failure: "no-match" };
   const originKey = normalizeRepoUrl(origin);
-  if (!originKey) return null;
+  if (!originKey) return { failure: "no-match" };
 
   let me;
   try {
     me = await fetchAuthMe(config);
   } catch {
-    return null;
+    return { failure: "unreachable" };
   }
 
   const gitBase = deriveGitBase(config.apiUrl);
@@ -99,10 +110,11 @@ export async function resolveSpaceBinding(
     repoKeys(repo, me, gitBase, config.apiUrl).includes(originKey),
   );
   // Ambiguity is not ours to break — `link <dir> <space>` exists to be told.
-  if (matches.length !== 1) return null;
+  if (matches.length > 1) return { failure: "ambiguous" };
+  if (matches.length === 0) return { failure: "no-match" };
 
   const repo = matches[0];
-  if (!repo.root_node_id) return null;
+  if (!repo.root_node_id) return { failure: "no-match" };
 
   try {
     // Merge, never replace. `spaceRecordForRepo` builds from what the server

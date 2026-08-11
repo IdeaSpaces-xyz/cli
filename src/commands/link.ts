@@ -7,7 +7,7 @@ import {
   type AuthMeResponse,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { saveSpace } from "../auth/spaces.js";
+import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { isInsideWorkTree, normalizeRepoUrl, originUrl, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
@@ -133,8 +133,13 @@ export const linkCommand: CommandDef = {
     }
 
     // Bind the folder so `sync`/the desktop treat it as a clone of this space.
+    // Merge, never replace: a fork's `source_root_node_id`/`source_head` are
+    // written by `fork` alone and reconstructible from nothing, and re-linking
+    // an already-linked fork — to fix a mismatch, say — would otherwise drop
+    // its lineage silently. `spaceRecordForRepo` never emits those keys, so
+    // spreading it on top cannot clobber anything it should not.
     try {
-      saveSpace(dir, spaceRecordForRepo(repo, me.username));
+      saveSpace(dir, { ...(findSpaceFor(dir) ?? {}), ...spaceRecordForRepo(repo, me.username) });
     } catch {
       output.error("Verified the folder, but could not write the clone registry.");
       return 1;

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GlobalFlags } from "../types.js";
 
-const { loadConfigMock, fetchAuthMeMock, isInsideWorkTreeMock, originUrlMock, setLocalConfigMock, saveSpaceMock } =
+const { loadConfigMock, fetchAuthMeMock, isInsideWorkTreeMock, originUrlMock, setLocalConfigMock, saveSpaceMock, findSpaceForMock } =
   vi.hoisted(() => ({
     loadConfigMock: vi.fn(),
     fetchAuthMeMock: vi.fn(),
@@ -10,6 +10,7 @@ const { loadConfigMock, fetchAuthMeMock, isInsideWorkTreeMock, originUrlMock, se
     originUrlMock: vi.fn(),
     setLocalConfigMock: vi.fn(),
     saveSpaceMock: vi.fn(),
+    findSpaceForMock: vi.fn(),
   }));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
@@ -23,7 +24,7 @@ vi.mock("../git.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../git.js")>();
   return { ...actual, isInsideWorkTree: isInsideWorkTreeMock, originUrl: originUrlMock, setLocalConfig: setLocalConfigMock };
 });
-vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock }));
+vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock, findSpaceFor: findSpaceForMock }));
 
 const { linkCommand } = await import("../commands/link.js");
 const { normalizeRepoUrl } = await import("../git.js");
@@ -51,6 +52,8 @@ beforeEach(() => {
   originUrlMock.mockReset().mockReturnValue(NOTES_ORIGIN);
   setLocalConfigMock.mockReset();
   saveSpaceMock.mockReset();
+  findSpaceForMock.mockReset();
+  findSpaceForMock.mockReturnValue(null);
   stdoutChunks = [];
   stderrChunks = [];
   originalOut = process.stdout.write.bind(process.stdout);
@@ -92,6 +95,28 @@ describe("normalizeRepoUrl", () => {
 });
 
 describe("link — auto-detect from origin", () => {
+  it("keeps a fork's lineage when re-linking an already-bound clone", async () => {
+    // Re-linking to fix a mismatch must not cost the fork its source. Only
+    // `fork` writes these, and nothing can reconstruct them — the same reason
+    // the resolver merges rather than replaces.
+    findSpaceForMock.mockReturnValue({
+      repo_id: "repo_copy",
+      slug: "notes",
+      namespace: "alice",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+    });
+
+    expect(await linkCommand.run(["./theone"], {}, JSON_GLOBAL)).toBe(0);
+
+    const written = saveSpaceMock.mock.calls.at(-1)?.[1];
+    expect(written.source_root_node_id).toBe("n_ffffffffffffffffffffffff");
+    expect(written.source_head).toBe("9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293");
+    // …and the server's view still lands on top: the stale repo_id from the
+    // old record is replaced, not preserved. Merge order is the whole point.
+    expect(written.repo_id).toBe("r1");
+  });
+
   it("binds the folder when the origin matches exactly one space", async () => {
     const code = await linkCommand.run(["./theone"], {}, JSON_GLOBAL);
 
