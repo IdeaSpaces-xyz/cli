@@ -384,3 +384,48 @@ describe("what the live walk found", () => {
     expect(stderr).not.toContain("root_governance_unestablished");
   });
 });
+
+describe("every outcome says something true", () => {
+  // describeShare is a hand-written switch, and the one branch review caught
+  // was ungrammatical only for a recipient with no username — a shape the live
+  // walk could not produce, because both real accounts had one.
+  const cases: Array<[string, Record<string, unknown>, string[]]> = [
+    ["added", {}, ["Shared with bob at explore"]],
+    ["already_direct", {}, ["already has direct access", "Nothing changed"]],
+    ["already_pending", {}, ["still stands"]],
+    ["self", {}, ["your own address"]],
+    ["no_match", { relationship: null }, ["No account matches"]],
+    ["recipient_unavailable", {}, ["cannot receive access"]],
+  ];
+
+  for (const [status, over, expected] of cases) {
+    it(`${status} reads as a sentence`, async () => {
+      addPersonShareMock.mockResolvedValue(addResult({ status, ...over }));
+      await shareCommand.run(["invite", "bob@example.com"], {}, TEXT_G);
+      for (const fragment of expected) expect(stdout).toContain(fragment);
+      // The generic pronoun is a fallback, never the answer when a name or an
+      // address was available.
+      expect(stdout).not.toContain("them's");
+    });
+  }
+
+  it("falls back to the address when the person has no username", async () => {
+    addPersonShareMock.mockResolvedValue(
+      addResult({
+        status: "recipient_unavailable",
+        relationship: {
+          user_id: 9,
+          username: null,
+          email: "nouser@example.com",
+          account_status: "closed",
+          access: "view",
+          share_history: false,
+        },
+      }),
+    );
+
+    await shareCommand.run(["invite", "nouser@example.com"], {}, TEXT_G);
+    expect(stdout).toContain("nouser@example.com");
+    expect(stdout).not.toContain("them");
+  });
+});

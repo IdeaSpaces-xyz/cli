@@ -120,7 +120,14 @@ async function resolveTarget(
 
 /** What happened, in the words the person sharing needs. */
 function describeShare(res: PersonShareAddResult): string {
-  const who = res.relationship?.username ?? res.pending_invite?.invited_email ?? "them";
+  // Straight from username to the *invite's* email skipped the relationship's
+  // own address, so anyone without a username became "them" — and
+  // "them's account cannot receive access" with it.
+  const who =
+    res.relationship?.username ??
+    res.relationship?.email ??
+    res.pending_invite?.invited_email ??
+    "them";
   const history = res.share_history ? ", with the trail" : "";
   // `where` is a route, not a URL — label it, or it reads as stray output.
   const where = res.recipient_route ? `\nThey reach it at ${res.recipient_route}` : "";
@@ -323,7 +330,13 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         if (!target) return 1;
 
         const needle = who.toLowerCase();
-        const people = await listPersonShares(config, target);
+        // Both, together: an address is either an accepted relationship or an
+        // outstanding invitation, and asking sequentially made the invitation
+        // case — the likelier one to undo — pay for two round trips.
+        const [people, pending] = await Promise.all([
+          listPersonShares(config, target),
+          listPersonShareInvites(config, target),
+        ]);
         const held = people.relationships.find(
           (r) => r.email?.toLowerCase() === needle || r.username?.toLowerCase() === needle,
         );
@@ -336,7 +349,6 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
           return 0;
         }
 
-        const pending = await listPersonShareInvites(config, target);
         const invite = pending.invites.find((i) => i.invited_email.toLowerCase() === needle);
         if (invite) {
           await revokePersonShareInvite(config, target, invite.invite_id);
