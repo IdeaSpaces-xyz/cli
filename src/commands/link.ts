@@ -15,29 +15,11 @@ import {
   canonicalGitUrl,
   repoRouteNamespace,
   spaceRecordForRepo,
+  repoKeys,
 } from "../space-locator.js";
 import type { CommandDef } from "../types.js";
 
 /** Canonical transport key plus any still-resolved compatibility alias. */
-function repoKeys(
-  repo: AuthMeRepo,
-  me: AuthMeResponse,
-  gitBase: string,
-  apiUrl: string,
-): string[] {
-  const keys: string[] = [];
-  if (repo.root_node_id) {
-    const canonical = normalizeRepoUrl(canonicalGitUrl(apiUrl, repo.root_node_id));
-    if (canonical) keys.push(canonical);
-  }
-  const namespace = repoRouteNamespace(repo, me.username);
-  if (namespace) {
-    const legacy = normalizeRepoUrl(`${gitBase}/${namespace}/${repo.route_slug ?? repo.slug}.git`);
-    if (legacy) keys.push(legacy);
-  }
-  return keys;
-}
-
 export const linkCommand: CommandDef = {
   name: "link",
   description: "Bind an existing local clone to one of your spaces",

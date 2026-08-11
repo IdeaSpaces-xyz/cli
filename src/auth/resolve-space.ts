@@ -1,0 +1,106 @@
+/**
+ * Which Space is this clone?
+ *
+ * The registry answers instantly when it can, but it is not the only place the
+ * answer lives, and for a long time it did not hold it at all: records written
+ * before canonical root locators carry `repo_id`, `slug`, and `namespace` and
+ * no `root_node_id`. On a machine with eighteen such records, every hosted read
+ * addressed by root node id is unreachable — not refused, unaddressable.
+ *
+ * So resolve rather than require, in the order that costs least:
+ *
+ *   1. the registry record — free
+ *   2. the clone's own origin — free, when it is `/spaces/{root}.git`
+ *   3. the account's repo list — one call, matched on the origin
+ *
+ * Rungs 2 and 3 serve different people, which is why both exist. A Grant-only
+ * reader — the fork holder or the person a Space was shared with, exactly who
+ * hosted history is for — never appears in `auth/me`, because that list is
+ * membership-shaped. But their clone's origin *is* canonical, because that is
+ * what `fork` and `clone` write. Rung 2 covers precisely who rung 3 cannot.
+ *
+ * A resolution below the top rung heals the record on the way past, so the cost
+ * is paid once per clone rather than once per command. Healing is best-effort:
+ * knowing the answer matters more than storing it.
+ */
+
+import { fetchAuthMe, deriveGitBase, type ApiConfig } from "./api.js";
+import { findSpaceFor, saveSpace, type SpaceRecord } from "./spaces.js";
+import { normalizeRepoUrl, originUrl } from "../git.js";
+import { repoKeys, rootNodeIdFromGitUrl, spaceRecordForRepo } from "../space-locator.js";
+
+export interface SpaceBinding {
+  rootNodeId: string;
+  /** Which rung answered — for reporting, and for telling a heal from a hit. */
+  via: "record" | "origin" | "account";
+}
+
+/** Merge a resolved root node id into whatever the registry already held. */
+function healed(existing: SpaceRecord | null, rootNodeId: string): SpaceRecord {
+  return {
+    repo_id: existing?.repo_id ?? "",
+    slug: existing?.slug ?? "",
+    namespace: existing?.namespace ?? "",
+    ...existing,
+    root_node_id: rootNodeId,
+  };
+}
+
+/**
+ * Resolve the Space a clone belongs to, healing the registry when it can.
+ *
+ * Returns null only when every rung is exhausted: no record, a non-canonical
+ * origin, and either no session or no matching Space on the account.
+ */
+export async function resolveSpaceBinding(
+  dir: string,
+  config: ApiConfig | null,
+): Promise<SpaceBinding | null> {
+  const record = findSpaceFor(dir);
+  if (record?.root_node_id) return { rootNodeId: record.root_node_id, via: "record" };
+
+  const origin = originUrl(dir);
+
+  // Rung 2 — the coordinate is in the remote. No account needed, which is the
+  // point: this is the rung a Grant-only reader arrives on.
+  if (origin) {
+    const fromOrigin = rootNodeIdFromGitUrl(origin, config?.apiUrl);
+    if (fromOrigin) {
+      try {
+        saveSpace(dir, healed(record, fromOrigin));
+      } catch {
+        // A registry we cannot write is not a reason to withhold the answer.
+      }
+      return { rootNodeId: fromOrigin, via: "origin" };
+    }
+  }
+
+  // Rung 3 — a legacy origin. Ask the account which Space it is.
+  if (!config || !origin) return null;
+  const originKey = normalizeRepoUrl(origin);
+  if (!originKey) return null;
+
+  let me;
+  try {
+    me = await fetchAuthMe(config);
+  } catch {
+    return null;
+  }
+
+  const gitBase = deriveGitBase(config.apiUrl);
+  const matches = me.repos.filter((repo) =>
+    repoKeys(repo, me, gitBase, config.apiUrl).includes(originKey),
+  );
+  // Ambiguity is not ours to break — `link <dir> <space>` exists to be told.
+  if (matches.length !== 1) return null;
+
+  const repo = matches[0];
+  if (!repo.root_node_id) return null;
+
+  try {
+    saveSpace(dir, spaceRecordForRepo(repo, me.username));
+  } catch {
+    // Same as above: answer now, store if we can.
+  }
+  return { rootNodeId: repo.root_node_id, via: "account" };
+}

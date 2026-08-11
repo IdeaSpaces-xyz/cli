@@ -33,7 +33,7 @@ import {
   commitsNotInHistory,
 } from "../git.js";
 import { loadConfig } from "../auth/credentials.js";
-import { findSpaceFor } from "../auth/spaces.js";
+import { resolveSpaceBinding } from "../auth/resolve-space.js";
 import {
   fetchTrailLog,
   fetchTrailChanges,
@@ -171,13 +171,20 @@ export const syncCommand: CommandDef = {
 
     if (rs.behind) {
       const config = loadConfig();
-      const record = findSpaceFor(root);
-      const rootNodeId = record?.root_node_id ?? null;
-      if (!config) {
-        incomingNote = "Log in to see what changed on the other side: ideaspaces login";
-      } else if (!rootNodeId) {
-        incomingNote =
-          "This clone isn't bound to a Space record, so its trail can't be addressed. Repair with: ideaspaces link .";
+      // Not "is this clone registered" but "which Space is it" — a legacy
+      // record without a root node id still knows, and so does the origin.
+      const binding = await resolveSpaceBinding(root, config);
+      const rootNodeId = binding?.rootNodeId ?? null;
+      if (!rootNodeId) {
+        // Two different dead ends, and they need different next steps.
+        incomingNote = config
+          ? "Could not tell which Space this clone belongs to — its origin isn't a canonical Space URL " +
+            "and no Space on your account matches it. Bind it explicitly: ideaspaces link . <space>"
+          : "Log in to see what changed on the other side: ideaspaces login";
+      } else if (!config) {
+        // The coordinate came from the clone itself; reading the trail still
+        // needs a session.
+        incomingNote = "Log in to read this Space's trail: ideaspaces login";
       } else {
         const since = mergeBaseWithUpstream(root);
         // Settled independently: the commit list is worth showing even when the
