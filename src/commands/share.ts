@@ -269,7 +269,9 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
           );
           return 1;
         }
-        const grade = (flagStr(flags, "grade") ?? "explore") as ShareGrade;
+        // Case-folded because a person typing `--grade Fork` means fork, and
+        // the old `--role` being case-sensitive is not a reason to keep it so.
+        const grade = (flagStr(flags, "grade")?.toLowerCase() ?? "explore") as ShareGrade;
         if (!GRADES.includes(grade)) {
           output.error(`--grade must be one of: ${GRADES.join(", ")}`);
           return 1;
@@ -392,12 +394,14 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         const config = setup(repoId, "ideaspaces share legacy-invite <repo_id> <email…> --role <role>", output);
         if (!config) return 1;
         const emails = rest.slice(1).filter(Boolean);
-        const role = (flagStr(flags, "role") ?? "READER") as InviteRole;
+        // Read as a string first: `InviteRole` cannot spell CLONER, which is the
+        // point — so the check for it has to happen before the narrowing.
+        const roleInput = (flagStr(flags, "role") ?? "READER").toUpperCase();
         if (!emails.length) {
           output.error("Usage: ideaspaces share legacy-invite <repo_id> <email…> --role <role>");
           return 1;
         }
-        if (String(role).toUpperCase() === "CLONER") {
+        if (roleInput === "CLONER") {
           // The one role with a direct replacement, so say the replacement
           // rather than only refusing the word.
           output.error(
@@ -406,6 +410,7 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
           );
           return 1;
         }
+        const role = roleInput as InviteRole;
         if (!LEGACY_ROLES.includes(role)) {
           output.error(`--role must be one of: ${LEGACY_ROLES.join(", ")}`);
           return 1;

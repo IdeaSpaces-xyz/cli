@@ -478,3 +478,21 @@ describe("share refusals other than the governance one", () => {
     expect(stderr).not.toContain("409");
   });
 });
+
+describe("what people actually type", () => {
+  it("takes a grade in any case", async () => {
+    expect(await shareCommand.run(["invite", "bob@example.com"], { grade: "Fork" }, JSON_G)).toBe(0);
+    expect(addPersonShareMock).toHaveBeenCalledWith(
+      expect.anything(),
+      ROOT,
+      expect.objectContaining({ grade: "fork" }),
+    );
+  });
+
+  it("still points a lowercase cloner at the grade that replaced it", async () => {
+    expect(
+      await shareCommand.run(["legacy-invite", "repo_abc", "bob@example.com"], { role: "cloner" }, JSON_G),
+    ).toBe(1);
+    expect(stderr).toContain("--grade fork");
+  });
+});
