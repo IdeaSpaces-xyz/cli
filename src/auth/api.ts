@@ -313,6 +313,14 @@ export interface TrailChange {
  *
  * The reason code rides in the detail (`Space not found (no_history_relation)`),
  * which is the server telling us which refusal this is. It was going unread.
+ *
+ * **Why this string-matches when `UnauthorizedError` exists precisely so callers
+ * need not.** A typed error would have to be minted in `request()`, which every
+ * endpoint shares — putting trail-specific reason codes in the one helper that
+ * knows nothing about trails, and teaching it to classify 404s that mean
+ * something different for every other caller. The parsing stays here, reachable
+ * only by callers that opt in. If a third trail reason code appears, that is the
+ * point to promote these to a structured type rather than lengthen this chain.
  */
 export function describeTrailRefusal(err: unknown): string | null {
   const message = err instanceof Error ? err.message : String(err);
