@@ -37,14 +37,8 @@ export interface SpaceBinding {
 }
 
 /** Merge a resolved root node id into whatever the registry already held. */
-function healed(existing: SpaceRecord | null, rootNodeId: string): SpaceRecord {
-  return {
-    repo_id: existing?.repo_id ?? "",
-    slug: existing?.slug ?? "",
-    namespace: existing?.namespace ?? "",
-    ...existing,
-    root_node_id: rootNodeId,
-  };
+function healed(existing: SpaceRecord, rootNodeId: string): SpaceRecord {
+  return { ...existing, root_node_id: rootNodeId };
 }
 
 /**

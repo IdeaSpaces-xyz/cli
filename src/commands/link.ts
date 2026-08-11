@@ -19,7 +19,6 @@ import {
 } from "../space-locator.js";
 import type { CommandDef } from "../types.js";
 
-/** Canonical transport key plus any still-resolved compatibility alias. */
 export const linkCommand: CommandDef = {
   name: "link",
   description: "Bind an existing local clone to one of your spaces",

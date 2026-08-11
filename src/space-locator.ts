@@ -2,7 +2,9 @@ import { deriveGitBase, deriveWebBase, type AuthMeRepo, type AuthMeResponse } fr
 import { normalizeRepoUrl } from "./git.js";
 import type { SpaceRecord } from "./auth/spaces.js";
 
-const NODE_ID_RE = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
+/** The node-id shape itself, shared so a matcher and a validator cannot drift. */
+const NODE_ID_PATTERN = "n_(?:[0-9a-f]{12}|[0-9a-f]{24})";
+const NODE_ID_RE = new RegExp(`^${NODE_ID_PATTERN}$`);
 
 export interface SpaceLocator {
   rootNodeId: string;
@@ -137,6 +139,6 @@ export function rootNodeIdFromGitUrl(url: string, apiUrl?: string): string | nul
       return null;
     }
   }
-  const match = /^\/spaces\/(n_(?:[0-9a-f]{12}|[0-9a-f]{24}))\.git$/.exec(parsed.pathname);
+  const match = new RegExp(`^/spaces/(${NODE_ID_PATTERN})\\.git$`).exec(parsed.pathname);
   return match ? match[1] : null;
 }
