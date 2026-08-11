@@ -240,6 +240,55 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(out.incoming_unavailable).toContain("changes timed out");
   });
 
+  it("says so when there is no common commit to ask about", async () => {
+    // Unrelated histories: the upstream shares no ancestor, so there is no
+    // point to ask "what changed since". Rare, but it must not read as "nothing".
+    advanceOrigin();
+    spawnSync("git", ["-C", clone, "checkout", "-q", "--orphan", "detached"]);
+    spawnSync("git", ["-C", clone, "commit", "-q", "--allow-empty", "-m", "unrelated"]);
+    git(clone, ["branch", "-f", "main", "HEAD"]);
+    spawnSync("git", ["-C", clone, "checkout", "-q", "main"]);
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    // Asserted, not guarded: if the setup stops producing a behind-with-no-base
+    // clone, this must fail rather than pass without exercising anything.
+    expect(out.behind).toBeGreaterThan(0);
+    // git itself exits non-zero here — there is no common ancestor to print,
+    // which is precisely the state under test.
+    expect(
+      spawnSync("git", ["-C", clone, "merge-base", "HEAD", "@{upstream}"], { encoding: "utf-8" })
+        .status,
+    ).not.toBe(0);
+    expect(fetchTrailChangesMock).not.toHaveBeenCalled();
+    expect(out.incoming.changes).toEqual([]);
+    expect(out.incoming_unavailable).toContain("No common commit");
+  });
+
+  it("returns one schema on every exit path", async () => {
+    const keysFor = async (run: () => Promise<number>) => {
+      stdout = "";
+      await run();
+      return Object.keys(JSON.parse(stdout)).sort();
+    };
+
+    advanceOrigin();
+    const behind = await keysFor(() => syncCommand.run([], {}, JSON_G));
+
+    const solo = join(tmp, "solo2");
+    spawnSync("git", ["init", "-q", "-b", "main", solo]);
+    git(solo, ["config", "user.email", "t@e.com"]);
+    git(solo, ["config", "user.name", "T"]);
+    spawnSync("git", ["-C", solo, "commit", "-q", "--allow-empty", "-m", "only mine"]);
+    process.chdir(solo);
+    const localOnly = await keysFor(() => syncCommand.run([], {}, JSON_G));
+
+    // A --json caller should not have to branch on which situation it hit.
+    expect(localOnly).toEqual(behind);
+    expect(localOnly).toContain("incoming_unavailable");
+  });
+
   it("says the clone is unbound rather than guessing a coordinate", async () => {
     advanceOrigin();
     findSpaceForMock.mockReturnValue(null);

@@ -121,6 +121,9 @@ export const syncCommand: CommandDef = {
           behind: 0,
           fetched,
           incoming: null,
+          // Present and null, not absent: a --json caller reads one schema
+          // across every exit path, rather than one that varies by branch.
+          incoming_unavailable: null,
           outgoing: null,
           integrated: false,
         },
@@ -178,6 +181,13 @@ export const syncCommand: CommandDef = {
           };
           const failed = log.status === "rejected" ? log.reason : changes.status === "rejected" ? changes.reason : null;
           if (failed) incomingNote = `Partial: ${failed instanceof Error ? failed.message : String(failed)}`;
+          // Same rule as a failed fetch: an empty change list must not be
+          // readable as "nothing changed" when we never got to ask. Unrelated
+          // histories have no common point to ask about.
+          else if (!since) {
+            incomingNote =
+              "No common commit with the upstream, so the changed paths could not be asked for — the commits above are the whole answer.";
+          }
         } else {
           const err = log.reason;
           incomingNote =
