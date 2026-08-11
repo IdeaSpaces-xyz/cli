@@ -342,7 +342,7 @@ export function describeTrailRefusal(err: unknown): string | null {
   // recorded coordinate no longer resolves.
   return (
     "The Space this clone points at could not be found. It may have been deleted, or this clone's " +
-    "record may be stale — `ideaspaces link` re-binds it."
+    "record may be stale — `ideaspaces link .` re-binds it."
   );
 }
 

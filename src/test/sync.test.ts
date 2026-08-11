@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -287,6 +287,122 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(out.incoming_unavailable).toContain("trail has not been shared with you");
   });
 
+  it("lists only what is genuinely incoming, not the trail's recent history", async () => {
+    advanceOrigin();
+    // What the endpoint really returns: the Space's most recent commits. Most
+    // of them are ours already — this is the live shape, where a clone one
+    // commit behind was shown twenty, nineteen of them its own.
+    const ours = git(clone, ["rev-parse", "HEAD"]);
+    // Read from the bare origin, not the clone's remote-tracking ref: that ref
+    // is still stale here, because the fetch that updates it is inside the run
+    // under test. Reading it locally would hand the test its own HEAD.
+    const theirs = git(join(tmp, "origin.git"), ["rev-parse", "main"]);
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: theirs, message: "theirs", date: "d", author: "Them" },
+        { sha: ours, message: "seed — already ours", date: "d", author: "Us" },
+      ],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.behind).toBe(1);
+    expect(out.incoming.commits).toHaveLength(1);
+    expect(out.incoming.commits[0].sha).toBe(theirs);
+  });
+
+  it("shows the list whole when git cannot tell them apart", async () => {
+    advanceOrigin();
+    // An unknown sha makes rev-list refuse the whole question. Showing a list
+    // that may include our own beats showing nothing.
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", message: "unknown", date: "d", author: "T" },
+      ],
+    });
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("some may already be yours");
+  });
+
+  it("says so when the trail's window holds nothing new", async () => {
+    advanceOrigin();
+    const ours = git(clone, ["rev-parse", "HEAD"]);
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [{ sha: ours, message: "already ours", date: "d", author: "Us" }],
+    });
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+    // Behind, but everything the window shows is already here — the reader
+    // must not read an empty list as "nothing changed".
+    expect(stdout).toContain("raise --limit");
+  });
+
+  it("does not tell you to widen a window it never read", async () => {
+    advanceOrigin();
+    // The reachable partial failure this file's allSettled design anticipates:
+    // the log call fails, the changes call succeeds.
+    fetchTrailLogMock.mockRejectedValue(new Error("log 503"));
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+
+    // "raise --limit" would be wrong advice — nothing was searched.
+    expect(stdout).not.toContain("raise --limit");
+    expect(stdout).toContain("log 503");
+  });
+
+  it("tells a --json caller when the commit list could not be filtered", async () => {
+    advanceOrigin();
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", message: "unknown", date: "d", author: "T" },
+      ],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+    const out = JSON.parse(stdout);
+    // A script that pulls on a non-empty list must be able to tell a trusted
+    // list from the Space's recent history.
+    expect(out.incoming.commits_filtered).toBe(false);
+  });
+
+  it("marks a filtered list as filtered", async () => {
+    advanceOrigin();
+    const theirs = git(join(tmp, "origin.git"), ["rev-parse", "main"]);
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [{ sha: theirs, message: "theirs", date: "d", author: "Them" }],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout).incoming.commits_filtered).toBe(true);
+  });
+
+  it("refuses to hand a server-shaped option to git", async () => {
+    advanceOrigin();
+    const bait = join(tmp, "pwned");
+    // rev-list shares git's option surface, which includes --output=<file>.
+    // spawnSync rules out a shell; it does not stop git parsing an argument
+    // that starts with a dash.
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [{ sha: `--output=${bait}`, message: "hostile", date: "d", author: "T" }],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    expect(existsSync(bait)).toBe(false);
+    const out = JSON.parse(stdout);
+    // Unfilterable, which is a state the caller already handles — the list is
+    // shown whole and flagged, not silently trusted.
+    expect(out.incoming.commits_filtered).toBe(false);
+  });
+
   it("passes --limit through, and clamps what the endpoint would refuse", async () => {
     advanceOrigin();
 
@@ -426,6 +542,7 @@ describe("ideaspaces sync — the integration boundary", () => {
     "mergeBaseWithUpstream",
     "commitsAheadOfUpstream",
     "pathsAheadOfUpstream",
+    "commitsNotInHistory",
   ];
 
   function syncSource(): string {
