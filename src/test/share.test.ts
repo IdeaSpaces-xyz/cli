@@ -496,3 +496,38 @@ describe("what people actually type", () => {
     expect(stderr).toContain("--grade fork");
   });
 });
+
+describe("unshare degrades the way people does", () => {
+  it("still removes someone you can see when the invite list is forbidden", async () => {
+    // The exact asymmetry `people` was built to survive: relationships readable,
+    // invitations not. Making the two lookups concurrent must not cost it.
+    listPersonSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      target_type: "repo",
+      recipient_route: "r",
+      actions: { can_manage_existing: true, can_add: true },
+      relationships: [
+        { user_id: 7, username: "bob", email: "bob@example.com", account_status: "active", access: "view", share_history: false },
+      ],
+    });
+    listPersonShareInvitesMock.mockRejectedValue(new Error("403 not permitted"));
+
+    expect(await shareCommand.run(["unshare", "bob@example.com"], {}, JSON_G)).toBe(0);
+    expect(removePersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, 7);
+  });
+
+  it("does not claim there is no invitation when it could not look", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      target_type: "repo",
+      recipient_route: "r",
+      actions: { can_manage_existing: true, can_add: true },
+      relationships: [],
+    });
+    listPersonShareInvitesMock.mockRejectedValue(new Error("403 not permitted"));
+
+    expect(await shareCommand.run(["unshare", "stranger@example.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("could not be read");
+    expect(stderr).not.toContain("has no invitation outstanding");
+  });
+});

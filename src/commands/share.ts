@@ -173,6 +173,9 @@ function describeShare(res: PersonShareAddResult): string {
 }
 
 async function run(sub: string, rest: string[], flags: Flags, output: Output): Promise<number> {
+  // Named for the repo-shaped subcommands, which is all that used them when
+  // this dispatcher was written. The product verbs (`invite`, `people`,
+  // `unshare`) take an address and read `rest[0]` directly.
   const [repoId, arg] = rest;
   try {
     switch (sub) {
@@ -355,10 +358,19 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         // Both, together: an address is either an accepted relationship or an
         // outstanding invitation, and asking sequentially made the invitation
         // case — the likelier one to undo — pay for two round trips.
-        const [people, pending] = await Promise.all([
+        // Settled, not all: a caller may be allowed to see relationships and not
+        // invitations. Failing the whole verb would stop them removing someone
+        // they can see, for want of a list their intent never needed. `people`
+        // already degrades this way; making these concurrent must not quietly
+        // cost that.
+        const [peopleSettled, pendingSettled] = await Promise.allSettled([
           listPersonShares(config, target),
           listPersonShareInvites(config, target),
         ]);
+        if (peopleSettled.status === "rejected") throw peopleSettled.reason;
+        const people = peopleSettled.value;
+        const pending =
+          pendingSettled.status === "fulfilled" ? pendingSettled.value : { invites: [] };
         const held = people.relationships.find(
           (r) => r.email?.toLowerCase() === needle || r.username?.toLowerCase() === needle,
         );
@@ -384,9 +396,14 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         // Saying "nothing to undo" is different from saying "done" — the
         // address may be mistyped, and access they hold some other way is not
         // ours to remove here.
+        // Only claim the second half if we were able to read it.
         output.error(
-          `${who} holds no direct access here and has no invitation outstanding.\n` +
-            "See who does: ideaspaces share people",
+          pendingSettled.status === "rejected"
+            ? `${who} holds no direct access here, and the invitation list could not be read ` +
+                `(${pendingSettled.reason instanceof Error ? pendingSettled.reason.message : String(pendingSettled.reason)}).\n` +
+                "There may be an invitation outstanding that this cannot see."
+            : `${who} holds no direct access here and has no invitation outstanding.\n` +
+                "See who does: ideaspaces share people",
         );
         return 1;
       }
