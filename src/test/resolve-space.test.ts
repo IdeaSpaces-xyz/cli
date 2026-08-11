@@ -170,6 +170,45 @@ describe("resolveSpaceBinding", () => {
     expect(after?.source_head).toBe("9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293");
   });
 
+  it("resolves an ssh-style origin without an account lookup", async () => {
+    const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
+    // A reader who rewrites their remote to SSH is exactly the caller rung 2
+    // serves; falling through to an account lookup they cannot pass would
+    // strand them.
+    const dir = repoWithOrigin("ssh-fork", `git@git.example.test:spaces/${ROOT}.git`);
+
+    expect(await resolveSpaceBinding(dir, null)).toEqual({ rootNodeId: ROOT, via: "origin" });
+    expect(fetchAuthMeMock).not.toHaveBeenCalled();
+  });
+
+  it("does not carry stale routing across an account heal", async () => {
+    const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
+    const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
+    const dir = repoWithOrigin("stale-route", "https://git.example.test/alice/notes.git");
+    saveSpace(dir, {
+      repo_id: "repo_notes",
+      slug: "notes",
+      namespace: "alice",
+      route_status: "conflict",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+    });
+    // The server no longer reports a route status at all.
+    fetchAuthMeMock.mockResolvedValue({
+      username: "alice",
+      repos: [
+        { repo_id: "repo_notes", slug: "notes", hostname: null, root_node_id: ROOT, role: "OWNER", member_count: 1 },
+      ],
+    });
+
+    await resolveSpaceBinding(dir, CONFIG);
+
+    const after = findSpaceFor(dir);
+    // A conflict the server has stopped reporting must not outlive it…
+    expect(after?.route_status).toBeUndefined();
+    // …while the one thing the server cannot know still survives.
+    expect(after?.source_head).toBe("9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293");
+  });
+
   it("declines to guess when the origin matches more than one Space", async () => {
     const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
     const dir = repoWithOrigin("ambiguous", "https://git.example.test/alice/notes.git");

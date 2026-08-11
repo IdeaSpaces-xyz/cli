@@ -27,7 +27,10 @@ const {
 }));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
-vi.mock("../auth/spaces.js", () => ({ findSpaceFor: findSpaceForMock, saveSpace: saveSpaceMock }));
+vi.mock("../auth/spaces.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../auth/spaces.js")>();
+  return { ...actual, findSpaceFor: findSpaceForMock, saveSpace: saveSpaceMock };
+});
 vi.mock("../auth/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/api.js")>();
   return { ...actual, fetchTrailLog: fetchTrailLogMock, fetchTrailChanges: fetchTrailChangesMock };

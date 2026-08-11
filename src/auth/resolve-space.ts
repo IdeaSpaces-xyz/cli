@@ -26,7 +26,7 @@
 
 import { fetchAuthMe, deriveGitBase, type ApiConfig } from "./api.js";
 import { getDefaultApiUrl } from "./credentials.js";
-import { findSpaceFor, saveSpace, type SpaceRecord } from "./spaces.js";
+import { findSpaceFor, saveSpace, withForkLineage, type SpaceRecord } from "./spaces.js";
 import { normalizeRepoUrl, originUrl } from "../git.js";
 import { repoKeys, rootNodeIdFromGitUrl, spaceRecordForRepo } from "../space-locator.js";
 
@@ -117,14 +117,13 @@ export async function resolveSpaceBinding(
   if (!repo.root_node_id) return { failure: "no-match" };
 
   try {
-    // Merge, never replace. `spaceRecordForRepo` builds from what the server
-    // knows, and the server does not know a fork's lineage:
-    // `source_root_node_id` / `source_head` are written by `fork` alone and
-    // reconstructible from nothing. A record from an older `fork` carries them
-    // *and* no root_node_id — precisely the population this resolver exists to
-    // heal — so replacing it here would destroy the lineage while fixing the
-    // binding, silently, inside a command that otherwise writes nothing.
-    saveSpace(dir, { ...(record ?? {}), ...spaceRecordForRepo(repo, me.username) });
+    // The server's view, carrying only what the server cannot know: a record
+    // from an older `fork` holds lineage *and* no root_node_id — precisely the
+    // population this resolver heals — so replacing outright would fix the
+    // binding and destroy the lineage in one silent write. Spreading the whole
+    // old record under it is the other trap: it would keep routing fields the
+    // server has since dropped.
+    saveSpace(dir, withForkLineage(spaceRecordForRepo(repo, me.username), record));
   } catch {
     // Same as above: answer now, store if we can.
   }

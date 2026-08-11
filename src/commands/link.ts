@@ -7,7 +7,7 @@ import {
   type AuthMeResponse,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { findSpaceFor, saveSpace } from "../auth/spaces.js";
+import { findSpaceFor, saveSpace, withForkLineage } from "../auth/spaces.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { isInsideWorkTree, normalizeRepoUrl, originUrl, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
@@ -146,18 +146,8 @@ export const linkCommand: CommandDef = {
     // Lineage travels only when the binding stays the same Space: repointed
     // somewhere else, this clone's old source is no longer about it.
     const previous = findSpaceFor(dir);
-    const bound = spaceRecordForRepo(repo, me.username);
-    const carried =
-      previous && previous.repo_id === bound.repo_id
-        ? {
-            ...(previous.source_root_node_id
-              ? { source_root_node_id: previous.source_root_node_id }
-              : {}),
-            ...(previous.source_head ? { source_head: previous.source_head } : {}),
-          }
-        : {};
     try {
-      saveSpace(dir, { ...bound, ...carried });
+      saveSpace(dir, withForkLineage(spaceRecordForRepo(repo, me.username), previous));
     } catch {
       output.error("Verified the folder, but could not write the clone registry.");
       return 1;

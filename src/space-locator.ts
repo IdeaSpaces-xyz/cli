@@ -132,7 +132,13 @@ export function repoKeys(
 export function rootNodeIdFromGitUrl(url: string, apiUrl: string): string | null {
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    // scp-style (`git@host:spaces/n_….git`) is not a URL. The CLI only ever
+    // writes https origins, but a reader may rewrite theirs to SSH — and a
+    // fork holder rewriting their remote is exactly the caller this rung
+    // serves, so falling through to an account lookup they cannot pass would
+    // strand them.
+    const scp = /^[^/@]+@([^:/]+):(.+)$/.exec(url.trim());
+    parsed = new URL(scp ? `ssh://${scp[1]}/${scp[2]}` : url);
   } catch {
     return null;
   }

@@ -88,3 +88,27 @@ export function removeSpace(absolutePath: string): boolean {
   writeFileSync(spacesFile(), JSON.stringify(map, null, 2) + "\n", { mode: 0o600 });
   return true;
 }
+
+/**
+ * The server's view of a Space, plus the two fields only `fork` can supply.
+ *
+ * `bound` is authoritative: spreading a whole previous record underneath it
+ * would preserve fields the server has since dropped — `route_status`,
+ * `root_node_id` on a repo that no longer reports one — leaving stale routing
+ * or, worse, another Space's identity in a record that names this one.
+ *
+ * `source_root_node_id` / `source_head` are the exception because nothing can
+ * reconstruct them: they are written by `fork` at copy time and never appear in
+ * an account response. They travel only when the record still names the same
+ * Space — a folder repointed elsewhere is not a clone of its old source.
+ */
+export function withForkLineage(bound: SpaceRecord, previous: SpaceRecord | null): SpaceRecord {
+  if (!previous || previous.repo_id !== bound.repo_id) return bound;
+  return {
+    ...bound,
+    ...(previous.source_root_node_id
+      ? { source_root_node_id: previous.source_root_node_id }
+      : {}),
+    ...(previous.source_head ? { source_head: previous.source_head } : {}),
+  };
+}

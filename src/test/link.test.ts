@@ -24,7 +24,13 @@ vi.mock("../git.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../git.js")>();
   return { ...actual, isInsideWorkTree: isInsideWorkTreeMock, originUrl: originUrlMock, setLocalConfig: setLocalConfigMock };
 });
-vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock, findSpaceFor: findSpaceForMock }));
+vi.mock("../auth/spaces.js", async (importOriginal) => {
+  // Spread the real module: stubbing it wholesale means every export added
+  // later is silently undefined here, which fails as "not a function" far from
+  // the cause.
+  const actual = await importOriginal<typeof import("../auth/spaces.js")>();
+  return { ...actual, saveSpace: saveSpaceMock, findSpaceFor: findSpaceForMock };
+});
 
 const { linkCommand } = await import("../commands/link.js");
 const { normalizeRepoUrl } = await import("../git.js");
