@@ -342,6 +342,47 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(stdout).toContain("raise --limit");
   });
 
+  it("does not tell you to widen a window it never read", async () => {
+    advanceOrigin();
+    // The reachable partial failure this file's allSettled design anticipates:
+    // the log call fails, the changes call succeeds.
+    fetchTrailLogMock.mockRejectedValue(new Error("log 503"));
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+
+    // "raise --limit" would be wrong advice — nothing was searched.
+    expect(stdout).not.toContain("raise --limit");
+    expect(stdout).toContain("log 503");
+  });
+
+  it("tells a --json caller when the commit list could not be filtered", async () => {
+    advanceOrigin();
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", message: "unknown", date: "d", author: "T" },
+      ],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+    const out = JSON.parse(stdout);
+    // A script that pulls on a non-empty list must be able to tell a trusted
+    // list from the Space's recent history.
+    expect(out.incoming.commits_filtered).toBe(false);
+  });
+
+  it("marks a filtered list as filtered", async () => {
+    advanceOrigin();
+    const theirs = git(join(tmp, "origin.git"), ["rev-parse", "main"]);
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [{ sha: theirs, message: "theirs", date: "d", author: "Them" }],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout).incoming.commits_filtered).toBe(true);
+  });
+
   it("passes --limit through, and clamps what the endpoint would refuse", async () => {
     advanceOrigin();
 

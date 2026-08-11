@@ -165,6 +165,9 @@ export const syncCommand: CommandDef = {
     // Set when git could not tell incoming commits from ones we already have,
     // so the list is shown whole rather than suppressed — and said to be whole.
     let unfiltered = false;
+    // Whether a window came back at all. An empty list means two different
+    // things depending on this, and they need opposite advice.
+    let windowRead = false;
 
     if (rs.behind) {
       const config = loadConfig();
@@ -192,6 +195,7 @@ export const syncCommand: CommandDef = {
           // The endpoint answers "the Space's most recent commits" — it takes a
           // limit, not a range — so what comes back is not what is incoming.
           // Only the local repo knows which of them we already have.
+          windowRead = log.status === "fulfilled";
           const fresh = commitsNotInHistory(reported.map((c) => c.sha), root);
           if (fresh === null) unfiltered = true;
           incoming = {
@@ -238,9 +242,11 @@ export const syncCommand: CommandDef = {
 
       lines.push("", `Theirs, not here yet (behind ${rs.behind}):`);
       if (incoming) {
-        if (!incoming.commits.length && !unfiltered) {
-          // Behind, but the trail's newest entries are all ones we hold. The
-          // commits we lack are older than this window.
+        if (!incoming.commits.length && !unfiltered && windowRead) {
+          // Behind, and the window we did read holds only commits we have —
+          // the ones we lack are older than it. Gated on actually having read
+          // a window: when the log call failed there is nothing to widen, and
+          // the real reason follows on the next line.
           lines.push(`  (nothing new in the Space's last ${limit} commits — raise --limit to look further back)`);
         }
         for (const c of incoming.commits.slice(0, limit)) lines.push(describeTrailCommit(c));
@@ -276,7 +282,17 @@ export const syncCommand: CommandDef = {
         outgoing: rs.ahead
           ? { commits: outgoingCommits, paths: outgoingPaths }
           : null,
-        incoming: incoming ? { commits: incoming.commits, changes: incoming.changes } : null,
+        incoming: incoming
+          ? {
+              commits: incoming.commits,
+              changes: incoming.changes,
+              // False when git could not separate incoming commits from ones
+              // already held: the list is the Space's recent history and may
+              // include your own. A caller that pulls on a non-empty list
+              // needs to know which of the two it is looking at.
+              commits_filtered: !unfiltered,
+            }
+          : null,
         // Set on a partial read too, not only a total one — a caller that sees
         // an empty change list needs to know whether that means "nothing
         // changed" or "we could not find out".
