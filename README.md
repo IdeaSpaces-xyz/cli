@@ -81,7 +81,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 |---|---|
 | `conversation` | Start or continue a conversation (online or `--local`) |
 | `conversations` | List conversations |
-| `share` | Manage members, invites, and public links |
+| `share` | Share a Space at a grade — explore, fork, or collaborate — and see who has it |
 | `agents` | List agents available to you |
 | `times` | Activity timeline |
 
