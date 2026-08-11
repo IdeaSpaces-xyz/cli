@@ -63,7 +63,17 @@ function distance(sha) {
   return { behind: Number(sh("git", ["rev-list", "--count", `${sha}..HEAD`])) };
 }
 
-const { consumers } = JSON.parse(readFileSync(join(root, "consumers.json"), "utf8"));
+let consumers;
+try {
+  ({ consumers } = JSON.parse(readFileSync(join(root, "consumers.json"), "utf8")));
+  if (!Array.isArray(consumers)) throw new Error("no `consumers` array");
+} catch (err) {
+  // The declaration failing to parse is the one case where reporting nothing is
+  // right — but say which file and why, rather than a stack trace from a script
+  // whose whole argument is that silence about a consumer is the bug.
+  console.error(`consumers.json could not be read: ${err.message}`);
+  process.exit(1);
+}
 const head = sh("git", ["rev-parse", "HEAD"]);
 console.log(`this repo at ${head.slice(0, 9)}\n`);
 
