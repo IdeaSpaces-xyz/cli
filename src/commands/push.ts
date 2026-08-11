@@ -10,8 +10,9 @@
  *   (staged captures? refuse) → fetch → (behind? refuse: pull first) → push
  *
  * `--dry-run` reports the plan from existing remote-tracking state and mutates
- * nothing. Paired with `ideaspaces pull` — a single `sync` is deliberately gone
- * so the two directions stay legible.
+ * nothing. Paired with `ideaspaces pull`: integration keeps a direction, which
+ * is why it is not one verb. `ideaspaces sync` is the third thing — it reports
+ * where both sides stand and integrates nothing.
  */
 
 import {

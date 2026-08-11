@@ -10,8 +10,9 @@
  *   fetch → (if behind) rebase|merge, requiring a clean tree
  *
  * `--dry-run` reports the plan from existing remote-tracking state and mutates
- * nothing (no fetch, no network). Paired with `ideaspaces push` — a single
- * `sync` is deliberately gone so the two directions stay legible.
+ * nothing (no fetch, no network). Paired with `ideaspaces push`: integration
+ * keeps a direction, which is why it is not one verb. `ideaspaces sync` is the
+ * third thing — it reports where both sides stand and integrates nothing.
  */
 
 import {

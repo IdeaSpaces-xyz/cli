@@ -284,6 +284,64 @@ export async function copySpace(
   );
 }
 
+/** One commit on the Space's trail, as the temporal endpoint reports it. */
+export interface TrailCommit {
+  sha: string;
+  message: string;
+  date: string;
+  author: string;
+  files?: string[];
+  op?: string;
+}
+
+/** One path's fate between two commits. `status` is git's A/M/D/R/C. */
+export interface TrailChange {
+  status: string;
+  path: string;
+  old_path?: string;
+}
+
+/**
+ * Read a Space's trail by its stable root coordinate.
+ *
+ * Addressed by root node id rather than `repo_id` deliberately: the
+ * `repo_id` route gates on repo membership, so a person who was shared with —
+ * or a fork — cannot reach it. This one authorizes on a Content read.
+ *
+ * Read-only on both sides. It never writes to the Space and never touches the
+ * local working tree.
+ */
+export async function fetchTrailLog(
+  config: ApiConfig,
+  rootNodeId: string,
+  limit: number,
+  opts?: RequestOptions,
+): Promise<{ op: string; entries: TrailCommit[] }> {
+  return request(
+    config,
+    "GET",
+    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/git?op=log&limit=${encodeURIComponent(String(limit))}`,
+    undefined,
+    opts,
+  );
+}
+
+/** Paths the Space changed since `since` — a commit the server's repo holds. */
+export async function fetchTrailChanges(
+  config: ApiConfig,
+  rootNodeId: string,
+  since: string,
+  opts?: RequestOptions,
+): Promise<{ op: string; since: string; changes: TrailChange[] }> {
+  return request(
+    config,
+    "GET",
+    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/git?op=changes&since=${encodeURIComponent(since)}`,
+    undefined,
+    opts,
+  );
+}
+
 export interface ConversationSummary {
   conversation_id: string;
   name: string;
