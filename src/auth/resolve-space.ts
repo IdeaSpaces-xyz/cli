@@ -105,7 +105,14 @@ export async function resolveSpaceBinding(
   if (!repo.root_node_id) return null;
 
   try {
-    saveSpace(dir, spaceRecordForRepo(repo, me.username));
+    // Merge, never replace. `spaceRecordForRepo` builds from what the server
+    // knows, and the server does not know a fork's lineage:
+    // `source_root_node_id` / `source_head` are written by `fork` alone and
+    // reconstructible from nothing. A record from an older `fork` carries them
+    // *and* no root_node_id — precisely the population this resolver exists to
+    // heal — so replacing it here would destroy the lineage while fixing the
+    // binding, silently, inside a command that otherwise writes nothing.
+    saveSpace(dir, { ...(record ?? {}), ...spaceRecordForRepo(repo, me.username) });
   } catch {
     // Same as above: answer now, store if we can.
   }

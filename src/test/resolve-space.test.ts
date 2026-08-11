@@ -134,6 +134,42 @@ describe("resolveSpaceBinding", () => {
     expect(findSpaceFor(dir)?.root_node_id).toBe(ROOT);
   });
 
+  it("keeps fork lineage when the account supplies the binding", async () => {
+    const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
+    const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
+    const dir = repoWithOrigin("old-fork", "https://git.example.test/alice/manual.git");
+    // What an older `fork` left: lineage, and no root_node_id. Exactly the
+    // population this resolver exists to heal.
+    saveSpace(dir, {
+      repo_id: "repo_copy",
+      slug: "manual",
+      namespace: "alice",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+    });
+    fetchAuthMeMock.mockResolvedValue({
+      username: "alice",
+      repos: [
+        {
+          repo_id: "repo_copy",
+          slug: "manual",
+          hostname: null,
+          root_node_id: ROOT,
+          role: "OWNER",
+          member_count: 1,
+        },
+      ],
+    });
+
+    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({ rootNodeId: ROOT, via: "account" });
+
+    const after = findSpaceFor(dir);
+    expect(after?.root_node_id).toBe(ROOT);
+    // The server cannot tell us these, and nothing else can reconstruct them.
+    expect(after?.source_root_node_id).toBe("n_ffffffffffffffffffffffff");
+    expect(after?.source_head).toBe("9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293");
+  });
+
   it("declines to guess when the origin matches more than one Space", async () => {
     const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
     const dir = repoWithOrigin("ambiguous", "https://git.example.test/alice/notes.git");
