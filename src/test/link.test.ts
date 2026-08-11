@@ -95,12 +95,11 @@ describe("normalizeRepoUrl", () => {
 });
 
 describe("link — auto-detect from origin", () => {
-  it("keeps a fork's lineage when re-linking an already-bound clone", async () => {
+  it("keeps a fork's lineage when re-linking the same Space", async () => {
     // Re-linking to fix a mismatch must not cost the fork its source. Only
-    // `fork` writes these, and nothing can reconstruct them — the same reason
-    // the resolver merges rather than replaces.
+    // `fork` writes these, and nothing can reconstruct them.
     findSpaceForMock.mockReturnValue({
-      repo_id: "repo_copy",
+      repo_id: "r1",
       slug: "notes",
       namespace: "alice",
       source_root_node_id: "n_ffffffffffffffffffffffff",
@@ -112,9 +111,33 @@ describe("link — auto-detect from origin", () => {
     const written = saveSpaceMock.mock.calls.at(-1)?.[1];
     expect(written.source_root_node_id).toBe("n_ffffffffffffffffffffffff");
     expect(written.source_head).toBe("9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293");
-    // …and the server's view still lands on top: the stale repo_id from the
-    // old record is replaced, not preserved. Merge order is the whole point.
     expect(written.repo_id).toBe("r1");
+  });
+
+  it("carries nothing across when the folder is re-pointed at another Space", async () => {
+    // The dangerous shape: the old record names a different Space and holds a
+    // root id the new one may not have. Carrying it forward would leave Space
+    // A's root id under Space B's name — and the resolver's first rung trusts
+    // a recorded root id without re-checking it, so the next `sync` would read
+    // A's trail believing it is B's.
+    findSpaceForMock.mockReturnValue({
+      repo_id: "repo_other",
+      slug: "elsewhere",
+      namespace: "alice",
+      root_node_id: "n_aaaaaaaaaaaaaaaaaaaaaaaa",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+    });
+
+    expect(await linkCommand.run(["./theone"], {}, JSON_GLOBAL)).toBe(0);
+
+    const written = saveSpaceMock.mock.calls.at(-1)?.[1];
+    expect(written.repo_id).toBe("r1");
+    // No field of the previous Space survives — not its root id…
+    expect(written.root_node_id).toBeUndefined();
+    // …and not a lineage that described a clone of something else.
+    expect(written.source_root_node_id).toBeUndefined();
+    expect(written.source_head).toBeUndefined();
   });
 
   it("binds the folder when the origin matches exactly one space", async () => {

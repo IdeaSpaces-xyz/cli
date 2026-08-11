@@ -133,13 +133,31 @@ export const linkCommand: CommandDef = {
     }
 
     // Bind the folder so `sync`/the desktop treat it as a clone of this space.
-    // Merge, never replace: a fork's `source_root_node_id`/`source_head` are
-    // written by `fork` alone and reconstructible from nothing, and re-linking
-    // an already-linked fork — to fix a mismatch, say — would otherwise drop
-    // its lineage silently. `spaceRecordForRepo` never emits those keys, so
-    // spreading it on top cannot clobber anything it should not.
+    //
+    // The server's view is the base, and exactly two fields are carried over:
+    // a fork's `source_root_node_id`/`source_head`, which `fork` alone writes
+    // and nothing can reconstruct, so re-linking to fix a mismatch must not
+    // cost them. Carrying the *whole* old record instead would be unsafe —
+    // `spaceRecordForRepo` emits `root_node_id` only when the repo has one, so
+    // re-pointing a folder from Space A to a legacy Space B would leave A's
+    // root id under B's name, and `resolveSpaceBinding`'s first rung trusts a
+    // recorded root id without re-checking it. That is a cross-Space read.
+    //
+    // Lineage travels only when the binding stays the same Space: repointed
+    // somewhere else, this clone's old source is no longer about it.
+    const previous = findSpaceFor(dir);
+    const bound = spaceRecordForRepo(repo, me.username);
+    const carried =
+      previous && previous.repo_id === bound.repo_id
+        ? {
+            ...(previous.source_root_node_id
+              ? { source_root_node_id: previous.source_root_node_id }
+              : {}),
+            ...(previous.source_head ? { source_head: previous.source_head } : {}),
+          }
+        : {};
     try {
-      saveSpace(dir, { ...(findSpaceFor(dir) ?? {}), ...spaceRecordForRepo(repo, me.username) });
+      saveSpace(dir, { ...bound, ...carried });
     } catch {
       output.error("Verified the folder, but could not write the clone registry.");
       return 1;
