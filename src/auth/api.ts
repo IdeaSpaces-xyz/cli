@@ -558,7 +558,14 @@ export async function putFile(
 // The data behind the Share dialog. All owner-gated on
 // the backend — a non-owner caller gets a 403.
 
-export type InviteRole = "MEMBER" | "CLONER" | "READER";
+/**
+ * Roles the legacy repo-invite endpoint still accepts from this CLI.
+ *
+ * `CLONER` is not representable here on purpose. The capability it named —
+ * may take a copy — is a grade on a target now (`ShareGrade["fork"]`), and a
+ * type that can still spell the old word is a type that lets it come back.
+ */
+export type InviteRole = "MEMBER" | "READER";
 export type MemberRole = "OWNER" | InviteRole;
 export type CopyAccessLevel = "owner" | "member" | "reader" | "public";
 
@@ -602,6 +609,120 @@ export interface SpaceAccessUpdate {
 }
 
 const repoBase = (repoId: string) => `${API_V1}/repos/${encodeURIComponent(repoId)}`;
+
+/**
+ * What a Space can be shared *as*. One grade per invitation, mutually exclusive.
+ *
+ * These replace the repository roles the product used to hand out. `CLONER` in
+ * particular is gone: "may copy" is now `fork`, expressed as a relationship on
+ * a target rather than a seat in a repo.
+ */
+export type ShareGrade = "explore" | "fork" | "collaborate";
+
+export interface PersonShareRelationship {
+  user_id: number;
+  username?: string | null;
+  name?: string | null;
+  email?: string | null;
+  account_status: "active" | "closed" | "unresolved" | "missing";
+  access: "view" | "existing_write";
+  share_history: boolean;
+  shared_at?: string | null;
+}
+
+export interface PendingContentInvite {
+  invite_id: string;
+  invited_email: string;
+  intent_kind: "content" | "process";
+  grade: ShareGrade;
+  share_history: boolean;
+  created_at: string;
+  expires_at: string;
+  delivery_status: "unknown" | "sending" | "sent" | "failed";
+  delivery_error?: string | null;
+  can_resend: boolean;
+}
+
+/**
+ * The server's answer to one share attempt.
+ *
+ * `status` carries the outcomes that are not failures and not plain successes —
+ * the recipient already had direct access, the address is the caller's own, the
+ * person has no account and was invited instead. Reporting which one happened
+ * is the point: they need different things said to the person sharing.
+ */
+export interface PersonShareAddResult {
+  target_node_id: string;
+  grade: ShareGrade;
+  share_history: boolean;
+  status:
+    | "added"
+    | "already_direct"
+    | "self"
+    | "no_match"
+    | "recipient_unavailable"
+    | "invited"
+    | "already_pending";
+  recipient_route: string;
+  relationship?: PersonShareRelationship | null;
+  pending_invite?: PendingContentInvite | null;
+}
+
+export interface PersonShareCollection {
+  target_node_id: string;
+  target_type: "repo" | "dir" | "note";
+  recipient_route: string;
+  actions: {
+    can_manage_existing: boolean;
+    can_add: boolean;
+    manage_blocked_reason?: string | null;
+    add_blocked_reason?: string | null;
+  };
+  relationships: PersonShareRelationship[];
+}
+
+const nodeBase = (nodeId: string) => `${API_V1}/nodes/${encodeURIComponent(nodeId)}`;
+
+/**
+ * Share one Content target with one person, at one grade.
+ *
+ * Addressed by node id, not `repo_id`: the caller is standing in a clone and
+ * should never have to discover an internal repository identifier to share what
+ * they are looking at.
+ */
+export async function addPersonShare(
+  config: ApiConfig,
+  targetNodeId: string,
+  body: {
+    email?: string;
+    username?: string;
+    user_id?: number;
+    invite_if_no_match?: boolean;
+    grade: ShareGrade;
+    share_history?: boolean;
+  },
+  opts?: RequestOptions,
+): Promise<PersonShareAddResult> {
+  return request(config, "POST", `${nodeBase(targetNodeId)}/person-shares`, body, opts);
+}
+
+/** Who already holds direct access to a target, and whether this caller may change it. */
+export async function listPersonShares(
+  config: ApiConfig,
+  targetNodeId: string,
+  opts?: RequestOptions,
+): Promise<PersonShareCollection> {
+  return request(config, "GET", `${nodeBase(targetNodeId)}/person-shares`, undefined, opts);
+}
+
+/** Invitations sent for a target and not yet accepted. */
+export async function listPersonShareInvites(
+  config: ApiConfig,
+  targetNodeId: string,
+  opts?: RequestOptions,
+): Promise<{ invites: PendingContentInvite[] }> {
+  return request(config, "GET", `${nodeBase(targetNodeId)}/person-share-invites`, undefined, opts);
+}
 
 export async function listRepoMembers(config: ApiConfig, repoId: string): Promise<Member[]> {
   return request<Member[]>(config, "GET", `${repoBase(repoId)}/members`);

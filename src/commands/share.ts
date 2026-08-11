@@ -5,6 +5,9 @@
  */
 
 import {
+  addPersonShare,
+  listPersonShares,
+  listPersonShareInvites,
   listRepoMembers,
   removeRepoMember,
   listRepoInvites,
@@ -15,16 +18,38 @@ import {
   UnauthorizedError,
   type InviteRole,
   type CopyAccessLevel,
+  type ShareGrade,
 } from "../auth/api.js";
-import { loadConfig } from "../auth/credentials.js";
+import { loadConfig, type LoadedConfig } from "../auth/credentials.js";
+import { resolveSpaceBinding } from "../auth/resolve-space.js";
+import { repoRoot } from "../git.js";
+import { parseSpaceLocator } from "../space-locator.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
 
-const USAGE = "ideaspaces share <access|set-access|members|remove|invites|invite|revoke> <repo_id> …";
+const USAGE =
+  "ideaspaces share <invite|people|access|set-access|members|remove|invites|revoke|legacy-invite> …";
 
-const INVITE_ROLES: InviteRole[] = ["MEMBER", "CLONER", "READER"];
+/**
+ * The grades a Space is shared at. One per invitation, mutually exclusive.
+ *
+ *   explore      read it
+ *   fork         read it and take an independent copy
+ *   collaborate  read it and push back
+ */
+const GRADES: ShareGrade[] = ["explore", "fork", "collaborate"];
+
+/**
+ * Roles the compatibility path still accepts.
+ *
+ * `CLONER` is deliberately absent. "May copy" is now a grade on a target
+ * (`--grade fork`), not a seat in a repository, and leaving the old word
+ * reachable would keep two vocabularies alive for one capability. Naming it
+ * still gets a pointer rather than a bare rejection — see below.
+ */
+const LEGACY_ROLES: InviteRole[] = ["MEMBER", "READER"];
 const COPY_LEVELS: CopyAccessLevel[] = ["owner", "member", "reader", "public"];
 
 function flagStr(flags: Flags, key: string): string | undefined {
@@ -44,6 +69,75 @@ function setup(repoId: string | undefined, usage: string, output: Output) {
     return null;
   }
   return config;
+}
+
+
+/**
+ * The Content target to share: an explicit Space URL, or the clone you are in.
+ *
+ * Resolution reuses the binding ladder, so a clone whose registry record
+ * predates root node ids still resolves — from its own origin, or from the
+ * account. Without that, "share what I am standing in" would work only for
+ * clones made recently enough.
+ */
+async function resolveTarget(
+  spaceUrl: string | undefined,
+  config: LoadedConfig,
+  output: Output,
+): Promise<string | null> {
+  if (spaceUrl) {
+    try {
+      return parseSpaceLocator(spaceUrl, config.apiUrl).rootNodeId;
+    } catch (err) {
+      output.error(err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+  let root: string;
+  try {
+    root = repoRoot();
+  } catch {
+    output.error(
+      "Not inside a Space. Run this from a clone, or name one: --space <url>",
+    );
+    return null;
+  }
+  const binding = await resolveSpaceBinding(root, config);
+  if ("rootNodeId" in binding) return binding.rootNodeId;
+  output.error(
+    binding.failure === "unreachable"
+      ? "Could not reach your account to work out which Space this is. Retry when you're back online."
+      : binding.failure === "ambiguous"
+        ? "This clone's origin matches more than one of your Spaces. Name one: --space <url>"
+        : "Could not tell which Space this clone belongs to. Name one: --space <url>",
+  );
+  return null;
+}
+
+/** What happened, in the words the person sharing needs. */
+function describeShare(res: import("../auth/api.js").PersonShareAddResult): string {
+  const who = res.relationship?.username ?? res.pending_invite?.invited_email ?? "them";
+  const history = res.share_history ? ", with the trail" : "";
+  switch (res.status) {
+    case "added":
+      return `Shared at ${res.grade}${history} with ${who}.\n${res.recipient_route}`;
+    case "invited":
+      return `No account yet — invited ${who} at ${res.grade}${history}.\nThey get access when they accept.`;
+    case "already_pending":
+      return `Already invited ${who}; that invitation still stands.`;
+    case "already_direct":
+      // Not an error, and not a no-op worth hiding: they hold this already, by
+      // a relationship someone granted before.
+      return `${who} already has direct access here. Nothing changed.`;
+    case "self":
+      return "That is your own address — you already have this Space.";
+    case "no_match":
+      return "No account matches, and no invitation was sent.";
+    case "recipient_unavailable":
+      return `${who}'s account cannot receive access right now.`;
+    default:
+      return `${res.status}: ${who}`;
+  }
 }
 
 async function run(sub: string, rest: string[], flags: Flags, output: Output): Promise<number> {
@@ -111,16 +205,93 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         return 0;
       }
       case "invite": {
-        const config = setup(repoId, "ideaspaces share invite <repo_id> <email…> --role <role>", output);
+        // rest[0] is an email here, not a repo_id: the whole point of this
+        // slice is that sharing what you are standing in needs no internal
+        // repository identifier.
+        const email = rest[0];
+        const config = loadConfig();
+        if (!config) {
+          output.error("Not logged in. Run `ideaspaces login`.");
+          return 1;
+        }
+        if (!email || !email.includes("@")) {
+          output.error(
+            "Usage: ideaspaces share invite <email> [--grade explore|fork|collaborate] [--history]\n" +
+              "Sharing a Space you are not standing in: --space <url>",
+          );
+          return 1;
+        }
+        const grade = (flagStr(flags, "grade") ?? "explore") as ShareGrade;
+        if (!GRADES.includes(grade)) {
+          output.error(`--grade must be one of: ${GRADES.join(", ")}`);
+          return 1;
+        }
+
+        const target = await resolveTarget(flagStr(flags, "space"), config, output);
+        if (!target) return 1;
+
+        const res = await addPersonShare(config, target, {
+          email,
+          invite_if_no_match: true,
+          grade,
+          share_history: Boolean(flags.history),
+        });
+        output.result(res, describeShare(res));
+        return 0;
+      }
+      case "people": {
+        const config = loadConfig();
+        if (!config) {
+          output.error("Not logged in. Run `ideaspaces login`.");
+          return 1;
+        }
+        const target = await resolveTarget(flagStr(flags, "space"), config, output);
+        if (!target) return 1;
+
+        // Both halves, because "who has this" is not answered by either alone:
+        // a relationship is someone who accepted, an invite is someone who has
+        // not yet.
+        const [people, pending] = await Promise.all([
+          listPersonShares(config, target),
+          listPersonShareInvites(config, target).catch(() => ({ invites: [] })),
+        ]);
+        const lines = [
+          ...people.relationships.map(
+            (r) =>
+              `  ${(r.username ?? r.email ?? `user ${r.user_id}`).padEnd(24)} ${r.access}` +
+              `${r.share_history ? " + history" : ""}`,
+          ),
+          ...pending.invites.map((i) => `  ${i.invited_email.padEnd(24)} invited (${i.grade})`),
+        ];
+        if (!people.actions.can_add && people.actions.add_blocked_reason) {
+          lines.push("", `You cannot add people here: ${people.actions.add_blocked_reason}`);
+        }
+        output.result(
+          { ...people, pending_invites: pending.invites },
+          lines.length ? lines.join("\n") : "nobody has direct access",
+        );
+        return 0;
+      }
+      case "legacy-invite": {
+        const config = setup(repoId, "ideaspaces share legacy-invite <repo_id> <email…> --role <role>", output);
         if (!config) return 1;
         const emails = rest.slice(1).filter(Boolean);
         const role = (flagStr(flags, "role") ?? "READER") as InviteRole;
         if (!emails.length) {
-          output.error("Usage: ideaspaces share invite <repo_id> <email…> --role <role>");
+          output.error("Usage: ideaspaces share legacy-invite <repo_id> <email…> --role <role>");
           return 1;
         }
-        if (!INVITE_ROLES.includes(role)) {
-          output.error(`--role must be one of: ${INVITE_ROLES.join(", ")}`);
+        if (String(role).toUpperCase() === "CLONER") {
+          // The one role with a direct replacement, so say the replacement
+          // rather than only refusing the word.
+          output.error(
+            "CLONER is gone. Copying is a grade on the Space now:\n" +
+              "  ideaspaces share invite <email> --grade fork",
+          );
+          return 1;
+        }
+        if (!LEGACY_ROLES.includes(role)) {
+          output.error(`--role must be one of: ${LEGACY_ROLES.join(", ")}`);
           return 1;
         }
         const res = await createRepoInvites(config, repoId!, emails, role);
@@ -155,14 +326,15 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
 
 export const shareCommand: CommandDef = {
   name: "share",
-  description: "Manage repo access — members, invites, and the public-link policy",
+  description: "Share a Space with someone, and manage who has it",
   usage: USAGE,
   examples: [
+    "ideaspaces share invite someone@example.com",
+    "ideaspaces share invite someone@example.com --grade fork",
+    "ideaspaces share invite someone@example.com --grade collaborate --history",
+    "ideaspaces share people --json",
     "ideaspaces share access repo_abc --json",
     "ideaspaces share set-access repo_abc --public true --copy reader",
-    "ideaspaces share members repo_abc --json",
-    "ideaspaces share invite repo_abc a@x.com b@x.com --role MEMBER",
-    "ideaspaces share revoke repo_abc inv_123",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
