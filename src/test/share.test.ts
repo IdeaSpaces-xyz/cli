@@ -531,3 +531,28 @@ describe("unshare degrades the way people does", () => {
     expect(stderr).not.toContain("has no invitation outstanding");
   });
 });
+
+describe("people says what you may not do, before you find out by refusal", () => {
+  it("surfaces a manage block, not only an add block", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      target_type: "repo",
+      recipient_route: "r",
+      actions: {
+        can_manage_existing: false,
+        can_add: false,
+        add_blocked_reason: "not_owner",
+        manage_blocked_reason: "not_owner",
+      },
+      relationships: [
+        { user_id: 7, username: "bob", account_status: "active", access: "view", share_history: false },
+      ],
+    });
+    listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
+
+    expect(await shareCommand.run(["people"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("You cannot add people here");
+    // The one that was missing: without it, the first sign is a 403 from unshare.
+    expect(stdout).toContain("You cannot change who has it");
+  });
+});

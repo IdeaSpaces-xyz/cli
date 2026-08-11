@@ -328,6 +328,12 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         if (!people.actions.can_add && people.actions.add_blocked_reason) {
           lines.push("", `You cannot add people here: ${people.actions.add_blocked_reason}`);
         }
+        if (!people.actions.can_manage_existing && people.actions.manage_blocked_reason) {
+          // Otherwise the first sign is a bare 403 from `unshare` — learning
+          // what you may do by being refused is what this command exists to
+          // replace.
+          lines.push(`You cannot change who has it: ${people.actions.manage_blocked_reason}`);
+        }
         if (invitesUnread) {
           // An empty invite list and an unread one look identical otherwise —
           // and a scripted caller would read the first as ground truth.
