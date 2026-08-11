@@ -95,7 +95,6 @@ function setup(repoId: string | undefined, usage: string, output: Output) {
   return config;
 }
 
-
 /**
  * The Content target to share: an explicit Space URL, or the clone you are in.
  *
@@ -262,7 +261,7 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
           );
           return 1;
         }
-        if (!email || !email.includes("@")) {
+        if (!email) {
           output.error(
             "Usage: ideaspaces share invite <email> [--grade explore|fork|collaborate] [--history]\n" +
               "Sharing a Space you are not standing in: --space <url>",
@@ -453,6 +452,9 @@ export const shareCommand: CommandDef = {
     "ideaspaces share legacy-invite repo_abc a@x.com --role MEMBER",
     "ideaspaces share access repo_abc --json",
     "ideaspaces share set-access repo_abc --public true --copy reader",
+    "ideaspaces share members repo_abc --json",
+    "ideaspaces share invites repo_abc",
+    "ideaspaces share revoke repo_abc inv_123",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
