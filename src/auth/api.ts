@@ -715,6 +715,30 @@ export async function listPersonShares(
   return request(config, "GET", `${nodeBase(targetNodeId)}/person-shares`, undefined, opts);
 }
 
+/**
+ * Turn a person-share refusal into a sentence, or null if it is not one.
+ *
+ * The common case is not a bug and not the caller's fault: a Space whose
+ * ownership ledger was never established cannot hold direct person
+ * relationships, and most existing Spaces are in that state. Rendering the raw
+ * 409 body puts `root_governance_unestablished` in front of someone who asked
+ * to share a folder.
+ */
+export function describeShareRefusal(err: unknown): string | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes("root_governance_unestablished")) {
+    return (
+      "This Space cannot share with a person directly yet — its ownership record was never " +
+      "established, which is true of most Spaces created before the change.\n" +
+      "The older path still works for it: ideaspaces share legacy-invite <repo_id> <email> --role READER"
+    );
+  }
+  if (message.includes("→ 409") && message.includes("Person Share is unavailable")) {
+    return "Direct person sharing is unavailable for this Space.";
+  }
+  return null;
+}
+
 /** Withdraw one person's direct access to a target. */
 export async function removePersonShare(
   config: ApiConfig,

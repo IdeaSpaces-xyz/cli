@@ -6,6 +6,7 @@
 
 import {
   addPersonShare,
+  describeShareRefusal,
   removePersonShare,
   revokePersonShareInvite,
   listPersonShares,
@@ -121,9 +122,11 @@ async function resolveTarget(
 function describeShare(res: PersonShareAddResult): string {
   const who = res.relationship?.username ?? res.pending_invite?.invited_email ?? "them";
   const history = res.share_history ? ", with the trail" : "";
+  // `where` is a route, not a URL — label it, or it reads as stray output.
+  const where = res.recipient_route ? `\nThey reach it at ${res.recipient_route}` : "";
   switch (res.status) {
     case "added":
-      return `Shared at ${res.grade}${history} with ${who}.\n${res.recipient_route}`;
+      return `Shared with ${who} at ${res.grade}${history}.${where}`;
     case "invited":
       return `No account yet — invited ${who} at ${res.grade}${history}.\nThey get access when they accept.`;
     case "already_pending":
@@ -400,7 +403,7 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
       output.error("Session expired. Run `ideaspaces login`.");
       return 1;
     }
-    output.error(err instanceof Error ? err.message : String(err));
+    output.error(describeShareRefusal(err) ?? (err instanceof Error ? err.message : String(err)));
     return 1;
   }
 }

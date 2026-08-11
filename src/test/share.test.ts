@@ -350,3 +350,37 @@ describe("share people — an unread half is not an empty half", () => {
     expect(out.pending_invites).toEqual([]);
   });
 });
+
+describe("what the live walk found", () => {
+  it("reads as a sentence when the trail travels too", async () => {
+    // Live output was "Shared at fork, with the trail with sw_ernest." — the
+    // history clause ran straight into the name. Only visible by running it.
+    addPersonShareMock.mockResolvedValue(addResult({ grade: "fork", share_history: true }));
+
+    await shareCommand.run(["invite", "bob@example.com"], { grade: "fork", history: true }, TEXT_G);
+
+    expect(stdout).toContain("Shared with bob at fork, with the trail");
+    expect(stdout).not.toContain("trail with bob");
+  });
+
+  it("labels the recipient route instead of printing a bare path", async () => {
+    await shareCommand.run(["invite", "bob@example.com"], {}, TEXT_G);
+    // The server returns a route, not a URL; unlabelled it reads as stray output.
+    expect(stdout).toContain("They reach it at");
+  });
+
+  it("explains a Space that cannot hold person shares yet", async () => {
+    // The live shape, from a Space whose ownership record predates the ledger —
+    // which is most of them.
+    addPersonShareMock.mockRejectedValue(
+      new Error(
+        'POST /api/v1/nodes/n_x/person-shares → 409: {"detail":{"code":"root_governance_unestablished","message":"Person Share is unavailable for this target"}}',
+      ),
+    );
+
+    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("ownership record was never established");
+    expect(stderr).toContain("legacy-invite");
+    expect(stderr).not.toContain("root_governance_unestablished");
+  });
+});
