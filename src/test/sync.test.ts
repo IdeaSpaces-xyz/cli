@@ -242,6 +242,18 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(out.incoming_unavailable).toContain("log exploded");
   });
 
+  it("surfaces an expired session whichever trail call carries the 401", async () => {
+    const { UnauthorizedError } = await import("../auth/api.js");
+    advanceOrigin();
+    // The 401 lands on `changes`; `log` fails for an unrelated reason. The
+    // actionable message must not depend on which call failed first.
+    fetchTrailLogMock.mockRejectedValue(new Error("socket hang up"));
+    fetchTrailChangesMock.mockRejectedValue(new UnauthorizedError("401"));
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout).incoming_unavailable).toContain("ideaspaces login");
+  });
+
   it("passes --limit through, and clamps what the endpoint would refuse", async () => {
     advanceOrigin();
 

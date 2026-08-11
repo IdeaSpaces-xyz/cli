@@ -87,11 +87,16 @@ export const syncCommand: CommandDef = {
     // config, and folding its failure into the fetch's would report an
     // unwritable ~/.gitconfig as a network problem and send someone debugging
     // the wrong thing.
+    // Guarded where `pull`/`push` call it bare, and deliberately: today it
+    // swallows its own failures and cannot reject, so this is belt-and-braces
+    // for the one command whose contract is that it always answers. It is the
+    // only verb here a caller with no repo membership reaches — a fork, or
+    // someone who was shared with — and the one where a hard failure would
+    // strand a reader who has no other way to look.
     try {
       await registerGitCredentialHelper();
     } catch {
-      // Non-fatal — an already-registered helper, or a public remote that
-      // needs none. The fetch below reports for real if auth is the problem.
+      // The fetch below reports for real if auth is the actual problem.
     }
 
     // Refs only. Failure is not fatal — a stale position beats no answer, and
@@ -194,11 +199,16 @@ export const syncCommand: CommandDef = {
               "No common commit with the upstream, so the changed paths could not be asked for — the commits above are the whole answer.";
           }
         } else {
+          // Either rejection can be the 401. Prefer it over the other reason:
+          // "session expired" is the one message here the reader can act on,
+          // and it should not depend on which call happened to fail first.
+          const expired = [log, changes].some(
+            (r) => r.status === "rejected" && r.reason instanceof UnauthorizedError,
+          );
           const err = log.reason;
-          incomingNote =
-            err instanceof UnauthorizedError
-              ? "Session expired — run `ideaspaces login` to read the Space's trail."
-              : `Could not read the Space's trail: ${err instanceof Error ? err.message : String(err)}`;
+          incomingNote = expired
+            ? "Session expired — run `ideaspaces login` to read the Space's trail."
+            : `Could not read the Space's trail: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
 
