@@ -289,6 +289,8 @@ describe("share invite — one person at a time", () => {
       await shareCommand.run(["invite", "a@x.com", "b@x.com"], { grade: "fork" }, JSON_G),
     ).toBe(1);
     expect(stderr).toContain("b@x.com");
+    // "ignored" read as though the first address had been processed; nothing is.
+    expect(stderr).toContain("nothing was sent");
     expect(addPersonShareMock).not.toHaveBeenCalled();
   });
 });
@@ -460,5 +462,19 @@ describe("invite argument errors name the right argument", () => {
   it("still names the extras when the address itself is fine", async () => {
     expect(await shareCommand.run(["invite", "a@x.com", "b@x.com"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("b@x.com");
+  });
+});
+
+describe("share refusals other than the governance one", () => {
+  it("explains a plain person-share unavailability", async () => {
+    // The second branch of describeShareRefusal had no coverage — and a branch
+    // of a hand-written matcher is exactly where the last one hid.
+    addPersonShareMock.mockRejectedValue(
+      new Error('POST /api/v1/nodes/n_x/person-shares → 409: {"detail":"Person Share is unavailable for this target"}'),
+    );
+
+    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Direct person sharing is unavailable");
+    expect(stderr).not.toContain("409");
   });
 });

@@ -256,7 +256,8 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
           // The old verb took a list. Dropping the extras silently would be the
           // exact surprise this command's own reporting exists to avoid.
           output.error(
-            `One invitation at a time — a grade is per person. Extra addresses ignored: ${rest.slice(1).join(", ")}\n` +
+            `Refused — one address per call, and nothing was sent. A grade is per person.\n` +
+              `You named ${rest.length}: ${rest.join(", ")}\n` +
               "Run it once per person.",
           );
           return 1;

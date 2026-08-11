@@ -566,7 +566,17 @@ export async function putFile(
  * type that can still spell the old word is a type that lets it come back.
  */
 export type InviteRole = "MEMBER" | "READER";
-export type MemberRole = "OWNER" | InviteRole;
+/**
+ * A role the backend may *report* — deliberately not derived from `InviteRole`.
+ *
+ * Narrowing what this CLI may send is a decision about our writes. It says
+ * nothing about existing state: nothing migrates a legacy repo's `CLONER`
+ * members or pending invites, so the server can still hand one back. A read
+ * type that inherits the write type's narrowing is a type that lies, and the
+ * next exhaustive `switch` over it would be wrong in a way the compiler
+ * endorses.
+ */
+export type MemberRole = "OWNER" | "MEMBER" | "READER" | "CLONER";
 export type CopyAccessLevel = "owner" | "member" | "reader" | "public";
 
 export interface Member {
@@ -579,7 +589,7 @@ export interface Member {
 export interface PendingInvite {
   invite_id: string;
   invited_email: string;
-  role: InviteRole;
+  role: MemberRole; // reported, not sent — may still be CLONER on a legacy repo
   expires_at: string;
   created_at: string;
 }
