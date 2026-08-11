@@ -25,6 +25,7 @@
  */
 
 import { fetchAuthMe, deriveGitBase, type ApiConfig } from "./api.js";
+import { getDefaultApiUrl } from "./credentials.js";
 import { findSpaceFor, saveSpace, type SpaceRecord } from "./spaces.js";
 import { normalizeRepoUrl, originUrl } from "../git.js";
 import { repoKeys, rootNodeIdFromGitUrl, spaceRecordForRepo } from "../space-locator.js";
@@ -64,12 +65,24 @@ export async function resolveSpaceBinding(
   // Rung 2 — the coordinate is in the remote. No account needed, which is the
   // point: this is the rung a Grant-only reader arrives on.
   if (origin) {
-    const fromOrigin = rootNodeIdFromGitUrl(origin, config?.apiUrl);
+    // The host check must not depend on being logged in. `sync` with no
+    // session is the *normal* first call for a Grant-only reader, and a
+    // resolution that skipped the check would be healed into the registry and
+    // then trusted forever by rung 1, which never re-validates.
+    const fromOrigin = rootNodeIdFromGitUrl(origin, config?.apiUrl ?? getDefaultApiUrl());
     if (fromOrigin) {
-      try {
-        saveSpace(dir, healed(record, fromOrigin));
-      } catch {
-        // A registry we cannot write is not a reason to withhold the answer.
+      // Only ever augment a record that exists. A brand-new one written here
+      // would carry empty repo_id/slug/namespace — `SpaceRecord` treats those
+      // as populated everywhere else, and `publish`'s stale-mapping check
+      // reads them straight off the registry and would report a folder mapped
+      // to "/" with no repo. Rung 2 costs nothing to repeat, so re-resolving
+      // is cheaper than a half-written record other commands must survive.
+      if (record) {
+        try {
+          saveSpace(dir, healed(record, fromOrigin));
+        } catch {
+          // A registry we cannot write is not a reason to withhold the answer.
+        }
       }
       return { rootNodeId: fromOrigin, via: "origin" };
     }

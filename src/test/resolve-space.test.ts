@@ -16,6 +16,7 @@ const ROOT = "n_0123456789abcdef01234567";
 
 let tmp: string;
 let originalHome: string | undefined;
+let originalApiUrl: string | undefined;
 
 function repoWithOrigin(name: string, origin: string): string {
   const dir = join(tmp, name);
@@ -28,6 +29,10 @@ beforeEach(async () => {
   tmp = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-resolve-")));
   originalHome = process.env.HOME;
   process.env.HOME = tmp;
+  // Logged-out resolution falls back to the default deployment; pin it here
+  // rather than at module scope, so it cannot leak into another test file.
+  originalApiUrl = process.env.IS_API_URL;
+  process.env.IS_API_URL = "https://api.example.test";
   fetchAuthMeMock.mockReset();
   vi.resetModules();
 });
@@ -35,6 +40,8 @@ beforeEach(async () => {
 afterEach(async () => {
   if (originalHome !== undefined) process.env.HOME = originalHome;
   else delete process.env.HOME;
+  if (originalApiUrl !== undefined) process.env.IS_API_URL = originalApiUrl;
+  else delete process.env.IS_API_URL;
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -73,6 +80,27 @@ describe("resolveSpaceBinding", () => {
     // Additive — what the record already carried survives.
     expect(healed?.repo_id).toBe("repo_old");
     expect(healed?.slug).toBe("notes");
+  });
+
+  it("refuses a wrong-host canonical URL even with no session", async () => {
+    const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
+    const dir = repoWithOrigin("elsewhere-anon", `https://git.evil.test/spaces/${ROOT}.git`);
+
+    // Logged out is the normal first call for a Grant-only reader. If the check
+    // only ran when a session happened to exist, this would be accepted.
+    expect(await resolveSpaceBinding(dir, null)).toBeNull();
+  });
+
+  it("does not heal a clone it has no record for", async () => {
+    const { findSpaceFor } = await import("../auth/spaces.js");
+    const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
+    const dir = repoWithOrigin("fresh-fork", `https://git.example.test/spaces/${ROOT}.git`);
+
+    expect(await resolveSpaceBinding(dir, null)).toEqual({ rootNodeId: ROOT, via: "origin" });
+    // A record written here would carry blank repo_id/slug/namespace, which
+    // publish reads directly and would report as a broken mapping. Rung 2 is
+    // free to repeat, so no record is better than half a record.
+    expect(findSpaceFor(dir)).toBeNull();
   });
 
   it("refuses a canonical URL on a different deployment", async () => {
