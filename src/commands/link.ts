@@ -7,7 +7,7 @@ import {
   type AuthMeResponse,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { saveSpace } from "../auth/spaces.js";
+import { findSpaceFor, saveSpace, withForkLineage } from "../auth/spaces.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { isInsideWorkTree, normalizeRepoUrl, originUrl, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
@@ -15,28 +15,9 @@ import {
   canonicalGitUrl,
   repoRouteNamespace,
   spaceRecordForRepo,
+  repoKeys,
 } from "../space-locator.js";
 import type { CommandDef } from "../types.js";
-
-/** Canonical transport key plus any still-resolved compatibility alias. */
-function repoKeys(
-  repo: AuthMeRepo,
-  me: AuthMeResponse,
-  gitBase: string,
-  apiUrl: string,
-): string[] {
-  const keys: string[] = [];
-  if (repo.root_node_id) {
-    const canonical = normalizeRepoUrl(canonicalGitUrl(apiUrl, repo.root_node_id));
-    if (canonical) keys.push(canonical);
-  }
-  const namespace = repoRouteNamespace(repo, me.username);
-  if (namespace) {
-    const legacy = normalizeRepoUrl(`${gitBase}/${namespace}/${repo.route_slug ?? repo.slug}.git`);
-    if (legacy) keys.push(legacy);
-  }
-  return keys;
-}
 
 export const linkCommand: CommandDef = {
   name: "link",
@@ -152,8 +133,21 @@ export const linkCommand: CommandDef = {
     }
 
     // Bind the folder so `sync`/the desktop treat it as a clone of this space.
+    //
+    // The server's view is the base, and exactly two fields are carried over:
+    // a fork's `source_root_node_id`/`source_head`, which `fork` alone writes
+    // and nothing can reconstruct, so re-linking to fix a mismatch must not
+    // cost them. Carrying the *whole* old record instead would be unsafe —
+    // `spaceRecordForRepo` emits `root_node_id` only when the repo has one, so
+    // re-pointing a folder from Space A to a legacy Space B would leave A's
+    // root id under B's name, and `resolveSpaceBinding`'s first rung trusts a
+    // recorded root id without re-checking it. That is a cross-Space read.
+    //
+    // Lineage travels only when the binding stays the same Space: repointed
+    // somewhere else, this clone's old source is no longer about it.
+    const previous = findSpaceFor(dir);
     try {
-      saveSpace(dir, spaceRecordForRepo(repo, me.username));
+      saveSpace(dir, withForkLineage(spaceRecordForRepo(repo, me.username), previous));
     } catch {
       output.error("Verified the folder, but could not write the clone registry.");
       return 1;

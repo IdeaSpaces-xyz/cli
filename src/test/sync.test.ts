@@ -10,17 +10,27 @@ import type { GlobalFlags } from "../types.js";
 const JSON_G: GlobalFlags = { json: true, quiet: true, yes: false, help: false };
 const TEXT_G: GlobalFlags = { json: false, quiet: true, yes: false, help: false };
 
-const { loadConfigMock, findSpaceForMock, fetchTrailLogMock, fetchTrailChangesMock, registerHelperMock } =
-  vi.hoisted(() => ({
-    loadConfigMock: vi.fn(),
-    findSpaceForMock: vi.fn(),
-    fetchTrailLogMock: vi.fn(),
-    fetchTrailChangesMock: vi.fn(),
-    registerHelperMock: vi.fn(),
-  }));
+const {
+  loadConfigMock,
+  findSpaceForMock,
+  saveSpaceMock,
+  fetchTrailLogMock,
+  fetchTrailChangesMock,
+  registerHelperMock,
+} = vi.hoisted(() => ({
+  loadConfigMock: vi.fn(),
+  findSpaceForMock: vi.fn(),
+  saveSpaceMock: vi.fn(),
+  fetchTrailLogMock: vi.fn(),
+  fetchTrailChangesMock: vi.fn(),
+  registerHelperMock: vi.fn(),
+}));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
-vi.mock("../auth/spaces.js", () => ({ findSpaceFor: findSpaceForMock }));
+vi.mock("../auth/spaces.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../auth/spaces.js")>();
+  return { ...actual, findSpaceFor: findSpaceForMock, saveSpace: saveSpaceMock };
+});
 vi.mock("../auth/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/api.js")>();
   return { ...actual, fetchTrailLog: fetchTrailLogMock, fetchTrailChanges: fetchTrailChangesMock };
@@ -79,7 +89,7 @@ beforeEach(async () => {
   cwd = process.cwd();
   originHome = process.env.HOME;
   process.env.HOME = tmp;
-  for (const m of [loadConfigMock, findSpaceForMock, fetchTrailLogMock, fetchTrailChangesMock, registerHelperMock]) {
+  for (const m of [loadConfigMock, findSpaceForMock, saveSpaceMock, fetchTrailLogMock, fetchTrailChangesMock, registerHelperMock]) {
     m.mockReset();
   }
   loadConfigMock.mockReturnValue({ apiUrl: "https://api.test", apiKey: "k" });
@@ -401,6 +411,31 @@ describe("ideaspaces sync — awareness, not integration", () => {
     // Unfilterable, which is a state the caller already handles — the list is
     // shown whole and flagged, not silently trusted.
     expect(out.incoming.commits_filtered).toBe(false);
+  });
+
+  it("reads the trail for a clone with no record, using its canonical origin", async () => {
+    advanceOrigin();
+    // Bring the remote-tracking ref up to date while origin is still reachable…
+    spawnSync("git", ["-C", clone, "fetch", "-q"]);
+    // …then point origin at the canonical form a fork or clone would carry.
+    // The fetch inside the run fails (unreachable), which is the honest state:
+    // position comes from the refs we have, and the coordinate from the URL.
+    // Built from the CLI's own helper so the host matches whatever the mocked
+    // config derives — hardcoding it here would test the wrong deployment.
+    const { canonicalGitUrl } = await import("../space-locator.js");
+    git(clone, ["remote", "set-url", "origin", canonicalGitUrl("https://api.test", ROOT_NODE_ID)]);
+    findSpaceForMock.mockReturnValue(null);
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.behind).toBe(1);
+    // Rung 2, through the command rather than the resolver's own tests: no
+    // record, no account call, and the trail still read.
+    expect(fetchTrailLogMock).toHaveBeenCalledWith(expect.anything(), ROOT_NODE_ID, 20);
+    expect(out.incoming.commits.length).toBeGreaterThan(0);
+    // Nothing to augment, so nothing written — a blank record is worse than none.
+    expect(saveSpaceMock).not.toHaveBeenCalled();
   });
 
   it("passes --limit through, and clamps what the endpoint would refuse", async () => {
