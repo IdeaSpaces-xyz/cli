@@ -11,6 +11,8 @@ const {
   listPersonSharesMock,
   listPersonShareInvitesMock,
   createRepoInvitesMock,
+  removePersonShareMock,
+  revokePersonShareInviteMock,
   repoRootMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
@@ -19,6 +21,8 @@ const {
   listPersonSharesMock: vi.fn(),
   listPersonShareInvitesMock: vi.fn(),
   createRepoInvitesMock: vi.fn(),
+  removePersonShareMock: vi.fn(),
+  revokePersonShareInviteMock: vi.fn(),
   repoRootMock: vi.fn(),
 }));
 
@@ -32,6 +36,8 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     listPersonShares: listPersonSharesMock,
     listPersonShareInvites: listPersonShareInvitesMock,
     createRepoInvites: createRepoInvitesMock,
+    removePersonShare: removePersonShareMock,
+    revokePersonShareInvite: revokePersonShareInviteMock,
   };
 });
 vi.mock("../git.js", async (importOriginal) => {
@@ -73,6 +79,8 @@ beforeEach(() => {
     listPersonSharesMock,
     listPersonShareInvitesMock,
     createRepoInvitesMock,
+    removePersonShareMock,
+    revokePersonShareInviteMock,
     repoRootMock,
   ]) {
     m.mockReset();
@@ -269,5 +277,76 @@ describe("the role vocabulary is gone from new invitations", () => {
     expect(createRepoInvitesMock).not.toHaveBeenCalled();
     const body = addPersonShareMock.mock.calls[0][2];
     expect(JSON.stringify(body)).not.toMatch(/MEMBER|CLONER|READER|role/i);
+  });
+});
+
+describe("share invite — one person at a time", () => {
+  it("refuses a list rather than inviting the first and dropping the rest", async () => {
+    // The verb this replaced took a list. Silently honouring only the first
+    // address would be the exact surprise this command's reporting exists to
+    // avoid.
+    expect(
+      await shareCommand.run(["invite", "a@x.com", "b@x.com"], { grade: "fork" }, JSON_G),
+    ).toBe(1);
+    expect(stderr).toContain("b@x.com");
+    expect(addPersonShareMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("share unshare — the undo", () => {
+  beforeEach(() => {
+    listPersonSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      target_type: "repo",
+      recipient_route: "r",
+      actions: { can_manage_existing: true, can_add: true },
+      relationships: [
+        { user_id: 7, username: "bob", email: "bob@example.com", account_status: "active", access: "view", share_history: false },
+      ],
+    });
+    listPersonShareInvitesMock.mockResolvedValue({
+      invites: [{ invite_id: "inv_1", invited_email: "new@example.com", grade: "fork" }],
+    });
+  });
+
+  it("removes an accepted relationship by the address you shared with", async () => {
+    expect(await shareCommand.run(["unshare", "bob@example.com"], {}, JSON_G)).toBe(0);
+    expect(removePersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, 7);
+    expect(revokePersonShareInviteMock).not.toHaveBeenCalled();
+  });
+
+  it("withdraws an invitation nobody accepted, from the same address", async () => {
+    // The person undoing knows who they shared with, not whether that person
+    // ever accepted — so one verb resolves which of the two it is.
+    expect(await shareCommand.run(["unshare", "new@example.com"], {}, JSON_G)).toBe(0);
+    expect(revokePersonShareInviteMock).toHaveBeenCalledWith(expect.anything(), ROOT, "inv_1");
+    expect(removePersonShareMock).not.toHaveBeenCalled();
+  });
+
+  it("says nothing was undone rather than reporting success", async () => {
+    expect(await shareCommand.run(["unshare", "stranger@example.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("no direct access");
+    expect(removePersonShareMock).not.toHaveBeenCalled();
+    expect(revokePersonShareInviteMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("share people — an unread half is not an empty half", () => {
+  it("says the invitations could not be read instead of showing none", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      target_type: "repo",
+      recipient_route: "r",
+      actions: { can_manage_existing: true, can_add: true },
+      relationships: [],
+    });
+    listPersonShareInvitesMock.mockRejectedValue(new Error("403 not permitted"));
+
+    expect(await shareCommand.run(["people"], {}, JSON_G)).toBe(0);
+    const out = JSON.parse(stdout);
+    // A scripted caller must be able to tell "nobody is invited" from "we could
+    // not find out".
+    expect(out.invites_unavailable).toContain("403");
+    expect(out.pending_invites).toEqual([]);
   });
 });

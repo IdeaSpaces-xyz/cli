@@ -6,6 +6,8 @@
 
 import {
   addPersonShare,
+  removePersonShare,
+  revokePersonShareInvite,
   listPersonShares,
   listPersonShareInvites,
   listRepoMembers,
@@ -19,6 +21,7 @@ import {
   type InviteRole,
   type CopyAccessLevel,
   type ShareGrade,
+  type PersonShareAddResult,
 } from "../auth/api.js";
 import { loadConfig, type LoadedConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding } from "../auth/resolve-space.js";
@@ -30,7 +33,7 @@ import type { CommandDef, GlobalFlags } from "../types.js";
 type Flags = Record<string, string | boolean>;
 
 const USAGE =
-  "ideaspaces share <invite|people|access|set-access|members|remove|invites|revoke|legacy-invite> …";
+  "ideaspaces share <invite|unshare|people|access|set-access|members|remove|invites|revoke|legacy-invite> …";
 
 /**
  * The grades a Space is shared at. One per invitation, mutually exclusive.
@@ -115,7 +118,7 @@ async function resolveTarget(
 }
 
 /** What happened, in the words the person sharing needs. */
-function describeShare(res: import("../auth/api.js").PersonShareAddResult): string {
+function describeShare(res: PersonShareAddResult): string {
   const who = res.relationship?.username ?? res.pending_invite?.invited_email ?? "them";
   const history = res.share_history ? ", with the trail" : "";
   switch (res.status) {
@@ -214,6 +217,15 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
           output.error("Not logged in. Run `ideaspaces login`.");
           return 1;
         }
+        if (rest.length > 1) {
+          // The old verb took a list. Dropping the extras silently would be the
+          // exact surprise this command's own reporting exists to avoid.
+          output.error(
+            `One invitation at a time — a grade is per person. Extra addresses ignored: ${rest.slice(1).join(", ")}\n` +
+              "Run it once per person.",
+          );
+          return 1;
+        }
         if (!email || !email.includes("@")) {
           output.error(
             "Usage: ideaspaces share invite <email> [--grade explore|fork|collaborate] [--history]\n" +
@@ -251,10 +263,22 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         // Both halves, because "who has this" is not answered by either alone:
         // a relationship is someone who accepted, an invite is someone who has
         // not yet.
-        const [people, pending] = await Promise.all([
+        // Settled separately: the two answer different halves, and one failing
+        // must not make the other's half look complete.
+        const [peopleSettled, pendingSettled] = await Promise.allSettled([
           listPersonShares(config, target),
-          listPersonShareInvites(config, target).catch(() => ({ invites: [] })),
+          listPersonShareInvites(config, target),
         ]);
+        if (peopleSettled.status === "rejected") throw peopleSettled.reason;
+        const people = peopleSettled.value;
+        const pending =
+          pendingSettled.status === "fulfilled" ? pendingSettled.value : { invites: [] };
+        const invitesUnread =
+          pendingSettled.status === "rejected"
+            ? pendingSettled.reason instanceof Error
+              ? pendingSettled.reason.message
+              : String(pendingSettled.reason)
+            : null;
         const lines = [
           ...people.relationships.map(
             (r) =>
@@ -266,11 +290,68 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         if (!people.actions.can_add && people.actions.add_blocked_reason) {
           lines.push("", `You cannot add people here: ${people.actions.add_blocked_reason}`);
         }
+        if (invitesUnread) {
+          // An empty invite list and an unread one look identical otherwise —
+          // and a scripted caller would read the first as ground truth.
+          lines.push("", `Outstanding invitations could not be read: ${invitesUnread}`);
+        }
         output.result(
-          { ...people, pending_invites: pending.invites },
+          { ...people, pending_invites: pending.invites, invites_unavailable: invitesUnread },
           lines.length ? lines.join("\n") : "nobody has direct access",
         );
         return 0;
+      }
+      case "unshare": {
+        // The undo for `invite`. It takes the same thing `invite` took — an
+        // address — because the person undoing knows who they shared with, not
+        // whether that person ever accepted. Which of the two it is decides the
+        // endpoint, so resolve it here rather than making the user know.
+        const who = rest[0];
+        const config = loadConfig();
+        if (!config) {
+          output.error("Not logged in. Run `ideaspaces login`.");
+          return 1;
+        }
+        if (!who) {
+          output.error("Usage: ideaspaces share unshare <email|username> [--space <url>]");
+          return 1;
+        }
+        const target = await resolveTarget(flagStr(flags, "space"), config, output);
+        if (!target) return 1;
+
+        const needle = who.toLowerCase();
+        const people = await listPersonShares(config, target);
+        const held = people.relationships.find(
+          (r) => r.email?.toLowerCase() === needle || r.username?.toLowerCase() === needle,
+        );
+        if (held) {
+          await removePersonShare(config, target, held.user_id);
+          output.result(
+            { removed: { user_id: held.user_id, username: held.username ?? null }, target_node_id: target },
+            `Removed ${held.username ?? held.email ?? held.user_id}'s access.`,
+          );
+          return 0;
+        }
+
+        const pending = await listPersonShareInvites(config, target);
+        const invite = pending.invites.find((i) => i.invited_email.toLowerCase() === needle);
+        if (invite) {
+          await revokePersonShareInvite(config, target, invite.invite_id);
+          output.result(
+            { revoked: invite.invite_id, invited_email: invite.invited_email, target_node_id: target },
+            `Withdrew the invitation to ${invite.invited_email}.`,
+          );
+          return 0;
+        }
+
+        // Saying "nothing to undo" is different from saying "done" — the
+        // address may be mistyped, and access they hold some other way is not
+        // ours to remove here.
+        output.error(
+          `${who} holds no direct access here and has no invitation outstanding.\n` +
+            "See who does: ideaspaces share people",
+        );
+        return 1;
       }
       case "legacy-invite": {
         const config = setup(repoId, "ideaspaces share legacy-invite <repo_id> <email…> --role <role>", output);
@@ -332,7 +413,9 @@ export const shareCommand: CommandDef = {
     "ideaspaces share invite someone@example.com",
     "ideaspaces share invite someone@example.com --grade fork",
     "ideaspaces share invite someone@example.com --grade collaborate --history",
+    "ideaspaces share unshare someone@example.com",
     "ideaspaces share people --json",
+    "ideaspaces share legacy-invite repo_abc a@x.com --role MEMBER",
     "ideaspaces share access repo_abc --json",
     "ideaspaces share set-access repo_abc --public true --copy reader",
   ],

@@ -715,6 +715,38 @@ export async function listPersonShares(
   return request(config, "GET", `${nodeBase(targetNodeId)}/person-shares`, undefined, opts);
 }
 
+/** Withdraw one person's direct access to a target. */
+export async function removePersonShare(
+  config: ApiConfig,
+  targetNodeId: string,
+  userId: number,
+  opts?: RequestOptions,
+): Promise<void> {
+  return request(
+    config,
+    "DELETE",
+    `${nodeBase(targetNodeId)}/person-shares/${encodeURIComponent(String(userId))}`,
+    undefined,
+    opts,
+  );
+}
+
+/** Withdraw an invitation that has not been accepted yet. */
+export async function revokePersonShareInvite(
+  config: ApiConfig,
+  targetNodeId: string,
+  inviteId: string,
+  opts?: RequestOptions,
+): Promise<void> {
+  return request(
+    config,
+    "DELETE",
+    `${nodeBase(targetNodeId)}/person-share-invites/${encodeURIComponent(inviteId)}`,
+    undefined,
+    opts,
+  );
+}
+
 /** Invitations sent for a target and not yet accepted. */
 export async function listPersonShareInvites(
   config: ApiConfig,
