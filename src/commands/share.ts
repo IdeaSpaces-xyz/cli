@@ -1,7 +1,16 @@
 /**
- * `ideaspaces share` — repo access management: members, email invites, and the
- * public-link access policy. All owner-gated on the backend (403 otherwise).
- * `--json` everywhere for programmatic use.
+ * `ideaspaces share` — give a Space to a person, and see who has it.
+ *
+ * The product verbs address a Content target by node id and speak in grades:
+ * `invite` (explore | fork | collaborate), `people`, `unshare`. None of them
+ * needs a `repo_id` — the target comes from the folder you are standing in.
+ *
+ * The repo-shaped subcommands (`access`, `set-access`, `members`, `remove`,
+ * `invites`, `revoke`, `legacy-invite`) remain for repositories that still
+ * carry roles and public-link policy. They are compatibility, not the path a
+ * new invitation takes.
+ *
+ * All owner-gated on the backend (403 otherwise). `--json` everywhere.
  */
 
 import {
@@ -55,6 +64,17 @@ const GRADES: ShareGrade[] = ["explore", "fork", "collaborate"];
  */
 const LEGACY_ROLES: InviteRole[] = ["MEMBER", "READER"];
 const COPY_LEVELS: CopyAccessLevel[] = ["owner", "member", "reader", "public"];
+
+/** The session, or null after saying so — the three product verbs have no
+ * `repo_id` to hand to `setup()`, and were each repeating this. */
+function requireConfig(output: Output) {
+  const config = loadConfig();
+  if (!config) {
+    output.error("Not logged in. Run `ideaspaces login`.");
+    return null;
+  }
+  return config;
+}
 
 function flagStr(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? (flags[key] as string) : undefined;
@@ -222,9 +242,15 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         // slice is that sharing what you are standing in needs no internal
         // repository identifier.
         const email = rest[0];
-        const config = loadConfig();
-        if (!config) {
-          output.error("Not logged in. Run `ideaspaces login`.");
+        const config = requireConfig(output);
+        if (!config) return 1;
+        if (email && !email.includes("@")) {
+          // Order matters: `share invite notanemail extra@x.com` should say the
+          // first argument is not an address, not lecture about the second.
+          output.error(
+            `Not an email address: ${email}\n` +
+              "Usage: ideaspaces share invite <email> [--grade explore|fork|collaborate] [--history]",
+          );
           return 1;
         }
         if (rest.length > 1) {
@@ -262,11 +288,8 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         return 0;
       }
       case "people": {
-        const config = loadConfig();
-        if (!config) {
-          output.error("Not logged in. Run `ideaspaces login`.");
-          return 1;
-        }
+        const config = requireConfig(output);
+        if (!config) return 1;
         const target = await resolveTarget(flagStr(flags, "space"), config, output);
         if (!target) return 1;
 
@@ -317,11 +340,8 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         // whether that person ever accepted. Which of the two it is decides the
         // endpoint, so resolve it here rather than making the user know.
         const who = rest[0];
-        const config = loadConfig();
-        if (!config) {
-          output.error("Not logged in. Run `ideaspaces login`.");
-          return 1;
-        }
+        const config = requireConfig(output);
+        if (!config) return 1;
         if (!who) {
           output.error("Usage: ideaspaces share unshare <email|username> [--space <url>]");
           return 1;

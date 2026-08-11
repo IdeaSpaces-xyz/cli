@@ -429,3 +429,36 @@ describe("every outcome says something true", () => {
     expect(stdout).not.toContain("them");
   });
 });
+
+describe("the three product verbs need a session", () => {
+  // The pattern this repo tests elsewhere (agents, clone) and this command did
+  // not: every new subcommand refuses before touching the network.
+  for (const argv of [
+    ["invite", "bob@example.com"],
+    ["people"],
+    ["unshare", "bob@example.com"],
+  ]) {
+    it(`${argv[0]} says so when logged out`, async () => {
+      loadConfigMock.mockReturnValue(null);
+
+      expect(await shareCommand.run(argv, {}, JSON_G)).toBe(1);
+      expect(stderr).toContain("ideaspaces login");
+      expect(addPersonShareMock).not.toHaveBeenCalled();
+      expect(listPersonSharesMock).not.toHaveBeenCalled();
+      expect(resolveSpaceBindingMock).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe("invite argument errors name the right argument", () => {
+  it("faults the address before it faults the extras", async () => {
+    expect(await shareCommand.run(["invite", "notanemail", "extra@x.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Not an email address: notanemail");
+    expect(stderr).not.toContain("Extra addresses");
+  });
+
+  it("still names the extras when the address itself is fine", async () => {
+    expect(await shareCommand.run(["invite", "a@x.com", "b@x.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("b@x.com");
+  });
+});
