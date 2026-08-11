@@ -179,6 +179,69 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(since).toBe(git(clone, ["merge-base", "HEAD", "@{upstream}"]));
   });
 
+  it("renders what a person without --json actually reads", async () => {
+    advanceOrigin();
+    fetchTrailChangesMock.mockResolvedValue({
+      op: "changes",
+      since: "base",
+      changes: [
+        { status: "A", path: "notes/new.md" },
+        { status: "D", path: "notes/gone.md" },
+        { status: "R100", path: "notes/after.md", old_path: "notes/before.md" },
+      ],
+    });
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+
+    // The rendering itself, not the payload behind it — no JSON test touches
+    // describeChange or describeTrailCommit.
+    expect(stdout).toContain("aaaaaaaa  theirs");
+    expect(stdout).not.toContain("body"); // subject only, not the whole message
+    expect(stdout).toContain("added  notes/new.md");
+    expect(stdout).toContain("deleted  notes/gone.md");
+    expect(stdout).toContain("renamed  notes/before.md → notes/after.md");
+    expect(stdout).toContain("ideaspaces pull");
+  });
+
+  it("caps the changed-path list and says how many it held back", async () => {
+    advanceOrigin();
+    fetchTrailChangesMock.mockResolvedValue({
+      op: "changes",
+      since: "base",
+      changes: Array.from({ length: 30 }, (_, i) => ({ status: "M", path: `notes/n${i}.md` })),
+    });
+
+    expect(await syncCommand.run([], { limit: "5" }, TEXT_G)).toBe(0);
+
+    expect(stdout).toContain("notes/n4.md");
+    expect(stdout).not.toContain("notes/n5.md");
+    expect(stdout).toContain("and 25 more");
+  });
+
+  it("keeps every changed path in the JSON payload even when the text is capped", async () => {
+    advanceOrigin();
+    fetchTrailChangesMock.mockResolvedValue({
+      op: "changes",
+      since: "base",
+      changes: Array.from({ length: 30 }, (_, i) => ({ status: "M", path: `notes/n${i}.md` })),
+    });
+
+    expect(await syncCommand.run([], { limit: "5" }, JSON_G)).toBe(0);
+    // Text is for reading and is bounded; JSON is for programs and is whole.
+    expect(JSON.parse(stdout).incoming.changes).toHaveLength(30);
+  });
+
+  it("names both failures when the whole trail read comes apart", async () => {
+    advanceOrigin();
+    fetchTrailLogMock.mockRejectedValue(new Error("log exploded"));
+    fetchTrailChangesMock.mockRejectedValue(new Error("changes exploded"));
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+    const out = JSON.parse(stdout);
+    expect(out.incoming).toBeNull();
+    expect(out.incoming_unavailable).toContain("log exploded");
+  });
+
   it("passes --limit through, and clamps what the endpoint would refuse", async () => {
     advanceOrigin();
 

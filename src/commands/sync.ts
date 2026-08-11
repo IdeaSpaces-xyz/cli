@@ -179,8 +179,13 @@ export const syncCommand: CommandDef = {
             commits: log.status === "fulfilled" ? (log.value.entries ?? []) : [],
             changes: changes.status === "fulfilled" ? (changes.value.changes ?? []) : [],
           };
-          const failed = log.status === "rejected" ? log.reason : changes.status === "rejected" ? changes.reason : null;
-          if (failed) incomingNote = `Partial: ${failed instanceof Error ? failed.message : String(failed)}`;
+          const reasons = [log, changes]
+            .filter((r) => r.status === "rejected")
+            .map((r) => {
+              const reason = (r as PromiseRejectedResult).reason;
+              return reason instanceof Error ? reason.message : String(reason);
+            });
+          if (reasons.length) incomingNote = `Partial: ${reasons.join("; ")}`;
           // Same rule as a failed fetch: an empty change list must not be
           // readable as "nothing changed" when we never got to ask. Unrelated
           // histories have no common point to ask about.
@@ -202,7 +207,13 @@ export const syncCommand: CommandDef = {
         for (const c of incoming.commits.slice(0, limit)) lines.push(describeTrailCommit(c));
         if (incoming.changes.length) {
           lines.push("", "What changed:");
-          for (const change of incoming.changes) lines.push(describeChange(change));
+          // Bounded like every other list here. Coming back after a long
+          // absence is the case this command exists for, which is exactly when
+          // this list is longest — the JSON payload keeps all of it.
+          for (const change of incoming.changes.slice(0, limit)) lines.push(describeChange(change));
+          if (incoming.changes.length > limit) {
+            lines.push(`  … and ${incoming.changes.length - limit} more (--limit ${Math.min(100, incoming.changes.length)} to see more, --json for all)`);
+          }
         }
         // A half-answer must say which half is missing, or it reads as whole.
         if (incomingNote) lines.push(`  ${incomingNote}`);
