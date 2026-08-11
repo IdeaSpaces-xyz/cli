@@ -254,6 +254,39 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(JSON.parse(stdout).incoming_unavailable).toContain("ideaspaces login");
   });
 
+  it("does not tell someone holding a clone that the Space does not exist", async () => {
+    advanceOrigin();
+    // What the trail endpoint actually returns for a reader without history:
+    // a fail-closed 404, correct on the wire and misleading in a terminal.
+    const refusal = new Error(
+      'GET /api/v1/spaces/n_x/git?op=log → 404: {"detail":"Space not found (no_history_relation)"}',
+    );
+    fetchTrailLogMock.mockRejectedValue(refusal);
+    fetchTrailChangesMock.mockRejectedValue(refusal);
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.behind).toBe(1);
+    expect(out.incoming_unavailable).toContain("trail has not been shared with you");
+    expect(out.incoming_unavailable).not.toContain("404");
+    expect(out.incoming_unavailable).not.toContain("Space not found");
+  });
+
+  it("explains a refusal that arrives on only one of the two calls", async () => {
+    advanceOrigin();
+    fetchTrailChangesMock.mockRejectedValue(
+      new Error('GET /x → 404: {"detail":"Space not found (no_history_relation)"}'),
+    );
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    // The commits still arrived; the note explains what is missing and why.
+    expect(out.incoming.commits).toHaveLength(1);
+    expect(out.incoming_unavailable).toContain("trail has not been shared with you");
+  });
+
   it("passes --limit through, and clamps what the endpoint would refuse", async () => {
     advanceOrigin();
 

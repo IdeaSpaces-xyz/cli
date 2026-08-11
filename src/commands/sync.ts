@@ -33,7 +33,14 @@ import {
 } from "../git.js";
 import { loadConfig } from "../auth/credentials.js";
 import { findSpaceFor } from "../auth/spaces.js";
-import { fetchTrailLog, fetchTrailChanges, UnauthorizedError, type TrailCommit, type TrailChange } from "../auth/api.js";
+import {
+  fetchTrailLog,
+  fetchTrailChanges,
+  describeTrailRefusal,
+  UnauthorizedError,
+  type TrailCommit,
+  type TrailChange,
+} from "../auth/api.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -83,16 +90,13 @@ export const syncCommand: CommandDef = {
       return 1;
     }
 
-    // Separate from the fetch below on purpose: this writes the global git
-    // config, and folding its failure into the fetch's would report an
-    // unwritable ~/.gitconfig as a network problem and send someone debugging
-    // the wrong thing.
-    // Guarded where `pull`/`push` call it bare, and deliberately: today it
-    // swallows its own failures and cannot reject, so this is belt-and-braces
-    // for the one command whose contract is that it always answers. It is the
-    // only verb here a caller with no repo membership reaches — a fork, or
-    // someone who was shared with — and the one where a hard failure would
-    // strand a reader who has no other way to look.
+    // Separate from the fetch below, and guarded where `pull`/`push` call it
+    // bare — both for the same reason. It writes the global git config, so
+    // folding it into the fetch's catch would report an unwritable
+    // ~/.gitconfig as a network problem; and this is the one verb here reached
+    // by a caller with no repo membership (a fork, or someone shared with),
+    // where a hard failure would strand a reader with no other way to look.
+    // It cannot reject today; the guard is for the day that changes.
     try {
       await registerGitCredentialHelper();
     } catch {
@@ -188,7 +192,11 @@ export const syncCommand: CommandDef = {
             .filter((r) => r.status === "rejected")
             .map((r) => {
               const reason = (r as PromiseRejectedResult).reason;
-              return reason instanceof Error ? reason.message : String(reason);
+              // A refusal explains itself; only a genuine fault needs its raw text.
+              return (
+                describeTrailRefusal(reason) ??
+                (reason instanceof Error ? reason.message : String(reason))
+              );
             });
           if (reasons.length) incomingNote = `Partial: ${reasons.join("; ")}`;
           // Same rule as a failed fetch: an empty change list must not be
@@ -205,10 +213,16 @@ export const syncCommand: CommandDef = {
           const expired = [log, changes].some(
             (r) => r.status === "rejected" && r.reason instanceof UnauthorizedError,
           );
+          // A refusal is an answer, not a fault: prefer whichever rejection can
+          // explain itself over the raw text of whichever failed first.
+          const refusal = [log, changes]
+            .map((r) => (r.status === "rejected" ? describeTrailRefusal(r.reason) : null))
+            .find(Boolean);
           const err = log.reason;
           incomingNote = expired
             ? "Session expired — run `ideaspaces login` to read the Space's trail."
-            : `Could not read the Space's trail: ${err instanceof Error ? err.message : String(err)}`;
+            : (refusal ??
+              `Could not read the Space's trail: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
 

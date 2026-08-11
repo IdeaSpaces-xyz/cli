@@ -302,6 +302,51 @@ export interface TrailChange {
 }
 
 /**
+ * Turn the trail endpoint's fail-closed refusal into something the holder of a
+ * clone can act on. Returns null when the error is not one of its refusals.
+ *
+ * The server answers **404 for every refusal**, deliberately: a stranger
+ * probing root node ids must not learn which Spaces exist. That is right on the
+ * wire and wrong in the terminal — the person running this is standing inside a
+ * clone of the Space they are being told does not exist. Translating locally
+ * leaks nothing, because they already hold the coordinate.
+ *
+ * The reason code rides in the detail (`Space not found (no_history_relation)`),
+ * which is the server telling us which refusal this is. It was going unread.
+ *
+ * **Why this string-matches when `UnauthorizedError` exists precisely so callers
+ * need not.** A typed error would have to be minted in `request()`, which every
+ * endpoint shares — putting trail-specific reason codes in the one helper that
+ * knows nothing about trails, and teaching it to classify 404s that mean
+ * something different for every other caller. The parsing stays here, reachable
+ * only by callers that opt in. If a third trail reason code appears, that is the
+ * point to promote these to a structured type rather than lengthen this chain.
+ */
+export function describeTrailRefusal(err: unknown): string | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (!message.includes("→ 404")) return null;
+
+  if (message.includes("no_history_relation")) {
+    return (
+      "The Space's trail has not been shared with you — reading its content and reading how it got " +
+      "here are separate permissions. Ask whoever owns it to share history, then try again."
+    );
+  }
+  if (message.includes("no_read_relation")) {
+    return (
+      "You no longer have read access to this Space, so its trail is out of reach too. " +
+      "Your local clone is unaffected — ask whoever owns it to share it again."
+    );
+  }
+  // A 404 with no reason code: the Space is genuinely gone, or this clone's
+  // recorded coordinate no longer resolves.
+  return (
+    "The Space this clone points at could not be found. It may have been deleted, or this clone's " +
+    "record may be stale — `ideaspaces link` re-binds it."
+  );
+}
+
+/**
  * Read a Space's trail by its stable root coordinate.
  *
  * Addressed by root node id rather than `repo_id` deliberately: the
