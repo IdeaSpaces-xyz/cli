@@ -259,3 +259,40 @@ describe("sharing (members / invites / access)", () => {
     await expect(removeRepoMember(config, "repo_abc", 7)).resolves.toBeUndefined();
   });
 })
+
+describe("describeTrailRefusal", () => {
+  // The server answers 404 for every refusal so a stranger probing root node
+  // ids learns nothing. The reason code rides in the detail; these turn it into
+  // something the holder of a clone can act on.
+  const notFound = (detail: string) =>
+    new Error(`GET /api/v1/spaces/n_x/git?op=log → 404: {"detail":"${detail}"}`);
+
+  it("separates 'not shared' from 'does not exist'", async () => {
+    const { describeTrailRefusal } = await import("../auth/api.js");
+    const note = describeTrailRefusal(notFound("Space not found (no_history_relation)"));
+    expect(note).toContain("trail has not been shared with you");
+    // The thing a person standing in a clone must never be told.
+    expect(note).not.toContain("could not be found");
+  });
+
+  it("explains a withdrawn read as separate from the local clone", async () => {
+    const { describeTrailRefusal } = await import("../auth/api.js");
+    const note = describeTrailRefusal(notFound("Space not found (no_read_relation)"));
+    expect(note).toContain("no longer have read access");
+    expect(note).toContain("local clone is unaffected");
+  });
+
+  it("falls back to a real not-found for a 404 with no reason code", async () => {
+    const { describeTrailRefusal } = await import("../auth/api.js");
+    const note = describeTrailRefusal(notFound("Space not found"));
+    expect(note).toContain("could not be found");
+    expect(note).toContain("ideaspaces link");
+  });
+
+  it("declines anything that is not one of its refusals", async () => {
+    const { describeTrailRefusal } = await import("../auth/api.js");
+    expect(describeTrailRefusal(new Error("GET /x → 500: boom"))).toBeNull();
+    expect(describeTrailRefusal(new Error("socket hang up"))).toBeNull();
+    expect(describeTrailRefusal("not an error at all")).toBeNull();
+  });
+});
