@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -381,6 +381,26 @@ describe("ideaspaces sync — awareness, not integration", () => {
 
     expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
     expect(JSON.parse(stdout).incoming.commits_filtered).toBe(true);
+  });
+
+  it("refuses to hand a server-shaped option to git", async () => {
+    advanceOrigin();
+    const bait = join(tmp, "pwned");
+    // rev-list shares git's option surface, which includes --output=<file>.
+    // spawnSync rules out a shell; it does not stop git parsing an argument
+    // that starts with a dash.
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [{ sha: `--output=${bait}`, message: "hostile", date: "d", author: "T" }],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    expect(existsSync(bait)).toBe(false);
+    const out = JSON.parse(stdout);
+    // Unfilterable, which is a state the caller already handles — the list is
+    // shown whole and flagged, not silently trusted.
+    expect(out.incoming.commits_filtered).toBe(false);
   });
 
   it("passes --limit through, and clamps what the endpoint would refuse", async () => {

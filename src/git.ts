@@ -359,6 +359,13 @@ export function pathsAheadOfUpstream(cwd?: string): string[] {
  */
 export function commitsNotInHistory(shas: string[], cwd?: string): Set<string> | null {
   if (!shas.length) return new Set();
+  // These come from a network response and are spliced into argv. spawnSync
+  // rules out a shell, but git parses any argument starting with `-` as an
+  // option, and rev-list's option surface includes `--output=<file>` — so an
+  // unvalidated "sha" turns a read into a file write. A commit id is hex;
+  // anything else means we cannot answer, which is already a state callers
+  // handle.
+  if (!shas.every((sha) => /^[0-9a-f]{4,40}$/i.test(sha))) return null;
   const r = git(["rev-list", "--no-walk", ...shas, "--not", "HEAD"], cwd);
   if (!r.ok) return null;
   const full = r.out.split("\n").map((s) => s.trim()).filter(Boolean);
