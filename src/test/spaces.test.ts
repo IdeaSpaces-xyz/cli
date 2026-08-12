@@ -106,6 +106,35 @@ describe("auth/spaces", () => {
     expect(record?.source_head).toBeUndefined();
   });
 
+  it("findSpaceFor resolves a legacy symlinked folder key", async () => {
+    const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
+    const fs = await import("node:fs");
+    const physical = join(tmp, "physical");
+    const alias = join(tmp, "alias");
+    fs.mkdirSync(physical);
+    fs.symlinkSync(physical, alias);
+    saveSpace(alias, { repo_id: "r", slug: "s", namespace: "n" });
+
+    expect(findSpaceFor(physical)).toEqual({ repo_id: "r", slug: "s", namespace: "n" });
+  });
+
+  it("findSpaceFor reads a pre-canonicalization alias record", async () => {
+    const dir = join(tmp, ".ideaspaces");
+    const fs = await import("node:fs");
+    const physical = join(tmp, "physical-old");
+    const alias = join(tmp, "alias-old");
+    fs.mkdirSync(physical);
+    fs.symlinkSync(physical, alias);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      join(dir, "spaces.json"),
+      JSON.stringify({ [alias]: { repo_id: "r_old", slug: "s", namespace: "n" } }),
+    );
+
+    const { findSpaceFor } = await import("../auth/spaces.js");
+    expect(findSpaceFor(physical)?.repo_id).toBe("r_old");
+  });
+
   it("findSpaceFor returns the record for a known absolute path", async () => {
     const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
     saveSpace("/abs/path", { repo_id: "r", slug: "s", namespace: "n" });
