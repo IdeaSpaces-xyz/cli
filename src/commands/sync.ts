@@ -9,6 +9,11 @@
  *
  *   local position  →  git remote-tracking state (ahead / behind)
  *   what changed    →  the Space's trail, read by root node id
+ *   fork source     →  the source trail since the locally recorded fork pin
+ *
+ * Source awareness is independent of maintained updates: it requires explicit
+ * hosted-history authority and reads raw commits and paths; `update` requires
+ * copy authority and reads the transformed current-content projection.
  *
  * **It never integrates.** No merge, no rebase, no push, no checkout, nothing
  * written to the working tree or to the Space. `git status` is byte-identical
@@ -34,11 +39,13 @@ import {
 } from "../git.js";
 import { loadConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding } from "../auth/resolve-space.js";
+import { findSpaceFor, type SpaceRecord } from "../auth/spaces.js";
 import {
   fetchTrailLog,
   fetchTrailChanges,
   describeTrailRefusal,
   UnauthorizedError,
+  type ApiConfig,
   type TrailCommit,
   type TrailChange,
 } from "../auth/api.js";
@@ -47,6 +54,195 @@ import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
 const DEFAULT_LIMIT = 20;
+// Independent of --limit: finding the recorded pin needs the widest bounded
+// server window even when the person asks to print only a few entries.
+const SOURCE_COMMIT_LIMIT = 100;
+
+interface SourceAwareness {
+  root_node_id: string;
+  recorded_head: string | null;
+  current_head: string | null;
+  moved: boolean | null;
+  commits: TrailCommit[] | null;
+  commits_complete: boolean;
+  changes: TrailChange[] | null;
+  unavailable: string | null;
+}
+
+function sameCommit(left: string, right: string): boolean {
+  // The hosted log emits git's abbreviated `%h`, while fork lineage records a
+  // full SHA. Both sides are validated before this comparison; seven hex chars
+  // is the shortest server value we accept.
+  const [shorter, longer] = [left.toLowerCase(), right.toLowerCase()].sort(
+    (a, b) => a.length - b.length,
+  );
+  return longer.startsWith(shorter);
+}
+
+function isTrailCommit(value: unknown): value is TrailCommit {
+  if (!value || typeof value !== "object") return false;
+  const commit = value as Partial<TrailCommit>;
+  return (
+    typeof commit.sha === "string" &&
+    /^[0-9a-f]{7,40}$/i.test(commit.sha) &&
+    typeof commit.message === "string" &&
+    typeof commit.date === "string" &&
+    typeof commit.author === "string"
+  );
+}
+
+function isTrailChange(value: unknown): value is TrailChange {
+  if (!value || typeof value !== "object") return false;
+  const change = value as Partial<TrailChange>;
+  return (
+    typeof change.status === "string" &&
+    typeof change.path === "string" &&
+    (change.old_path === undefined || typeof change.old_path === "string")
+  );
+}
+
+function describeSourceFailure(err: unknown): string {
+  if (err instanceof UnauthorizedError) {
+    return "Session expired — run `ideaspaces login` to read the source Space's trail.";
+  }
+  const refusal = describeTrailRefusal(err, "source");
+  if (refusal) return refusal;
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes("→ 422")) {
+    return "The recorded source point is no longer available in the source trail; the source may have been rewritten.";
+  }
+  return `Could not read the source Space's trail: ${message}`;
+}
+
+async function readSourceAwareness(
+  config: ApiConfig,
+  rootNodeId: string,
+  recordedHead: string,
+): Promise<SourceAwareness> {
+  const base = {
+    root_node_id: rootNodeId,
+    recorded_head: recordedHead,
+  };
+  if (!/^[0-9a-f]{40}$/i.test(recordedHead)) {
+    return {
+      ...base,
+      current_head: null,
+      moved: null,
+      commits: null,
+      commits_complete: false,
+      changes: null,
+      unavailable: "This fork's recorded source head is invalid, so source movement cannot be checked.",
+    };
+  }
+
+  const [log, changes] = await Promise.allSettled([
+    fetchTrailLog(config, rootNodeId, SOURCE_COMMIT_LIMIT),
+    fetchTrailChanges(config, rootNodeId, recordedHead),
+  ]);
+  const rawEntries: unknown = log.status === "fulfilled" ? log.value.entries : null;
+  const rawChanges: unknown = changes.status === "fulfilled" ? changes.value.changes : null;
+  const entries = Array.isArray(rawEntries) && rawEntries.every(isTrailCommit) ? rawEntries : null;
+  const changedPaths = Array.isArray(rawChanges) && rawChanges.every(isTrailChange) ? rawChanges : null;
+  const pinIndex = entries?.findIndex((entry) => sameCommit(entry.sha, recordedHead)) ?? -1;
+  const currentHead = entries?.[0]?.sha ?? null;
+  const moved = currentHead
+    ? !sameCommit(currentHead, recordedHead)
+    : changedPaths?.length
+      ? true
+      // An empty diff does not prove the source stayed put: it may have gained
+      // empty commits. An empty log is not proof either — the recorded pin says
+      // this source had a commit when forked. Only a non-empty valid log can
+      // establish `false`.
+      : null;
+  const validationFailures = [
+    ...(log.status === "fulfilled" && entries === null
+      ? ["The source Space returned an invalid commit list."]
+      : []),
+    ...(changes.status === "fulfilled" && changedPaths === null
+      ? ["The source Space returned an invalid changed-path list."]
+      : []),
+  ];
+  const failures = [...new Set([
+    ...validationFailures,
+    ...[log, changes]
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => describeSourceFailure(result.reason)),
+  ])];
+
+  return {
+    ...base,
+    current_head: currentHead,
+    moved,
+    commits: entries ? (pinIndex >= 0 ? entries.slice(0, pinIndex) : entries) : null,
+    commits_complete: entries !== null && pinIndex >= 0,
+    changes: changedPaths,
+    unavailable: failures.length ? failures.join("; ") : null,
+  };
+}
+
+function sourceAwarenessFor(
+  record: SpaceRecord | null,
+  config: ApiConfig | null,
+): Promise<SourceAwareness | null> {
+  if (!record?.source_root_node_id) return Promise.resolve(null);
+  if (!record.source_head) {
+    return Promise.resolve({
+      root_node_id: record.source_root_node_id,
+      recorded_head: null,
+      current_head: null,
+      moved: null,
+      commits: null,
+      commits_complete: false,
+      changes: null,
+      unavailable: "This fork has a recorded source but no pinned source head, so source movement cannot be checked.",
+    });
+  }
+  if (!config) {
+    return Promise.resolve({
+      root_node_id: record.source_root_node_id,
+      recorded_head: record.source_head,
+      current_head: null,
+      moved: null,
+      commits: null,
+      commits_complete: false,
+      changes: null,
+      unavailable: "Log in to read the source Space's trail: ideaspaces login",
+    });
+  }
+  return readSourceAwareness(config, record.source_root_node_id, record.source_head);
+}
+
+function appendSourceAwareness(lines: string[], source: SourceAwareness, limit: number): void {
+  lines.push("", "Fork source:");
+  if (source.moved === false) {
+    lines.push(`  has not moved since ${source.recorded_head?.slice(0, 12)}`);
+  } else if (source.moved === true) {
+    lines.push(`  moved since ${source.recorded_head?.slice(0, 12)}:`);
+  }
+
+  for (const commit of source.commits?.slice(0, limit) ?? []) lines.push(describeTrailCommit(commit));
+  if (source.commits && source.commits.length > limit) {
+    lines.push(`  … and ${source.commits.length - limit} more (--limit ${Math.min(100, source.commits.length)} to see more, --json for all)`);
+  }
+  if (source.commits && !source.commits_complete) {
+    lines.push(`  (the recorded point is not in the source's latest ${SOURCE_COMMIT_LIMIT} commits; it may be older or no longer in history — showing that recent window)`);
+  }
+  if (source.changes?.length) {
+    lines.push("", "Source paths changed:");
+    for (const change of source.changes.slice(0, limit)) lines.push(describeChange(change));
+    if (source.changes.length > limit) {
+      lines.push(`  … and ${source.changes.length - limit} more (--limit ${Math.min(100, source.changes.length)} to see more, --json for all)`);
+    }
+  }
+  if (source.unavailable) {
+    const prefix = source.commits !== null || source.changes !== null ? "Partial: " : "";
+    lines.push(`  ${prefix}${source.unavailable}`);
+  }
+  if (source.moved === null && !source.unavailable) {
+    lines.push("  Source movement could not be determined.");
+  }
+  lines.push("  Awareness only — no fork files were changed.");
+}
 
 function limitFlag(value: string | boolean | undefined): number {
   if (typeof value !== "string") return DEFAULT_LIMIT;
@@ -76,9 +272,12 @@ function describeTrailCommit(commit: TrailCommit): string {
 
 export const syncCommand: CommandDef = {
   name: "sync",
-  description: "Report where you and the Space stand — reads only, integrates nothing",
+  description: "Report where you, the Space, and a fork's source stand — reads only, integrates nothing",
   usage: "ideaspaces sync [--limit <n>]",
-  examples: ["ideaspaces sync", "ideaspaces sync --limit 5"],
+  examples: [
+    "ideaspaces sync",
+    "ideaspaces sync --limit 5 # print 5 entries; source lookup still checks its bounded 100-commit window",
+  ],
   async run(_args, flags, global) {
     const output = createOutput(global);
     const limit = limitFlag(flags.limit as string | boolean | undefined);
@@ -121,7 +320,14 @@ export const syncCommand: CommandDef = {
       lines.push(`Could not reach the remote (${fetchError}) — position below is from the last fetch.`);
     }
 
+    const config = loadConfig();
+    const record = findSpaceFor(root);
+    // Start source awareness now, but do not serialize the fork-copy's incoming
+    // trail behind it. A behind fork can ask both independent reads at once.
+    const sourcePromise = sourceAwarenessFor(record, config);
+
     if (!rs.upstream) {
+      const source = await sourcePromise;
       // Not an error: a local-only space is a legitimate state, and `sync`
       // answering "you have no other side" is a real answer.
       output.result(
@@ -136,9 +342,14 @@ export const syncCommand: CommandDef = {
           incoming_unavailable: null,
           resolved_via: null,
           outgoing: null,
+          source,
           integrated: false,
         },
-        [...lines, "No upstream configured — this ideaspace is local only.", "Publish it with: ideaspaces publish"].join("\n"),
+        (() => {
+          const localOnlyLines = [...lines, "No upstream configured — this ideaspace is local only.", "Publish it with: ideaspaces publish"];
+          if (source) appendSourceAwareness(localOnlyLines, source, limit);
+          return localOnlyLines.join("\n");
+        })(),
       );
       return 0;
     }
@@ -175,7 +386,6 @@ export const syncCommand: CommandDef = {
     let resolvedVia: "record" | "origin" | "account" | null = null;
 
     if (rs.behind) {
-      const config = loadConfig();
       // Not "is this clone registered" but "which Space is it" — a legacy
       // record without a root node id still knows, and so does the origin.
       const binding = await resolveSpaceBinding(root, config);
@@ -210,28 +420,42 @@ export const syncCommand: CommandDef = {
             : Promise.resolve({ op: "changes", since: "", changes: [] as TrailChange[] }),
         ]);
 
-        if (log.status === "fulfilled" || changes.status === "fulfilled") {
-          const reported = log.status === "fulfilled" ? (log.value.entries ?? []) : [];
+        const rawReported: unknown = log.status === "fulfilled" ? log.value.entries : null;
+        const rawChangedPaths: unknown = changes.status === "fulfilled" ? changes.value.changes : null;
+        const reported = Array.isArray(rawReported) && rawReported.every(isTrailCommit)
+          ? rawReported
+          : null;
+        const incomingChanges = Array.isArray(rawChangedPaths) && rawChangedPaths.every(isTrailChange)
+          ? rawChangedPaths
+          : null;
+        const reasons = [
+          ...(log.status === "fulfilled" && reported === null
+            ? ["The Space returned an invalid commit list."]
+            : []),
+          ...(changes.status === "fulfilled" && incomingChanges === null
+            ? ["The Space returned an invalid changed-path list."]
+            : []),
+          ...[log, changes]
+            .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+            .map((result) => (
+              describeTrailRefusal(result.reason) ??
+              (result.reason instanceof Error ? result.reason.message : String(result.reason))
+            )),
+        ];
+
+        if (reported !== null || incomingChanges !== null) {
           // The endpoint answers "the Space's most recent commits" — it takes a
           // limit, not a range — so what comes back is not what is incoming.
           // Only the local repo knows which of them we already have.
-          windowRead = log.status === "fulfilled";
-          const fresh = commitsNotInHistory(reported.map((c) => c.sha), root);
+          windowRead = reported !== null;
+          const fresh = reported ? commitsNotInHistory(reported.map((c) => c.sha), root) : new Set<string>();
           if (fresh === null) unfiltered = true;
           incoming = {
-            commits: fresh ? reported.filter((c) => fresh.has(c.sha)) : reported,
-            changes: changes.status === "fulfilled" ? (changes.value.changes ?? []) : [],
+            commits: reported
+              ? (fresh ? reported.filter((c) => fresh.has(c.sha)) : reported)
+              : [],
+            changes: incomingChanges ?? [],
           };
-          const reasons = [log, changes]
-            .filter((r) => r.status === "rejected")
-            .map((r) => {
-              const reason = (r as PromiseRejectedResult).reason;
-              // A refusal explains itself; only a genuine fault needs its raw text.
-              return (
-                describeTrailRefusal(reason) ??
-                (reason instanceof Error ? reason.message : String(reason))
-              );
-            });
           if (reasons.length) incomingNote = `Partial: ${reasons.join("; ")}`;
           // Same rule as a failed fetch: an empty change list must not be
           // readable as "nothing changed" when we never got to ask. Unrelated
@@ -245,18 +469,16 @@ export const syncCommand: CommandDef = {
           // "session expired" is the one message here the reader can act on,
           // and it should not depend on which call happened to fail first.
           const expired = [log, changes].some(
-            (r) => r.status === "rejected" && r.reason instanceof UnauthorizedError,
+            (result) => result.status === "rejected" && result.reason instanceof UnauthorizedError,
           );
           // A refusal is an answer, not a fault: prefer whichever rejection can
-          // explain itself over the raw text of whichever failed first.
+          // explain itself over validation failures or raw fault text.
           const refusal = [log, changes]
-            .map((r) => (r.status === "rejected" ? describeTrailRefusal(r.reason) : null))
+            .map((result) => result.status === "rejected" ? describeTrailRefusal(result.reason) : null)
             .find(Boolean);
-          const err = log.reason;
           incomingNote = expired
             ? "Session expired — run `ideaspaces login` to read the Space's trail."
-            : (refusal ??
-              `Could not read the Space's trail: ${err instanceof Error ? err.message : String(err)}`);
+            : (refusal ?? `Could not read the Space's trail: ${reasons.join("; ")}`);
         }
       }
 
@@ -292,6 +514,8 @@ export const syncCommand: CommandDef = {
     }
 
     if (!rs.ahead && !rs.behind) lines.push("", "Nothing on either side — you are level with the Space.");
+    const source = await sourcePromise;
+    if (source) appendSourceAwareness(lines, source, limit);
 
     output.result(
       {
@@ -318,6 +542,7 @@ export const syncCommand: CommandDef = {
         // changed" or "we could not find out".
         incoming_unavailable: incomingNote,
         resolved_via: resolvedVia,
+        source,
         // Stated in the payload, not only in the prose: nothing moved.
         integrated: false,
       },

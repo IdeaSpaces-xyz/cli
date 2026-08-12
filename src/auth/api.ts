@@ -348,28 +348,35 @@ export interface TrailChange {
  * only by callers that opt in. If a third trail reason code appears, that is the
  * point to promote these to a structured type rather than lengthen this chain.
  */
-export function describeTrailRefusal(err: unknown): string | null {
+export function describeTrailRefusal(
+  err: unknown,
+  context: "clone" | "source" = "clone",
+): string | null {
   const message = err instanceof Error ? err.message : String(err);
   if (!message.includes("→ 404")) return null;
 
+  const subject = context === "source" ? "source Space" : "Space";
   if (message.includes("no_history_relation")) {
     return (
-      "The Space's trail has not been shared with you — reading its content and reading how it got " +
+      `The ${subject}'s trail has not been shared with you — reading its content and reading how it got ` +
       "here are separate permissions. Ask whoever owns it to share history, then try again."
     );
   }
   if (message.includes("no_read_relation")) {
     return (
-      "You no longer have read access to this Space, so its trail is out of reach too. " +
+      `You no longer have read access to the ${subject}, so its trail is out of reach too. ` +
       "Your local clone is unaffected — ask whoever owns it to share it again."
     );
   }
-  // A 404 with no reason code: the Space is genuinely gone, or this clone's
-  // recorded coordinate no longer resolves.
-  return (
-    "The Space this clone points at could not be found. It may have been deleted, or this clone's " +
-    "record may be stale — `ideaspaces link .` re-binds it."
-  );
+  // A 404 with no reason code: the Space is genuinely gone, or the recorded
+  // coordinate no longer resolves. A fork's source coordinate cannot be
+  // repaired by re-linking the fork, so the two contexts need different exits.
+  return context === "source"
+    ? "The recorded source Space could not be found. It may have been deleted or its recorded coordinate may be stale."
+    : (
+        "The Space this clone points at could not be found. It may have been deleted, or this clone's " +
+        "record may be stale — `ideaspaces link .` re-binds it."
+      );
 }
 
 /**
@@ -377,7 +384,8 @@ export function describeTrailRefusal(err: unknown): string | null {
  *
  * Addressed by root node id rather than `repo_id` deliberately: the
  * `repo_id` route gates on repo membership, so a person who was shared with —
- * or a fork — cannot reach it. This one authorizes on a Content read.
+ * or a fork — cannot reach it. This one requires both Content read and explicit
+ * hosted-history authority.
  *
  * Read-only on both sides. It never writes to the Space and never touches the
  * local working tree.
