@@ -42,6 +42,9 @@ vi.mock("../auth/git-credential-helper.js", () => ({
 const { syncCommand } = await import("../commands/sync.js");
 
 const ROOT_NODE_ID = "n_0123456789abcdef01234567";
+const SOURCE_ROOT_NODE_ID = "n_fedcba9876543210fedcba98";
+const SOURCE_HEAD = "a".repeat(40);
+const SOURCE_NEW_HEAD = "b".repeat(40);
 
 let tmp: string;
 let cwd: string;
@@ -137,6 +140,362 @@ describe("ideaspaces sync — awareness, not integration", () => {
     // Addressed by root node id — the coordinate a fork or a shared-with person
     // can use. `repo_id` would be membership-gated.
     expect(fetchTrailLogMock).toHaveBeenCalledWith(expect.anything(), ROOT_NODE_ID, 20);
+  });
+
+  it("reports when a fork's source moved since its recorded pin", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: SOURCE_NEW_HEAD.slice(0, 7), message: "source moved", date: "2026-08-12", author: "Them" },
+        { sha: SOURCE_HEAD.slice(0, 7), message: "fork point", date: "2026-08-11", author: "Them" },
+      ],
+    });
+    fetchTrailChangesMock.mockResolvedValue({
+      op: "changes",
+      since: SOURCE_HEAD,
+      changes: [{ status: "M", path: "_agent/guide.md" }],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.source).toMatchObject({
+      root_node_id: SOURCE_ROOT_NODE_ID,
+      recorded_head: SOURCE_HEAD,
+      current_head: SOURCE_NEW_HEAD.slice(0, 7),
+      moved: true,
+      commits_complete: true,
+      changes: [{ status: "M", path: "_agent/guide.md" }],
+      unavailable: null,
+    });
+    expect(out.source.commits.map((commit: { sha: string }) => commit.sha)).toEqual([
+      SOURCE_NEW_HEAD.slice(0, 7),
+    ]);
+    expect(fetchTrailLogMock).toHaveBeenCalledWith(expect.anything(), SOURCE_ROOT_NODE_ID, 100);
+    expect(fetchTrailChangesMock).toHaveBeenCalledWith(expect.anything(), SOURCE_ROOT_NODE_ID, SOURCE_HEAD);
+  });
+
+  it("reports explicitly when a fork's source has not moved", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [{ sha: SOURCE_HEAD.slice(0, 7), message: "fork point", date: "2026-08-11", author: "Them" }],
+    });
+    fetchTrailChangesMock.mockResolvedValue({ op: "changes", since: SOURCE_HEAD, changes: [] });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout).source.moved).toBe(false);
+
+    stdout = "";
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain(`has not moved since ${SOURCE_HEAD.slice(0, 12)}`);
+  });
+
+  it("reads source and fork-copy trails concurrently when both moved", async () => {
+    advanceOrigin();
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    let releaseSourceLog!: (value: { op: string; entries: unknown[] }) => void;
+    let releaseSourceChanges!: (value: { op: string; since: string; changes: unknown[] }) => void;
+    const sourceLog = new Promise<{ op: string; entries: unknown[] }>((resolve) => {
+      releaseSourceLog = resolve;
+    });
+    const sourceChanges = new Promise<{ op: string; since: string; changes: unknown[] }>((resolve) => {
+      releaseSourceChanges = resolve;
+    });
+    fetchTrailLogMock.mockImplementation((_config, rootNodeId) =>
+      rootNodeId === SOURCE_ROOT_NODE_ID
+        ? sourceLog
+        : Promise.resolve({
+            op: "log",
+            entries: [{ sha: "c".repeat(7), message: "fork copy moved", date: "2026-08-12", author: "Them" }],
+          }),
+    );
+    fetchTrailChangesMock.mockImplementation((_config, rootNodeId, since) =>
+      rootNodeId === SOURCE_ROOT_NODE_ID
+        ? sourceChanges
+        : Promise.resolve({ op: "changes", since, changes: [{ status: "M", path: "fork.md" }] }),
+    );
+
+    const running = syncCommand.run([], {}, JSON_G);
+    await vi.waitFor(() => {
+      expect(fetchTrailLogMock).toHaveBeenCalledWith(expect.anything(), ROOT_NODE_ID, 20);
+      expect(fetchTrailChangesMock).toHaveBeenCalledWith(expect.anything(), ROOT_NODE_ID, expect.any(String));
+    });
+    releaseSourceLog({
+      op: "log",
+      entries: [
+        { sha: SOURCE_NEW_HEAD.slice(0, 7), message: "source moved", date: "2026-08-12", author: "Them" },
+        { sha: SOURCE_HEAD.slice(0, 7), message: "fork point", date: "2026-08-11", author: "Them" },
+      ],
+    });
+    releaseSourceChanges({
+      op: "changes",
+      since: SOURCE_HEAD,
+      changes: [{ status: "M", path: "source.md" }],
+    });
+
+    expect(await running).toBe(0);
+    const out = JSON.parse(stdout);
+    expect(out.behind).toBe(1);
+    expect(out.source.moved).toBe(true);
+  });
+
+  it("explains when the source trail was not shared", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    const refusal = new Error(
+      'GET /api/v1/spaces/n_x/git?op=log → 404: {"detail":"Space not found (no_history_relation)"}',
+    );
+    fetchTrailLogMock.mockRejectedValue(refusal);
+    fetchTrailChangesMock.mockRejectedValue(refusal);
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+
+    expect(stdout).toContain("Fork source:");
+    expect(stdout).toContain("source Space's trail has not been shared with you");
+    expect(stdout).not.toContain("recorded source Space could not be found");
+  });
+
+  it("reports source awareness on the no-upstream early-return path", async () => {
+    git(clone, ["branch", "--unset-upstream"]);
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: SOURCE_NEW_HEAD.slice(0, 7), message: "source moved", date: "2026-08-12", author: "Them" },
+        { sha: SOURCE_HEAD.slice(0, 7), message: "fork point", date: "2026-08-11", author: "Them" },
+      ],
+    });
+    fetchTrailChangesMock.mockResolvedValue({
+      op: "changes",
+      since: SOURCE_HEAD,
+      changes: [{ status: "M", path: "source.md" }],
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.upstream).toBeNull();
+    expect(out.source.moved).toBe(true);
+    expect(out.source.changes).toEqual([{ status: "M", path: "source.md" }]);
+  });
+
+  it("gives an expired source session its own actionable wording", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    const { UnauthorizedError } = await import("../auth/api.js");
+    fetchTrailLogMock.mockRejectedValue(new UnauthorizedError("401"));
+    fetchTrailChangesMock.mockRejectedValue(new UnauthorizedError("401"));
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+
+    expect(stdout).toContain("Session expired");
+    expect(stdout).toContain("to read the source Space's trail");
+  });
+
+  it("explains when the recorded source point was rewritten away", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    const rewritten = new Error("GET /api/v1/spaces/n_x/git?op=changes → 422: Git error");
+    fetchTrailLogMock.mockRejectedValue(rewritten);
+    fetchTrailChangesMock.mockRejectedValue(rewritten);
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+
+    expect(stdout).toContain("recorded source point is no longer available");
+    expect(stdout).toContain("may have been rewritten");
+  });
+
+  it("labels a one-sided source read as partial", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [
+        { sha: SOURCE_NEW_HEAD.slice(0, 7), message: "source moved", date: "2026-08-12", author: "Them" },
+        { sha: SOURCE_HEAD.slice(0, 7), message: "fork point", date: "2026-08-11", author: "Them" },
+      ],
+    });
+    fetchTrailChangesMock.mockRejectedValue(new Error("changes timed out"));
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+
+    expect(stdout).toContain("source moved");
+    expect(stdout).toContain("Partial: Could not read the source Space's trail: changes timed out");
+  });
+
+  it("fails a deleted or stale source coordinate closed with a source-specific reason", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    const missing = new Error(
+      'GET /api/v1/spaces/n_x/git?op=log → 404: {"detail":"Space not found"}',
+    );
+    fetchTrailLogMock.mockRejectedValue(missing);
+    fetchTrailChangesMock.mockRejectedValue(missing);
+
+    expect(await syncCommand.run([], {}, TEXT_G)).toBe(0);
+
+    expect(stdout).toContain("The recorded source Space could not be found");
+    expect(stdout).not.toContain("ideaspaces link");
+  });
+
+  it("does not probe when a fork has no recorded source head", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.source.recorded_head).toBeNull();
+    expect(out.source.unavailable).toContain("no pinned source head");
+    expect(fetchTrailLogMock).not.toHaveBeenCalled();
+    expect(fetchTrailChangesMock).not.toHaveBeenCalled();
+  });
+
+  it("marks the commit list incomplete when the source pin is outside the bounded window", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: Array.from({ length: 100 }, (_, index) => ({
+        sha: (index + 1).toString(16).padStart(40, "0"),
+        message: `source ${index + 1}`,
+        date: "2026-08-12",
+        author: "Them",
+      })),
+    });
+    fetchTrailChangesMock.mockResolvedValue({
+      op: "changes",
+      since: SOURCE_HEAD,
+      changes: [{ status: "M", path: "README.md" }],
+    });
+
+    expect(await syncCommand.run([], { limit: "2" }, TEXT_G)).toBe(0);
+
+    expect(stdout).toContain("recorded point is not in the source's latest 100 commits");
+    expect(stdout).toContain("may be older or no longer in history");
+    expect(stdout).toContain("… and 98 more");
+  });
+
+  it("fails a malformed source response closed instead of throwing", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    fetchTrailLogMock.mockResolvedValue({ op: "log", entries: [{ sha: "--output=owned" }] });
+    fetchTrailChangesMock.mockResolvedValue({ op: "changes", since: SOURCE_HEAD, changes: "not-a-list" });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.source.moved).toBeNull();
+    expect(out.source.commits).toBeNull();
+    expect(out.source.changes).toBeNull();
+    expect(out.source.unavailable).toContain("invalid commit list");
+    expect(out.source.unavailable).toContain("invalid changed-path list");
+  });
+
+  it("keeps a fork's files and lineage byte-identical while checking its source", async () => {
+    findSpaceForMock.mockReturnValue({
+      repo_id: "r",
+      slug: "fork",
+      namespace: "n",
+      root_node_id: ROOT_NODE_ID,
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+    });
+    fetchTrailLogMock.mockResolvedValue({
+      op: "log",
+      entries: [{ sha: SOURCE_HEAD.slice(0, 7), message: "fork point", date: "2026-08-11", author: "Them" }],
+    });
+    fetchTrailChangesMock.mockResolvedValue({ op: "changes", since: SOURCE_HEAD, changes: [] });
+    await fs.writeFile(join(clone, "untracked.md"), "# mine\n");
+    const before = {
+      status: git(clone, ["status", "--porcelain"]),
+      head: git(clone, ["rev-parse", "HEAD"]),
+      untracked: readFileSync(join(clone, "untracked.md"), "utf-8"),
+    };
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    expect(git(clone, ["status", "--porcelain"])).toBe(before.status);
+    expect(git(clone, ["rev-parse", "HEAD"])).toBe(before.head);
+    expect(readFileSync(join(clone, "untracked.md"), "utf-8")).toBe(before.untracked);
+    expect(saveSpaceMock).not.toHaveBeenCalled();
   });
 
   it("leaves the working tree and git status byte-identical", async () => {
@@ -393,12 +752,12 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(JSON.parse(stdout).incoming.commits_filtered).toBe(true);
   });
 
-  it("refuses to hand a server-shaped option to git", async () => {
+  it("rejects a malformed incoming commit before it can reach git", async () => {
     advanceOrigin();
     const bait = join(tmp, "pwned");
     // rev-list shares git's option surface, which includes --output=<file>.
-    // spawnSync rules out a shell; it does not stop git parsing an argument
-    // that starts with a dash.
+    // spawnSync rules out a shell; validation also keeps this network value
+    // out of git entirely.
     fetchTrailLogMock.mockResolvedValue({
       op: "log",
       entries: [{ sha: `--output=${bait}`, message: "hostile", date: "d", author: "T" }],
@@ -408,9 +767,19 @@ describe("ideaspaces sync — awareness, not integration", () => {
 
     expect(existsSync(bait)).toBe(false);
     const out = JSON.parse(stdout);
-    // Unfilterable, which is a state the caller already handles — the list is
-    // shown whole and flagged, not silently trusted.
-    expect(out.incoming.commits_filtered).toBe(false);
+    expect(out.incoming.commits).toEqual([]);
+    expect(out.incoming_unavailable).toContain("invalid commit list");
+  });
+
+  it("rejects a malformed incoming changed-path list", async () => {
+    advanceOrigin();
+    fetchTrailChangesMock.mockResolvedValue({ op: "changes", since: "base", changes: "not-a-list" });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out.incoming.changes).toEqual([]);
+    expect(out.incoming_unavailable).toContain("invalid changed-path list");
   });
 
   it("reads the trail for a clone with no record, using its canonical origin", async () => {

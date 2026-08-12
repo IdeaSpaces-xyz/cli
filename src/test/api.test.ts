@@ -322,6 +322,13 @@ describe("describeTrailRefusal", () => {
     expect(note).toContain("ideaspaces link");
   });
 
+  it("does not tell a fork to re-link itself when its source is gone", async () => {
+    const { describeTrailRefusal } = await import("../auth/api.js");
+    const note = describeTrailRefusal(notFound("Space not found"), "source");
+    expect(note).toContain("recorded source Space could not be found");
+    expect(note).not.toContain("ideaspaces link");
+  });
+
   it("declines anything that is not one of its refusals", async () => {
     const { describeTrailRefusal } = await import("../auth/api.js");
     expect(describeTrailRefusal(new Error("GET /x → 500: boom"))).toBeNull();
