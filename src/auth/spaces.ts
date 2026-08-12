@@ -7,12 +7,22 @@
  * `credentials.ts` (deleted) which silently overwrote on each publish.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { configDir } from "./config-dir.js";
 
 function spacesFile(): string {
   return join(configDir(), "spaces.json");
+}
+
+/** Canonical physical folder key when it exists; lexical absolute path otherwise. */
+function folderKey(path: string): string {
+  const absolute = resolve(path);
+  try {
+    return realpathSync.native(absolute);
+  } catch {
+    return absolute;
+  }
 }
 
 export interface SpaceRecord {
@@ -58,8 +68,13 @@ export function loadSpaces(): SpacesMap {
 }
 
 export function saveSpace(absolutePath: string, record: SpaceRecord): void {
-  const key = resolve(absolutePath);
+  const key = folderKey(absolutePath);
   const map = loadSpaces();
+  // Remove a lexical alias written by an older CLI (notably /tmp on macOS,
+  // where git reports /private/tmp). One physical clone must have one record.
+  for (const existing of Object.keys(map)) {
+    if (existing !== key && folderKey(existing) === key) delete map[existing];
+  }
   map[key] = record;
   const dir = configDir();
   if (!existsSync(dir)) {
@@ -69,7 +84,14 @@ export function saveSpace(absolutePath: string, record: SpaceRecord): void {
 }
 
 export function findSpaceFor(absolutePath: string): SpaceRecord | null {
-  return loadSpaces()[resolve(absolutePath)] ?? null;
+  const map = loadSpaces();
+  const lexical = resolve(absolutePath);
+  if (map[lexical]) return map[lexical];
+  const canonical = folderKey(absolutePath);
+  if (map[canonical]) return map[canonical];
+  // Compatibility for records written before physical-path canonicalization.
+  const alias = Object.entries(map).find(([path]) => folderKey(path) === canonical);
+  return alias?.[1] ?? null;
 }
 
 /** The clone registry as a list of `{ path, record }` — the shape consumers join on. */
@@ -79,10 +101,11 @@ export function listClones(): Array<{ path: string; record: SpaceRecord }> {
 
 /** Remove a clone's registry binding. Returns false if it wasn't tracked. */
 export function removeSpace(absolutePath: string): boolean {
-  const key = resolve(absolutePath);
+  const canonical = folderKey(absolutePath);
   const map = loadSpaces();
-  if (!(key in map)) return false;
-  delete map[key];
+  const keys = Object.keys(map).filter((path) => folderKey(path) === canonical);
+  if (!keys.length) return false;
+  for (const key of keys) delete map[key];
   const dir = configDir();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
