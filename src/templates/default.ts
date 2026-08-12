@@ -285,10 +285,14 @@ served by the protocol catalog — \`ideaspaces skills\` lists them — and are
 not copied into spaces. This folder holds what is distinct about working
 *here*: procedures worth repeating that only make sense in this space.
 
-Each skill is a markdown file with \`name\` + \`description\` frontmatter;
-the description is the trigger — it tells the agent when the skill applies.
-Skills compose along the path: a skill here reaches every position below,
-and a deeper \`_agent/skills/\` file with the same name shadows this one.
+Each skill is a markdown file with \`name\` + \`description\` frontmatter.
+The filename stem and frontmatter \`name\` are the same portable id: 1–64
+lowercase letters, digits, or single hyphens (for example,
+\`weekly-review.md\` with \`name: weekly-review\`). Put the human-readable
+title in the Markdown heading. The description is the trigger — it tells the
+agent when the skill applies. Skills compose along the path: a skill here
+reaches every position below, and a deeper \`_agent/skills/\` file with the
+same name shadows this one.
 `;
 
 export const PERSPECTIVES_README_MD = `---

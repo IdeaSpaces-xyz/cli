@@ -90,7 +90,7 @@ describe("skills sync", () => {
   });
 
   it("falls back to summary as the pointer description", async () => {
-    await writeSkill("_agent/skills/review.md", "name: Review\nsummary: Verify before claiming done.");
+    await writeSkill("_agent/skills/review.md", "name: review\nsummary: Verify before claiming done.");
     await syncSkillPointers(tmp);
     const pointer = await fs.readFile(
       join(tmp, ".claude", "skills", "review", "SKILL.md"),

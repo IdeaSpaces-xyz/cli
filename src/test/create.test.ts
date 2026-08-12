@@ -99,6 +99,8 @@ describe("ideaspaces create", () => {
     expect(existsSync(join(tmp, "_agent", "perspectives", "README.md"))).toBe(true);
     const skillsDir = await fs.readdir(join(tmp, "_agent", "skills"));
     expect(skillsDir).toEqual(["README.md"]);
+    const skillsGuide = await fs.readFile(join(tmp, "_agent", "skills", "README.md"), "utf-8");
+    expect(skillsGuide).toContain("`weekly-review.md` with `name: weekly-review`");
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(true);
     await expectNoNodeId(join(tmp, "CLAUDE.md"));
     await expectNoNodeId(join(tmp, "_agent", "foundation.md"));
