@@ -44,6 +44,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 |---|---|
 | `clone <space-url> [dir]` | Clone an authorized Space by stable identity into a local working copy |
 | `fork <space-url> [dir]` | Create and clone an independent current-content copy without source history |
+| `update [--yes]` | Preview or apply maintained source updates to a fork without displacing local work |
 | `clones` | List your local working copies |
 | `create <name>` | Create a new space |
 | `repos` | List spaces you can access |
@@ -62,7 +63,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 |---|---|
 | `sync` | Report where you and the Space stand — reads only, integrates nothing |
 | `push` | Send your committed captures to the remote |
-| `pull` | Integrate remote changes into your local copy |
+| `pull` | Integrate changes from the fork's own Git remote |
 | `publish` | Publish a local space to the server |
 
 ### Navigate & search

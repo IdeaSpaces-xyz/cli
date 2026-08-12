@@ -88,6 +88,18 @@ export interface CopySpaceResult {
   last_index_error: string | null;
 }
 
+export interface SpaceCopySnapshotFile {
+  path: string;
+  content: string;
+}
+
+export interface SpaceCopySnapshotResult {
+  source_head: string;
+  markdown_file_count: number;
+  markdown_bytes: number;
+  files: SpaceCopySnapshotFile[];
+}
+
 /** Default request timeout — protects callers from indefinite hangs on a
  * partially-up or slow server. Override via `opts.timeoutMs` per call. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
@@ -280,6 +292,20 @@ export async function copySpace(
     "POST",
     `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/copy`,
     body,
+    opts,
+  );
+}
+
+export async function getSpaceCopySnapshot(
+  config: ApiConfig,
+  rootNodeId: string,
+  opts?: RequestOptions,
+): Promise<SpaceCopySnapshotResult> {
+  return request<SpaceCopySnapshotResult>(
+    config,
+    "GET",
+    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/copy-snapshot`,
+    undefined,
     opts,
   );
 }
