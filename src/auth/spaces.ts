@@ -37,6 +37,8 @@ export interface SpaceRecord {
   source_root_node_id?: string;
   /** Source commit the copy was pinned at — the base any later update reads from. */
   source_head?: string;
+  /** True once a durable post-fork source baseline has been written locally. */
+  source_baseline_initialized?: boolean;
 }
 
 /** Map of absolute folder path → space record. */
@@ -97,10 +99,10 @@ export function removeSpace(absolutePath: string): boolean {
  * `root_node_id` on a repo that no longer reports one — leaving stale routing
  * or, worse, another Space's identity in a record that names this one.
  *
- * `source_root_node_id` / `source_head` are the exception because nothing can
- * reconstruct them: they are written by `fork` at copy time and never appear in
- * an account response. They travel only when the record still names the same
- * Space — a folder repointed elsewhere is not a clone of its old source.
+ * Source lineage fields are the exception because nothing can reconstruct
+ * them: `fork` writes the source coordinate and `update` marks baseline
+ * initialization. They travel only when the record still names the same Space
+ * — a folder repointed elsewhere is not a clone of its old source.
  */
 export function withForkLineage(bound: SpaceRecord, previous: SpaceRecord | null): SpaceRecord {
   if (!previous || previous.repo_id !== bound.repo_id) return bound;
@@ -110,5 +112,8 @@ export function withForkLineage(bound: SpaceRecord, previous: SpaceRecord | null
       ? { source_root_node_id: previous.source_root_node_id }
       : {}),
     ...(previous.source_head ? { source_head: previous.source_head } : {}),
+    ...(previous.source_baseline_initialized
+      ? { source_baseline_initialized: true }
+      : {}),
   };
 }

@@ -68,11 +68,13 @@ describe("auth/spaces", () => {
       namespace: "alice",
       source_root_node_id: "n_ffffffffffffffffffffffff",
       source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
     });
 
     expect(findSpaceFor("/fork")).toMatchObject({
       source_root_node_id: "n_ffffffffffffffffffffffff",
       source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
     });
   });
 

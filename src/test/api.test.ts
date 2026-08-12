@@ -4,6 +4,7 @@ import {
   createRepo,
   fetchAuthMe,
   getSpace,
+  getSpaceCopySnapshot,
   putFile,
   listRepoMembers,
   createRepoInvites,
@@ -175,6 +176,38 @@ describe("Space locator and copy API", () => {
     );
     expect(calls[1].init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({ name: "Manual", hostname: null });
+  });
+
+  it("gets the maintained clean-copy snapshot by stable source identity", async () => {
+    let captured: { url: string; init?: RequestInit } | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        captured = { url: String(url), init };
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              source_head: "a".repeat(40),
+              markdown_file_count: 1,
+              markdown_bytes: 10,
+              files: [{ path: "_agent/guide.md", content: "Guide" }],
+            }),
+            { status: 200 },
+          ),
+        );
+      }),
+    );
+
+    const snapshot = await getSpaceCopySnapshot(
+      config,
+      "n_0123456789abcdef01234567",
+    );
+
+    expect(snapshot.files[0].path).toBe("_agent/guide.md");
+    expect(captured?.url).toBe(
+      "http://api.test/api/v1/spaces/n_0123456789abcdef01234567/copy-snapshot",
+    );
+    expect(captured?.init?.method).toBe("GET");
   });
 });
 

@@ -21,6 +21,7 @@ import { catalogCommand } from "./commands/catalog.js";
 import { cloneCommand } from "./commands/clone.js";
 import { clonesCommand } from "./commands/clones.js";
 import { forkCommand } from "./commands/fork.js";
+import { updateCommand } from "./commands/update.js";
 import { linkCommand } from "./commands/link.js";
 import { forgetCommand } from "./commands/forget.js";
 import { makeConversationsCommand } from "./commands/conversations.js";
@@ -62,6 +63,7 @@ const topLevel: CommandDef[] = [
   piLogoutCommand,
   cloneCommand,
   forkCommand,
+  updateCommand,
   clonesCommand,
   linkCommand,
   forgetCommand,
