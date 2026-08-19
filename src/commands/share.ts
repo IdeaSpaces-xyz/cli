@@ -1,14 +1,15 @@
 /**
- * `ideaspaces share` — give a Space to a person, and see who has it.
+ * `ideaspaces share` — manage who can use a Space and whether it is public.
  *
- * The product verbs address a Content target by node id and speak in grades:
- * `invite` (explore | fork | collaborate), `people`, `unshare`. None of them
- * needs a `repo_id` — the target comes from the folder you are standing in.
+ * The product surface is recipient-shaped: `person`, `team`, `list`, `remove`,
+ * and `visibility`. People and teams receive one exact explore/fork/collaborate
+ * grade; public visibility means anonymous view plus authenticated independent
+ * copy, never Git history, clone, or push. Internal user, organization, Grant,
+ * and repository ids stay behind the command.
  *
- * The repo-shaped subcommands (`access`, `set-access`, `members`, `remove`,
- * `invites`, `revoke`, `legacy-invite`) remain for repositories that still
- * carry roles and public-link policy. They are compatibility, not the path a
- * new invitation takes.
+ * The older `invite`, `people`, and `unshare` words remain as aliases. Repo-
+ * shaped access/member/invite commands remain compatibility paths for old
+ * repositories, not the surface new help teaches.
  *
  * All owner-gated on the backend (403 otherwise). `--json` everywhere.
  */
@@ -16,10 +17,15 @@
 import {
   addPersonShare,
   describeShareRefusal,
+  fetchAuthMe,
   removePersonShare,
   revokePersonShareInvite,
   listPersonShares,
   listPersonShareInvites,
+  listEligibleTeamAudiences,
+  listTeamShares,
+  setTeamShare,
+  removeTeamShare,
   listRepoMembers,
   removeRepoMember,
   listRepoInvites,
@@ -31,7 +37,9 @@ import {
   type InviteRole,
   type CopyAccessLevel,
   type ShareGrade,
+  type ShareCapability,
   type PersonShareAddResult,
+  type PersonShareStanding,
 } from "../auth/api.js";
 import { loadConfig, type LoadedConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding } from "../auth/resolve-space.js";
@@ -43,7 +51,7 @@ import type { CommandDef, GlobalFlags } from "../types.js";
 type Flags = Record<string, string | boolean>;
 
 const USAGE =
-  "ideaspaces share <invite|unshare|people|access|set-access|members|remove|invites|revoke|legacy-invite> …";
+  "ideaspaces share <person|team|list|remove|visibility> …";
 
 /**
  * The grades a Space is shared at. One per invitation, mutually exclusive.
@@ -78,6 +86,57 @@ function requireConfig(output: Output) {
 
 function flagStr(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? (flags[key] as string) : undefined;
+}
+
+function parseGrade(flags: Flags, output: Output): ShareGrade | null {
+  const grade = (flagStr(flags, "grade")?.toLowerCase() ?? "explore") as ShareGrade;
+  if (!GRADES.includes(grade)) {
+    output.error(`--grade must be one of: ${GRADES.join(", ")}`);
+    return null;
+  }
+  return grade;
+}
+
+function personSelector(value: string):
+  | { username: string; invite_if_no_match: false }
+  | { email: string; invite_if_no_match: true }
+  | null {
+  if (value.startsWith("@") && value.length > 1 && !value.slice(1).includes("@")) {
+    return { username: value.slice(1), invite_if_no_match: false };
+  }
+  if (value.includes("@") && !value.startsWith("@")) {
+    return { email: value, invite_if_no_match: true };
+  }
+  return null;
+}
+
+function recipientName(person: Pick<PersonShareStanding, "user_id" | "name" | "username" | "email">): string {
+  return person.name ?? person.username ?? person.email ?? `user ${person.user_id}`;
+}
+
+/** Derive a product grade only from an exact direct bundle. */
+function personStandingGrade(standing: PersonShareStanding): ShareGrade | null {
+  const direct = new Set(standing.direct_capabilities);
+  const hasContent = direct.has("read") || direct.has("write");
+  const hasCopy = direct.has("space_copy");
+  const hasFetch = direct.has("git_fetch");
+  const hasPush = direct.has("git_push");
+  if (hasContent && hasCopy && !hasFetch && !hasPush) return "fork";
+  if (hasContent && !hasCopy && hasFetch && hasPush) return "collaborate";
+  if (hasContent && !hasCopy && !hasFetch && !hasPush) return "explore";
+  return null;
+}
+
+function capabilitySummary(capabilities: ShareCapability[]): string {
+  const labels: Record<ShareCapability, string> = {
+    read: "view",
+    write: "edit",
+    history: "history",
+    space_copy: "fork",
+    git_fetch: "clone",
+    git_push: "push",
+  };
+  return capabilities.map((capability) => labels[capability]).join(", ");
 }
 
 // Shared preamble: repo_id present + logged in. Returns the config, or null
@@ -172,6 +231,332 @@ function describeShare(res: PersonShareAddResult): string {
   }
 }
 
+function errorText(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
+async function repoIdForRoot(config: LoadedConfig, rootNodeId: string): Promise<string> {
+  const me = await fetchAuthMe(config);
+  const matches = me.repos.filter((repo) => repo.root_node_id === rootNodeId);
+  if (matches.length === 1) return matches[0].repo_id;
+  if (matches.length > 1) {
+    throw new Error("This Space matches more than one managed repository. Re-link the clone before changing visibility.");
+  }
+  throw new Error("This Space is not in your managed repository catalog, so its visibility cannot be changed here.");
+}
+
+function describeTeamShareRefusal(err: unknown): string | null {
+  const message = errorText(err);
+  if (message.includes("active_team_membership_required")) {
+    return "You must be an active member of that registered team to share with it.";
+  }
+  if (message.includes("git_authority_not_established")) {
+    return "Collaborate is not available for this Space yet. Choose explore or fork.";
+  }
+  if (message.includes("root_governance_unestablished")) {
+    return "Team sharing is not available for this Space yet.";
+  }
+  if (message.includes("organization_unregistered") || message.includes("organization_invalid")) {
+    return "That team is not available for sharing.";
+  }
+  return null;
+}
+
+async function shareWithPerson(
+  rest: string[],
+  flags: Flags,
+  output: Output,
+): Promise<number> {
+  const who = rest[0];
+  if (!who || rest.length !== 1) {
+    output.error(
+      "Usage: ideaspaces share person <email|@handle> [--grade explore|fork|collaborate] [--history] [--space <url>]",
+    );
+    return 1;
+  }
+  const selector = personSelector(who);
+  if (!selector) {
+    output.error(`Expected an email address or @handle, got: ${who}`);
+    return 1;
+  }
+  const grade = parseGrade(flags, output);
+  if (!grade) return 1;
+  const config = requireConfig(output);
+  if (!config) return 1;
+  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  if (!target) return 1;
+  const result = await addPersonShare(config, target, {
+    ...selector,
+    grade,
+    share_history: Boolean(flags.history),
+  });
+  output.result(result, describeShare(result));
+  return 0;
+}
+
+async function shareWithTeam(
+  rest: string[],
+  flags: Flags,
+  output: Output,
+): Promise<number> {
+  const hostname = rest[0]?.replace(/^team:/i, "").toLowerCase();
+  if (!hostname || rest.length !== 1) {
+    output.error(
+      "Usage: ideaspaces share team <hostname> [--grade explore|fork|collaborate] [--space <url>]",
+    );
+    return 1;
+  }
+  if (flags.history) {
+    output.error("Hosted history is person-specific and cannot be attached to a team grade.");
+    return 1;
+  }
+  const grade = parseGrade(flags, output);
+  if (!grade) return 1;
+  const config = requireConfig(output);
+  if (!config) return 1;
+  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  if (!target) return 1;
+
+  const audiences = await listEligibleTeamAudiences(config);
+  const matches = audiences.filter((audience) => audience.hostname.toLowerCase() === hostname);
+  if (matches.length !== 1) {
+    const available = audiences.map((audience) => audience.hostname).sort();
+    output.error(
+      matches.length > 1
+        ? `More than one registered team matches ${hostname}.`
+        : `No registered team you belong to matches ${hostname}.` +
+            (available.length ? `\nAvailable teams: ${available.join(", ")}` : ""),
+    );
+    return 1;
+  }
+
+  const result = await setTeamShare(config, target, matches[0].org_node_id, grade);
+  const unchanged = result.status === "already_shared";
+  output.result(
+    result,
+    unchanged
+      ? `${hostname} already has ${grade} access.`
+      : `${hostname}'s access is now ${grade}.`,
+  );
+  return 0;
+}
+
+async function listProductAccess(rest: string[], flags: Flags, output: Output): Promise<number> {
+  if (rest.length) {
+    output.error("Usage: ideaspaces share list [--space <url>]");
+    return 1;
+  }
+  const config = requireConfig(output);
+  if (!config) return 1;
+  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  if (!target) return 1;
+
+  const [peopleResult, invitesResult, teamsResult, visibilityResult] = await Promise.allSettled([
+    listPersonShares(config, target),
+    listPersonShareInvites(config, target),
+    listTeamShares(config, target),
+    repoIdForRoot(config, target).then((repoId) => getSpaceAccess(config, repoId)),
+  ]);
+  if (
+    peopleResult.status === "rejected" &&
+    teamsResult.status === "rejected" &&
+    visibilityResult.status === "rejected"
+  ) {
+    throw peopleResult.reason;
+  }
+
+  const people = peopleResult.status === "fulfilled" ? peopleResult.value : null;
+  const invites = invitesResult.status === "fulfilled" ? invitesResult.value.invites : [];
+  const teams = teamsResult.status === "fulfilled" ? teamsResult.value : null;
+  const visibility = visibilityResult.status === "fulfilled" ? visibilityResult.value : null;
+  const unavailable = {
+    people: peopleResult.status === "rejected" ? errorText(peopleResult.reason) : null,
+    invitations: invitesResult.status === "rejected" ? errorText(invitesResult.reason) : null,
+    teams: teamsResult.status === "rejected" ? errorText(teamsResult.reason) : null,
+    visibility: visibilityResult.status === "rejected" ? errorText(visibilityResult.reason) : null,
+  };
+
+  const lines: string[] = ["Visibility"];
+  if (!visibility) {
+    lines.push("  unavailable");
+  } else if (visibility.read_public && visibility.copy_access === "public") {
+    lines.push("  public — anyone can view; signed-in people can fork");
+  } else if (!visibility.read_public && visibility.copy_access === "owner") {
+    lines.push("  private");
+  } else {
+    lines.push(
+      `  custom compatibility policy — read ${visibility.read_public ? "public" : "private"}, copy ${visibility.copy_access}`,
+    );
+  }
+
+  lines.push("", "People");
+  const standings = people?.standings ?? [];
+  if (!people) lines.push("  accepted access unavailable");
+  for (const standing of standings) {
+    const grade = personStandingGrade(standing);
+    const history = standing.direct_capabilities.includes("history") ? " + history" : "";
+    const direct = grade ?? (capabilitySummary(standing.direct_capabilities) || "no exact direct grade");
+    const effectiveOnly = standing.effective_capabilities.filter(
+      (capability) => !standing.direct_capabilities.includes(capability),
+    );
+    lines.push(
+      `  ${recipientName(standing).padEnd(24)} ${direct}${history}` +
+        (effectiveOnly.length ? `; also ${capabilitySummary(effectiveOnly)} through another path` : ""),
+    );
+  }
+  for (const invite of invites) {
+    lines.push(
+      `  ${invite.invited_email.padEnd(24)} invited (${invite.grade}${invite.share_history ? " + history" : ""})`,
+    );
+  }
+  if (invitesResult.status === "rejected") lines.push("  pending invitations unavailable");
+  if (people && !standings.length && invitesResult.status === "fulfilled" && !invites.length) {
+    lines.push("  none");
+  }
+  if (people && !people.actions.can_add && people.actions.add_blocked_reason) {
+    lines.push(`  You cannot add people here: ${people.actions.add_blocked_reason}`);
+  }
+  if (people && !people.actions.can_manage_existing && people.actions.manage_blocked_reason) {
+    lines.push(`  You cannot change who has it: ${people.actions.manage_blocked_reason}`);
+  }
+
+  lines.push("", "Teams");
+  if (!teams) {
+    lines.push("  unavailable");
+  } else if (!teams.relationships.length) {
+    lines.push("  none");
+  } else {
+    for (const team of teams.relationships) {
+      lines.push(
+        `  ${(team.hostname ?? "unavailable team").padEnd(24)} ${team.grade ?? (capabilitySummary(team.direct_capabilities) || "no exact grade")}`,
+      );
+    }
+  }
+
+  output.result(
+    {
+      target_node_id: target,
+      visibility,
+      people,
+      pending_invites: invites,
+      teams,
+      unavailable,
+    },
+    lines.join("\n"),
+  );
+  return 0;
+}
+
+async function removeProductAccess(
+  rest: string[],
+  flags: Flags,
+  output: Output,
+): Promise<number> {
+  const who = rest[0];
+  if (!who || rest.length !== 1) {
+    output.error("Usage: ideaspaces share remove <email|@handle|team:hostname> [--space <url>]");
+    return 1;
+  }
+  const config = requireConfig(output);
+  if (!config) return 1;
+  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  if (!target) return 1;
+
+  if (who.toLowerCase().startsWith("team:")) {
+    const hostname = who.slice(5).toLowerCase();
+    const collection = await listTeamShares(config, target);
+    const relationship = collection.relationships.find(
+      (row) => row.hostname?.toLowerCase() === hostname,
+    );
+    if (!relationship) {
+      output.error(`${hostname} has no direct team access here.`);
+      return 1;
+    }
+    const result = await removeTeamShare(config, target, relationship.org_node_id);
+    output.result(
+      result,
+      result.status === "removed"
+        ? `Removed direct team access for ${hostname}. Members may still have access through another path.`
+        : `Direct team access was already removed for ${hostname}.`,
+    );
+    return 0;
+  }
+
+  const selector = personSelector(who);
+  if (!selector) {
+    output.error(`Expected an email address, @handle, or team:hostname, got: ${who}`);
+    return 1;
+  }
+  const [peopleResult, invitesResult] = await Promise.allSettled([
+    listPersonShares(config, target),
+    listPersonShareInvites(config, target),
+  ]);
+  if (peopleResult.status === "rejected") throw peopleResult.reason;
+  const needle = ("username" in selector ? selector.username : selector.email).toLowerCase();
+  const standing = peopleResult.value.standings.find((row) =>
+    "username" in selector
+      ? row.username?.toLowerCase() === needle
+      : row.email?.toLowerCase() === needle,
+  );
+  if (standing) {
+    const result = await removePersonShare(config, target, standing.user_id);
+    const remains = result.effective_capabilities.length
+      ? ` ${recipientName(standing)} still has ${capabilitySummary(result.effective_capabilities)} through another path.`
+      : "";
+    output.result(
+      result,
+      (result.status === "removed"
+        ? `Removed direct access for ${recipientName(standing)}.`
+        : `Direct access was already removed for ${recipientName(standing)}.`) + remains,
+    );
+    return 0;
+  }
+
+  const invites = invitesResult.status === "fulfilled" ? invitesResult.value.invites : [];
+  const invite = "email" in selector
+    ? invites.find((row) => row.invited_email.toLowerCase() === needle)
+    : undefined;
+  if (invite) {
+    await revokePersonShareInvite(config, target, invite.invite_id);
+    output.result(
+      { revoked: invite.invite_id, invited_email: invite.invited_email, target_node_id: target },
+      `Withdrew the invitation to ${invite.invited_email}.`,
+    );
+    return 0;
+  }
+
+  output.error(
+    invitesResult.status === "rejected"
+      ? `${who} has no direct accepted access here, and pending invitations could not be read (${errorText(invitesResult.reason)}).`
+      : `${who} has no direct access or pending invitation here.`,
+  );
+  return 1;
+}
+
+async function setVisibility(rest: string[], flags: Flags, output: Output): Promise<number> {
+  const requested = rest[0]?.toLowerCase();
+  if ((requested !== "public" && requested !== "private") || rest.length !== 1) {
+    output.error("Usage: ideaspaces share visibility <public|private> [--space <url>]");
+    return 1;
+  }
+  const config = requireConfig(output);
+  if (!config) return 1;
+  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  if (!target) return 1;
+  const repoId = await repoIdForRoot(config, target);
+  const result = await setSpaceAccess(config, repoId, {
+    read_public: requested === "public",
+    copy_access: requested === "public" ? "public" : "owner",
+  });
+  output.result(
+    { ...result, visibility: requested },
+    requested === "public"
+      ? "Public — anyone can view; signed-in people can fork. Git history, clone, and push remain private."
+      : "Private — public view and fork are off. Named people and team access are unchanged.",
+  );
+  return 0;
+}
+
 async function run(sub: string, rest: string[], flags: Flags, output: Output): Promise<number> {
   // Named for the repo-shaped subcommands, which is all that used them when
   // this dispatcher was written. The product verbs (`invite`, `people`,
@@ -179,6 +564,14 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
   const [repoId, arg] = rest;
   try {
     switch (sub) {
+      case "person":
+        return await shareWithPerson(rest, flags, output);
+      case "team":
+        return await shareWithTeam(rest, flags, output);
+      case "list":
+        return await listProductAccess(rest, flags, output);
+      case "visibility":
+        return await setVisibility(rest, flags, output);
       case "access": {
         const config = setup(repoId, "ideaspaces share access <repo_id>", output);
         if (!config) return 1;
@@ -218,6 +611,11 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         return 0;
       }
       case "remove": {
+        // Product form is recipient-shaped. Preserve the two-coordinate
+        // repository-member form only as a compatibility path for old repos.
+        if (!(rest.length === 2 && repoId?.startsWith("repo_"))) {
+          return await removeProductAccess(rest, flags, output);
+        }
         const config = setup(repoId, "ideaspaces share remove <repo_id> <user_id>", output);
         if (!config) return 1;
         const userId = Number(arg);
@@ -463,27 +861,32 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
       output.error("Session expired. Run `ideaspaces login`.");
       return 1;
     }
-    output.error(describeShareRefusal(err) ?? (err instanceof Error ? err.message : String(err)));
+    const teamOperation =
+      sub === "team" || (sub === "remove" && rest[0]?.toLowerCase().startsWith("team:"));
+    output.error(
+      (teamOperation
+        ? describeTeamShareRefusal(err) ?? describeShareRefusal(err)
+        : describeShareRefusal(err) ?? describeTeamShareRefusal(err)) ??
+        (err instanceof Error ? err.message : String(err)),
+    );
     return 1;
   }
 }
 
 export const shareCommand: CommandDef = {
   name: "share",
-  description: "Share a Space with someone, and manage who has it",
+  description: "Manage people, teams, and public visibility for a Space",
   usage: USAGE,
   examples: [
-    "ideaspaces share invite someone@example.com",
-    "ideaspaces share invite someone@example.com --grade fork",
-    "ideaspaces share invite someone@example.com --grade collaborate --history",
-    "ideaspaces share unshare someone@example.com",
-    "ideaspaces share people --json",
-    "ideaspaces share legacy-invite repo_abc a@x.com --role MEMBER",
-    "ideaspaces share access repo_abc --json",
-    "ideaspaces share set-access repo_abc --public true --copy reader",
-    "ideaspaces share members repo_abc --json",
-    "ideaspaces share invites repo_abc",
-    "ideaspaces share revoke repo_abc inv_123",
+    "ideaspaces share person someone@example.com --grade explore",
+    "ideaspaces share person @someone --grade fork",
+    "ideaspaces share person someone@example.com --grade collaborate --history",
+    "ideaspaces share team acme.com --grade collaborate",
+    "ideaspaces share list",
+    "ideaspaces share remove someone@example.com",
+    "ideaspaces share remove team:acme.com",
+    "ideaspaces share visibility public",
+    "ideaspaces share visibility private --space https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);

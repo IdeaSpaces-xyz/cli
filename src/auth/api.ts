@@ -662,6 +662,13 @@ const repoBase = (repoId: string) => `${API_V1}/repos/${encodeURIComponent(repoI
  * a target rather than a seat in a repo.
  */
 export type ShareGrade = "explore" | "fork" | "collaborate";
+export type ShareCapability =
+  | "read"
+  | "write"
+  | "history"
+  | "space_copy"
+  | "git_fetch"
+  | "git_push";
 
 export interface PersonShareRelationship {
   user_id: number;
@@ -671,6 +678,17 @@ export interface PersonShareRelationship {
   account_status: "active" | "closed" | "unresolved" | "missing";
   access: "view" | "existing_write";
   share_history: boolean;
+  shared_at?: string | null;
+}
+
+export interface PersonShareStanding {
+  user_id: number;
+  username?: string | null;
+  name?: string | null;
+  email?: string | null;
+  account_status: "active" | "closed" | "unresolved" | "missing";
+  direct_capabilities: ShareCapability[];
+  effective_capabilities: ShareCapability[];
   shared_at?: string | null;
 }
 
@@ -685,6 +703,7 @@ export interface PendingContentInvite {
   delivery_status: "unknown" | "sending" | "sent" | "failed";
   delivery_error?: string | null;
   can_resend: boolean;
+  resend_retry_after_seconds?: number | null;
 }
 
 /**
@@ -723,6 +742,48 @@ export interface PersonShareCollection {
     add_blocked_reason?: string | null;
   };
   relationships: PersonShareRelationship[];
+  standings: PersonShareStanding[];
+}
+
+export interface PersonShareRemoveResult {
+  target_node_id: string;
+  user_id: number;
+  status: "removed" | "not_direct";
+  effective_read_remains: boolean;
+  effective_capabilities: ShareCapability[];
+}
+
+export type TeamShareCapability = "read" | "space_copy" | "git_fetch" | "git_push";
+
+export interface EligibleTeamAudience {
+  audience: "org_members";
+  hostname: string;
+  org_node_id: string;
+  grantee: string;
+  label: string;
+  role: "MEMBER" | "OWNER";
+}
+
+export interface TeamShareRelationship {
+  org_node_id: string;
+  hostname?: string | null;
+  registered: boolean;
+  direct_capabilities: TeamShareCapability[];
+  grade: ShareGrade | null;
+  shared_at?: string | null;
+  expires_at?: string | null;
+}
+
+export interface TeamShareCollection {
+  target_node_id: string;
+  relationships: TeamShareRelationship[];
+}
+
+export interface TeamShareMutationResult {
+  target_node_id: string;
+  org_node_id: string;
+  status: "shared" | "already_shared" | "removed" | "not_direct";
+  relationship?: TeamShareRelationship | null;
 }
 
 const nodeBase = (nodeId: string) => `${API_V1}/nodes/${encodeURIComponent(nodeId)}`;
@@ -789,7 +850,7 @@ export async function removePersonShare(
   targetNodeId: string,
   userId: number,
   opts?: RequestOptions,
-): Promise<void> {
+): Promise<PersonShareRemoveResult> {
   return request(
     config,
     "DELETE",
@@ -822,6 +883,53 @@ export async function listPersonShareInvites(
   opts?: RequestOptions,
 ): Promise<{ invites: PendingContentInvite[] }> {
   return request(config, "GET", `${nodeBase(targetNodeId)}/person-share-invites`, undefined, opts);
+}
+
+/** Registered teams the current person may select without handling internal Actor ids. */
+export async function listEligibleTeamAudiences(
+  config: ApiConfig,
+  opts?: RequestOptions,
+): Promise<EligibleTeamAudience[]> {
+  return request(config, "GET", `${API_V1}/nodes/grant-audiences`, undefined, opts);
+}
+
+export async function listTeamShares(
+  config: ApiConfig,
+  rootNodeId: string,
+  opts?: RequestOptions,
+): Promise<TeamShareCollection> {
+  return request(config, "GET", `${nodeBase(rootNodeId)}/team-shares`, undefined, opts);
+}
+
+export async function setTeamShare(
+  config: ApiConfig,
+  rootNodeId: string,
+  orgNodeId: string,
+  grade: ShareGrade,
+  opts?: RequestOptions,
+): Promise<TeamShareMutationResult> {
+  return request(
+    config,
+    "PUT",
+    `${nodeBase(rootNodeId)}/team-shares/${encodeURIComponent(orgNodeId)}`,
+    { grade },
+    opts,
+  );
+}
+
+export async function removeTeamShare(
+  config: ApiConfig,
+  rootNodeId: string,
+  orgNodeId: string,
+  opts?: RequestOptions,
+): Promise<TeamShareMutationResult> {
+  return request(
+    config,
+    "DELETE",
+    `${nodeBase(rootNodeId)}/team-shares/${encodeURIComponent(orgNodeId)}`,
+    undefined,
+    opts,
+  );
 }
 
 export async function listRepoMembers(config: ApiConfig, repoId: string): Promise<Member[]> {

@@ -86,6 +86,20 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on most 
 | `agents` | List agents available to you |
 | `times` | Activity timeline |
 
+Share addresses people and teams by names rather than internal ids:
+
+```bash
+ideaspaces share person someone@example.com --grade explore
+ideaspaces share person @someone --grade fork
+ideaspaces share team acme.com --grade collaborate
+ideaspaces share list
+ideaspaces share remove team:acme.com
+ideaspaces share visibility public   # anyone can view; signed-in people can fork
+ideaspaces share visibility private  # named access is unchanged
+```
+
+Public visibility never makes Git history, clone, or push public.
+
 ### Identity
 | Command | What it does |
 |---|---|
