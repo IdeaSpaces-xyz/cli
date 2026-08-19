@@ -7,6 +7,13 @@ import { createOutput } from "../output.js";
 import { deriveWebBase } from "../auth/api.js";
 import type { CommandDef } from "../types.js";
 
+export function buildCliLoginUrl(apiUrl: string, port: number): string {
+  const url = new URL("/login", `${deriveWebBase(apiUrl)}/`);
+  url.searchParams.set("response_type", "cli");
+  url.searchParams.set("port", String(port));
+  return url.toString();
+}
+
 function openBrowser(url: string): void {
   const cmd = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
   exec(`${cmd} "${url}"`);
@@ -24,7 +31,7 @@ export const loginCommand: CommandDef = {
 
     const apiUrl = getDefaultApiUrl();
     const callbackServer = await startCallbackServer();
-    const authUrl = `${apiUrl}/auth/google?response_type=cli&port=${callbackServer.port}`;
+    const authUrl = buildCliLoginUrl(apiUrl, callbackServer.port);
 
     output.progress(`Opening browser for login...\n${authUrl}`);
     openBrowser(authUrl);
