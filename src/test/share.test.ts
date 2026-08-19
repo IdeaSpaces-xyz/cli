@@ -7,9 +7,16 @@ const TEXT_G: GlobalFlags = { json: false, quiet: true, yes: false, help: false 
 const {
   loadConfigMock,
   resolveSpaceBindingMock,
+  fetchAuthMeMock,
   addPersonShareMock,
   listPersonSharesMock,
   listPersonShareInvitesMock,
+  listEligibleTeamAudiencesMock,
+  listTeamSharesMock,
+  setTeamShareMock,
+  removeTeamShareMock,
+  getSpaceAccessMock,
+  setSpaceAccessMock,
   createRepoInvitesMock,
   removePersonShareMock,
   revokePersonShareInviteMock,
@@ -17,9 +24,16 @@ const {
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   resolveSpaceBindingMock: vi.fn(),
+  fetchAuthMeMock: vi.fn(),
   addPersonShareMock: vi.fn(),
   listPersonSharesMock: vi.fn(),
   listPersonShareInvitesMock: vi.fn(),
+  listEligibleTeamAudiencesMock: vi.fn(),
+  listTeamSharesMock: vi.fn(),
+  setTeamShareMock: vi.fn(),
+  removeTeamShareMock: vi.fn(),
+  getSpaceAccessMock: vi.fn(),
+  setSpaceAccessMock: vi.fn(),
   createRepoInvitesMock: vi.fn(),
   removePersonShareMock: vi.fn(),
   revokePersonShareInviteMock: vi.fn(),
@@ -32,9 +46,16 @@ vi.mock("../auth/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/api.js")>();
   return {
     ...actual,
+    fetchAuthMe: fetchAuthMeMock,
     addPersonShare: addPersonShareMock,
     listPersonShares: listPersonSharesMock,
     listPersonShareInvites: listPersonShareInvitesMock,
+    listEligibleTeamAudiences: listEligibleTeamAudiencesMock,
+    listTeamShares: listTeamSharesMock,
+    setTeamShare: setTeamShareMock,
+    removeTeamShare: removeTeamShareMock,
+    getSpaceAccess: getSpaceAccessMock,
+    setSpaceAccess: setSpaceAccessMock,
     createRepoInvites: createRepoInvitesMock,
     removePersonShare: removePersonShareMock,
     revokePersonShareInvite: revokePersonShareInviteMock,
@@ -75,9 +96,16 @@ beforeEach(() => {
   for (const m of [
     loadConfigMock,
     resolveSpaceBindingMock,
+    fetchAuthMeMock,
     addPersonShareMock,
     listPersonSharesMock,
     listPersonShareInvitesMock,
+    listEligibleTeamAudiencesMock,
+    listTeamSharesMock,
+    setTeamShareMock,
+    removeTeamShareMock,
+    getSpaceAccessMock,
+    setSpaceAccessMock,
     createRepoInvitesMock,
     removePersonShareMock,
     revokePersonShareInviteMock,
@@ -88,7 +116,29 @@ beforeEach(() => {
   loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
   repoRootMock.mockReturnValue("/clone");
   resolveSpaceBindingMock.mockResolvedValue({ rootNodeId: ROOT, via: "record" });
+  fetchAuthMeMock.mockResolvedValue({
+    username: "owner",
+    repos: [{ repo_id: "repo_abc", root_node_id: ROOT }],
+  });
   addPersonShareMock.mockResolvedValue(addResult());
+  listEligibleTeamAudiencesMock.mockResolvedValue([]);
+  listTeamSharesMock.mockResolvedValue({ target_node_id: ROOT, relationships: [] });
+  setTeamShareMock.mockResolvedValue({ target_node_id: ROOT, org_node_id: "n_org", status: "shared" });
+  removeTeamShareMock.mockResolvedValue({ target_node_id: ROOT, org_node_id: "n_org", status: "removed" });
+  getSpaceAccessMock.mockResolvedValue({
+    repo_id: "repo_abc",
+    root_node_id: ROOT,
+    read_public: false,
+    copy_public: false,
+    copy_access: "owner",
+  });
+  setSpaceAccessMock.mockResolvedValue({
+    repo_id: "repo_abc",
+    root_node_id: ROOT,
+    read_public: true,
+    copy_public: true,
+    copy_access: "public",
+  });
   stdout = "";
   stderr = "";
   vi.spyOn(process.stdout, "write").mockImplementation(((c: string | Uint8Array) => {
@@ -245,6 +295,132 @@ describe("share people — who holds this, including what we did not grant", () 
 
     expect(await shareCommand.run(["people"], {}, TEXT_G)).toBe(0);
     expect(stdout).toContain("not_owner");
+  });
+});
+
+describe("the product Share surface", () => {
+  it("shares with an existing person by handle without exposing a user id", async () => {
+    addPersonShareMock.mockResolvedValue(addResult({ grade: "fork" }));
+
+    expect(await shareCommand.run(["person", "@bob"], { grade: "fork" }, JSON_G)).toBe(0);
+    expect(addPersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, {
+      username: "bob",
+      invite_if_no_match: false,
+      grade: "fork",
+      share_history: false,
+    });
+  });
+
+  it("resolves a team hostname and sets its exact grade", async () => {
+    listEligibleTeamAudiencesMock.mockResolvedValue([
+      {
+        audience: "org_members",
+        hostname: "acme.com",
+        org_node_id: "n_org",
+        grantee: "node:n_org:members",
+        label: "Acme",
+        role: "OWNER",
+      },
+    ]);
+
+    expect(await shareCommand.run(["team", "ACME.com"], { grade: "collaborate" }, JSON_G)).toBe(0);
+    expect(setTeamShareMock).toHaveBeenCalledWith(
+      expect.anything(),
+      ROOT,
+      "n_org",
+      "collaborate",
+    );
+    expect(JSON.stringify(setTeamShareMock.mock.calls)).not.toContain("node:n_org:members");
+  });
+
+  it("lists visibility, exact person standing, invitations, and teams together", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      target_type: "repo",
+      recipient_route: "r",
+      actions: { can_manage_existing: true, can_add: true },
+      relationships: [],
+      standings: [
+        {
+          user_id: 7,
+          username: "bob",
+          account_status: "active",
+          direct_capabilities: ["read", "history", "space_copy"],
+          effective_capabilities: ["read", "history", "space_copy", "git_fetch"],
+        },
+      ],
+    });
+    listPersonShareInvitesMock.mockResolvedValue({
+      invites: [{ invited_email: "new@example.com", grade: "explore", share_history: false }],
+    });
+    listTeamSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      relationships: [{ hostname: "acme.com", org_node_id: "n_org", grade: "collaborate", direct_capabilities: ["read", "git_fetch", "git_push"], registered: true }],
+    });
+    getSpaceAccessMock.mockResolvedValue({
+      repo_id: "repo_abc",
+      root_node_id: ROOT,
+      read_public: true,
+      copy_public: true,
+      copy_access: "public",
+    });
+
+    expect(await shareCommand.run(["list"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("public — anyone can view; signed-in people can fork");
+    expect(stdout).toContain("bob");
+    expect(stdout).toContain("fork + history");
+    expect(stdout).toContain("clone through another path");
+    expect(stdout).toContain("new@example.com");
+    expect(stdout).toContain("acme.com");
+    expect(stdout).toContain("collaborate");
+  });
+
+  it("removes a person's direct bundle and reports surviving access", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      target_type: "repo",
+      recipient_route: "r",
+      actions: { can_manage_existing: true, can_add: true },
+      relationships: [],
+      standings: [{
+        user_id: 7,
+        username: "bob",
+        email: "bob@example.com",
+        account_status: "active",
+        direct_capabilities: ["read"],
+        effective_capabilities: ["read"],
+      }],
+    });
+    listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
+    removePersonShareMock.mockResolvedValue({
+      target_node_id: ROOT,
+      user_id: 7,
+      status: "removed",
+      effective_read_remains: true,
+      effective_capabilities: ["read"],
+    });
+
+    expect(await shareCommand.run(["remove", "bob@example.com"], {}, TEXT_G)).toBe(0);
+    expect(removePersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, 7);
+    expect(stdout).toContain("still has view through another path");
+  });
+
+  it("removes a team by hostname rather than Actor id", async () => {
+    listTeamSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      relationships: [{ hostname: "acme.com", org_node_id: "n_org", grade: "explore", direct_capabilities: ["read"], registered: true }],
+    });
+
+    expect(await shareCommand.run(["remove", "team:acme.com"], {}, JSON_G)).toBe(0);
+    expect(removeTeamShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, "n_org");
+  });
+
+  it.each([
+    ["public", { read_public: true, copy_access: "public" }],
+    ["private", { read_public: false, copy_access: "owner" }],
+  ] as const)("sets %s as one visibility choice", async (visibility, expected) => {
+    expect(await shareCommand.run(["visibility", visibility], {}, JSON_G)).toBe(0);
+    expect(setSpaceAccessMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", expected);
   });
 });
 

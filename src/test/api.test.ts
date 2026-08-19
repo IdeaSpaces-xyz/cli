@@ -10,6 +10,10 @@ import {
   createRepoInvites,
   removeRepoMember,
   setSpaceAccess,
+  listEligibleTeamAudiences,
+  listTeamShares,
+  setTeamShare,
+  removeTeamShare,
   UnauthorizedError,
   NetworkError,
 } from "../auth/api.js";
@@ -278,13 +282,49 @@ describe("sharing (members / invites / access)", () => {
       repo_id: "repo_abc",
       root_node_id: "n",
       read_public: true,
-      copy_public: false,
-      copy_access: "reader",
+      copy_public: true,
+      copy_access: "public",
     });
-    const a = await setSpaceAccess(config, "repo_abc", { read_public: true, copy_access: "reader" });
+    const a = await setSpaceAccess(config, "repo_abc", { read_public: true, copy_access: "public" });
     expect(calls[0].init?.method).toBe("PATCH");
     expect(calls[0].url).toBe("http://api.test/api/v1/repos/repo_abc/space-access");
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      read_public: true,
+      copy_access: "public",
+    });
     expect(a.read_public).toBe(true);
+  });
+
+  it("resolves a hostname through eligible team audiences", async () => {
+    const calls = capture(200, [{
+      audience: "org_members",
+      hostname: "acme.com",
+      org_node_id: "n_org",
+      grantee: "node:n_org:members",
+      label: "Acme",
+      role: "OWNER",
+    }]);
+    const teams = await listEligibleTeamAudiences(config);
+    expect(calls[0].url).toBe("http://api.test/api/v1/nodes/grant-audiences");
+    expect(teams[0].org_node_id).toBe("n_org");
+  });
+
+  it("lists, sets, and removes root team grades", async () => {
+    const calls = capture(200, {
+      target_node_id: "n_root",
+      relationships: [],
+      status: "shared",
+    });
+    await listTeamShares(config, "n_root");
+    await setTeamShare(config, "n_root", "n_org", "collaborate");
+    await removeTeamShare(config, "n_root", "n_org");
+
+    expect(calls.map((call) => [call.init?.method ?? "GET", call.url])).toEqual([
+      ["GET", "http://api.test/api/v1/nodes/n_root/team-shares"],
+      ["PUT", "http://api.test/api/v1/nodes/n_root/team-shares/n_org"],
+      ["DELETE", "http://api.test/api/v1/nodes/n_root/team-shares/n_org"],
+    ]);
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ grade: "collaborate" });
   });
 
   it("tolerates a 204 (empty body) on member removal", async () => {
