@@ -408,6 +408,33 @@ describe("the product Share surface", () => {
     expect(stdout).toContain("collaborate");
   });
 
+  it("surfaces person-management blocks on the primary list", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      target_node_id: ROOT,
+      target_type: "repo",
+      recipient_route: "r",
+      actions: {
+        can_manage_existing: false,
+        can_add: false,
+        add_blocked_reason: "not_manager",
+        manage_blocked_reason: "not_manager",
+      },
+      relationships: [],
+      standings: [],
+    });
+    listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
+
+    expect(await shareCommand.run(["list"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("You cannot add people here: not_manager");
+    expect(stdout).toContain("You cannot change who has it: not_manager");
+  });
+
+  it("rejects stray list arguments instead of silently ignoring them", async () => {
+    expect(await shareCommand.run(["list", "team"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Usage: ideaspaces share list");
+    expect(listPersonSharesMock).not.toHaveBeenCalled();
+  });
+
   it("removes a person's direct bundle and reports surviving access", async () => {
     listPersonSharesMock.mockResolvedValue({
       target_node_id: ROOT,

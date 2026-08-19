@@ -40,7 +40,6 @@ import {
   type ShareCapability,
   type PersonShareAddResult,
   type PersonShareStanding,
-  type TeamShareRelationship,
 } from "../auth/api.js";
 import { loadConfig, type LoadedConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding } from "../auth/resolve-space.js";
@@ -342,7 +341,11 @@ async function shareWithTeam(
   return 0;
 }
 
-async function listProductAccess(flags: Flags, output: Output): Promise<number> {
+async function listProductAccess(rest: string[], flags: Flags, output: Output): Promise<number> {
+  if (rest.length) {
+    output.error("Usage: ideaspaces share list [--space <url>]");
+    return 1;
+  }
   const config = requireConfig(output);
   if (!config) return 1;
   const target = await resolveTarget(flagStr(flags, "space"), config, output);
@@ -410,6 +413,12 @@ async function listProductAccess(flags: Flags, output: Output): Promise<number> 
   if (people && !standings.length && invitesResult.status === "fulfilled" && !invites.length) {
     lines.push("  none");
   }
+  if (people && !people.actions.can_add && people.actions.add_blocked_reason) {
+    lines.push(`  You cannot add people here: ${people.actions.add_blocked_reason}`);
+  }
+  if (people && !people.actions.can_manage_existing && people.actions.manage_blocked_reason) {
+    lines.push(`  You cannot change who has it: ${people.actions.manage_blocked_reason}`);
+  }
 
   lines.push("", "Teams");
   if (!teams) {
@@ -419,7 +428,7 @@ async function listProductAccess(flags: Flags, output: Output): Promise<number> 
   } else {
     for (const team of teams.relationships) {
       lines.push(
-        `  ${(team.hostname ?? "unavailable team").padEnd(24)} ${team.grade ?? (team.direct_capabilities.join(", ") || "no exact grade")}`,
+        `  ${(team.hostname ?? "unavailable team").padEnd(24)} ${team.grade ?? (capabilitySummary(team.direct_capabilities) || "no exact grade")}`,
       );
     }
   }
@@ -560,7 +569,7 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
       case "team":
         return await shareWithTeam(rest, flags, output);
       case "list":
-        return await listProductAccess(flags, output);
+        return await listProductAccess(rest, flags, output);
       case "visibility":
         return await setVisibility(rest, flags, output);
       case "access": {
