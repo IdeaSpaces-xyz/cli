@@ -494,7 +494,12 @@ async function removeProductAccess(
     const remains = result.effective_capabilities.length
       ? ` ${recipientName(standing)} still has ${capabilitySummary(result.effective_capabilities)} through another path.`
       : "";
-    output.result(result, `Removed direct access for ${recipientName(standing)}.${remains}`);
+    output.result(
+      result,
+      (result.status === "removed"
+        ? `Removed direct access for ${recipientName(standing)}.`
+        : `Direct access was already removed for ${recipientName(standing)}.`) + remains,
+    );
     return 0;
   }
 
@@ -551,13 +556,13 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
   try {
     switch (sub) {
       case "person":
-        return shareWithPerson(rest, flags, output);
+        return await shareWithPerson(rest, flags, output);
       case "team":
-        return shareWithTeam(rest, flags, output);
+        return await shareWithTeam(rest, flags, output);
       case "list":
-        return listProductAccess(flags, output);
+        return await listProductAccess(flags, output);
       case "visibility":
-        return setVisibility(rest, flags, output);
+        return await setVisibility(rest, flags, output);
       case "access": {
         const config = setup(repoId, "ideaspaces share access <repo_id>", output);
         if (!config) return 1;
@@ -600,7 +605,7 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
         // Product form is recipient-shaped. Preserve the two-coordinate
         // repository-member form only as a compatibility path for old repos.
         if (!(rest.length === 2 && repoId?.startsWith("repo_"))) {
-          return removeProductAccess(rest, flags, output);
+          return await removeProductAccess(rest, flags, output);
         }
         const config = setup(repoId, "ideaspaces share remove <repo_id> <user_id>", output);
         if (!config) return 1;
@@ -847,7 +852,8 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
       output.error("Session expired. Run `ideaspaces login`.");
       return 1;
     }
-    const teamOperation = sub === "team" || (sub === "remove" && rest[0]?.startsWith("team:"));
+    const teamOperation =
+      sub === "team" || (sub === "remove" && rest[0]?.toLowerCase().startsWith("team:"));
     output.error(
       (teamOperation
         ? describeTeamShareRefusal(err) ?? describeShareRefusal(err)

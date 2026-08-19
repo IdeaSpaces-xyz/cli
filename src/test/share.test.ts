@@ -333,6 +333,39 @@ describe("the product Share surface", () => {
     expect(JSON.stringify(setTeamShareMock.mock.calls)).not.toContain("node:n_org:members");
   });
 
+  it("rejects team history and invalid grades before lookup", async () => {
+    expect(await shareCommand.run(["team", "acme.com"], { history: true }, JSON_G)).toBe(1);
+    expect(stderr).toContain("person-specific");
+
+    stderr = "";
+    expect(await shareCommand.run(["team", "acme.com"], { grade: "owner" }, JSON_G)).toBe(1);
+    expect(stderr).toContain("explore, fork, collaborate");
+    expect(listEligibleTeamAudiencesMock).not.toHaveBeenCalled();
+  });
+
+  it("lists the registered teams when a hostname does not match", async () => {
+    listEligibleTeamAudiencesMock.mockResolvedValue([
+      { hostname: "acme.com", org_node_id: "n_org" },
+    ]);
+
+    expect(await shareCommand.run(["team", "other.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("No registered team");
+    expect(stderr).toContain("acme.com");
+  });
+
+  it("renders team governance failures as team failures", async () => {
+    listEligibleTeamAudiencesMock.mockResolvedValue([
+      { hostname: "acme.com", org_node_id: "n_org" },
+    ]);
+    setTeamShareMock.mockRejectedValue(
+      new Error('PUT /team-shares → 409: {"detail":{"code":"root_governance_unestablished"}}'),
+    );
+
+    expect(await shareCommand.run(["team", "acme.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Team sharing is not available");
+    expect(stderr).not.toContain("share with a person");
+  });
+
   it("lists visibility, exact person standing, invitations, and teams together", async () => {
     listPersonSharesMock.mockResolvedValue({
       target_node_id: ROOT,
@@ -405,6 +438,30 @@ describe("the product Share surface", () => {
     expect(stdout).toContain("still has view through another path");
   });
 
+  it("reports a raced person removal as already removed", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      standings: [{
+        user_id: 7,
+        username: "bob",
+        email: "bob@example.com",
+        direct_capabilities: ["read"],
+        effective_capabilities: ["read"],
+      }],
+    });
+    listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
+    removePersonShareMock.mockResolvedValue({
+      target_node_id: ROOT,
+      user_id: 7,
+      status: "not_direct",
+      effective_read_remains: false,
+      effective_capabilities: [],
+    });
+
+    expect(await shareCommand.run(["remove", "bob@example.com"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("already removed");
+    expect(stdout).not.toContain("Removed direct access");
+  });
+
   it("removes a team by hostname rather than Actor id", async () => {
     listTeamSharesMock.mockResolvedValue({
       target_node_id: ROOT,
@@ -415,12 +472,30 @@ describe("the product Share surface", () => {
     expect(removeTeamShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, "n_org");
   });
 
+  it("routes uppercase TEAM removal failures through team wording", async () => {
+    listTeamSharesMock.mockRejectedValue(
+      new Error('GET /team-shares → 409: {"detail":{"code":"root_governance_unestablished"}}'),
+    );
+
+    expect(await shareCommand.run(["remove", "TEAM:acme.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Team sharing is not available");
+    expect(stderr).not.toContain("share with a person");
+  });
+
   it.each([
     ["public", { read_public: true, copy_access: "public" }],
     ["private", { read_public: false, copy_access: "owner" }],
   ] as const)("sets %s as one visibility choice", async (visibility, expected) => {
     expect(await shareCommand.run(["visibility", visibility], {}, JSON_G)).toBe(0);
     expect(setSpaceAccessMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", expected);
+  });
+
+  it("refuses visibility mutation when the root is not in the managed catalog", async () => {
+    fetchAuthMeMock.mockResolvedValue({ username: "owner", repos: [] });
+
+    expect(await shareCommand.run(["visibility", "public"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("not in your managed repository catalog");
+    expect(setSpaceAccessMock).not.toHaveBeenCalled();
   });
 });
 
