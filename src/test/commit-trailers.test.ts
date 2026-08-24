@@ -37,6 +37,12 @@ describe("parseTrailerFlags", () => {
     ).toEqual(["Keeper <agent:keeper@ideaspaces>"]);
   });
 
+  it("upgrades the platform principal spelling without doubling its domain", () => {
+    expect(
+      parseTrailerFlags({ "co-author": "agent:keeper@ideaspaces" }).co_authored_by,
+    ).toEqual(["keeper <agent:keeper@ideaspaces>"]);
+  });
+
   it("rejects an invalid change-id", () => {
     expect(() => parseTrailerFlags({ "change-id": "NOTVALID" })).toThrow(/change-id/);
   });

@@ -40,7 +40,7 @@ const OP_SET = {
 const OPS = Object.keys(OP_SET) as Op[];
 
 const CANONICAL_CO_AUTHOR = /^[^<>\r\n]+ <agent:[^<>\s]+@ideaspaces>$/;
-const LEGACY_AGENT_PRINCIPAL = /^agent:([^<>\s]+)$/;
+const LEGACY_AGENT_PRINCIPAL = /^agent:([^<>\s@]+)(?:@ideaspaces)?$/;
 
 /** Translate terminal trailer flags into the protocol's structured request. */
 export function parseTrailerFlags(flags: Record<string, string | boolean>): LocalEffectTrailers {
