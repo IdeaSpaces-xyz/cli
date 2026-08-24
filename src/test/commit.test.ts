@@ -278,7 +278,7 @@ describe("ideaspaces commit — Change-layer trailers (end-to-end)", () => {
         op: "capture",
         "change-id": "chg_auth-1a2b",
         conversation: "sess_9",
-        "co-author": "agent:me-claude,agent:pair",
+        "co-author": "agent:me-claude@ideaspaces,agent:pair",
       },
       G,
     );
