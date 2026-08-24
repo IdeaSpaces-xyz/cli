@@ -53,12 +53,14 @@ describe("ideaspaces status --path", () => {
     git(["add", "a.md"]);
     const { exit, result } = await statusCapture({ path: "a.md" });
     expect(exit).toBe(0);
+    const oid = git(["hash-object", "a.md"]);
     expect(result).toMatchObject({
       path: "a.md",
       exists: true,
-      sha: git(["hash-object", "a.md"]),
+      sha: oid,
       in_index: true,
       in_tracked: true,
+      revision: { worktree: oid, index: oid, head: null },
     });
   });
 

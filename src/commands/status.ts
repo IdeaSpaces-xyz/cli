@@ -6,9 +6,13 @@
  * separately so the user sees what's awaiting the explicit `commit` save.
  */
 
-import { resolve } from "node:path";
-import { gitState } from "@ideaspaces/protocol";
-import { repoRoot, pathStatus, stagedIdeaspacePaths, fetch as gitFetch, GitError } from "../git.js";
+import { gitState, pathRevision } from "@ideaspaces/protocol";
+import { stagedIdeaspacePaths, fetch as gitFetch } from "../git.js";
+import {
+  canonicalRepoRoot,
+  localEffectCapabilities,
+  toPortableRepoPath,
+} from "../local-effects-adapter.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -28,7 +32,7 @@ export const statusCommand: CommandDef = {
 
     let root: string;
     try {
-      root = repoRoot();
+      root = canonicalRepoRoot();
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
@@ -38,23 +42,39 @@ export const statusCommand: CommandDef = {
     // safely update a file it didn't just write.
     const pathArg = typeof flags.path === "string" ? flags.path : undefined;
     if (pathArg) {
-      // Resolve against the invocation cwd (the agent's dir), not the repo
-      // root — an absolute path makes git's cwd irrelevant, so a bare filename
-      // passed from a subdirectory still points at the right file.
-      const ps = pathStatus(resolve(pathArg), root);
-      // Report the path the caller passed (friendly), with git facts from the
-      // resolved absolute path.
+      const portablePath = toPortableRepoPath(pathArg, root);
+      if (!portablePath) {
+        output.error(`Path is outside the repository root: ${pathArg}`);
+        return 1;
+      }
+      const read = await pathRevision(
+        root,
+        portablePath,
+        localEffectCapabilities.git,
+        localEffectCapabilities.filesystem,
+      );
+      if (read.status === "error") {
+        if (global.json) output.result(read, "");
+        else output.error(`${read.message}${read.path ? ` (${read.path})` : ""}`);
+        return 1;
+      }
+      const revision = read.revision;
+      const exists = revision.worktree !== null;
+      const inIndex = revision.index !== revision.head;
+      const modified = revision.worktree !== revision.index;
+      const inTracked = revision.index !== null;
       output.result(
         {
           path: pathArg,
-          exists: ps.exists,
-          sha: ps.sha,
-          in_index: ps.inIndex,
-          modified: ps.modified,
-          in_tracked: ps.inTracked,
+          exists,
+          sha: revision.worktree,
+          in_index: inIndex,
+          modified,
+          in_tracked: inTracked,
+          revision,
         },
-        ps.exists
-          ? `${pathArg}: sha ${ps.sha}${ps.inIndex ? ", staged" : ""}${ps.modified ? ", modified" : ""}${ps.inTracked ? "" : ", untracked"}`
+        exists
+          ? `${pathArg}: sha ${revision.worktree}${inIndex ? ", staged" : ""}${modified ? ", modified" : ""}${inTracked ? "" : ", untracked"}`
           : `${pathArg}: does not exist`,
       );
       return 0;

@@ -145,8 +145,8 @@ describe("ideaspaces write — batch stage", () => {
 
   it("a lone existing file authors (composes frontmatter), not batch-stage", async () => {
     await seed("solo.md", HEALTHY);
-    // Author mode honors --content/--force and replaces frontmatter wholesale;
-    // batch mode would ignore them and stage the file as-is.
+    // Author mode honors --content/--force and patches frontmatter while
+    // preserving fields it does not own; batch mode stages the file as-is.
     const exit = await writeCommand.run(
       ["solo.md"],
       { content: "# Solo\nbody", name: "Solo", force: true },
@@ -156,6 +156,6 @@ describe("ideaspaces write — batch stage", () => {
     const written = await fs.readFile(join(tmp, "solo.md"), "utf-8");
     expect(written).toContain("name: Solo");
     expect(written).toContain("# Solo");
-    expect(written).not.toContain("summary: about a"); // old frontmatter replaced
+    expect(written).toContain("summary: about a"); // unknown/unspecified fields survive
   });
 });

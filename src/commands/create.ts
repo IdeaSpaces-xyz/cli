@@ -29,7 +29,7 @@ import { join, resolve, relative, basename } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe } from "../auth/api.js";
-import { identityEmail } from "../auth/identity.js";
+import { identityEmail, identityName } from "../auth/identity.js";
 import { gitAvailable, GIT_MISSING_HINT } from "../git.js";
 import type { CommandDef } from "../types.js";
 import {
@@ -418,7 +418,8 @@ async function applyPlan(opts: {
     if (!inspection.isGitRepo) {
       runGit(targetDir, ["init", "-q", "-b", "main"]);
     }
-    // Set local user.email before the initial commit so publish's pre-receive author check passes without an amend.
+    // Set complete repo-local identity before the initial commit so later
+    // protocol-effect commits need no credential or network lookup.
     await maybeSetIdentity(targetDir);
     // Never fall through to a bare `git commit` — an empty pathspec list would
     // commit the whole index. Empty only occurs in an existing repo where the
@@ -438,7 +439,7 @@ async function applyPlan(opts: {
   }
 }
 
-/** Set repo-local `user.email` to the IdeaSpaces identity; silent no-op if not logged in or network fails. */
+/** Set complete repo-local IdeaSpaces identity; silent no-op if account resolution fails. */
 async function maybeSetIdentity(targetDir: string): Promise<void> {
   const stored = loadStoredCredentials();
   if (!stored) return;
@@ -452,6 +453,12 @@ async function maybeSetIdentity(targetDir: string): Promise<void> {
     );
     if (!me.username) return;
     runGit(targetDir, ["config", "--local", "user.email", identityEmail(me.username)]);
+    runGit(targetDir, [
+      "config",
+      "--local",
+      "user.name",
+      identityName({ name: me.name, username: me.username }),
+    ]);
   } catch {
     // Don't block create on transient auth/network failure.
   }

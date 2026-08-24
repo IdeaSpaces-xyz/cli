@@ -1,37 +1,34 @@
 /**
  * `ideaspaces commit -m "<message>" <path>...` — the explicit save.
  *
- * Capture is a deliberate two-beat for users: **commit** (save what you wrote)
- * then **sync** (push it out). Commit is the durable boundary, so it never
- * guesses scope:
- *
- *   - `commit -m "msg" <path>...`  — commit exactly these paths
- *   - `commit -m "msg" --all`      — commit all staged knowledge paths
- *                                    (markdown + `_agent/`); staged code is left
- *   - bare `commit -m "msg"`       — REFUSES; will not sweep all staged work
- *
- * Commits go through `commitPaths`, which uses explicit pathspecs — the user's
- * other staged work is never pulled into a capture commit. The staged set comes
- * straight from git; there is no separate session ledger of "what we captured".
+ * The CLI owns terminal compatibility: explicit paths or `--all`, local Git
+ * executable selection, and repo-local identity. The protocol effect owns the
+ * exact reviewed path commit, CAS, trailers, and typed partial failures.
  */
 
-import { relative, resolve } from "node:path";
-import { appendTrailers, isValidChangeId, type Op, type Trailers } from "@ideaspaces/protocol";
+import { join } from "node:path";
 import {
-  commitPaths,
-  repoRoot,
-  stagedPaths,
   isIdeaspacePath,
-  ignoredPaths,
-  GitError,
-} from "../git.js";
-import { ensureLocalIdentity } from "../auth/identity.js";
+  isValidChangeId,
+  pathRevision,
+  type LocalEffectIdentity,
+  type LocalEffectTrailers,
+  type Op,
+  type PathRevision,
+} from "@ideaspaces/protocol";
+import { commitPaths as commitReviewedPaths } from "@ideaspaces/protocol/local-effects";
+import {
+  canonicalRepoRoot,
+  emitEffectFailure,
+  localConfigForEffects,
+  localEffectCapabilities,
+  localEffectError,
+  stagedPathsForEffects,
+  toPortableRepoPath,
+} from "../local-effects-adapter.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-// `satisfies Record<Op, true>` makes this exhaustive against the protocol's `Op`
-// union at compile time: if the protocol adds an op, the build fails here until it's
-// added, instead of the CLI silently rejecting a now-valid op at runtime.
 const OP_SET = {
   create: true,
   update: true,
@@ -42,25 +39,12 @@ const OP_SET = {
 } satisfies Record<Op, true>;
 const OPS = Object.keys(OP_SET) as Op[];
 
-// Principals are prefixed by kind (person:/agent:/node:), per this repo's
-// convention (conversation.ts `toPrincipal`). Trailers are permanent git
-// history, so a Co-authored-by without a prefix is validated out rather than
-// silently stamped and unfixable later.
-const PRINCIPAL_PREFIX = /^(person|agent|node):/;
+const CANONICAL_CO_AUTHOR = /^[^<>\r\n]+ <agent:[^<>\s]+@ideaspaces>$/;
+const LEGACY_AGENT_PRINCIPAL = /^agent:([^<>\s]+)$/;
 
-/**
- * Read the Change-layer trailer flags and fold them into the message. Stateless
- * by design: the caller (usually the MCP server holding an open Change) passes
- * the id/conversation/agent it is tracking; the CLI only stamps what it's given.
- *   --op <op>            one of create|update|move|delete|restructure|capture
- *   --change-id <chg_…>  the open Change's id
- *   --conversation <id>  the session that drove the commit
- *   --co-author <a[,b]>  agent principal(s) that assisted (comma-separated)
- * Returns the message unchanged when no trailer flag is set. Throws (via
- * appendTrailers) on an invalid Change-Id or a conflicting existing trailer.
- */
-export function applyTrailerFlags(message: string, flags: Record<string, string | boolean>): string {
-  const trailers: Trailers = {};
+/** Translate terminal trailer flags into the protocol's structured request. */
+export function parseTrailerFlags(flags: Record<string, string | boolean>): LocalEffectTrailers {
+  const trailers: LocalEffectTrailers = {};
 
   const op = typeof flags.op === "string" ? flags.op.trim() : "";
   if (op) {
@@ -75,31 +59,63 @@ export function applyTrailerFlags(message: string, flags: Record<string, string 
     if (!isValidChangeId(changeId)) {
       throw new Error(`Invalid --change-id "${changeId}". Expected a chg_… id (mint with: ideaspaces change new).`);
     }
-    trailers.changeId = changeId;
+    trailers.change_id = changeId;
   }
 
   const conversation = typeof flags.conversation === "string" ? flags.conversation.trim() : "";
   if (conversation) trailers.conversation = conversation;
 
-  // The flag parser has no array support, so accept a comma-separated list for
-  // the one multi-valued trailer.
   const coAuthor = typeof flags["co-author"] === "string" ? flags["co-author"] : "";
-  const coAuthors = coAuthor.split(",").map((s) => s.trim()).filter(Boolean);
-  for (const a of coAuthors) {
-    if (!PRINCIPAL_PREFIX.test(a)) {
-      throw new Error(`Invalid --co-author "${a}". Expected a person:/agent:/node: principal (e.g. agent:me-claude).`);
-    }
+  const coAuthors = coAuthor.split(",").map((value) => value.trim()).filter(Boolean);
+  if (coAuthors.length) {
+    trailers.co_authored_by = coAuthors.map(canonicalCoAuthor);
   }
-  if (coAuthors.length) trailers.coAuthoredBy = coAuthors;
 
-  const anySet = trailers.op || trailers.changeId || trailers.conversation || trailers.coAuthoredBy;
-  return anySet ? appendTrailers(message, trailers) : message;
+  return trailers;
+}
+
+/** Preserve current MCP/Pi argv while upgrading history to protocol identity. */
+function canonicalCoAuthor(value: string): string {
+  if (CANONICAL_CO_AUTHOR.test(value)) return value;
+  const legacy = LEGACY_AGENT_PRINCIPAL.exec(value);
+  if (legacy) {
+    const id = legacy[1];
+    return `${id} <agent:${id}@ideaspaces>`;
+  }
+  throw new Error(
+    `Invalid --co-author "${value}". Expected agent:<id> or Name <agent:<id>@ideaspaces>.`,
+  );
+}
+
+async function resolveIdentity(
+  root: string,
+  flags: Record<string, string | boolean>,
+): Promise<LocalEffectIdentity> {
+  const explicitName = typeof flags["author-name"] === "string" ? flags["author-name"].trim() : "";
+  const explicitEmail = typeof flags["author-email"] === "string" ? flags["author-email"].trim() : "";
+  if (explicitName || explicitEmail) {
+    if (!explicitName || !explicitEmail) {
+      throw new Error("Use --author-name and --author-email together.");
+    }
+    return { name: explicitName, email: explicitEmail };
+  }
+
+  const name = (await localConfigForEffects(root, "user.name"))?.trim() ?? "";
+  const email = (await localConfigForEffects(root, "user.email"))?.trim() ?? "";
+  if (!name || !email) {
+    throw new Error(
+      "No complete repo-local Git identity. Run `git config --local user.name <name>` and " +
+        "`git config --local user.email <email>`, or pass --author-name and --author-email.",
+    );
+  }
+  return { name, email };
 }
 
 export const commitCommand: CommandDef = {
   name: "commit",
   description: "Save staged captures — commits only the paths you name",
-  usage: 'ideaspaces commit -m "<message>" <path>... | --all [--op <op>] [--change-id <chg_…>] [--conversation <id>] [--co-author <a[,b]>]',
+  usage:
+    'ideaspaces commit -m "<message>" <path>... | --all [--author-name <name> --author-email <email>] [--op <op>] [--change-id <chg_…>] [--conversation <id>] [--co-author <agent>]',
   examples: [
     'ideaspaces commit -m "Capture auth decision" notes/auth.md',
     'ideaspaces commit -m "Save notes" --all   # all staged markdown / _agent/ paths',
@@ -107,113 +123,200 @@ export const commitCommand: CommandDef = {
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
-
     const message = String(flags.m ?? flags.message ?? "").trim();
     if (!message) {
-      output.error('A commit message is required: ideaspaces commit -m "<message>" <path>...');
+      const failure = localEffectError(
+        "commit_paths",
+        "invalid_message",
+        "preflight",
+        'A commit message is required: ideaspaces commit -m "<message>" <path>...',
+      );
+      emitEffectFailure(output, global, failure);
       return 1;
     }
 
     let root: string;
     try {
-      root = repoRoot();
-    } catch (err) {
-      output.error(err instanceof Error ? err.message : String(err));
+      root = canonicalRepoRoot();
+    } catch (error) {
+      const failure = localEffectError(
+        "commit_paths",
+        "not_git_repository",
+        "preflight",
+        "Commit requires a canonical Git worktree.",
+        undefined,
+        error instanceof Error ? error.message : String(error),
+      );
+      emitEffectFailure(output, global, failure);
       return 1;
     }
 
-    // Exactly one path source: explicit args or --all.
     if (args.length > 0 && flags.all) {
-      output.error("Use exactly one of: explicit <path>..., or --all.");
+      const failure = localEffectError(
+        "commit_paths",
+        "invalid_request",
+        "preflight",
+        "Use exactly one of: explicit <path>..., or --all.",
+      );
+      emitEffectFailure(output, global, failure);
       return 1;
     }
 
     let paths: string[];
-
     if (flags.all) {
-      // Commit all staged *ideaspace* paths (markdown + `_agent/`). Staged
-      // non-knowledge files (code, configs) are left for the user to commit
-      // themselves — this never sweeps up source changes. The staged set is
-      // git's index; we don't keep our own list.
-      const staged = stagedPaths(root);
+      let staged: string[];
+      try {
+        staged = await stagedPathsForEffects(root);
+      } catch (error) {
+        const failure = localEffectError(
+          "commit_paths",
+          "git_executor_failed",
+          "preflight",
+          "Git could not resolve the staged path set for --all.",
+          undefined,
+          error instanceof Error ? error.message : String(error),
+        );
+        emitEffectFailure(output, global, failure);
+        return 1;
+      }
       if (!staged.length) {
-        output.error("Nothing staged to commit.");
+        const failure = localEffectError(
+          "commit_paths",
+          "nothing_to_commit",
+          "commit",
+          "Nothing staged to commit.",
+        );
+        emitEffectFailure(output, global, failure);
         return 1;
       }
       paths = staged.filter(isIdeaspacePath);
-      const other = staged.filter((p) => !isIdeaspacePath(p));
+      const other = staged.filter((path) => !isIdeaspacePath(path));
       if (!paths.length) {
-        output.error(
-          "No staged ideaspace paths (markdown or _agent/). Staged non-knowledge files:\n" +
-            other.map((p) => `  ${p}`).join("\n"),
+        const failure = localEffectError(
+          "commit_paths",
+          "nothing_to_commit",
+          "commit",
+          "No staged ideaspace paths (Markdown or _agent/).",
+          undefined,
+          `Staged non-knowledge paths: ${other.join(", ")}`,
         );
+        emitEffectFailure(output, global, failure);
         return 1;
       }
       if (other.length) {
         output.log(`Leaving ${other.length} non-ideaspace staged path(s) for you to commit: ${other.join(", ")}`);
       }
     } else {
-      // Explicit args, resolved against the invocation cwd so a bare filename
-      // from a subdir still points at the right file.
-      paths = args.map((p) => resolve(p));
+      const converted: string[] = [];
+      for (const input of args) {
+        const path = toPortableRepoPath(input, root);
+        if (!path) {
+          const failure = localEffectError(
+            "commit_paths",
+            "path_escape",
+            "preflight",
+            "The selected path is outside the repository root.",
+            input,
+          );
+          emitEffectFailure(output, global, failure);
+          return 1;
+        }
+        converted.push(path);
+      }
+      paths = converted;
     }
 
+    paths = [...new Set(paths)];
+    const legacyPaths = flags.all
+      ? [...paths]
+      : paths.map((path) => join(root, ...path.split("/")));
     if (!paths.length) {
-      // The safety default: never guess. Bare `commit -m "msg"` lands here.
-      output.error(
-        'Refusing to commit with no paths. Name the paths to save:\n' +
-          '  ideaspaces commit -m "<message>" <path>...\n' +
-          "or use --all.",
+      const failure = localEffectError(
+        "commit_paths",
+        "invalid_request",
+        "preflight",
+        'Refusing to commit with no paths. Name paths or use --all.',
       );
+      emitEffectFailure(output, global, failure);
       return 1;
     }
 
-    // Local-only paths are refused here rather than at `git add`, which would
-    // report the same thing while hinting at `-f`. Nothing the user names is
-    // partially committed: one ignored path refuses the whole call.
-    const ignored = ignoredPaths(paths, root);
-    if (ignored.length) {
-      const shown = ignored.map((p) => `  ${relative(root, p) || p}`).join("\n");
-      // Deliberately does not name `.gitignore`: check-ignore also honors
-      // `.git/info/exclude` and the user's global excludes, so pointing at one
-      // file would be wrong for the others. `-v` names whichever it was.
-      output.error(
-        `Refusing to commit ${ignored.length} local-only path(s) — an ignore rule covers them:\n` +
-          `${shown}\n` +
-          "These stay on this machine by design: they are never staged, committed, pushed, or published.\n" +
-          `If that is wrong, \`git check-ignore -v ${ignored.length === 1 ? relative(root, ignored[0]) || ignored[0] : "<path>"}\` names the rule to change.`,
+    let trailers: LocalEffectTrailers;
+    try {
+      trailers = parseTrailerFlags(flags);
+    } catch (error) {
+      const failure = localEffectError(
+        "commit_paths",
+        "invalid_trailers",
+        "preflight",
+        error instanceof Error ? error.message : String(error),
       );
+      emitEffectFailure(output, global, failure);
       return 1;
     }
 
-    // Fold in any Change-layer trailers before the identity/commit step so a
-    // bad --op / --change-id fails fast, before we touch git.
-    let finalMessage: string;
+    let identity: LocalEffectIdentity;
     try {
-      finalMessage = applyTrailerFlags(message, flags);
-    } catch (err) {
-      output.error(err instanceof Error ? err.message : String(err));
+      identity = await resolveIdentity(root, flags);
+    } catch (error) {
+      const failure = localEffectError(
+        "commit_paths",
+        "invalid_identity",
+        "preflight",
+        error instanceof Error ? error.message : String(error),
+      );
+      emitEffectFailure(output, global, failure);
       return 1;
     }
 
-    // Attribute the commit to the logged-in OAuth identity so the server's
-    // pre-receive hook accepts the eventual push. No-op when already wired.
-    await ensureLocalIdentity(root);
-
-    let sha: string;
-    try {
-      sha = commitPaths(finalMessage, paths, root);
-    } catch (err) {
-      if (err instanceof GitError) {
-        output.error(`Commit failed: ${err.message}`);
+    const selected: Array<{ path: string; expected_revision: PathRevision }> = [];
+    for (const path of paths) {
+      const read = await pathRevision(
+        root,
+        path,
+        localEffectCapabilities.git,
+        localEffectCapabilities.filesystem,
+      );
+      if (read.status === "error") {
+        const failure = localEffectError(
+          "commit_paths",
+          read.code,
+          read.phase,
+          read.message,
+          read.path,
+          read.detail,
+        );
+        emitEffectFailure(output, global, failure);
         return 1;
       }
-      throw err;
+      selected.push({ path, expected_revision: read.revision });
+    }
+
+    const result = await commitReviewedPaths(
+      {
+        operation: "commit_paths",
+        root,
+        paths: selected,
+        message,
+        trailers,
+        author: identity,
+        committer: identity,
+      },
+      localEffectCapabilities,
+    );
+
+    if (result.status !== "ok") {
+      emitEffectFailure(output, global, result);
+      return 1;
     }
 
     output.result(
-      { commit_sha: sha, committed_paths: paths },
-      `Committed ${paths.length} path(s): ${sha}`,
+      {
+        ...result,
+        commit_sha: result.commit_oid,
+        committed_paths: legacyPaths,
+      },
+      `Committed ${paths.length} path(s): ${result.commit_oid}`,
     );
     return 0;
   },

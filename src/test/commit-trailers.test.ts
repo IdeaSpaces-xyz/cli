@@ -1,56 +1,59 @@
 import { describe, expect, it } from "vitest";
-import { parseTrailers } from "@ideaspaces/protocol";
-import { applyTrailerFlags } from "../commands/commit.js";
+import { parseTrailerFlags } from "../commands/commit.js";
 
-describe("applyTrailerFlags", () => {
-  it("returns the message unchanged when no trailer flag is set", () => {
-    expect(applyTrailerFlags("Save notes", {})).toBe("Save notes");
-    // Non-trailer flags (e.g. --all, -m) never add a trailer block.
-    expect(applyTrailerFlags("Save notes", { all: true, m: "Save notes" })).toBe("Save notes");
+describe("parseTrailerFlags", () => {
+  it("returns an empty structured request when no trailer flag is set", () => {
+    expect(parseTrailerFlags({})).toEqual({});
+    expect(parseTrailerFlags({ all: true, m: "Save notes" })).toEqual({});
   });
 
-  it("stamps op, change-id, conversation, and co-authors", () => {
-    const out = applyTrailerFlags("Capture auth decision", {
+  it("translates op, change-id, conversation, and a legacy agent principal", () => {
+    expect(
+      parseTrailerFlags({
+        op: "capture",
+        "change-id": "chg_auth-1a2b",
+        conversation: "sess_9",
+        "co-author": "agent:me-claude",
+      }),
+    ).toEqual({
       op: "capture",
-      "change-id": "chg_auth-1a2b",
+      change_id: "chg_auth-1a2b",
       conversation: "sess_9",
-      "co-author": "agent:me-claude",
+      co_authored_by: ["me-claude <agent:me-claude@ideaspaces>"],
     });
-    const t = parseTrailers(out);
-    expect(t.op).toBe("capture");
-    expect(t.changeId).toBe("chg_auth-1a2b");
-    expect(t.conversation).toBe("sess_9");
-    expect(t.coAuthoredBy).toEqual(["agent:me-claude"]);
   });
 
-  it("splits a comma-separated --co-author into multiple values", () => {
-    const out = applyTrailerFlags("msg", { "co-author": "agent:a, agent:b ,agent:c" });
-    expect(parseTrailers(out).coAuthoredBy).toEqual(["agent:a", "agent:b", "agent:c"]);
+  it("splits legacy co-authors and upgrades each deterministically", () => {
+    expect(parseTrailerFlags({ "co-author": "agent:a, agent:b,agent:c" }).co_authored_by).toEqual([
+      "a <agent:a@ideaspaces>",
+      "b <agent:b@ideaspaces>",
+      "c <agent:c@ideaspaces>",
+    ]);
+  });
+
+  it("accepts the canonical protocol co-author spelling", () => {
+    expect(
+      parseTrailerFlags({ "co-author": "Keeper <agent:keeper@ideaspaces>" }).co_authored_by,
+    ).toEqual(["Keeper <agent:keeper@ideaspaces>"]);
   });
 
   it("rejects an invalid change-id", () => {
-    expect(() => applyTrailerFlags("msg", { "change-id": "NOTVALID" })).toThrow(/change-id/);
+    expect(() => parseTrailerFlags({ "change-id": "NOTVALID" })).toThrow(/change-id/);
   });
 
   it("rejects an unknown op", () => {
-    expect(() => applyTrailerFlags("msg", { op: "frobnicate" })).toThrow(/Invalid --op/);
+    expect(() => parseTrailerFlags({ op: "frobnicate" })).toThrow(/Invalid --op/);
   });
 
-  it("rejects a co-author without a person:/agent:/node: prefix", () => {
-    expect(() => applyTrailerFlags("msg", { "co-author": "me-claude" })).toThrow(/Invalid --co-author/);
-    // One bad value in a list fails the whole commit — trailers are permanent.
-    expect(() => applyTrailerFlags("msg", { "co-author": "agent:ok, bare" })).toThrow(/Invalid --co-author/);
+  it("rejects non-agent and malformed co-authors", () => {
+    expect(() => parseTrailerFlags({ "co-author": "me-claude" })).toThrow(/Invalid --co-author/);
+    expect(() => parseTrailerFlags({ "co-author": "person:alice" })).toThrow(/Invalid --co-author/);
+    expect(() => parseTrailerFlags({ "co-author": "agent:ok, bare" })).toThrow(/Invalid --co-author/);
   });
 
   it("ignores empty-string trailer flags", () => {
-    expect(applyTrailerFlags("msg", { op: "", "change-id": "", conversation: "", "co-author": "" })).toBe("msg");
-  });
-
-  it("surfaces appendTrailers' conflict when a flag disagrees with a trailer already in the message", () => {
-    const existing = "Save\n\nChange-Id: chg_first-aaaa";
-    // A different value for a single-valued trailer is a hard conflict.
-    expect(() => applyTrailerFlags(existing, { "change-id": "chg_second-bbbb" })).toThrow();
-    // The same value is a no-op, not a conflict.
-    expect(parseTrailers(applyTrailerFlags(existing, { "change-id": "chg_first-aaaa" })).changeId).toBe("chg_first-aaaa");
+    expect(
+      parseTrailerFlags({ op: "", "change-id": "", conversation: "", "co-author": "" }),
+    ).toEqual({});
   });
 });
