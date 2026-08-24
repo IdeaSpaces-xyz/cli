@@ -39,9 +39,9 @@ Everything is local-first: your working copy is a real git repository on disk. C
 set, replaces the Markdown atomically, and stages only the selected path. Use the returned `sha` as
 `--if-match` for a safe refinement; `--force` is the explicit destructive override. `commit` snapshots
 the worktree/index/HEAD revision of every selected path and commits exactly that reviewed set, leaving
-bystander work untouched. Commit identity comes from repo-local `user.name` / `user.email` (wired by
-creation and platform commands) or explicit `--author-name` / `--author-email` flags—never a hidden
-credential or network lookup. With `--json`, both commands return protocol `status`, phase, revision,
+bystander work untouched. Commit identity comes from Git's effective `user.name` / `user.email`
+(preferably wired repo-locally by creation and platform commands) or explicit `--author-name` /
+`--author-email` flags—never a hidden credential or network lookup. With `--json`, both commands return protocol `status`, phase, revision,
 and typed failure facts; a partial write or commit exits non-zero.
 
 ## Commands

@@ -178,7 +178,7 @@ describe("ideaspaces commit — renames, deletions, unknown paths", () => {
   });
 });
 
-describe("ideaspaces commit — explicit local identity", () => {
+describe("ideaspaces commit — explicit Git identity", () => {
   it("uses repo-local identity without credentials or network", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -232,6 +232,19 @@ describe("ideaspaces commit — explicit local identity", () => {
     }
   });
 
+  it("preserves terminal compatibility with effective global Git identity", async () => {
+    spawnSync("git", ["config", "--local", "--unset", "user.name"], { cwd: tmp });
+    spawnSync("git", ["config", "--local", "--unset", "user.email"], { cwd: tmp });
+    spawnSync("git", ["config", "--global", "user.name", "Global Person"], { cwd: tmp });
+    spawnSync("git", ["config", "--global", "user.email", "global@example.com"], { cwd: tmp });
+    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+
+    expect(await commitCommand.run(["note.md"], { m: "save" }, G)).toBe(0);
+    expect(git(["log", "-1", "--format=%an <%ae>"])).toBe(
+      "Global Person <global@example.com>",
+    );
+  });
+
   it("refuses an incomplete explicit pair before staging", async () => {
     await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
     expect(
@@ -240,7 +253,7 @@ describe("ideaspaces commit — explicit local identity", () => {
     expect(git(["diff", "--cached", "--name-only"])).toBe("");
   });
 
-  it("refuses when no repo-local or explicit identity exists", async () => {
+  it("refuses when no effective or explicit identity exists", async () => {
     spawnSync("git", ["config", "--local", "--unset", "user.name"], { cwd: tmp });
     spawnSync("git", ["config", "--local", "--unset", "user.email"], { cwd: tmp });
     await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
