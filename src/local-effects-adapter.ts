@@ -77,12 +77,12 @@ export async function stagedPathsForEffects(root: string): Promise<string[]> {
   return result.stdout.split("\0").filter(Boolean);
 }
 
-/** Read only this repository's identity config through the sanitized runner. */
-export async function localConfigForEffects(root: string, key: string): Promise<string | null> {
-  const result = await localEffectGitRunner(root, ["config", "--local", "--get", key]);
+/** Read Git's effective terminal identity through the sanitized runner. */
+export async function gitIdentityConfigForEffects(root: string, key: string): Promise<string | null> {
+  const result = await localEffectGitRunner(root, ["config", "--get", key]);
   if (result.code === 1) return null;
   if (!result.ok) {
-    throw new Error(result.stderr?.trim() || `Git could not read local ${key}.`);
+    throw new Error(result.stderr?.trim() || `Git could not read ${key}.`);
   }
   return result.stdout.trim() || null;
 }

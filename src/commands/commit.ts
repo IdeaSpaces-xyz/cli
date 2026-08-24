@@ -20,7 +20,7 @@ import { commitPaths as commitReviewedPaths } from "@ideaspaces/protocol/local-e
 import {
   canonicalRepoRoot,
   emitEffectFailure,
-  localConfigForEffects,
+  gitIdentityConfigForEffects,
   localEffectCapabilities,
   localEffectError,
   stagedPathsForEffects,
@@ -100,11 +100,11 @@ async function resolveIdentity(
     return { name: explicitName, email: explicitEmail };
   }
 
-  const name = (await localConfigForEffects(root, "user.name"))?.trim() ?? "";
-  const email = (await localConfigForEffects(root, "user.email"))?.trim() ?? "";
+  const name = (await gitIdentityConfigForEffects(root, "user.name"))?.trim() ?? "";
+  const email = (await gitIdentityConfigForEffects(root, "user.email"))?.trim() ?? "";
   if (!name || !email) {
     throw new Error(
-      "No complete repo-local Git identity. Run `git config --local user.name <name>` and " +
+      "No complete Git identity. Run `git config --local user.name <name>` and " +
         "`git config --local user.email <email>`, or pass --author-name and --author-email.",
     );
   }
