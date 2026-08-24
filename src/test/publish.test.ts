@@ -258,7 +258,11 @@ describe("ideaspaces publish", () => {
     const cfgEmail = spawnSync("git", ["-C", dir, "config", "--local", "user.email"], {
       encoding: "utf-8",
     }).stdout.trim();
+    const cfgName = spawnSync("git", ["-C", dir, "config", "--local", "user.name"], {
+      encoding: "utf-8",
+    }).stdout.trim();
     expect(cfgEmail).toBe("person:ernests_s@ideaspaces");
+    expect(cfgName).toBe("ernests_s");
 
     const origin = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], {
       encoding: "utf-8",

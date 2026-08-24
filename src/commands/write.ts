@@ -4,29 +4,38 @@
  * Two shapes, disambiguated by the target:
  *
  *   - **Author** one Note: `write <file> --content ...` (or pipe stdin).
- *     Composes Layer 1+2 frontmatter from flags with replace-semantics
- *     (callers own every field they set; the body is preserved), then stages.
+ *     Applies Layer 1+2 flags as a preserve-mode frontmatter patch, replaces
+ *     the body atomically, then stages the exact path.
  *   - **Batch stage** an existing set: `write <dir>` or `write a.md b.md`.
  *     The files are already authored (with their own frontmatter) — this
  *     captures the whole set in one call instead of N, and reports per-file
  *     frontmatter health so a batch is a coherence checkpoint, not a dump.
  *
- * Author mode refuses to overwrite an existing file unless `--force`. Both
- * shapes stage by default (`--stage`, default true) — but never commit.
- * Committing is a separate, explicit save (`ideaspaces commit`).
+ * Author mode refuses to overwrite an existing file unless `--force`, and
+ * requires a canonical Git worktree. Both shapes stage by default (`--stage`,
+ * default true) — but never commit. Committing is a separate, explicit save
+ * (`ideaspaces commit`).
  */
 
 import { promises as fs } from "node:fs";
 import { existsSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import {
-  composeFrontmatter,
+  pathRevision,
   stripFrontmatter,
   inspectFrontmatterSyntax,
   extractSummary,
-  type Frontmatter,
+  type LocalEffectValue,
 } from "@ideaspaces/protocol";
-import { stagePaths, blobSha, GitError } from "../git.js";
+import { writeMarkdown } from "@ideaspaces/protocol/local-effects";
+import { stagePaths, GitError } from "../git.js";
+import {
+  canonicalRepoRoot,
+  emitEffectFailure,
+  localEffectCapabilities,
+  localEffectError,
+  toPortableRepoPath,
+} from "../local-effects-adapter.js";
 import { parseBool } from "../argv.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -59,7 +68,13 @@ export const writeCommand: CommandDef = {
     const output = createOutput(global);
     const targets = args.filter(Boolean);
     if (!targets.length) {
-      output.error("Usage: ideaspaces write <path> [--name NAME] [--summary TEXT]  |  write <dir>|<files...>  (batch stage)");
+      const failure = localEffectError(
+        "write_markdown",
+        "invalid_request",
+        "preflight",
+        "Usage: ideaspaces write <path> [--name NAME] [--summary TEXT] | write <dir>|<files...> (batch stage)",
+      );
+      emitEffectFailure(output, global, failure);
       return 1;
     }
 
@@ -76,73 +91,128 @@ export const writeCommand: CommandDef = {
     if (!content) {
       content = await readStdin();
       if (!content) {
-        output.error("No content provided. Pipe content via stdin or use --content.");
+        const failure = localEffectError(
+          "write_markdown",
+          "invalid_request",
+          "preflight",
+          "No content provided. Pipe content via stdin or use --content.",
+          targets[0],
+        );
+        emitEffectFailure(output, global, failure);
         return 1;
       }
     }
 
-    const fm: Frontmatter = {
-      name: flags.name as string | undefined,
-      summary: flags.summary as string | undefined,
-      tags: parseList(flags.tags),
-      attached_to: parseOptionalString(flags["attached-to"]),
-    };
     const force = Boolean(flags.force);
     // Stage by default; `--stage=false` writes without touching the index.
     const stage = parseBool(flags.stage, true);
-    const ifMatch = flags["if-match"] as string | undefined;
-    const absPath = resolve(path);
+    const ifMatch = typeof flags["if-match"] === "string" ? flags["if-match"] : undefined;
 
-    if (ifMatch !== undefined) {
-      // Optimistic concurrency: the caller asserts the current content sha.
-      // Mismatch (including the file having vanished) refuses unless --force,
-      // surfacing both shas so the caller can re-read and merge intentionally.
-      // A matching if_match IS the intent to update — no separate --force needed.
-      const currentSha = blobSha(absPath);
-      if (currentSha !== ifMatch && !force) {
-        output.error(
-          `if_match mismatch for ${path}.\n` +
-            `  expected: ${ifMatch}\n` +
-            `  current:  ${currentSha ?? "(file absent)"}\n` +
-            "Re-read the file for the current sha and retry, or pass --force to override.",
-        );
-        return 6;
-      }
-    } else if (existsSync(absPath) && !force) {
-      output.error(`File exists: ${path}\nRe-run with --force to overwrite, or pass --if-match <sha> for a safe update.`);
+    let root: string;
+    try {
+      root = canonicalRepoRoot();
+    } catch (error) {
+      const failure = localEffectError(
+        "write_markdown",
+        "not_git_repository",
+        "preflight",
+        "Write requires a canonical Git worktree.",
+        path,
+        error instanceof Error ? error.message : String(error),
+      );
+      emitEffectFailure(output, global, failure);
+      return 1;
+    }
+
+    const portablePath = toPortableRepoPath(path, root);
+    if (!portablePath) {
+      const failure = localEffectError(
+        "write_markdown",
+        "path_escape",
+        "preflight",
+        "The selected path is outside the repository root.",
+        path,
+      );
+      emitEffectFailure(output, global, failure);
+      return 1;
+    }
+    const absPath = join(root, ...portablePath.split("/"));
+
+    const reviewed = await pathRevision(
+      root,
+      portablePath,
+      localEffectCapabilities.git,
+      localEffectCapabilities.filesystem,
+    );
+    if (reviewed.status === "error") {
+      const failure = localEffectError(
+        "write_markdown",
+        reviewed.code,
+        reviewed.phase,
+        reviewed.message,
+        reviewed.path,
+        reviewed.detail,
+      );
+      emitEffectFailure(output, global, failure);
+      return reviewed.code === "revision_mismatch" ? 6 : 1;
+    }
+
+    if (ifMatch !== undefined && reviewed.revision.worktree !== ifMatch && !force) {
+      const failure = localEffectError(
+        "write_markdown",
+        "revision_mismatch",
+        "revision_check",
+        `if_match mismatch: expected ${ifMatch}, current ${reviewed.revision.worktree ?? "(file absent)"}.`,
+        portablePath,
+      );
+      emitEffectFailure(output, global, failure);
+      return 6;
+    }
+    if (ifMatch === undefined && reviewed.revision.worktree !== null && !force) {
+      const failure = localEffectError(
+        "write_markdown",
+        "revision_mismatch",
+        "revision_check",
+        "File exists. Re-run with --force to overwrite, or pass --if-match <sha> for a safe update.",
+        portablePath,
+      );
+      emitEffectFailure(output, global, failure);
       return 5;
     }
 
-    // Body: if user-supplied content has its own frontmatter, strip it; the
-    // composed frontmatter from flags wins (replace-semantics), including
-    // intentionally dropping any pre-existing `node_id`. Platform identity
-    // lives in the server index, so local writes do not generate, preserve,
-    // or validate `node_id` frontmatter.
-    const body = stripFrontmatter(content);
-    const finalContent = composeFrontmatter(fm) + body;
+    const set: Record<string, LocalEffectValue> = {};
+    if (typeof flags.name === "string" && flags.name) set.name = flags.name;
+    if (typeof flags.summary === "string" && flags.summary) set.summary = flags.summary;
+    const tags = parseList(flags.tags);
+    if (tags) set.tags = tags;
+    const attachedTo = parseOptionalString(flags["attached-to"]);
+    if (attachedTo) set.attached_to = attachedTo;
 
-    await fs.mkdir(dirname(absPath), { recursive: true });
-    await fs.writeFile(absPath, finalContent, "utf-8");
+    const result = await writeMarkdown(
+      {
+        operation: "write_markdown",
+        root,
+        path: portablePath,
+        expected_revision: force ? "any" : reviewed.revision,
+        frontmatter: { mode: "preserve", set, remove: [] },
+        // Preserve the terminal contract: content is a Markdown body even when
+        // the caller accidentally supplied another leading frontmatter block.
+        body: stripFrontmatter(content),
+        stage,
+      },
+      localEffectCapabilities,
+    );
 
-    let staged = false;
-    if (stage) {
-      try {
-        stagePaths([absPath]);
-        staged = true;
-      } catch (err) {
-        // The write succeeded; staging is best-effort (e.g. not in a repo).
-        // Surface it without failing the capture.
-        const msg = err instanceof GitError ? err.message : String(err);
-        output.log(`Written but not staged: ${msg}`);
-      }
+    if (result.status !== "ok") {
+      emitEffectFailure(output, global, result);
+      return result.code === "revision_mismatch" ? 6 : 1;
     }
 
-    // The new content sha — the token the caller passes as if_match to refine
-    // this same file without a separate status query.
-    const sha = blobSha(absPath);
-
+    const revision = result.path_revisions[0]?.revision;
+    const sha = revision?.worktree ?? null;
+    const staged = stage && revision?.index === revision?.worktree;
     output.result(
-      { path: absPath, staged, sha },
+      { ...result, path: absPath, staged, sha },
       `${staged ? "Written + staged" : "Written"}: ${absPath} (${sha ?? "unknown sha"})`,
     );
     return 0;

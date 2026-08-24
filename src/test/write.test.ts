@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { writeCommand } from "../commands/write.js";
 import type { GlobalFlags } from "../types.js";
 
@@ -21,6 +22,7 @@ beforeEach(async () => {
   tmp = await mkdtemp(join(tmpdir(), "is-cli-write-"));
   originalCwd = process.cwd();
   process.chdir(tmp);
+  spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmp });
 });
 
 afterEach(async () => {
@@ -96,7 +98,7 @@ describe("ideaspaces write", () => {
     expect(written).toContain("# New");
   });
 
-  it("strips a body's leading frontmatter (replace-semantics)", async () => {
+  it("strips a body's leading frontmatter before applying the CLI patch", async () => {
     const exit = await writeCommand.run(
       ["notes/foo.md"],
       {
@@ -113,7 +115,7 @@ describe("ideaspaces write", () => {
     expect(written).toContain("# Body\nReal content.");
   });
 
-  it("drops existing valid node_id on overwrite", async () => {
+  it("preserves unknown existing frontmatter on overwrite", async () => {
     await fs.writeFile(
       join(tmp, "existing.md"),
       "---\nname: Old\nnode_id: n_abcdef123456\n---\n# Old",
@@ -128,11 +130,11 @@ describe("ideaspaces write", () => {
 
     expect(exit).toBe(0);
     const written = await fs.readFile(join(tmp, "existing.md"), "utf-8");
-    expect(written).not.toContain("node_id:");
+    expect(written).toContain("node_id: n_abcdef123456");
     expect(written).toContain("name: New");
   });
 
-  it("does not validate malformed existing node_id on overwrite", async () => {
+  it("preserves an unknown scalar without interpreting it as identity", async () => {
     await fs.writeFile(
       join(tmp, "bad.md"),
       "---\nnode_id: nope\n---\n# Bad",
@@ -147,7 +149,7 @@ describe("ideaspaces write", () => {
 
     expect(exit).toBe(0);
     const written = await fs.readFile(join(tmp, "bad.md"), "utf-8");
-    expect(written).not.toContain("node_id:");
+    expect(written).toContain("node_id: nope");
     expect(written).toContain("# New");
   });
 

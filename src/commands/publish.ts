@@ -31,7 +31,10 @@ import {
   canonicalSpaceUrl,
   spaceRecordForRepo,
 } from "../space-locator.js";
-import { identityEmail as formatIdentityEmail } from "../auth/identity.js";
+import {
+  identityEmail as formatIdentityEmail,
+  identityName as formatIdentityName,
+} from "../auth/identity.js";
 import type { CommandDef } from "../types.js";
 import {
   hasFrontmatterSyntaxProblems,
@@ -348,13 +351,16 @@ export const publishCommand: CommandDef = {
       }
     }
 
-    // Identity wiring — set user.email so commits resolve to person:<user>
-    // via the pre-receive hook's email-format identity regex. Leave
-    // user.name alone — display name stays the user's choice.
+    // Identity wiring is complete and repo-local: later local-effect commits
+    // consume these explicit values without reading credentials or the network.
     const identityEmail = formatIdentityEmail(me.username);
+    const identityDisplayName = formatIdentityName({ name: me.name, username: me.username });
     const setEmail = runGit(cwd, ["config", "--local", "user.email", identityEmail]);
-    if (!setEmail.ok) {
-      output.error(`git config user.email failed: ${setEmail.stderr}`);
+    const setName = runGit(cwd, ["config", "--local", "user.name", identityDisplayName]);
+    if (!setEmail.ok || !setName.ok) {
+      output.error(
+        `git config local identity failed: ${setEmail.ok ? setName.stderr : setEmail.stderr}`,
+      );
       return 1;
     }
 
@@ -468,7 +474,7 @@ export const publishCommand: CommandDef = {
       [
         `Published ${repo.name}.`,
         `Space: ${webUrl}`,
-        `Local git identity set to ${identityEmail} (this dir only — your global git config is untouched).`,
+        `Local git identity set to ${identityDisplayName} <${identityEmail}> (this dir only — your global git config is untouched).`,
       ].join("\n"),
     );
     return 0;

@@ -35,9 +35,18 @@ ideaspaces pull
 
 Everything is local-first: your working copy is a real git repository on disk. Captures are yours until you choose to publish or push them.
 
+`write` operates only inside that canonical Git worktree. It preserves frontmatter fields you do not
+set, replaces the Markdown atomically, and stages only the selected path. Use the returned `sha` as
+`--if-match` for a safe refinement; `--force` is the explicit destructive override. `commit` snapshots
+the worktree/index/HEAD revision of every selected path and commits exactly that reviewed set, leaving
+bystander work untouched. Commit identity comes from repo-local `user.name` / `user.email` (wired by
+creation and platform commands) or explicit `--author-name` / `--author-email` flags—never a hidden
+credential or network lookup. With `--json`, both commands return protocol `status`, phase, revision,
+and typed failure facts; a partial write or commit exits non-zero.
+
 ## Commands
 
-Run `ideaspaces <command> --help` for full usage. `--json` is available on most read commands for scripting.
+Run `ideaspaces <command> --help` for full usage. `--json` is available on reads and local capture effects for scripting.
 
 ### Spaces & content
 | Command | What it does |

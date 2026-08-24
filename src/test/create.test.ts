@@ -417,13 +417,19 @@ describe("ideaspaces create — git author identity", () => {
     const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
 
-    // Local user.email is set to the IdeaSpaces identity.
+    // Complete repo-local identity is set for later protocol-effect commits.
     const localEmail = spawnSync(
       "git",
       ["-C", target, "config", "--local", "user.email"],
       { encoding: "utf-8" },
     ).stdout.trim();
+    const localName = spawnSync(
+      "git",
+      ["-C", target, "config", "--local", "user.name"],
+      { encoding: "utf-8" },
+    ).stdout.trim();
     expect(localEmail).toBe("person:alice@ideaspaces");
+    expect(localName).toBe("alice");
 
     // Initial commit author email matches.
     const author = spawnSync(

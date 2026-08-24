@@ -178,98 +178,75 @@ describe("ideaspaces commit — renames, deletions, unknown paths", () => {
   });
 });
 
-describe("ideaspaces commit — git author identity", () => {
-  // git commit takes the author email from these env vars over local config,
-  // so unset the email ones to let the wired user.email be the source of truth.
-  // Keep the NAME vars for a valid committer on bare CI runners.
-  const ENV_EMAILS = ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"] as const;
-  let savedEmails: Record<string, string | undefined>;
-
-  beforeEach(async () => {
-    savedEmails = Object.fromEntries(ENV_EMAILS.map((k) => [k, process.env[k]]));
-    for (const k of ENV_EMAILS) delete process.env[k];
+describe("ideaspaces commit — explicit local identity", () => {
+  it("uses repo-local identity without credentials or network", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
     await fs.mkdir(join(tmp, ".ideaspaces"), { recursive: true });
     await fs.writeFile(
       join(tmp, ".ideaspaces", "credentials.json"),
       JSON.stringify({ api_url: "https://api.test", api_key: "k_test" }) + "\n",
     );
+    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+
+    expect(await commitCommand.run(["note.md"], { m: "save" }, G)).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(git(["log", "-1", "--format=%an <%ae>|%cn <%ce>"])).toBe(
+      "T <t@e.com>|T <t@e.com>",
+    );
   });
 
-  afterEach(() => {
-    for (const k of ENV_EMAILS) {
-      if (savedEmails[k] !== undefined) process.env[k] = savedEmails[k];
-      else delete process.env[k];
+  it("accepts an explicit author pair without mutating local config", async () => {
+    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+
+    expect(
+      await commitCommand.run(
+        ["note.md"],
+        { m: "save", "author-name": "Alice Smith", "author-email": "person:alice@ideaspaces" },
+        G,
+      ),
+    ).toBe(0);
+    expect(git(["log", "-1", "--format=%an <%ae>|%cn <%ce>"])).toBe(
+      "Alice Smith <person:alice@ideaspaces>|Alice Smith <person:alice@ideaspaces>",
+    );
+    expect(git(["config", "--local", "user.email"])).toBe("t@e.com");
+    expect(git(["config", "--local", "user.name"])).toBe("T");
+  });
+
+  it("sanitizes Git identity environment overrides", async () => {
+    const saved = {
+      author: process.env.GIT_AUTHOR_EMAIL,
+      committer: process.env.GIT_COMMITTER_EMAIL,
+    };
+    process.env.GIT_AUTHOR_EMAIL = "ambient-author@example.com";
+    process.env.GIT_COMMITTER_EMAIL = "ambient-committer@example.com";
+    try {
+      await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
+      expect(await commitCommand.run(["note.md"], { m: "save" }, G)).toBe(0);
+      expect(git(["log", "-1", "--format=%ae|%ce"])).toBe("t@e.com|t@e.com");
+    } finally {
+      if (saved.author === undefined) delete process.env.GIT_AUTHOR_EMAIL;
+      else process.env.GIT_AUTHOR_EMAIL = saved.author;
+      if (saved.committer === undefined) delete process.env.GIT_COMMITTER_EMAIL;
+      else process.env.GIT_COMMITTER_EMAIL = saved.committer;
     }
   });
 
-  function mockAuthMe(username: string | null, name: string | null = null) {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request) => {
-        const url = typeof input === "string" ? input : input.toString();
-        if (url.endsWith("/auth/me")) {
-          return new Response(
-            JSON.stringify({
-              user_id: 1,
-              username,
-              email: null,
-              name,
-              repos: [],
-              onboarding_complete: true,
-            }),
-            { status: 200 },
-          );
-        }
-        throw new Error(`unexpected fetch: ${url}`);
-      }),
-    );
-  }
-
-  it("attributes the commit to the OAuth identity (email + display name)", async () => {
-    mockAuthMe("alice", "Alice Smith");
+  it("refuses an incomplete explicit pair before staging", async () => {
     await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
-
-    const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
-    expect(exit).toBe(0);
-
-    expect(git(["config", "--local", "user.email"])).toBe("person:alice@ideaspaces");
-    expect(git(["config", "--local", "user.name"])).toBe("Alice Smith");
-    // The commit author reflects both.
-    expect(git(["log", "-1", "--format=%an <%ae>"])).toBe("Alice Smith <person:alice@ideaspaces>");
+    expect(
+      await commitCommand.run(["note.md"], { m: "save", "author-name": "Alice" }, G),
+    ).toBe(1);
+    expect(git(["diff", "--cached", "--name-only"])).toBe("");
   });
 
-  it("falls back to the username when the account has no display name", async () => {
-    mockAuthMe("alice", null);
+  it("refuses when no repo-local or explicit identity exists", async () => {
+    spawnSync("git", ["config", "--local", "--unset", "user.name"], { cwd: tmp });
+    spawnSync("git", ["config", "--local", "--unset", "user.email"], { cwd: tmp });
     await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
 
-    const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
-    expect(exit).toBe(0);
-    expect(git(["config", "--local", "user.name"])).toBe("alice");
-  });
-
-  it("does not re-fetch when the local identity is already wired", async () => {
-    git(["config", "user.email", "person:bob@ideaspaces"]);
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
-
-    const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
-    expect(exit).toBe(0);
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(git(["log", "-1", "--format=%ae"])).toBe("person:bob@ideaspaces");
-  });
-
-  it("still commits when not logged in (no credentials, no network)", async () => {
-    await rm(join(tmp, ".ideaspaces"), { recursive: true, force: true });
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
-    await fs.writeFile(join(tmp, "note.md"), "# Note", "utf-8");
-
-    const exit = await commitCommand.run(["note.md"], { m: "save" }, G);
-    expect(exit).toBe(0);
-    expect(fetchSpy).not.toHaveBeenCalled();
-    // Falls back to the ambient identity — push would still be gated server-side.
-    expect(git(["config", "--local", "user.email"])).toBe("t@e.com");
+    expect(await commitCommand.run(["note.md"], { m: "save" }, G)).toBe(1);
+    expect(git(["diff", "--cached", "--name-only"])).toBe("");
   });
 });
 
@@ -297,8 +274,8 @@ describe("ideaspaces commit — Change-layer trailers (end-to-end)", () => {
     expect(msg).toContain("Capture auth decision");
     expect(msg).toContain("Op: capture");
     expect(msg).toContain("Conversation: sess_9");
-    expect(msg).toContain("Co-authored-by: agent:me-claude");
-    expect(msg).toContain("Co-authored-by: agent:pair");
+    expect(msg).toContain("Co-authored-by: me-claude <agent:me-claude@ideaspaces>");
+    expect(msg).toContain("Co-authored-by: pair <agent:pair@ideaspaces>");
     expect(msg).toContain("Change-Id: chg_auth-1a2b");
   });
 
