@@ -30,7 +30,7 @@ import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe } from "../auth/api.js";
 import { identityEmail, identityName } from "../auth/identity.js";
-import { gitAvailable, GIT_MISSING_HINT } from "../git.js";
+import { gitAvailability } from "../git.js";
 import type { CommandDef } from "../types.js";
 import {
   agentClaudeMd,
@@ -413,7 +413,10 @@ async function applyPlan(opts: {
   // The commit is pathspec-scoped to what this scaffold wrote: `git add .`
   // followed by a bare commit would sweep anything the user already had
   // staged (or untracked) in an existing repo into the scaffold commit.
-  if (!gitAvailable()) return { versioned: false, gitNote: GIT_MISSING_HINT, commitPaths };
+  const availability = gitAvailability();
+  if (availability.state !== "usable") {
+    return { versioned: false, gitNote: availability.hint, commitPaths };
+  }
   try {
     if (!inspection.isGitRepo) {
       runGit(targetDir, ["init", "-q", "-b", "main"]);
