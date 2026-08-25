@@ -21,9 +21,48 @@ export class GitError extends Error {}
 export const GIT_MISSING_HINT =
   "git not found — install it and retry (macOS: `brew install git`; Windows: `winget install Git.Git`; Linux: your package manager).";
 
-/** True if a `git` executable is on PATH. Reused by the doctor. */
+/** Repair hint for an executable that exists but cannot run successfully. */
+export const GIT_UNUSABLE_HINT =
+  "git is present but unusable — on macOS, run `xcode-select --install`; otherwise repair or reinstall Git, then retry.";
+
+export type GitAvailability =
+  | { state: "usable"; version: string }
+  | { state: "absent"; hint: string }
+  | { state: "unusable"; hint: string; detail: string; exitCode: number | null };
+
+/**
+ * Distinguish a working Git from an absent executable and a present-but-broken
+ * one such as the macOS Command Line Tools shim before its tools are installed.
+ */
+export function gitAvailability(): GitAvailability {
+  const result = spawnSync("git", ["--version"], { encoding: "utf-8" });
+  if (result.error) {
+    const code = (result.error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { state: "absent", hint: GIT_MISSING_HINT };
+    return {
+      state: "unusable",
+      hint: GIT_UNUSABLE_HINT,
+      detail: result.error.message,
+      exitCode: result.status,
+    };
+  }
+  if (result.status !== 0) {
+    return {
+      state: "unusable",
+      hint: GIT_UNUSABLE_HINT,
+      detail:
+        (result.stderr ?? "").trim() ||
+        (result.stdout ?? "").trim() ||
+        `git --version exited ${result.status ?? "without a status"}`,
+      exitCode: result.status,
+    };
+  }
+  return { state: "usable", version: (result.stdout ?? "").trim() };
+}
+
+/** True only when `git --version` exits successfully. */
 export function gitAvailable(): boolean {
-  return spawnSync("git", ["--version"]).error === undefined;
+  return gitAvailability().state === "usable";
 }
 
 function git(args: string[], cwd?: string): { ok: boolean; out: string; err: string } {

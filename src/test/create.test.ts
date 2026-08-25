@@ -83,6 +83,35 @@ describe("ideaspaces create", () => {
     }
   });
 
+  it("degrades honestly when git is present but unusable", async () => {
+    const stubDirectory = await mkdtemp(join(tmpdir(), "is-cli-brokengit-"));
+    const stubGit = join(stubDirectory, "git");
+    await fs.writeFile(
+      stubGit,
+      '#!/bin/sh\nprintf "%s\\n" "xcrun: error: active developer path is missing" >&2\nexit 69\n',
+      "utf-8",
+    );
+    await fs.chmod(stubGit, 0o755);
+    const savedPath = process.env.PATH;
+    process.env.PATH = stubDirectory;
+    try {
+      const { exit, out } = await captureStdout(() =>
+        createCommand.run(["broken-git-space"], {}, { ...baseGlobal, yes: true, json: false }),
+      );
+      expect(exit).toBe(0);
+      const dir = join(tmp, "broken-git-space");
+      expect(existsSync(join(dir, "_agent", "foundation.md"))).toBe(true);
+      expect(existsSync(join(dir, ".git"))).toBe(false);
+      expect(out).toMatch(/no version history/i);
+      expect(out).toMatch(/git is present but unusable/i);
+      expect(out).toContain("xcode-select --install");
+      expect(out).not.toMatch(/brew install git/i);
+    } finally {
+      process.env.PATH = savedPath;
+      await rm(stubDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("scaffolds greenfield with --yes", async () => {
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
