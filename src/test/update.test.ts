@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -158,12 +158,13 @@ describe("update command", () => {
     const code = await updateCommand.run([], {}, { ...JSON_GLOBAL, yes: true });
 
     expect(code).toBe(0);
+    const canonicalRoot = realpathSync.native(process.cwd());
     expect(saveBaselineMock).toHaveBeenCalledWith(
-      process.cwd(),
+      canonicalRoot,
       expect.objectContaining({ source_head: "b".repeat(40) }),
     );
     expect(saveSpaceMock).toHaveBeenCalledOnce();
-    expect(saveSpaceMock.mock.calls[0][0]).toBe(process.cwd());
+    expect(saveSpaceMock.mock.calls[0][0]).toBe(canonicalRoot);
     expect(saveSpaceMock.mock.calls[0][1]).toEqual(
       expect.objectContaining({
         source_head: "b".repeat(40),

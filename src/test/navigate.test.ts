@@ -11,6 +11,7 @@ import type { GlobalFlags } from "../types.js";
 const G: GlobalFlags = { json: true, quiet: true, yes: false, help: false };
 
 let tmp: string;
+let reportedRepo: string;
 let cwd: string;
 
 function git(args: string[], dir = tmp): string {
@@ -49,6 +50,7 @@ async function runNavigate(
 
 beforeEach(async () => {
   tmp = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-navigate-")));
+  reportedRepo = process.platform === "win32" ? tmp.replaceAll("\\", "/") : tmp;
   cwd = process.cwd();
   process.chdir(tmp);
   git(["init", "-q", "-b", "main"]);
@@ -72,7 +74,7 @@ describe("ideaspaces navigate", () => {
   it("renders the protocol Position bytes and preserves the output newline", async () => {
     const expectedPosition = [
       "Position:",
-      `  repo: ${tmp}`,
+      `  repo: ${reportedRepo}`,
       "  cwd: .",
       "  space root: .",
       "  active _agent: .",
@@ -82,7 +84,7 @@ describe("ideaspaces navigate", () => {
     expect(exit).toBe(0);
     expect(data.position).toBe(".");
     expect(data.root).toBe(tmp);
-    expect(data.repoRoot).toBe(tmp);
+    expect(data.repoRoot).toBe(reportedRepo);
     expect(data.text.split("\n\n")[0]).toBe(expectedPosition);
     expect(data.text).toContain("Now:");
     expect(stdout.endsWith("\n")).toBe(true);
@@ -103,7 +105,7 @@ describe("ideaspaces navigate", () => {
     expect(data.text.split("\n\n")[0]).toBe(
       [
         "Position:",
-        `  repo: ${tmp}`,
+        `  repo: ${reportedRepo}`,
         "  cwd: sub",
         "  space root: .",
         "  active _agent: .",

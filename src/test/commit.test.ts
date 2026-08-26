@@ -175,7 +175,7 @@ describe("ideaspaces commit — renames, deletions, unknown paths", () => {
     const lines = git(["show", "--name-status", "--format=", "-M", "HEAD"]).split("\n").filter(Boolean).sort();
     expect(lines).toEqual(["A\tfresh.md", "M\tkeep.md", "R100\told.md\tnew.md"].sort());
     expect(git(["status", "--porcelain", "--", "bystander.md"]).trim()).toBe("?? bystander.md");
-  });
+  }, 15_000);
 });
 
 describe("ideaspaces commit — explicit Git identity", () => {

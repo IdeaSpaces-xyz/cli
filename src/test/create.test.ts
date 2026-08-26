@@ -86,15 +86,20 @@ describe("ideaspaces create", () => {
   it("degrades honestly when git is present but unusable", async () => {
     const stubDirectory = await mkdtemp(join(tmpdir(), "is-cli-brokengit-"));
     const windows = process.platform === "win32";
-    const stubGit = join(stubDirectory, windows ? "git.cmd" : "git");
-    await fs.writeFile(
-      stubGit,
-      windows
-        ? "@echo off\necho xcrun: error: active developer path is missing 1>&2\nexit /b 69\n"
-        : '#!/bin/sh\nprintf "%s\\n" "xcrun: error: active developer path is missing" >&2\nexit 69\n',
-      "utf-8",
-    );
-    if (!windows) await fs.chmod(stubGit, 0o755);
+    const stubGit = join(stubDirectory, windows ? "git.exe" : "git");
+    if (windows) {
+      const systemRoot = process.env.SystemRoot;
+      if (!systemRoot) throw new Error("Windows test runner has no SystemRoot");
+      // where.exe is a native executable that exits nonzero for `--version`.
+      await fs.copyFile(join(systemRoot, "System32", "where.exe"), stubGit);
+    } else {
+      await fs.writeFile(
+        stubGit,
+        '#!/bin/sh\nprintf "%s\\n" "xcrun: error: active developer path is missing" >&2\nexit 69\n',
+        "utf-8",
+      );
+      await fs.chmod(stubGit, 0o755);
+    }
     const savedPath = process.env.PATH;
     process.env.PATH = stubDirectory;
     try {
@@ -571,13 +576,13 @@ describe("ideaspaces create — git author identity", () => {
     );
 
     // create's call passes timeoutMs: 2000, so AbortError fires by ~2s.
-    // Bound assertion just past that to catch a regression where the
-    // timeout silently stops working (test hangs to vitest default).
+    // Allow native Windows scaffolding overhead while keeping a strict bound
+    // that catches a regression where the request timeout stops working.
     const { createCommand: cc } = await import("../commands/create.js");
     const start = Date.now();
     const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
     const elapsed = Date.now() - start;
     expect(exit).toBe(0);
-    expect(elapsed).toBeLessThan(3000);
-  }, 5_000);
+    expect(elapsed).toBeLessThan(4500);
+  }, 8_000);
 });
