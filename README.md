@@ -60,7 +60,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 | `clone <space-url> [dir]` | Clone an authorized Space by stable identity into a local working copy |
 | `fork <space-url> [dir]` | Create and clone an independent current-content copy without source history |
 | `update [--yes]` | Preview or apply maintained source updates to a fork without displacing local work |
-| `clones` | List your local working copies |
+| `clones` | List hosted clones and unpublished local forks |
 | `create <name>` | Create a new space |
 | `repos` | List spaces you can access |
 | `link <dir> <namespace/slug>` | Bind an existing local directory to a space |
@@ -79,14 +79,14 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 | `sync` | Report where you, the Space, and a fork's recorded source stand — reads only, integrates nothing |
 | `push` | Send your committed captures to the remote |
 | `pull` | Integrate changes from the fork's own Git remote |
-| `publish` | Publish a local space to the server |
+| `publish` | Publish a local Space; an unpublished fork keeps its declared identity and source lineage |
 
 ### Navigate & search
 | Command | What it does |
 |---|---|
 | `navigate <path>` | Orient at a position — contract, awareness, what changed |
 | `inspect <path>` | Inspect one local Markdown file by summary, outline, or selected section |
-| `catalog` | List the nodes at a position |
+| `catalog` | Join local checkouts with remote Spaces and their publication/sync state |
 | `ls [<path>]` | List files and folders under a path, typed (folder / repo / ideaspace) |
 | `search <query>` | Full-text search (filename + BM25) over the local clone |
 | `status` | Working-copy status (ahead / behind / dirty) |

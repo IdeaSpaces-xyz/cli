@@ -124,6 +124,17 @@ describe("catalog — command run()", () => {
     listClonesMock.mockReturnValue([
       { path: "/w/a", record: { repo_id: "ra", slug: "a", namespace: "alice" } },
       { path: "/w/b", record: { repo_id: "rb", slug: "b", namespace: "alice" } },
+      {
+        path: "/w/local",
+        record: {
+          kind: "unpublished_fork",
+          root_node_id: "n_0123456789abcdef01234567",
+          name: "Local",
+          source_root_node_id: "n_ffffffffffffffffffffffff",
+          source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+          source_baseline_initialized: true,
+        },
+      },
     ]);
     gitFetchMock.mockImplementation((cwd: string) => {
       if (cwd === "/w/a") throw new Error("no network");
@@ -134,6 +145,6 @@ describe("catalog — command run()", () => {
     expect(code).toBe(0);
     expect(gitFetchMock).toHaveBeenCalledTimes(2);
     const data = JSON.parse(stdout());
-    expect(data.notes.join(" ")).toContain("1 of 2 clone(s) could not be fetched");
+    expect(data.notes.join(" ")).toContain("1 of 2 hosted clone(s) could not be fetched");
   });
 });

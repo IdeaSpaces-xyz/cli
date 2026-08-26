@@ -17,6 +17,18 @@ const clone = (path: string, repo_id: string, over: Partial<CloneEntry["record"]
   record: { repo_id, slug: repo_id, namespace: "alice", ...over },
 });
 
+const unpublished = (path = "/w/guide"): CloneEntry => ({
+  path,
+  record: {
+    kind: "unpublished_fork",
+    root_node_id: "n_0123456789abcdef01234567",
+    name: "Local Guide",
+    source_root_node_id: "n_ffffffffffffffffffffffff",
+    source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+    source_baseline_initialized: true,
+  },
+});
+
 const synced: RepoStatus = { branch: "main", ahead: 0, behind: 0, dirty: false };
 const behind: RepoStatus = { branch: "main", ahead: 0, behind: 2, dirty: false };
 
@@ -74,10 +86,27 @@ describe("deriveCatalog — logged in", () => {
     expect(entry).toMatchObject({ location: "available", statusFailed: true });
     expect(entry?.sync).toBeUndefined();
   });
+
+  it("does not join an unpublished fork to a hosted destination", () => {
+    const entry = deriveCatalog(me, [unpublished()], new Map()).find(
+      (candidate) => candidate.state === "unpublished_fork",
+    )!;
+    expect(entry).toMatchObject({
+      state: "unpublished_fork",
+      repo_id: null,
+      root_node_id: "n_0123456789abcdef01234567",
+      display_name: "Local Guide",
+      location: "local-only",
+      clone: { path: "/w/guide" },
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+    });
+    expect(entry.slug).toBeNull();
+    expect(entry.namespace).toBe("");
+  });
 });
 
 describe("deriveCatalog — logged out", () => {
-  it("reports every clone as available (no server list to cross-ref)", () => {
+  it("reports hosted clones as available without a server list to cross-ref", () => {
     const clones = [clone("/w/notes", "r1"), clone("/w/scratch", "rX")];
     const status = new Map<string, RepoStatus>([
       ["/w/notes", synced],
@@ -87,6 +116,16 @@ describe("deriveCatalog — logged out", () => {
     expect(entries).toHaveLength(2);
     expect(entries.every((e) => e.location === "available")).toBe(true);
     expect(entries.find((e) => e.slug === "rX")?.sync).toMatchObject({ behind: 2 });
+  });
+
+  it("shows an unpublished fork distinctly while logged out", () => {
+    const entry = deriveCatalog(null, [unpublished()], new Map())[0];
+    expect(entry).toMatchObject({
+      state: "unpublished_fork",
+      repo_id: null,
+      display_name: "Local Guide",
+      location: "local-only",
+    });
   });
 
   it("returns nothing when there are no clones", () => {

@@ -1,12 +1,12 @@
 /**
- * Folder-keyed map of published ideaspaces.
+ * Folder-keyed registry of local IdeaSpaces.
  *
- * Stored at ~/.ideaspaces/spaces.json. Keyed by absolute folder path so
- * a single user can publish multiple spaces from different directories
- * without collision. Replaces the single `repo_id` slot in
- * `credentials.ts` (deleted) which silently overwrote on each publish.
+ * Stored at ~/.ideaspaces/spaces.json. Hosted bindings and unpublished local
+ * forks are deliberately different states: a local fork has identity and
+ * lineage, but no destination repo, route, namespace, or remote until publish.
  */
 
+import { CURRENT_ROOT_NODE_ID_PATTERN, isValidRootNodeId } from "@ideaspaces/protocol";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { configDir } from "./config-dir.js";
@@ -25,7 +25,9 @@ function folderKey(path: string): string {
   }
 }
 
-export interface SpaceRecord {
+export interface HostedSpaceRecord {
+  /** Optional for compatibility with records written before the discriminator. */
+  kind?: "hosted";
   repo_id: string;
   slug: string;
   /** Deprecated display fallback for records written before canonical root locators. */
@@ -36,46 +38,135 @@ export interface SpaceRecord {
   route_namespace?: string | null;
   route_slug?: string | null;
   canonical_path?: string | null;
-  /**
-   * Lineage — written by `fork` only, and only when the server reported it.
-   *
-   * A fork's git remote points at the copy, not at the source, so without
-   * these the clone has no way back to where it came from. A clone or a
-   * publish has no source and must leave both unset: absent means "not a
-   * fork", not "a fork we forgot to record".
-   */
+  /** Source Space lineage retained across first publication of a local fork. */
   source_root_node_id?: string;
   /** Source commit the copy was pinned at — the base any later update reads from. */
   source_head?: string;
   /** True once a durable post-fork source baseline has been written locally. */
   source_baseline_initialized?: boolean;
+  name?: string;
 }
 
-/** Map of absolute folder path → space record. */
+/**
+ * A locally owned fork that has never been published.
+ *
+ * The `never` fields make hosted-only assumptions fail at compile time while
+ * keeping ordinary property access narrowable across the union. They are also
+ * rejected at the JSON boundary so empty/synthetic destination bindings cannot
+ * enter the registry through an untyped caller.
+ */
+export interface UnpublishedForkRecord {
+  kind: "unpublished_fork";
+  root_node_id: string;
+  name: string;
+  source_root_node_id: string;
+  source_head: string;
+  source_baseline_initialized: boolean;
+  repo_id?: never;
+  slug?: never;
+  namespace?: never;
+  route_status?: never;
+  route_namespace?: never;
+  route_slug?: never;
+  canonical_path?: never;
+}
+
+export type SpaceRecord = HostedSpaceRecord | UnpublishedForkRecord;
+
+/** Map of absolute folder path → local Space state. */
 export type SpacesMap = Record<string, SpaceRecord>;
+
+export function isUnpublishedForkRecord(record: SpaceRecord): record is UnpublishedForkRecord {
+  return record.kind === "unpublished_fork";
+}
+
+export function isHostedSpaceRecord(record: SpaceRecord): record is HostedSpaceRecord {
+  return record.kind !== "unpublished_fork";
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function parseSpaceRecord(value: unknown): SpaceRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+
+  if (record.kind === "unpublished_fork") {
+    const forbidden = [
+      "repo_id",
+      "slug",
+      "namespace",
+      "route_status",
+      "route_namespace",
+      "route_slug",
+      "canonical_path",
+    ];
+    if (forbidden.some((field) => field in record)) return null;
+    if (
+      !nonEmptyString(record.name) ||
+      typeof record.root_node_id !== "string" ||
+      !CURRENT_ROOT_NODE_ID_PATTERN.test(record.root_node_id) ||
+      !isValidRootNodeId(record.source_root_node_id) ||
+      record.root_node_id === record.source_root_node_id ||
+      typeof record.source_head !== "string" ||
+      !/^[0-9a-f]{40}$/i.test(record.source_head) ||
+      typeof record.source_baseline_initialized !== "boolean"
+    ) {
+      return null;
+    }
+    return value as UnpublishedForkRecord;
+  }
+
+  if (record.kind !== undefined && record.kind !== "hosted") return null;
+  if (
+    !nonEmptyString(record.repo_id) ||
+    !nonEmptyString(record.slug) ||
+    typeof record.namespace !== "string"
+  ) {
+    return null;
+  }
+  if (record.root_node_id !== undefined && !isValidRootNodeId(record.root_node_id)) return null;
+  if (
+    record.source_root_node_id !== undefined &&
+    !isValidRootNodeId(record.source_root_node_id)
+  ) {
+    return null;
+  }
+  return value as HostedSpaceRecord;
+}
 
 export function loadSpaces(): SpacesMap {
   const file = spacesFile();
   try {
     if (!existsSync(file)) return {};
     const raw = readFileSync(file, "utf-8");
-    const data = JSON.parse(raw);
-    if (typeof data !== "object" || data === null) return {};
-    return data as SpacesMap;
+    const data: unknown = JSON.parse(raw);
+    if (typeof data !== "object" || data === null || Array.isArray(data)) return {};
+    const parsed: SpacesMap = {};
+    for (const [path, value] of Object.entries(data)) {
+      const record = parseSpaceRecord(value);
+      if (record) parsed[path] = record;
+    }
+    return parsed;
   } catch {
     return {};
   }
 }
 
 export function saveSpace(absolutePath: string, record: SpaceRecord): void {
+  const parsed = parseSpaceRecord(record);
+  if (!parsed) {
+    throw new Error("Refusing to save an invalid local Space registry record");
+  }
   const key = folderKey(absolutePath);
   const map = loadSpaces();
   // Remove a lexical alias written by an older CLI (notably /tmp on macOS,
-  // where git reports /private/tmp). One physical clone must have one record.
+  // where git reports /private/tmp). One physical checkout must have one record.
   for (const existing of Object.keys(map)) {
     if (existing !== key && folderKey(existing) === key) delete map[existing];
   }
-  map[key] = record;
+  map[key] = parsed;
   const dir = configDir();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -94,12 +185,12 @@ export function findSpaceFor(absolutePath: string): SpaceRecord | null {
   return alias?.[1] ?? null;
 }
 
-/** The clone registry as a list of `{ path, record }` — the shape consumers join on. */
+/** The local registry as a list of `{ path, record }` — the shape consumers join on. */
 export function listClones(): Array<{ path: string; record: SpaceRecord }> {
   return Object.entries(loadSpaces()).map(([path, record]) => ({ path, record }));
 }
 
-/** Remove a clone's registry binding. Returns false if it wasn't tracked. */
+/** Remove a local registry binding. Returns false if it wasn't tracked. */
 export function removeSpace(absolutePath: string): boolean {
   const canonical = folderKey(absolutePath);
   const map = loadSpaces();
@@ -115,20 +206,22 @@ export function removeSpace(absolutePath: string): boolean {
 }
 
 /**
- * The server's view of a Space, plus the two fields only `fork` can supply.
+ * Apply a verified hosted binding while retaining fork lineage only when the
+ * previous record names the same destination identity.
  *
- * `bound` is authoritative: spreading a whole previous record underneath it
- * would preserve fields the server has since dropped — `route_status`,
- * `root_node_id` on a repo that no longer reports one — leaving stale routing
- * or, worse, another Space's identity in a record that names this one.
- *
- * Source lineage fields are the exception because nothing can reconstruct
- * them: `fork` writes the source coordinate and `update` marks baseline
- * initialization. They travel only when the record still names the same Space
- * — a folder repointed elsewhere is not a clone of its old source.
+ * For an unpublished fork, matching `root_node_id` is the adoption handshake.
+ * For legacy hosted records, matching `repo_id` preserves existing behavior.
  */
-export function withForkLineage(bound: SpaceRecord, previous: SpaceRecord | null): SpaceRecord {
-  if (!previous || previous.repo_id !== bound.repo_id) return bound;
+export function withForkLineage(
+  bound: HostedSpaceRecord,
+  previous: SpaceRecord | null,
+): HostedSpaceRecord {
+  const sameSpace = previous
+    ? isUnpublishedForkRecord(previous)
+      ? Boolean(bound.root_node_id && bound.root_node_id === previous.root_node_id)
+      : previous.repo_id === bound.repo_id
+    : false;
+  if (!previous || !sameSpace) return bound;
   return {
     ...bound,
     ...(previous.source_root_node_id
@@ -138,5 +231,6 @@ export function withForkLineage(bound: SpaceRecord, previous: SpaceRecord | null
     ...(previous.source_baseline_initialized
       ? { source_baseline_initialized: true }
       : {}),
+    ...(previous.name ? { name: previous.name } : {}),
   };
 }

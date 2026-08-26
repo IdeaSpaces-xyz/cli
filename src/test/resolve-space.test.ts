@@ -56,6 +56,23 @@ describe("resolveSpaceBinding", () => {
     expect(fetchAuthMeMock).not.toHaveBeenCalled();
   });
 
+  it("does not resolve an unpublished fork as a hosted destination", async () => {
+    const { saveSpace } = await import("../auth/spaces.js");
+    const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
+    const dir = repoWithOrigin("unpublished", `https://git.example.test/spaces/${ROOT}.git`);
+    saveSpace(dir, {
+      kind: "unpublished_fork",
+      root_node_id: "n_aaaaaaaaaaaaaaaaaaaaaaaa",
+      name: "Local Guide",
+      source_root_node_id: ROOT,
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
+    });
+
+    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({ failure: "unpublished" });
+    expect(fetchAuthMeMock).not.toHaveBeenCalled();
+  });
+
   it("reads the coordinate out of a canonical origin, with no record and no account", async () => {
     const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
     const dir = repoWithOrigin("forked", `https://git.example.test/spaces/${ROOT}.git`);

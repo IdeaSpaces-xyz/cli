@@ -250,6 +250,15 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
     expect(addPersonShareMock).not.toHaveBeenCalled();
   });
 
+  it("does not share an unpublished fork as though it were hosted", async () => {
+    resolveSpaceBindingMock.mockResolvedValue({ failure: "unpublished" });
+
+    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("unpublished local fork");
+    expect(stderr).toContain("Publish it before sharing");
+    expect(addPersonShareMock).not.toHaveBeenCalled();
+  });
+
   it("refuses outside a Space with the way out", async () => {
     repoRootMock.mockImplementation(() => {
       throw new Error("not inside a git repository");

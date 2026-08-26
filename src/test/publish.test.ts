@@ -71,6 +71,17 @@ function initLocalRepo(name = "my-space", opts: { withNodeId?: boolean } = {}) {
   return dir;
 }
 
+function declareRootIdentity(dir: string, rootNodeId: string): void {
+  const agentDir = join(dir, "_agent");
+  mkdirSync(agentDir, { recursive: true });
+  writeFileSync(
+    join(agentDir, "foundation.md"),
+    `---\nname: Test Space\nsummary: Test.\nroot_node_id: ${rootNodeId}\n---\n\n# Foundation\n`,
+  );
+  spawnSync("git", ["-C", dir, "add", "_agent/foundation.md"]);
+  spawnSync("git", ["-C", dir, "commit", "-q", "-m", "declare root identity"]);
+}
+
 function authMeResponse(username = "ernests_s", repoIds: string[] = []): Response {
   return new Response(
     JSON.stringify({
@@ -396,6 +407,187 @@ describe("ideaspaces publish", () => {
       route_slug: "canonical",
       canonical_path: `/spaces/${rootNodeId}`,
     });
+  });
+
+  it("adopts an unpublished fork identity once and preserves source lineage", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    const sourceRootNodeId = "n_ffffffffffffffffffffffff";
+    const sourceHead = "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293";
+    const dir = initLocalRepo("local-guide");
+    declareRootIdentity(dir, rootNodeId);
+    process.chdir(dir);
+    await writeCredentials();
+    const { saveSpace } = await import("../auth/spaces.js");
+    saveSpace(dir, {
+      kind: "unpublished_fork",
+      root_node_id: rootNodeId,
+      name: "Local Guide",
+      source_root_node_id: sourceRootNodeId,
+      source_head: sourceHead,
+      source_baseline_initialized: true,
+    });
+
+    let authCalls = 0;
+    let createCalls = 0;
+    const projected = {
+      repo_id: "repo_local_guide",
+      root_node_id: rootNodeId,
+      slug: "local-guide",
+      hostname: null,
+      role: "OWNER",
+      member_count: 1,
+      route_status: "resolved",
+      route_namespace: "ernests_s",
+      route_slug: "local-guide",
+      canonical_path: `/spaces/${rootNodeId}`,
+    };
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) {
+        authCalls++;
+        const repos = authCalls === 1 ? [] : [projected];
+        return new Response(
+          JSON.stringify({
+            user_id: 1,
+            username: "ernests_s",
+            email: null,
+            name: null,
+            repos,
+            onboarding_complete: true,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/repos")) {
+        createCalls++;
+        expect(JSON.parse(String(init?.body))).toEqual({
+          name: "Local Guide",
+          slug: "local-guide",
+          hostname: null,
+          root_node_id: rootNodeId,
+        });
+        return new Response(
+          JSON.stringify({
+            repo_id: projected.repo_id,
+            root_node_id: rootNodeId,
+            slug: projected.slug,
+            name: "Local Guide",
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setupRootBareRemote(rootNodeId);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+    expect(createCalls).toBe(1);
+
+    const map = JSON.parse(readFileSync(join(tmp, ".ideaspaces", "spaces.json"), "utf-8"));
+    const record = map[Object.keys(map).find((candidate) => candidate.endsWith("local-guide"))!];
+    expect(record).toMatchObject({
+      repo_id: projected.repo_id,
+      root_node_id: rootNodeId,
+      source_root_node_id: sourceRootNodeId,
+      source_head: sourceHead,
+      source_baseline_initialized: true,
+    });
+    expect(record.kind).toBeUndefined();
+    expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf-8" }).stdout.trim())
+      .toContain(`/spaces/${rootNodeId}.git`);
+  });
+
+  it("keeps an unpublished record when Keeper does not adopt its identity", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    const dir = initLocalRepo("identity-mismatch");
+    declareRootIdentity(dir, rootNodeId);
+    process.chdir(dir);
+    await writeCredentials();
+    const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
+    saveSpace(dir, {
+      kind: "unpublished_fork",
+      root_node_id: rootNodeId,
+      name: "Identity Mismatch",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) return authMeResponse();
+      if (url.endsWith("/repos")) {
+        return new Response(
+          JSON.stringify({
+            repo_id: "repo_wrong",
+            root_node_id: "n_aaaaaaaaaaaaaaaaaaaaaaaa",
+            slug: "identity-mismatch",
+            name: "Identity Mismatch",
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(1);
+    expect(findSpaceFor(dir)).toMatchObject({ kind: "unpublished_fork", root_node_id: rootNodeId });
+    expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"]).status).not.toBe(0);
+  });
+
+  it("refuses registry/declaration drift before contacting Keeper", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    const dir = initLocalRepo("declaration-drift");
+    declareRootIdentity(dir, "n_aaaaaaaaaaaaaaaaaaaaaaaa");
+    process.chdir(dir);
+    await writeCredentials();
+    const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
+    saveSpace(dir, {
+      kind: "unpublished_fork",
+      root_node_id: rootNodeId,
+      name: "Declaration Drift",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(findSpaceFor(dir)).toMatchObject({ kind: "unpublished_fork", root_node_id: rootNodeId });
+    expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"]).status).not.toBe(0);
+  });
+
+  it("refuses an unpublished registry record that already has a destination remote", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    const dir = initLocalRepo("remote-drift");
+    declareRootIdentity(dir, rootNodeId);
+    spawnSync("git", ["-C", dir, "remote", "add", "origin", "https://git.example.test/elsewhere.git"]);
+    process.chdir(dir);
+    await writeCredentials();
+    const { saveSpace } = await import("../auth/spaces.js");
+    saveSpace(dir, {
+      kind: "unpublished_fork",
+      root_node_id: rootNodeId,
+      name: "Remote Drift",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf-8" }).stdout.trim())
+      .toBe("https://git.example.test/elsewhere.git");
   });
 
   it("uses --hostname for org spaces", async () => {

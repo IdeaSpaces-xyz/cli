@@ -315,6 +315,37 @@ describe("ideaspaces sync — awareness, not integration", () => {
     expect(out.source.changes).toEqual([{ status: "M", path: "source.md" }]);
   });
 
+  it("reports an unpublished fork without fetching a nonexistent destination", async () => {
+    git(clone, ["remote", "remove", "origin"]);
+    loadConfigMock.mockReturnValue(null);
+    findSpaceForMock.mockReturnValue({
+      kind: "unpublished_fork",
+      root_node_id: ROOT_NODE_ID,
+      name: "Local Guide",
+      source_root_node_id: SOURCE_ROOT_NODE_ID,
+      source_head: SOURCE_HEAD,
+      source_baseline_initialized: true,
+    });
+
+    expect(await syncCommand.run([], {}, JSON_G)).toBe(0);
+
+    const out = JSON.parse(stdout);
+    expect(out).toMatchObject({
+      publication_state: "unpublished_fork",
+      root_node_id: ROOT_NODE_ID,
+      upstream: null,
+      fetched: false,
+      source: {
+        root_node_id: SOURCE_ROOT_NODE_ID,
+        recorded_head: SOURCE_HEAD,
+      },
+      integrated: false,
+    });
+    expect(registerHelperMock).not.toHaveBeenCalled();
+    expect(fetchTrailLogMock).not.toHaveBeenCalled();
+    expect(fetchTrailChangesMock).not.toHaveBeenCalled();
+  });
+
   it("gives an expired source session its own actionable wording", async () => {
     findSpaceForMock.mockReturnValue({
       repo_id: "r",

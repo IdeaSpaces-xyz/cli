@@ -187,11 +187,13 @@ async function resolveTarget(
   const binding = await resolveSpaceBinding(root, config);
   if ("rootNodeId" in binding) return binding.rootNodeId;
   output.error(
-    binding.failure === "unreachable"
-      ? "Could not reach your account to work out which Space this is. Retry when you're back online."
-      : binding.failure === "ambiguous"
-        ? "This clone's origin matches more than one of your Spaces. Name one: --space <url>"
-        : "Could not tell which Space this clone belongs to. Name one: --space <url>",
+    binding.failure === "unpublished"
+      ? "This is an unpublished local fork. Publish it before sharing the destination Space."
+      : binding.failure === "unreachable"
+        ? "Could not reach your account to work out which Space this is. Retry when you're back online."
+        : binding.failure === "ambiguous"
+          ? "This clone's origin matches more than one of your Spaces. Name one: --space <url>"
+          : "Could not tell which Space this clone belongs to. Name one: --space <url>",
   );
   return null;
 }
