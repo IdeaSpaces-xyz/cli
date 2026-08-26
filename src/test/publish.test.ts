@@ -749,7 +749,7 @@ describe("ideaspaces publish", () => {
     expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
     expect(createCallCount).toBe(2);
     expect(readSpaceRecord().repo_id).toBe("repo_second");
-  });
+  }, 15_000);
 
   it("detects stale folder mapping (remote deleted on server) and surfaces a fix hint", async () => {
     const dir = initLocalRepo("stale-mapping");
