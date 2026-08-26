@@ -170,8 +170,6 @@ describe("ideaspaces create", () => {
   });
 
   it("creates `./<name>/` and scaffolds inside it", async () => {
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run(["my-space"], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     expect(existsSync(join(tmp, "my-space", "_agent", "foundation.md"))).toBe(true);
@@ -211,8 +209,6 @@ describe("ideaspaces create", () => {
 
   it("detects code-repo signal and gitignores _agent/ by default (private)", async () => {
     await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const gitignore = await fs.readFile(join(tmp, ".gitignore"), "utf-8");
@@ -225,8 +221,6 @@ describe("ideaspaces create", () => {
 
   it("opts into shared _agent/ for code repo with --shared", async () => {
     await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run([], { shared: true }, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const gitignore = await fs.readFile(join(tmp, ".gitignore"), "utf-8");
@@ -237,8 +231,6 @@ describe("ideaspaces create", () => {
 
   it("appends to an existing .gitignore under # ideaspace defaults", async () => {
     await fs.writeFile(join(tmp, ".gitignore"), "node_modules/\ndist/\n", "utf-8");
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const gitignore = await fs.readFile(join(tmp, ".gitignore"), "utf-8");
@@ -247,8 +239,6 @@ describe("ideaspaces create", () => {
   });
 
   it("scaffolds an agent vantage with --agent", async () => {
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run(["scribe"], { agent: true }, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const dir = join(tmp, "scribe");
@@ -337,8 +327,6 @@ describe("ideaspaces create", () => {
 
   it("private code-repo shape commits only the boundary files, not _agent/", async () => {
     await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const shown = spawnSync(
