@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createCommand } from "../commands/create.js";
 import { captureStdout } from "./helpers.js";
 import type { GlobalFlags } from "../types.js";
@@ -85,13 +85,16 @@ describe("ideaspaces create", () => {
 
   it("degrades honestly when git is present but unusable", async () => {
     const stubDirectory = await mkdtemp(join(tmpdir(), "is-cli-brokengit-"));
-    const stubGit = join(stubDirectory, "git");
+    const windows = process.platform === "win32";
+    const stubGit = join(stubDirectory, windows ? "git.cmd" : "git");
     await fs.writeFile(
       stubGit,
-      '#!/bin/sh\nprintf "%s\\n" "xcrun: error: active developer path is missing" >&2\nexit 69\n',
+      windows
+        ? "@echo off\necho xcrun: error: active developer path is missing 1>&2\nexit /b 69\n"
+        : '#!/bin/sh\nprintf "%s\\n" "xcrun: error: active developer path is missing" >&2\nexit 69\n',
       "utf-8",
     );
-    await fs.chmod(stubGit, 0o755);
+    if (!windows) await fs.chmod(stubGit, 0o755);
     const savedPath = process.env.PATH;
     process.env.PATH = stubDirectory;
     try {
@@ -146,7 +149,7 @@ describe("ideaspaces create", () => {
     expect(captured.exit).toBe(0);
     const result = JSON.parse(captured.out);
     // Surfaced (not silent), pointing at the parent repo root.
-    expect(result.nestedInRepo).toBe(realpathSync(tmp));
+    expect(result.nestedInRepo).toBe(realpathSync.native(tmp));
     // Plan still inits an independent repo for the child — nesting is a notice,
     // not a refusal.
     expect(result.plan.some((s: { op: string }) => s.op === "git-init")).toBe(true);
@@ -262,7 +265,7 @@ describe("ideaspaces create", () => {
     const exit = await createCommand.run([], { agent: true }, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const foundation = await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8");
-    const dirName = tmp.split("/").pop() as string;
+    const dirName = basename(tmp);
     expect(foundation).toContain(`Foundation — ${dirName}`);
   });
 

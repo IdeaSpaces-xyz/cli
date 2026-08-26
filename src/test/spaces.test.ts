@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
 let originalHome: string | undefined;
@@ -34,8 +34,8 @@ describe("auth/spaces", () => {
     expect(existsSync(file)).toBe(true);
 
     const map = loadSpaces();
-    expect(map["/Users/u/proj-a"]).toEqual({ repo_id: "r_a", slug: "a", namespace: "u" });
-    expect(map["/Users/u/proj-b"]).toEqual({ repo_id: "r_b", slug: "b", namespace: "acme.com" });
+    expect(map[resolve("/Users/u/proj-a")]).toEqual({ repo_id: "r_a", slug: "a", namespace: "u" });
+    expect(map[resolve("/Users/u/proj-b")]).toEqual({ repo_id: "r_b", slug: "b", namespace: "acme.com" });
   });
 
   it("stores stable identity and route metadata additively", async () => {
@@ -51,7 +51,7 @@ describe("auth/spaces", () => {
       canonical_path: "/spaces/n_0123456789abcdef01234567",
     });
 
-    expect(loadSpaces()["/canonical"]).toMatchObject({
+    expect(loadSpaces()[resolve("/canonical")]).toMatchObject({
       repo_id: "r",
       root_node_id: "n_0123456789abcdef01234567",
       route_status: "resolved",
@@ -86,7 +86,7 @@ describe("auth/spaces", () => {
     fs.writeFileSync(
       join(dir, "spaces.json"),
       JSON.stringify({
-        "/legacy": {
+        [resolve("/legacy")]: {
           repo_id: "r_old",
           slug: "notes",
           namespace: "alice",
@@ -152,7 +152,7 @@ describe("auth/spaces", () => {
     saveSpace("/p", { repo_id: "r2", slug: "s2", namespace: "n" });
     const map = loadSpaces();
     expect(Object.keys(map)).toHaveLength(1);
-    expect(map["/p"].repo_id).toBe("r2");
+    expect(map[resolve("/p")].repo_id).toBe("r2");
   });
 
   it("loadSpaces tolerates a malformed JSON file", async () => {

@@ -7,13 +7,29 @@ import { gitAvailability, gitAvailable, GIT_MISSING_HINT, GIT_UNUSABLE_HINT } fr
 const originalPath = process.env.PATH;
 const temporaryDirectories: string[] = [];
 
-async function pathDirectory(gitScript?: string): Promise<string> {
+async function pathDirectory(
+  stub?: { stdout?: string; stderr?: string; exitCode?: number },
+): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "is-cli-git-availability-"));
   temporaryDirectories.push(directory);
-  if (gitScript !== undefined) {
-    const executable = join(directory, "git");
-    await writeFile(executable, `#!/bin/sh\n${gitScript}\n`, "utf-8");
-    await chmod(executable, 0o755);
+  if (stub !== undefined) {
+    const windows = process.platform === "win32";
+    const executable = join(directory, windows ? "git.cmd" : "git");
+    const lines = windows
+      ? [
+          "@echo off",
+          ...(stub.stdout ? [`echo ${stub.stdout}`] : []),
+          ...(stub.stderr ? [`echo ${stub.stderr} 1>&2`] : []),
+          `exit /b ${stub.exitCode ?? 0}`,
+        ]
+      : [
+          "#!/bin/sh",
+          ...(stub.stdout ? [`printf '%s\\n' '${stub.stdout}'`] : []),
+          ...(stub.stderr ? [`printf '%s\\n' '${stub.stderr}' >&2`] : []),
+          `exit ${stub.exitCode ?? 0}`,
+        ];
+    await writeFile(executable, `${lines.join("\n")}\n`, "utf-8");
+    if (!windows) await chmod(executable, 0o755);
   }
   return directory;
 }
@@ -36,9 +52,10 @@ describe("git availability", () => {
   });
 
   it("reports a present executable that exits nonzero as unusable", async () => {
-    process.env.PATH = await pathDirectory(
-      'printf "%s\\n" "xcrun: error: active developer path is missing" >&2\nexit 69',
-    );
+    process.env.PATH = await pathDirectory({
+      stderr: "xcrun: error: active developer path is missing",
+      exitCode: 69,
+    });
 
     expect(gitAvailability()).toEqual({
       state: "unusable",
@@ -51,7 +68,7 @@ describe("git availability", () => {
   });
 
   it("reports a zero-exit executable and its version", async () => {
-    process.env.PATH = await pathDirectory('printf "%s\\n" "git version 2.48.0"');
+    process.env.PATH = await pathDirectory({ stdout: "git version 2.48.0" });
 
     expect(gitAvailability()).toEqual({ state: "usable", version: "git version 2.48.0" });
     expect(gitAvailable()).toBe(true);

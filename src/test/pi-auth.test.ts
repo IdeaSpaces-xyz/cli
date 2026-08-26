@@ -23,7 +23,7 @@ describe("resolvePiAgentDir / resolvePiAuthPath", () => {
   it("honors PI_CODING_AGENT_DIR so we write where pi reads", () => {
     expect(resolvePiAgentDir({ PI_CODING_AGENT_DIR: "/custom/agent" })).toBe("/custom/agent");
     expect(resolvePiAuthPath({ PI_CODING_AGENT_DIR: "/custom/agent" })).toBe(
-      "/custom/agent/auth.json",
+      join("/custom/agent", "auth.json"),
     );
   });
 });
@@ -101,15 +101,19 @@ describe("readAuthFile / writeAuthFile round-trip", () => {
     writeAuthFile(path, auth);
 
     expect(readAuthFile(path)).toEqual(auth);
-    const mode = (await stat(path)).mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (process.platform !== "win32") {
+      const mode = (await stat(path)).mode & 0o777;
+      expect(mode).toBe(0o600);
+    }
   });
 
   it("re-chmods a pre-existing looser file to 0600", async () => {
     const path = join(dir, "auth.json");
     await writeFile(path, "{}", { mode: 0o644 });
     writeAuthFile(path, upsertApiKey({}, "openai", "k"));
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("preserves an existing provider when logging in another (real login flow)", async () => {

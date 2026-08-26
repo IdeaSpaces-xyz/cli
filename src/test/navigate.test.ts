@@ -48,7 +48,7 @@ async function runNavigate(
 }
 
 beforeEach(async () => {
-  tmp = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-navigate-")));
+  tmp = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-navigate-")));
   cwd = process.cwd();
   process.chdir(tmp);
   git(["init", "-q", "-b", "main"]);
@@ -131,7 +131,7 @@ describe("ideaspaces navigate", () => {
   });
 
   it("renders the local catalog + working set when --workspace is given", async () => {
-    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-ws-")));
+    const ws = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-nav-ws-")));
     try {
       const child = join(ws, "childrepo");
       await fs.mkdir(child, { recursive: true });
@@ -177,7 +177,7 @@ describe("ideaspaces navigate", () => {
   });
 
   it("renders the catalog + hint at a bare workspace folder (no _agent contract)", async () => {
-    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-bare-")));
+    const ws = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-nav-bare-")));
     try {
       const child = join(ws, "childrepo");
       await fs.mkdir(child, { recursive: true });
@@ -197,7 +197,7 @@ describe("ideaspaces navigate", () => {
   });
 
   it("nudges to clone at an empty bare workspace folder (no repos yet)", async () => {
-    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-empty-")));
+    const ws = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-nav-empty-")));
     try {
       // A fresh workspace folder — no child repos, no _agent, not a git repo.
       const { data } = await runNavigate([ws], { workspace: ws });
@@ -212,7 +212,7 @@ describe("ideaspaces navigate", () => {
 
   it("reports position relative to the space root outside a git repo", async () => {
     // A space with an _agent/ but NOT a git repo (tmpdir isn't under git).
-    const nogit = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-nogit-")));
+    const nogit = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-nav-nogit-")));
     try {
       await fs.mkdir(join(nogit, "_agent"), { recursive: true });
       await fs.writeFile(join(nogit, "_agent", "foundation.md"), "---\nname: f\n---\nF.\n");
@@ -241,7 +241,7 @@ describe("ideaspaces navigate", () => {
     expect(data.manifest).toMatchObject({ kind: "content", spaceRoot: tmp });
     expect(data.manifest.contract.map((e: { name: string }) => e.name)).toContain("foundation");
     // Bare path carries an explicit null, not an absent field.
-    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-mf-")));
+    const ws = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-nav-mf-")));
     try {
       const bare = await runNavigate([ws]);
       expect(bare.data.manifest).toBeNull();
@@ -270,7 +270,7 @@ describe("ideaspaces navigate", () => {
   });
 
   it("keeps the forest handles between the stable block and the drift tail", async () => {
-    const ws = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-nav-order-")));
+    const ws = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-nav-order-")));
     try {
       const child = join(ws, "childrepo");
       await fs.mkdir(child, { recursive: true });

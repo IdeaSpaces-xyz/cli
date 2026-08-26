@@ -10,5 +10,5 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export function configDir(): string {
-  return join(homedir(), ".ideaspaces");
+  return join(process.env.HOME || homedir(), ".ideaspaces");
 }

@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
 import type { SpaceCopySnapshotFile } from "./auth/api.js";
 import { configDir } from "./auth/config-dir.js";
@@ -130,8 +130,10 @@ export function normalizeSnapshot(
 
 function readLocal(path: string, root: string): string | null {
   const absolute = resolve(root, path);
-  const prefix = root.endsWith(sep) ? root : root + sep;
-  if (!absolute.startsWith(prefix)) throw new Error(`Path escapes Space: ${path}`);
+  const rel = relative(root, absolute);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error(`Path escapes Space: ${path}`);
+  }
   return existsSync(absolute) ? readFileSync(absolute, "utf-8") : null;
 }
 
@@ -212,7 +214,7 @@ export function applyForkUpdate(plan: ForkUpdatePlan, root: string): void {
 
     const diff = spawnSync(
       "git",
-      ["diff", "--no-index", "--binary", "--no-renames", "--", "before", "after"],
+      ["-c", "core.autocrlf=false", "diff", "--no-index", "--binary", "--no-renames", "--", "before", "after"],
       { cwd: temp, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
     );
     if (diff.error) throw diff.error;
@@ -222,7 +224,7 @@ export function applyForkUpdate(plan: ForkUpdatePlan, root: string): void {
     const patch = diff.stdout
       .replaceAll("a/before/", "a/")
       .replaceAll("b/after/", "b/");
-    const applied = spawnSync("git", ["apply", "--whitespace=nowarn", "-"], {
+    const applied = spawnSync("git", ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", "-"], {
       cwd: root,
       input: patch,
       encoding: "utf-8",

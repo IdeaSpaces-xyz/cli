@@ -102,7 +102,7 @@ export function canonicalRepoRoot(cwd = process.cwd()): string {
   if (result.status !== 0 || !result.stdout?.trim()) {
     throw new Error(result.stderr?.trim() || "not inside a git repository");
   }
-  return realpathSync(result.stdout.trim());
+  return realpathSync.native(result.stdout.trim());
 }
 
 /**
@@ -111,7 +111,7 @@ export function canonicalRepoRoot(cwd = process.cwd()): string {
  * the protocol without following symlinks.
  */
 export function toPortableRepoPath(input: string, root: string, cwd = process.cwd()): string | null {
-  const invocationRoot = realpathSync(cwd);
+  const invocationRoot = realpathSync.native(cwd);
   const absolute = isAbsolute(input) ? resolve(input) : resolve(invocationRoot, input);
   const rel = relative(root, absolute);
   if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
