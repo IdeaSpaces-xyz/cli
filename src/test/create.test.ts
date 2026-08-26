@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createCommand } from "../commands/create.js";
 import { captureStdout } from "./helpers.js";
 import type { GlobalFlags } from "../types.js";
@@ -85,13 +85,21 @@ describe("ideaspaces create", () => {
 
   it("degrades honestly when git is present but unusable", async () => {
     const stubDirectory = await mkdtemp(join(tmpdir(), "is-cli-brokengit-"));
-    const stubGit = join(stubDirectory, "git");
-    await fs.writeFile(
-      stubGit,
-      '#!/bin/sh\nprintf "%s\\n" "xcrun: error: active developer path is missing" >&2\nexit 69\n',
-      "utf-8",
-    );
-    await fs.chmod(stubGit, 0o755);
+    const windows = process.platform === "win32";
+    const stubGit = join(stubDirectory, windows ? "git.exe" : "git");
+    if (windows) {
+      const systemRoot = process.env.SystemRoot;
+      if (!systemRoot) throw new Error("Windows test runner has no SystemRoot");
+      // where.exe is a native executable that exits nonzero for `--version`.
+      await fs.copyFile(join(systemRoot, "System32", "where.exe"), stubGit);
+    } else {
+      await fs.writeFile(
+        stubGit,
+        '#!/bin/sh\nprintf "%s\\n" "xcrun: error: active developer path is missing" >&2\nexit 69\n',
+        "utf-8",
+      );
+      await fs.chmod(stubGit, 0o755);
+    }
     const savedPath = process.env.PATH;
     process.env.PATH = stubDirectory;
     try {
@@ -146,7 +154,7 @@ describe("ideaspaces create", () => {
     expect(captured.exit).toBe(0);
     const result = JSON.parse(captured.out);
     // Surfaced (not silent), pointing at the parent repo root.
-    expect(result.nestedInRepo).toBe(realpathSync(tmp));
+    expect(result.nestedInRepo).toBe(realpathSync.native(tmp));
     // Plan still inits an independent repo for the child — nesting is a notice,
     // not a refusal.
     expect(result.plan.some((s: { op: string }) => s.op === "git-init")).toBe(true);
@@ -170,8 +178,6 @@ describe("ideaspaces create", () => {
   });
 
   it("creates `./<name>/` and scaffolds inside it", async () => {
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run(["my-space"], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     expect(existsSync(join(tmp, "my-space", "_agent", "foundation.md"))).toBe(true);
@@ -211,8 +217,6 @@ describe("ideaspaces create", () => {
 
   it("detects code-repo signal and gitignores _agent/ by default (private)", async () => {
     await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const gitignore = await fs.readFile(join(tmp, ".gitignore"), "utf-8");
@@ -225,8 +229,6 @@ describe("ideaspaces create", () => {
 
   it("opts into shared _agent/ for code repo with --shared", async () => {
     await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run([], { shared: true }, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const gitignore = await fs.readFile(join(tmp, ".gitignore"), "utf-8");
@@ -237,8 +239,6 @@ describe("ideaspaces create", () => {
 
   it("appends to an existing .gitignore under # ideaspace defaults", async () => {
     await fs.writeFile(join(tmp, ".gitignore"), "node_modules/\ndist/\n", "utf-8");
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const gitignore = await fs.readFile(join(tmp, ".gitignore"), "utf-8");
@@ -247,8 +247,6 @@ describe("ideaspaces create", () => {
   });
 
   it("scaffolds an agent vantage with --agent", async () => {
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run(["scribe"], { agent: true }, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const dir = join(tmp, "scribe");
@@ -272,7 +270,7 @@ describe("ideaspaces create", () => {
     const exit = await createCommand.run([], { agent: true }, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const foundation = await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8");
-    const dirName = tmp.split("/").pop() as string;
+    const dirName = basename(tmp);
     expect(foundation).toContain(`Foundation — ${dirName}`);
   });
 
@@ -337,8 +335,6 @@ describe("ideaspaces create", () => {
 
   it("private code-repo shape commits only the boundary files, not _agent/", async () => {
     await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
-    spawnSync("git", ["config", "--global", "user.email", "test@example.com"]);
-    spawnSync("git", ["config", "--global", "user.name", "Test"]);
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const shown = spawnSync(
@@ -580,13 +576,13 @@ describe("ideaspaces create — git author identity", () => {
     );
 
     // create's call passes timeoutMs: 2000, so AbortError fires by ~2s.
-    // Bound assertion just past that to catch a regression where the
-    // timeout silently stops working (test hangs to vitest default).
+    // Allow native Windows scaffolding overhead while keeping a strict bound
+    // that catches a regression where the request timeout stops working.
     const { createCommand: cc } = await import("../commands/create.js");
     const start = Date.now();
     const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
     const elapsed = Date.now() - start;
     expect(exit).toBe(0);
-    expect(elapsed).toBeLessThan(3000);
-  }, 5_000);
+    expect(elapsed).toBeLessThan(4500);
+  }, 8_000);
 });

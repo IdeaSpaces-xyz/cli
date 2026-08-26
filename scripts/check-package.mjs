@@ -8,6 +8,13 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 const temp = mkdtempSync(join(tmpdir(), "ideaspaces-cli-package-"));
 
+function runNpm(args, options) {
+  const npmEntrypoint = process.env.npm_execpath;
+  return npmEntrypoint
+    ? execFileSync(process.execPath, [npmEntrypoint, ...args], options)
+    : execFileSync("npm", args, options);
+}
+
 try {
   if (Object.keys(pkg.dependencies ?? {}).length !== 0) {
     throw new Error("The published CLI must have zero runtime dependencies; bundle them at build time.");
@@ -17,8 +24,7 @@ try {
   }
 
   const packed = JSON.parse(
-    execFileSync(
-      "npm",
+    runNpm(
       ["pack", "--ignore-scripts", "--json", "--pack-destination", temp],
       { cwd: root, encoding: "utf8" },
     ),
@@ -32,14 +38,13 @@ try {
     );
   }
   const executable = packed.files.find((file) => file.path === "bundle/ideaspaces.js");
-  if (!executable || (executable.mode & 0o111) === 0) {
-    throw new Error("The published CLI entrypoint must be executable.");
+  if (!executable || (process.platform !== "win32" && (executable.mode & 0o111) === 0)) {
+    throw new Error("The published CLI entrypoint must be executable on POSIX hosts.");
   }
 
   const tarball = join(temp, packed.filename);
   const installRoot = join(temp, "install");
-  execFileSync(
-    "npm",
+  runNpm(
     ["install", "--global", "--no-audit", "--no-fund", "--prefix", installRoot, tarball],
     { stdio: "inherit" },
   );
@@ -48,7 +53,10 @@ try {
     process.platform === "win32"
       ? join(installRoot, "ideaspaces.cmd")
       : join(installRoot, "bin", "ideaspaces");
-  const result = spawnSync(executablePath, ["--help"], { encoding: "utf8" });
+  const result = spawnSync(executablePath, ["--help"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(result.stderr || `Installed CLI exited ${result.status}`);

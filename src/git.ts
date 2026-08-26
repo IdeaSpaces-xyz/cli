@@ -12,7 +12,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 export class GitError extends Error {}
@@ -155,7 +155,7 @@ export function setLocalConfig(key: string, value: string, cwd?: string): void {
 export function repoRoot(cwd?: string): string {
   const r = git(["rev-parse", "--show-toplevel"], cwd);
   if (!r.ok) throw new GitError("not inside a git repository");
-  return r.out;
+  return realpathSync.native(r.out);
 }
 
 export function headSha(cwd?: string): string {

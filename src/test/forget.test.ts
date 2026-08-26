@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolve } from "node:path";
 
 import type { GlobalFlags } from "../types.js";
 
@@ -58,7 +59,7 @@ describe("forget", () => {
     const code = await forgetCommand.run(["/Users/a/notes"], {}, JSON_GLOBAL);
 
     expect(code).toBe(0);
-    expect(removeSpaceMock).toHaveBeenCalledWith("/Users/a/notes");
+    expect(removeSpaceMock).toHaveBeenCalledWith(resolve("/Users/a/notes"));
     expect(rmSyncMock).not.toHaveBeenCalled();
     expect(JSON.parse(stdout())).toMatchObject({ forgotten: true, deleted: false });
   });
@@ -69,7 +70,7 @@ describe("forget", () => {
     const code = await forgetCommand.run(["/Users/a/notes"], { delete: true }, JSON_GLOBAL);
 
     expect(code).toBe(0);
-    expect(rmSyncMock).toHaveBeenCalledWith("/Users/a/notes", { recursive: true, force: true });
+    expect(rmSyncMock).toHaveBeenCalledWith(resolve("/Users/a/notes"), { recursive: true, force: true });
     expect(JSON.parse(stdout())).toMatchObject({ deleted: true });
   });
 

@@ -25,7 +25,7 @@
 import { promises as fs } from "node:fs";
 import { existsSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join, resolve, relative, basename } from "node:path";
+import { join, resolve, relative, basename, sep } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe } from "../auth/api.js";
@@ -494,7 +494,7 @@ function effectiveRealPath(target: string): string {
     suffix.unshift(basename(probe));
     probe = parent;
   }
-  const real = realpathSync(probe);
+  const real = realpathSync.native(probe);
   return suffix.length ? join(real, ...suffix) : real;
 }
 
@@ -513,8 +513,9 @@ function enclosingRepoRoot(targetDir: string): string | null {
   }
   const r = spawnSync("git", ["-C", probe, "rev-parse", "--show-toplevel"], { encoding: "utf-8" });
   if (r.status !== 0) return null;
-  const root = r.stdout.trim();
-  if (!root) return null;
+  const reportedRoot = r.stdout.trim();
+  if (!reportedRoot) return null;
+  const root = realpathSync.native(reportedRoot);
   // Compare against the target's real path so "is the target itself the repo
   // root?" holds even when git's toplevel is a realpath (notably on macOS).
   return root !== effectiveRealPath(targetDir) ? root : null;
@@ -524,7 +525,9 @@ function enclosingRepoRoot(targetDir: string): string | null {
 function nestingNotice(targetDir: string, parentRoot: string): string {
   // Relativize against the target's real path: parentRoot is git's realpath, so
   // a raw symlinked targetDir would yield a bogus `../../` traversal hint.
-  const rel = relative(parentRoot, effectiveRealPath(targetDir)) || basename(targetDir);
+  const rel = (relative(parentRoot, effectiveRealPath(targetDir)) || basename(targetDir))
+    .split(sep)
+    .join("/");
   return (
     `Note: this folder is inside git repo ${parentRoot}.\n` +
     `  Creating an independent ideaspace repo here — ${parentRoot} will see \`${rel}/\` as an untracked nested repo.\n` +

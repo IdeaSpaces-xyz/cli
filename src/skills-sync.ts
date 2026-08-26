@@ -18,7 +18,7 @@
 import { promises as fs } from "node:fs";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { stringify } from "yaml";
 import {
   composeContractAlongPath,
@@ -165,7 +165,7 @@ async function renderPointer(name: string, canonicalPath: string, pointerDir: st
   if (pointerFm.description == null && typeof fm.summary === "string") {
     pointerFm.description = fm.summary;
   }
-  const rel = relative(pointerDir, canonicalPath);
+  const rel = relative(pointerDir, canonicalPath).split(sep).join("/");
   return [
     "---",
     stringify(pointerFm).trimEnd(),

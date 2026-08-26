@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { slugify, preflightSize, renderSizeProblems } from "../commands/publish.js";
 import { gitignoreDefaults } from "../templates/default.js";
 import type { GlobalFlags } from "../types.js";
@@ -100,7 +101,7 @@ function setupBareRemote(namespace: string, slug: string): string {
   rmSync(target, { recursive: true, force: true });
   mkdirSync(join(root, namespace), { recursive: true });
   spawnSync("git", ["init", "--bare", "-q", "-b", "main", target]);
-  process.env.IS_GIT_URL = `file://${root}`;
+  process.env.IS_GIT_URL = pathToFileURL(root).href.replace(/\/$/, "");
   return target;
 }
 
@@ -448,7 +449,7 @@ describe("ideaspaces publish", () => {
     // IS_GIT_URL points at a directory that doesn't exist, so `git push` to
     // file://<missing>/<namespace>/<slug>.git fails. Exit 1, no spaces.json
     // (the save happens after a successful push).
-    process.env.IS_GIT_URL = `file://${join(tmp, "does-not-exist")}`;
+    process.env.IS_GIT_URL = pathToFileURL(join(tmp, "does-not-exist")).href.replace(/\/$/, "");
 
     const { publishCommand } = await import("../commands/publish.js");
     const exit = await publishCommand.run([], {}, baseGlobal);
