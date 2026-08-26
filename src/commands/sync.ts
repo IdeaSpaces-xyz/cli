@@ -435,14 +435,26 @@ export const syncCommand: CommandDef = {
         // Each dead end has a different next step, and one of them is not
         // `link`: when the account could not be reached, `link` makes the same
         // call and fails the same way.
-        incomingNote = !config
-          ? "Log in to see what changed on the other side: ideaspaces login"
-          : failure === "unreachable"
-            ? "Could not reach your account to work out which Space this clone is. Retry when you're back online."
-            : failure === "ambiguous"
-              ? "This clone's origin matches more than one of your Spaces. Name the right one: ideaspaces link . <space>"
-              : "Could not tell which Space this clone belongs to — its origin isn't a canonical Space URL " +
-                "and no Space on your account matches it. Bind it explicitly: ideaspaces link . <space>";
+        incomingNote = failure === "identity-dirty"
+          ? "The root identity declaration has an uncommitted change. Commit or restore _agent/foundation.md before syncing."
+          : failure === "identity-drift"
+            ? "The foundation, canonical origin, and local registry disagree on Space identity. Refusing to choose one."
+            : failure === "identity-ambiguous"
+              ? "The canonical origin and local registry name different Spaces. Repair the binding before syncing."
+              : failure === "identity-invalid"
+                ? "Space identity evidence is invalid. Inspect _agent/foundation.md before syncing."
+                : !config
+                  ? "Log in to see what changed on the other side: ideaspaces login"
+                  : failure === "unreachable"
+                    ? "Could not reach your account to work out which Space this clone is. Retry when you're back online."
+                    : failure === "ambiguous"
+                      ? "This clone's origin matches more than one of your Spaces. Name the right one: ideaspaces link . <space>"
+                      : failure === "unpublished"
+                        ? "This unpublished local fork has no hosted destination. Publish it before syncing with a Keeper."
+                        : failure === "local-only"
+                          ? "This Space has local identity but no hosted destination. Publish it before syncing with a Keeper."
+                          : "Could not tell which Space this clone belongs to — its origin isn't a canonical Space URL " +
+                          "and no Space on your account matches it. Bind it explicitly: ideaspaces link . <space>";
       } else if (!config) {
         // The coordinate came from the clone itself; reading the trail still
         // needs a session.

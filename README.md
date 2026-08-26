@@ -34,9 +34,16 @@ ideaspaces push
 ideaspaces pull
 ```
 
-Everything is local-first: your working copy is a real git repository on disk. Captures are yours until you choose to publish or push them.
+Everything is local-first: your working copy is a real git repository on disk. Captures are yours
+until you choose to publish or push them. Shared `create` mints a portable `root_node_id` into the
+committed root foundation before login; private gitignored `_agent/` scaffolds remain unstamped.
+First `publish` asks the server to adopt that exact committed identity. Declaration,
+canonical-origin, or registry drift refuses before network mutation, and `publish --force` never
+forks or rekeys a Space.
 
-`write` operates only inside that canonical Git worktree. It preserves frontmatter fields you do not
+`status` reports the local root-identity state and its HEAD/index/worktree declaration facts without
+network access or mutation. `write` operates only inside that canonical Git worktree. It preserves
+frontmatter fields you do not
 set, replaces the Markdown atomically, and stages only the selected path. Use the returned `sha` as
 `--if-match` for a safe refinement; `--force` is the explicit destructive override. `commit` snapshots
 the worktree/index/HEAD revision of every selected path and commits exactly that reviewed set, leaving
@@ -57,11 +64,11 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 ### Spaces & content
 | Command | What it does |
 |---|---|
-| `clone <space-url> [dir]` | Clone an authorized Space by stable identity into a local working copy |
+| `clone <space-url> [dir]` | Clone an authorized Space, preserve its declaration, and verify it against the canonical origin |
 | `fork <space-url> [dir]` | Create and clone an independent current-content copy without source history |
 | `update [--yes]` | Preview or apply maintained source updates to a fork without displacing local work |
 | `clones` | List hosted clones and unpublished local forks |
-| `create <name>` | Create a new space |
+| `create <name>` | Create a local Space; shared scaffolds mint portable root identity before login |
 | `repos` | List spaces you can access |
 | `link <dir> <namespace/slug>` | Bind an existing local directory to a space |
 
@@ -79,7 +86,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 | `sync` | Report where you, the Space, and a fork's recorded source stand — reads only, integrates nothing |
 | `push` | Send your committed captures to the remote |
 | `pull` | Integrate changes from the fork's own Git remote |
-| `publish` | Publish a local Space; an unpublished fork keeps its declared identity and source lineage |
+| `publish` | Adopt the committed local identity on first publish; never silently rebind or rekey |
 
 ### Navigate & search
 | Command | What it does |
@@ -89,7 +96,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 | `catalog` | Join local checkouts with remote Spaces and their publication/sync state |
 | `ls [<path>]` | List files and folders under a path, typed (folder / repo / ideaspace) |
 | `search <query>` | Full-text search (filename + BM25) over the local clone |
-| `status` | Working-copy status (ahead / behind / dirty) |
+| `status` | Working-copy and offline root-identity status, including uncommitted declaration drift |
 | `skills` | List the skill catalog, or print one skill's markdown |
 
 ### Collaborate

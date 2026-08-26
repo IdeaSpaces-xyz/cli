@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,6 +82,25 @@ describe("status --fetch", () => {
 
     expect((await statusJson(b, {})).behind).toBe(0);
     expect((await statusJson(b, { fetch: true })).behind).toBe(1);
+  });
+
+  it("reports portable root identity without fetching", async () => {
+    const b = join(root, "b");
+    const rootNodeId = "n_0123456789abcdef01234567";
+    mkdirSync(join(b, "_agent"));
+    writeFileSync(
+      join(b, "_agent", "foundation.md"),
+      `---\nname: Test\nsummary: Test.\nroot_node_id: ${rootNodeId}\n---\n\n# Foundation\n`,
+    );
+    git(b, ["add", "_agent/foundation.md"]);
+    git(b, ["commit", "-m", "declare identity"]);
+
+    const status = await statusJson(b, {});
+    expect(status.root_identity).toMatchObject({
+      state: "local_only",
+      root_node_id: rootNodeId,
+      declaration: { head: rootNodeId, index: rootNodeId, worktree: rootNodeId, dirty: false },
+    });
   });
 
   it("exits 1 with context when the fetch fails", async () => {

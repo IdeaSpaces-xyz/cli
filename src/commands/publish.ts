@@ -4,14 +4,16 @@
  * Flow:
  *   1. Load credentials (require login).
  *   2. Fetch /auth/me for the OAuth-resolved username.
- *   3. POST /repos with name + slug + hostname → server-side bare repo.
- *   4. Set local git user.email = person:<username>@ideaspaces in cwd so
+ *   3. Evaluate committed foundation, canonical origin, and local registry;
+ *      refuse dirty, drifted, ambiguous, or incompatible identity evidence.
+ *   4. POST /repos with the committed root_node_id for atomic adoption.
+ *   5. Set local git user.email = person:<username>@ideaspaces in cwd so
  *      the pre-receive identity check resolves the author without needing
  *      a Co-authored-by trailer per commit.
- *   5. git remote add origin → git push -u origin main. The server's bare
+ *   6. git remote add origin → git push -u origin main. The server's bare
  *      repo accepts the ref creation; force-push guard short-circuits on
  *      ZERO_OID for new refs.
- *   6. Persist stable root identity plus route projection to
+ *   7. Persist stable root identity plus route projection to
  *      ~/.ideaspaces/spaces.json, keyed by absolute folder path.
  *
  * Pre-receive enforces a 200KB per-blob size cap and identity strict-match
@@ -19,12 +21,11 @@
  * size cap surfaces as a structured rejection if a blob is too large.
  */
 
-import { parseFrontmatter } from "@ideaspaces/protocol";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
-import { loadStoredCredentials } from "../auth/credentials.js";
+import { getDefaultApiUrl, loadConfig, loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe, createRepo, deriveGitBase, deriveWebBase, UnauthorizedError } from "../auth/api.js";
 import {
   findSpaceFor,
@@ -43,6 +44,11 @@ import {
   identityEmail as formatIdentityEmail,
   identityName as formatIdentityName,
 } from "../auth/identity.js";
+import { normalizeRepoUrl } from "../git.js";
+import {
+  inspectLocalRootIdentity,
+  type LocalRootIdentityReport,
+} from "../root-identity.js";
 import type { CommandDef } from "../types.js";
 import {
   hasFrontmatterSyntaxProblems,
@@ -149,56 +155,34 @@ export function slugify(input: string): string {
   return s.slice(0, 64).replace(/-+$/, "");
 }
 
-function declaredRootNodeId(content: string): unknown {
-  return parseFrontmatter(content)?.root_node_id;
-}
-
-function describeDeclaration(value: unknown): string {
-  return typeof value === "string" ? value : "absent";
-}
-
-function unpublishedDeclarationProblem(
-  cwd: string,
-  expectedRootNodeId: string,
-): string | null {
-  // Publish sends HEAD, not the worktree or index. The committed declaration is
-  // therefore the authority this preflight must compare with the registry.
-  const committed = runGit(cwd, ["show", "HEAD:_agent/foundation.md"]);
-  if (!committed.ok) {
+function rootIdentityProblem(identity: LocalRootIdentityReport): string | null {
+  if (identity.declaration.dirty) {
     return (
-      "This unpublished fork has no committed root _agent/foundation.md declaration. " +
-      "Commit the declared root identity before publishing."
+      "The root identity declaration differs between HEAD, the index, and the worktree. " +
+      "Publish sends HEAD; commit or restore _agent/foundation.md before publishing."
     );
   }
-  const committedDeclaration = declaredRootNodeId(committed.stdout);
-  if (committedDeclaration !== expectedRootNodeId) {
-    return (
-      `The unpublished registry identity (${expectedRootNodeId}) does not match the committed root ` +
-      `foundation declaration (${describeDeclaration(committedDeclaration)}). ` +
-      "Refusing to guess, rewrite, or rekey the Space."
-    );
+  if (identity.state === "invalid") {
+    return "Root identity evidence is invalid. Fix the foundation declaration before publishing.";
   }
-
-  // Refuse immediate post-publish drift too: an uncommitted edit must not make
-  // the checkout disagree with the identity just registered from HEAD.
-  const foundationPath = join(cwd, "_agent", "foundation.md");
-  if (!existsSync(foundationPath)) {
-    return "The committed root identity exists, but _agent/foundation.md is missing from the worktree.";
+  if (identity.state === "drift") {
+    return "Root identity drift: the committed foundation disagrees with the hosted origin or local registry. Refusing to rebind or rekey the Space.";
   }
-  let worktreeDeclaration: unknown;
-  try {
-    worktreeDeclaration = declaredRootNodeId(readFileSync(foundationPath, "utf-8"));
-  } catch (err) {
-    return `Could not read the root identity declaration: ${err instanceof Error ? err.message : String(err)}`;
-  }
-  if (worktreeDeclaration !== expectedRootNodeId) {
-    return (
-      `The unpublished registry identity (${expectedRootNodeId}) does not match the worktree root ` +
-      `foundation declaration (${describeDeclaration(worktreeDeclaration)}). ` +
-      "Refusing to guess, rewrite, or rekey the Space."
-    );
+  if (identity.state === "ambiguous") {
+    return "Root identity is ambiguous: the canonical origin and local registry name different Spaces. Refusing to choose one.";
   }
   return null;
+}
+
+function sameRemote(left: string, right: string): boolean {
+  const leftKey = normalizeRepoUrl(left);
+  const rightKey = normalizeRepoUrl(right);
+  if (leftKey !== null || rightKey !== null) return leftKey !== null && leftKey === rightKey;
+  // Local file:// remotes are used by package tests and self-hosted workflows;
+  // they have no hostname, so the general remote normalizer intentionally
+  // declines them. Compare their stable lexical form instead.
+  const lexical = (value: string) => value.trim().replace(/\.git$/i, "").replace(/\/+$/, "");
+  return lexical(left) === lexical(right);
 }
 
 async function checkMarkdownFrontmatterSyntax(cwd: string): Promise<string | null> {
@@ -234,12 +218,11 @@ function trackedMarkdownFiles(cwd: string): string[] {
 export const publishCommand: CommandDef = {
   name: "publish",
   description: "Publish this folder as a remote ideaspace",
-  usage: "ideaspaces publish [--slug <slug>] [--name <name>] [--hostname <host>] [--force]",
+  usage: "ideaspaces publish [--slug <slug>] [--name <name>] [--hostname <host>]",
   examples: [
     "ideaspaces publish                     # publish current directory",
     "ideaspaces publish --slug my-notes     # explicit slug",
     "ideaspaces publish --hostname acme.com # publish into an org space (must be a member)",
-    "ideaspaces publish --force             # force a fresh remote even if this dir already mapped",
   ],
   async run(_args, rawFlags, global) {
     const output = createOutput(global);
@@ -269,6 +252,66 @@ export const publishCommand: CommandDef = {
       output.error(
         `Local branch is \`${branch}\`; IdeaSpaces uses \`main\` as the default. ` +
           `Rename with \`git branch -m main\` and retry, or use \`/is-publish\` from Claude Code which offers to rename for you.`,
+      );
+      return 1;
+    }
+
+    const existing = findSpaceFor(cwd);
+    const hosted = existing && isHostedSpaceRecord(existing) ? existing : null;
+    const unpublished = existing && isUnpublishedForkRecord(existing) ? existing : null;
+    let rootIdentity: LocalRootIdentityReport;
+    try {
+      rootIdentity = inspectLocalRootIdentity(cwd, loadConfig()?.apiUrl);
+    } catch (err) {
+      output.error(`Could not inspect Space identity: ${err instanceof Error ? err.message : String(err)}`);
+      return 1;
+    }
+    const identityProblem = rootIdentityProblem(rootIdentity);
+    if (identityProblem) {
+      output.error(identityProblem);
+      return 1;
+    }
+
+    // Force may retry replaceable delivery state, but it never changes which
+    // Space this checkout is. A new identity requires an explicit local Fork
+    // and a separate destination checkout.
+    if (hosted && flags.force) {
+      output.error(
+        `This folder is already bound to Space ${rootIdentity.root_node_id ?? hosted.root_node_id ?? hosted.repo_id}. ` +
+          "`publish --force` cannot fork or rekey it. Create a local Fork in a separate destination and publish that checkout instead.",
+      );
+      return 1;
+    }
+
+    const currentOrigin = rootIdentity.origin_url;
+    if (unpublished && currentOrigin) {
+      output.error(
+        `This registry entry is unpublished, but git already has origin ${currentOrigin}. ` +
+          "Refusing to infer or replace a destination. If the remote is accidental, remove it with " +
+          "`git remote remove origin`; if this folder is already hosted, run `ideaspaces forget .` " +
+          "then `ideaspaces link . <space>`.",
+      );
+      return 1;
+    }
+    if (hosted && currentOrigin) {
+      const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+      const compatibleRemotes = [
+        rootIdentity.root_node_id ? canonicalGitUrl(apiUrl, rootIdentity.root_node_id) : null,
+        legacyGitUrl(apiUrl, hosted.namespace, hosted.slug),
+      ].filter((value): value is string => value !== null);
+      if (!compatibleRemotes.some((candidate) => sameRemote(currentOrigin, candidate))) {
+        output.error(
+          `Origin ${currentOrigin} is incompatible with the local registry binding for ${hosted.namespace}/${hosted.slug}. ` +
+            "Refusing to replace it during publish; restore the matching origin or use an explicit local Fork.",
+        );
+        return 1;
+      }
+    }
+    if (!hosted && !unpublished && currentOrigin) {
+      output.error(
+        rootIdentity.canonical_origin
+          ? `This checkout already has canonical origin ${currentOrigin}. Link it to that hosted Space instead of publishing a second destination.`
+          : `This checkout already has origin ${currentOrigin}. Refusing to replace an unrelated remote during publish.`,
       );
       return 1;
     }
@@ -307,25 +350,12 @@ export const publishCommand: CommandDef = {
       return 1;
     }
     const config = { apiUrl: stored.api_url, apiKey: stored.api_key };
-    const existing = findSpaceFor(cwd);
-    const hosted = existing && isHostedSpaceRecord(existing) ? existing : null;
-    const unpublished = existing && isUnpublishedForkRecord(existing) ? existing : null;
-    if (unpublished) {
-      const declarationProblem = unpublishedDeclarationProblem(cwd, unpublished.root_node_id);
-      if (declarationProblem) {
-        output.error(declarationProblem);
-        return 1;
-      }
-      const unexpectedRemote = runGit(cwd, ["remote", "get-url", "origin"]);
-      if (unexpectedRemote.ok) {
-        output.error(
-          `This registry entry is unpublished, but git already has origin ${unexpectedRemote.stdout}. ` +
-            "Refusing to infer or replace a destination. If the remote is accidental, remove it with " +
-            "`git remote remove origin`; if this folder is already hosted, run `ideaspaces forget .` " +
-            "then `ideaspaces link . <space>`.",
-        );
-        return 1;
-      }
+    if (unpublished && rootIdentity.declaration.head !== unpublished.root_node_id) {
+      output.error(
+        `The unpublished registry identity (${unpublished.root_node_id}) requires the same committed ` +
+          "root _agent/foundation.md declaration before publishing.",
+      );
+      return 1;
     }
 
     let me;
@@ -346,12 +376,10 @@ export const publishCommand: CommandDef = {
 
     // Re-publish idempotency: if this folder is already mapped to a remote,
     // reuse that record instead of creating another server-side repo.
-    // `--force` opts into a fresh remote (drops the old mapping locally —
-    // the orphaned server repo stays accessible by repo_id).
     let repo: { repo_id: string; root_node_id?: string; slug: string; name: string };
     let namespace: string;
 
-    if (hosted && !flags.force) {
+    if (hosted) {
       // Stale-mapping detection — `/auth/me` returns the repos this user
       // can see. If the mapped repo_id isn't there, either the remote was
       // deleted or the user lost access. Both surface identically; push
@@ -363,9 +391,9 @@ export const publishCommand: CommandDef = {
         output.error(
           `This folder is mapped to ${hosted.namespace}/${hosted.slug} ` +
             `(repo_id=${hosted.repo_id}) but that remote no longer exists ` +
-            `or you no longer have access to it. Re-run with --force to ` +
-            `publish as a fresh space (new repo_id), or remove this folder's ` +
-            `entry from ~/.ideaspaces/spaces.json and retry.`,
+            `or you no longer have access to it. Identity cannot be moved to a fresh remote. ` +
+            `Restore access or repair the binding; to publish as a new Space, create an explicit ` +
+            `local Fork in a separate destination.`,
         );
         return 1;
       }
@@ -381,16 +409,14 @@ export const publishCommand: CommandDef = {
         output.error(
           `${ignored.join(", ")} only apply on first publish. ` +
             `This folder is already mapped to ${hosted.namespace}/${hosted.slug}; ` +
-            `re-publish reuses that record. Use --force to provision a new remote.`,
+            `re-publish reuses that identity. Create an explicit local Fork to publish as a new Space.`,
         );
         return 1;
       }
 
       output.log(
         `This folder is already published as ${hosted.namespace}/${hosted.slug} ` +
-          `(repo_id=${hosted.repo_id}). Re-pushing to the same remote. ` +
-          `Use --force to provision a new one — the old server repo isn't deleted, ` +
-          `just unlinked from this folder.`,
+          `(repo_id=${hosted.repo_id}). Re-pushing to the same Space identity.`,
       );
       const projected = me.repos.find((candidate) => candidate.repo_id === hosted.repo_id);
       repo = {
@@ -418,17 +444,21 @@ export const publishCommand: CommandDef = {
       const hostname = flags.hostname?.toString() ?? null;
       namespace = hostname ?? me.username;
 
+      const prescribedRootNodeId =
+        typeof rootIdentity.declaration.head === "string"
+          ? rootIdentity.declaration.head
+          : undefined;
       try {
         repo = await createRepo(config, {
           name,
           slug,
           hostname,
-          ...(unpublished ? { root_node_id: unpublished.root_node_id } : {}),
+          ...(prescribedRootNodeId ? { root_node_id: prescribedRootNodeId } : {}),
         });
-        if (unpublished && repo.root_node_id !== unpublished.root_node_id) {
+        if (prescribedRootNodeId && repo.root_node_id !== prescribedRootNodeId) {
           output.error(
             `The server returned ${repo.root_node_id || "no root identity"} instead of adopting ` +
-              `${unpublished.root_node_id}. The local fork remains unpublished; no remote was configured or pushed.`,
+              `${prescribedRootNodeId}. No remote was configured or pushed.`,
           );
           return 1;
         }
@@ -456,7 +486,7 @@ export const publishCommand: CommandDef = {
     }
 
     // First-publish only — amending already-pushed commits creates divergence.
-    if (!hosted || flags.force) {
+    if (!hosted) {
       const tipAuthor = runGit(cwd, ["log", "-1", "--format=%ae"]);
       if (!tipAuthor.ok) {
         output.log("Could not read tip author; skipping author rewrite. If push fails the identity check, fix git history manually.");
@@ -562,6 +592,7 @@ export const publishCommand: CommandDef = {
         space_url: webUrl,
         web_url: webUrl,
         identity_email: identityEmail,
+        identity_state: repo.root_node_id ? "aligned" : rootIdentity.state,
       },
       [
         `Published ${repo.name}.`,

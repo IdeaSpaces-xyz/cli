@@ -25,7 +25,6 @@
  */
 
 import { fetchAuthMe, deriveGitBase, type ApiConfig } from "./api.js";
-import { getDefaultApiUrl } from "./credentials.js";
 import {
   findSpaceFor,
   isUnpublishedForkRecord,
@@ -34,7 +33,8 @@ import {
   type HostedSpaceRecord,
 } from "./spaces.js";
 import { normalizeRepoUrl, originUrl } from "../git.js";
-import { repoKeys, rootNodeIdFromGitUrl, spaceRecordForRepo } from "../space-locator.js";
+import { inspectLocalRootIdentity } from "../root-identity.js";
+import { repoKeys, spaceRecordForRepo } from "../space-locator.js";
 
 export interface SpaceBinding {
   rootNodeId: string;
@@ -51,7 +51,16 @@ export interface SpaceBinding {
  * because their account could not be reached is wrong — `link` makes the same
  * call and fails the same way.
  */
-export type BindingFailure = "no-match" | "ambiguous" | "unreachable" | "unpublished";
+export type BindingFailure =
+  | "no-match"
+  | "ambiguous"
+  | "unreachable"
+  | "unpublished"
+  | "local-only"
+  | "identity-invalid"
+  | "identity-drift"
+  | "identity-ambiguous"
+  | "identity-dirty";
 
 /** Merge a resolved root node id into whatever the registry already held. */
 function healed(existing: HostedSpaceRecord, rootNodeId: string): HostedSpaceRecord {
@@ -69,38 +78,44 @@ export async function resolveSpaceBinding(
   config: ApiConfig | null,
 ): Promise<SpaceBinding | { failure: BindingFailure }> {
   const record = findSpaceFor(dir);
-  // A local fork owns this identity but has no hosted destination. Returning
-  // it as a hosted binding would let Share and trail reads address the source
-  // environment as though publication had already happened.
+  let localIdentity;
+  try {
+    localIdentity = inspectLocalRootIdentity(dir, config?.apiUrl);
+  } catch {
+    return { failure: "identity-invalid" };
+  }
+  if (localIdentity.declaration.dirty) return { failure: "identity-dirty" };
+  if (localIdentity.state === "invalid") return { failure: "identity-invalid" };
+  if (localIdentity.state === "drift") return { failure: "identity-drift" };
+  if (localIdentity.state === "ambiguous") return { failure: "identity-ambiguous" };
+
+  // A local declaration or unpublished fork owns identity but has no hosted
+  // destination. Returning it as a binding would address a Keeper as though
+  // publication had already happened.
   if (record && isUnpublishedForkRecord(record)) return { failure: "unpublished" };
-  if (record?.root_node_id) return { rootNodeId: record.root_node_id, via: "record" };
+  if (localIdentity.state === "local_only") return { failure: "local-only" };
+
+  if (localIdentity.local_registry && localIdentity.root_node_id) {
+    return { rootNodeId: localIdentity.root_node_id, via: "record" };
+  }
 
   const origin = originUrl(dir);
 
   // Rung 2 — the coordinate is in the remote. No account needed, which is the
-  // point: this is the rung a Grant-only reader arrives on.
-  if (origin) {
-    // The host check must not depend on being logged in. `sync` with no
-    // session is the *normal* first call for a Grant-only reader, and a
-    // resolution that skipped the check would be healed into the registry and
-    // then trusted forever by rung 1, which never re-validates.
-    const fromOrigin = rootNodeIdFromGitUrl(origin, config?.apiUrl ?? getDefaultApiUrl());
-    if (fromOrigin) {
-      // Only ever augment a record that exists. A brand-new one written here
-      // would carry empty repo_id/slug/namespace — `SpaceRecord` treats those
-      // as populated everywhere else, and `publish`'s stale-mapping check
-      // reads them straight off the registry and would report a folder mapped
-      // to "/" with no repo. Rung 2 costs nothing to repeat, so re-resolving
-      // is cheaper than a half-written record other commands must survive.
-      if (record) {
-        try {
-          saveSpace(dir, healed(record, fromOrigin));
-        } catch {
-          // A registry we cannot write is not a reason to withhold the answer.
-        }
+  // point: this is the rung a Grant-only reader arrives on. The shared local
+  // evaluator has already checked it against declaration and registry evidence.
+  if (localIdentity.canonical_origin && localIdentity.root_node_id) {
+    const fromOrigin = localIdentity.root_node_id;
+    // Only ever augment a hosted record that exists. A brand-new one written
+    // here would carry synthetic repo/route metadata.
+    if (record && !isUnpublishedForkRecord(record)) {
+      try {
+        saveSpace(dir, healed(record, fromOrigin));
+      } catch {
+        // A registry we cannot write is not a reason to withhold the answer.
       }
-      return { rootNodeId: fromOrigin, via: "origin" };
     }
+    return { rootNodeId: fromOrigin, via: "origin" };
   }
 
   // Rung 3 — a legacy origin. Ask the account which Space it is.
