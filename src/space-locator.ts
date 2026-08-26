@@ -1,6 +1,6 @@
 import { deriveGitBase, deriveWebBase, type AuthMeRepo, type AuthMeResponse } from "./auth/api.js";
 import { normalizeRepoUrl } from "./git.js";
-import type { SpaceRecord } from "./auth/spaces.js";
+import type { HostedSpaceRecord } from "./auth/spaces.js";
 
 /** The node-id shape itself, shared so a matcher and a validator cannot drift. */
 const NODE_ID_PATTERN = "n_(?:[0-9a-f]{12}|[0-9a-f]{24})";
@@ -76,7 +76,7 @@ export function repoRouteNamespace(repo: AuthMeRepo, username: string | null): s
 }
 
 /** Build an additive registry record while preserving old-reader compatibility. */
-export function spaceRecordForRepo(repo: AuthMeRepo, username: string | null): SpaceRecord {
+export function spaceRecordForRepo(repo: AuthMeRepo, username: string | null): HostedSpaceRecord {
   const routeNamespace = repoRouteNamespace(repo, username);
   return {
     repo_id: repo.repo_id,

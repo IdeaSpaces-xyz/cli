@@ -175,4 +175,30 @@ describe("update command", () => {
       saveSpaceMock.mock.invocationCallOrder[0],
     );
   });
+
+  it("advances an unpublished fork baseline without inventing hosted fields", async () => {
+    findSpaceForMock.mockReturnValue({
+      kind: "unpublished_fork",
+      root_node_id: "n_0123456789abcdef01234567",
+      name: "Local Guide",
+      source_root_node_id: SOURCE,
+      source_head: "a".repeat(40),
+      source_baseline_initialized: true,
+    });
+
+    expect(await updateCommand.run([], {}, { ...JSON_GLOBAL, yes: true })).toBe(0);
+
+    expect(saveSpaceMock).toHaveBeenCalledWith(
+      realpathSync.native(process.cwd()),
+      expect.objectContaining({
+        kind: "unpublished_fork",
+        root_node_id: "n_0123456789abcdef01234567",
+        source_head: "b".repeat(40),
+        source_baseline_initialized: true,
+      }),
+    );
+    const written = saveSpaceMock.mock.calls[0][1];
+    expect(written).not.toHaveProperty("repo_id");
+    expect(written).not.toHaveProperty("namespace");
+  });
 });

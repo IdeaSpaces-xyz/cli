@@ -155,6 +155,115 @@ describe("auth/spaces", () => {
     expect(map[resolve("/p")].repo_id).toBe("r2");
   });
 
+  it("stores an unpublished fork without synthetic hosted fields", async () => {
+    const { saveSpace, findSpaceFor } = await import("../auth/spaces.js");
+    saveSpace("/local-fork", {
+      kind: "unpublished_fork",
+      root_node_id: "n_0123456789abcdef01234567",
+      name: "Local Guide",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
+    });
+
+    const record = findSpaceFor("/local-fork");
+    expect(record).toMatchObject({
+      kind: "unpublished_fork",
+      root_node_id: "n_0123456789abcdef01234567",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+    });
+    expect(record).not.toHaveProperty("repo_id");
+    expect(record).not.toHaveProperty("slug");
+    expect(record).not.toHaveProperty("namespace");
+    expect(record).not.toHaveProperty("route_status");
+  });
+
+  it("refuses fake destinations and invalid unpublished identity", async () => {
+    const { saveSpace } = await import("../auth/spaces.js");
+    const valid = {
+      kind: "unpublished_fork" as const,
+      root_node_id: "n_0123456789abcdef01234567",
+      name: "Local Guide",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: false,
+    };
+    expect(() => saveSpace("/fake", { ...valid, repo_id: "" } as never)).toThrow(
+      "invalid local Space registry record",
+    );
+    expect(() =>
+      saveSpace("/same", { ...valid, root_node_id: valid.source_root_node_id }),
+    ).toThrow("invalid local Space registry record");
+    expect(() =>
+      saveSpace("/legacy-destination", { ...valid, root_node_id: "n_0123456789ab" }),
+    ).toThrow("invalid local Space registry record");
+  });
+
+  it("drops malformed records at the read boundary without rewriting the file", async () => {
+    const dir = join(tmp, ".ideaspaces");
+    const file = join(dir, "spaces.json");
+    const fs = await import("node:fs");
+    fs.mkdirSync(dir, { recursive: true });
+    const raw = JSON.stringify({
+      "/fake": {
+        kind: "unpublished_fork",
+        repo_id: "",
+        root_node_id: "n_0123456789abcdef01234567",
+        name: "Fake",
+        source_root_node_id: "n_ffffffffffffffffffffffff",
+        source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+        source_baseline_initialized: true,
+      },
+      "/hosted": { repo_id: "r", slug: "s", namespace: "n" },
+    });
+    fs.writeFileSync(file, raw);
+
+    const { loadSpaces } = await import("../auth/spaces.js");
+    expect(loadSpaces()).toEqual({ "/hosted": { repo_id: "r", slug: "s", namespace: "n" } });
+    expect(readFileSync(file, "utf-8")).toBe(raw);
+  });
+
+  it("converts an unpublished fork to the matching hosted binding without losing lineage", async () => {
+    const { withForkLineage } = await import("../auth/spaces.js");
+    const previous = {
+      kind: "unpublished_fork" as const,
+      root_node_id: "n_0123456789abcdef01234567",
+      name: "Local Guide",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
+    };
+    expect(
+      withForkLineage(
+        {
+          repo_id: "repo_new",
+          root_node_id: previous.root_node_id,
+          slug: "local-guide",
+          namespace: "alice",
+        },
+        previous,
+      ),
+    ).toMatchObject({
+      repo_id: "repo_new",
+      root_node_id: previous.root_node_id,
+      source_root_node_id: previous.source_root_node_id,
+      source_head: previous.source_head,
+      source_baseline_initialized: true,
+      name: "Local Guide",
+    });
+    expect(
+      withForkLineage(
+        {
+          repo_id: "repo_other",
+          root_node_id: "n_aaaaaaaaaaaaaaaaaaaaaaaa",
+          slug: "other",
+          namespace: "alice",
+        },
+        previous,
+      ),
+    ).not.toHaveProperty("source_root_node_id");
+  });
+
   it("loadSpaces tolerates a malformed JSON file", async () => {
     const { saveSpace, loadSpaces } = await import("../auth/spaces.js");
     saveSpace("/p", { repo_id: "r", slug: "s", namespace: "n" });

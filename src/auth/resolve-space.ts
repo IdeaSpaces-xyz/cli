@@ -26,7 +26,13 @@
 
 import { fetchAuthMe, deriveGitBase, type ApiConfig } from "./api.js";
 import { getDefaultApiUrl } from "./credentials.js";
-import { findSpaceFor, saveSpace, withForkLineage, type SpaceRecord } from "./spaces.js";
+import {
+  findSpaceFor,
+  isUnpublishedForkRecord,
+  saveSpace,
+  withForkLineage,
+  type HostedSpaceRecord,
+} from "./spaces.js";
 import { normalizeRepoUrl, originUrl } from "../git.js";
 import { repoKeys, rootNodeIdFromGitUrl, spaceRecordForRepo } from "../space-locator.js";
 
@@ -45,10 +51,10 @@ export interface SpaceBinding {
  * because their account could not be reached is wrong — `link` makes the same
  * call and fails the same way.
  */
-export type BindingFailure = "no-match" | "ambiguous" | "unreachable";
+export type BindingFailure = "no-match" | "ambiguous" | "unreachable" | "unpublished";
 
 /** Merge a resolved root node id into whatever the registry already held. */
-function healed(existing: SpaceRecord, rootNodeId: string): SpaceRecord {
+function healed(existing: HostedSpaceRecord, rootNodeId: string): HostedSpaceRecord {
   return { ...existing, root_node_id: rootNodeId };
 }
 
@@ -63,6 +69,10 @@ export async function resolveSpaceBinding(
   config: ApiConfig | null,
 ): Promise<SpaceBinding | { failure: BindingFailure }> {
   const record = findSpaceFor(dir);
+  // A local fork owns this identity but has no hosted destination. Returning
+  // it as a hosted binding would let Share and trail reads address the source
+  // environment as though publication had already happened.
+  if (record && isUnpublishedForkRecord(record)) return { failure: "unpublished" };
   if (record?.root_node_id) return { rootNodeId: record.root_node_id, via: "record" };
 
   const origin = originUrl(dir);

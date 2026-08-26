@@ -10,7 +10,7 @@ import {
 import { loadConfig } from "../auth/credentials.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { identityEmail, identityName } from "../auth/identity.js";
-import { saveSpace, type SpaceRecord } from "../auth/spaces.js";
+import { saveSpace, type HostedSpaceRecord } from "../auth/spaces.js";
 import { cloneRepo, commitPaths, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
 import { gitignoreWithDefaults } from "../templates/default.js";
@@ -33,7 +33,7 @@ function stringFlag(
 function fallbackRecord(
   result: { repo_id: string; root_node_id: string; slug: string },
   namespace: string,
-): SpaceRecord {
+): HostedSpaceRecord {
   return {
     repo_id: result.repo_id,
     root_node_id: result.root_node_id,
@@ -225,7 +225,7 @@ export const forkCommand: CommandDef = {
     const namespace = hostname ?? me.username ?? "";
     // The clone's remote is the copy's own. Record where it came from and at
     // what commit, or nothing downstream can ever offer an update.
-    const record: SpaceRecord = {
+    const record: HostedSpaceRecord = {
       ...(destinationRepo
         ? spaceRecordForRepo(destinationRepo, me.username)
         : fallbackRecord(copied, namespace)),

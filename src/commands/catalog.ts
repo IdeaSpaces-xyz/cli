@@ -6,14 +6,15 @@
  * Auth-optional: logged out it emits the local clones only; logged in it adds
  * the remote/pullable tier. Structured data, not presentation — consumers (the
  * desktop rail, the local agent's awareness) format the state vocabulary
- * themselves; the `--json` output carries raw `ahead`/`behind`/`dirty`.
+ * themselves; the `--json` output carries publication state and raw
+ * `ahead`/`behind`/`dirty` facts.
  */
 
 import { gitState } from "@ideaspaces/protocol";
 import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import type { AuthMeRepo, AuthMeResponse } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { listClones } from "../auth/spaces.js";
+import { isHostedSpaceRecord, isUnpublishedForkRecord, listClones } from "../auth/spaces.js";
 import type { SpaceRecord } from "../auth/spaces.js";
 import { fetch as gitFetch } from "../git.js";
 import { createOutput } from "../output.js";
@@ -36,10 +37,15 @@ export interface CloneEntry {
 
 /** A consolidated catalog row: identity + location + (when on disk) sync state. */
 export interface CatalogEntry {
-  repo_id: string;
-  slug: string;
+  state: "hosted" | "unpublished_fork";
+  repo_id: string | null;
+  root_node_id: string | null;
+  slug: string | null;
+  display_name: string;
   hostname: string | null;
   namespace: string;
+  source_root_node_id?: string;
+  source_head?: string;
   role?: string;
   member_count?: number;
   location: RepoLocation;
@@ -51,8 +57,9 @@ export interface CatalogEntry {
 /**
  * Join the server repo list, the local clones, and per-clone git state into one
  * catalog. Pure — all IO happens in the command. `me` is null when logged out,
- * which drops the remote tier: every clone is then reported as `available`,
- * since without the server list we can't tell an orphan from a known space.
+ * which drops the remote tier: hosted clones are reported as `available`
+ * because orphan status cannot be known, while an explicit unpublished fork
+ * remains `local-only` by construction.
  */
 export function deriveCatalog(
   me: { username: string | null; repos: AuthMeRepo[] } | null,
@@ -66,23 +73,49 @@ export function deriveCatalog(
     return { sync: { branch: st.branch, ahead: st.ahead, behind: st.behind, dirty: st.dirty } };
   };
 
-  if (!me) {
-    return clones.map((c) => ({
-      repo_id: c.record.repo_id,
-      slug: c.record.slug,
+  const localEntry = (clone: CloneEntry, hostedLocation: RepoLocation): CatalogEntry => {
+    const { record, path } = clone;
+    // Publication state is stronger evidence than account visibility: an
+    // unpublished fork is local-only even when hosted clones must fall back to
+    // `available` while logged out.
+    if (isUnpublishedForkRecord(record)) {
+      return {
+        state: "unpublished_fork",
+        repo_id: null,
+        root_node_id: record.root_node_id,
+        slug: null,
+        display_name: record.name,
+        hostname: null,
+        namespace: "",
+        source_root_node_id: record.source_root_node_id,
+        source_head: record.source_head,
+        location: "local-only",
+        clone: { path },
+        ...syncOf(path),
+      };
+    }
+    return {
+      state: "hosted",
+      repo_id: record.repo_id,
+      root_node_id: record.root_node_id ?? null,
+      slug: record.slug,
+      display_name: record.slug,
       hostname: null,
-      namespace: c.record.namespace,
-      location: "available" as const,
-      clone: { path: c.path },
-      ...syncOf(c.path),
-    }));
-  }
+      namespace: record.namespace,
+      location: hostedLocation,
+      clone: { path },
+      ...syncOf(path),
+    };
+  };
+
+  if (!me) return clones.map((clone) => localEntry(clone, "available"));
 
   const clonesByRepo = new Map<string, CloneEntry[]>();
-  for (const c of clones) {
-    const list = clonesByRepo.get(c.record.repo_id) ?? [];
-    list.push(c);
-    clonesByRepo.set(c.record.repo_id, list);
+  for (const clone of clones) {
+    if (!isHostedSpaceRecord(clone.record)) continue;
+    const list = clonesByRepo.get(clone.record.repo_id) ?? [];
+    list.push(clone);
+    clonesByRepo.set(clone.record.repo_id, list);
   }
 
   const entries: CatalogEntry[] = [];
@@ -92,8 +125,11 @@ export function deriveCatalog(
     const matching = clonesByRepo.get(repo.repo_id) ?? [];
     if (matching.length === 0) {
       entries.push({
+        state: "hosted",
         repo_id: repo.repo_id,
+        root_node_id: repo.root_node_id ?? null,
         slug: repo.slug,
+        display_name: repo.slug,
         hostname: repo.hostname,
         namespace,
         role: repo.role,
@@ -105,8 +141,11 @@ export function deriveCatalog(
     for (const c of matching) {
       used.add(c.path);
       entries.push({
+        state: "hosted",
         repo_id: repo.repo_id,
+        root_node_id: repo.root_node_id ?? null,
         slug: repo.slug,
+        display_name: repo.slug,
         hostname: repo.hostname,
         namespace,
         role: repo.role,
@@ -118,17 +157,9 @@ export function deriveCatalog(
     }
   }
   // Clones bound to a repo the account can't see — orphans.
-  for (const c of clones) {
-    if (used.has(c.path)) continue;
-    entries.push({
-      repo_id: c.record.repo_id,
-      slug: c.record.slug,
-      hostname: null,
-      namespace: c.record.namespace,
-      location: "local-only",
-      clone: { path: c.path },
-      ...syncOf(c.path),
-    });
+  for (const clone of clones) {
+    if (used.has(clone.path)) continue;
+    entries.push(localEntry(clone, "local-only"));
   }
   return entries;
 }
@@ -163,9 +194,14 @@ function formatHuman(entries: CatalogEntry[], notes: string[]): string {
     if (!items.length) continue;
     if (out.length) out.push("");
     out.push(header);
-    for (const e of items) {
-      if (loc === "online-only") out.push(`  ${e.slug} (${e.namespace})`);
-      else out.push(`  ${e.slug} — ${stateLabel(e)}${e.clone ? `  ${e.clone.path}` : ""}`);
+    for (const entry of items) {
+      if (entry.state === "unpublished_fork") {
+        out.push(`  ${entry.display_name} — unpublished local fork${entry.clone ? `  ${entry.clone.path}` : ""}`);
+      } else if (loc === "online-only") {
+        out.push(`  ${entry.display_name} (${entry.namespace})`);
+      } else {
+        out.push(`  ${entry.display_name} — ${stateLabel(entry)}${entry.clone ? `  ${entry.clone.path}` : ""}`);
+      }
     }
   }
   return out.join("\n");
@@ -207,17 +243,18 @@ export const catalogCommand: CommandDef = {
     // One bad remote must not fail the listing, but a silent stale result would
     // lie about freshness — so surface a count when any fetch fails.
     if (flags.fetch) {
+      const fetchable = clones.filter((clone) => isHostedSpaceRecord(clone.record));
       let fetchFailed = 0;
-      for (const c of clones) {
+      for (const clone of fetchable) {
         try {
-          gitFetch(c.path);
+          gitFetch(clone.path);
         } catch {
           fetchFailed++;
         }
       }
       if (fetchFailed > 0) {
         notes.push(
-          `${fetchFailed} of ${clones.length} clone(s) could not be fetched — their ahead/behind may be stale.`,
+          `${fetchFailed} of ${fetchable.length} hosted clone(s) could not be fetched — their ahead/behind may be stale.`,
         );
       }
     }

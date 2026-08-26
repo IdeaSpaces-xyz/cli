@@ -19,13 +19,21 @@
  * size cap surfaces as a structured rejection if a blob is too large.
  */
 
+import { parseFrontmatter } from "@ideaspaces/protocol";
 import { spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe, createRepo, deriveGitBase, deriveWebBase, UnauthorizedError } from "../auth/api.js";
-import { findSpaceFor, saveSpace, type SpaceRecord } from "../auth/spaces.js";
+import {
+  findSpaceFor,
+  isHostedSpaceRecord,
+  isUnpublishedForkRecord,
+  saveSpace,
+  withForkLineage,
+  type HostedSpaceRecord,
+} from "../auth/spaces.js";
 import {
   canonicalGitUrl,
   canonicalSpaceUrl,
@@ -141,6 +149,58 @@ export function slugify(input: string): string {
   return s.slice(0, 64).replace(/-+$/, "");
 }
 
+function declaredRootNodeId(content: string): unknown {
+  return parseFrontmatter(content)?.root_node_id;
+}
+
+function describeDeclaration(value: unknown): string {
+  return typeof value === "string" ? value : "absent";
+}
+
+function unpublishedDeclarationProblem(
+  cwd: string,
+  expectedRootNodeId: string,
+): string | null {
+  // Publish sends HEAD, not the worktree or index. The committed declaration is
+  // therefore the authority this preflight must compare with the registry.
+  const committed = runGit(cwd, ["show", "HEAD:_agent/foundation.md"]);
+  if (!committed.ok) {
+    return (
+      "This unpublished fork has no committed root _agent/foundation.md declaration. " +
+      "Commit the declared root identity before publishing."
+    );
+  }
+  const committedDeclaration = declaredRootNodeId(committed.stdout);
+  if (committedDeclaration !== expectedRootNodeId) {
+    return (
+      `The unpublished registry identity (${expectedRootNodeId}) does not match the committed root ` +
+      `foundation declaration (${describeDeclaration(committedDeclaration)}). ` +
+      "Refusing to guess, rewrite, or rekey the Space."
+    );
+  }
+
+  // Refuse immediate post-publish drift too: an uncommitted edit must not make
+  // the checkout disagree with the identity just registered from HEAD.
+  const foundationPath = join(cwd, "_agent", "foundation.md");
+  if (!existsSync(foundationPath)) {
+    return "The committed root identity exists, but _agent/foundation.md is missing from the worktree.";
+  }
+  let worktreeDeclaration: unknown;
+  try {
+    worktreeDeclaration = declaredRootNodeId(readFileSync(foundationPath, "utf-8"));
+  } catch (err) {
+    return `Could not read the root identity declaration: ${err instanceof Error ? err.message : String(err)}`;
+  }
+  if (worktreeDeclaration !== expectedRootNodeId) {
+    return (
+      `The unpublished registry identity (${expectedRootNodeId}) does not match the worktree root ` +
+      `foundation declaration (${describeDeclaration(worktreeDeclaration)}). ` +
+      "Refusing to guess, rewrite, or rekey the Space."
+    );
+  }
+  return null;
+}
+
 async function checkMarkdownFrontmatterSyntax(cwd: string): Promise<string | null> {
   const files = trackedMarkdownFiles(cwd);
   if (!files.length) return null;
@@ -247,6 +307,26 @@ export const publishCommand: CommandDef = {
       return 1;
     }
     const config = { apiUrl: stored.api_url, apiKey: stored.api_key };
+    const existing = findSpaceFor(cwd);
+    const hosted = existing && isHostedSpaceRecord(existing) ? existing : null;
+    const unpublished = existing && isUnpublishedForkRecord(existing) ? existing : null;
+    if (unpublished) {
+      const declarationProblem = unpublishedDeclarationProblem(cwd, unpublished.root_node_id);
+      if (declarationProblem) {
+        output.error(declarationProblem);
+        return 1;
+      }
+      const unexpectedRemote = runGit(cwd, ["remote", "get-url", "origin"]);
+      if (unexpectedRemote.ok) {
+        output.error(
+          `This registry entry is unpublished, but git already has origin ${unexpectedRemote.stdout}. ` +
+            "Refusing to infer or replace a destination. If the remote is accidental, remove it with " +
+            "`git remote remove origin`; if this folder is already hosted, run `ideaspaces forget .` " +
+            "then `ideaspaces link . <space>`.",
+        );
+        return 1;
+      }
+    }
 
     let me;
     try {
@@ -268,22 +348,21 @@ export const publishCommand: CommandDef = {
     // reuse that record instead of creating another server-side repo.
     // `--force` opts into a fresh remote (drops the old mapping locally —
     // the orphaned server repo stays accessible by repo_id).
-    const existing = findSpaceFor(cwd);
     let repo: { repo_id: string; root_node_id?: string; slug: string; name: string };
     let namespace: string;
 
-    if (existing && !flags.force) {
+    if (hosted && !flags.force) {
       // Stale-mapping detection — `/auth/me` returns the repos this user
       // can see. If the mapped repo_id isn't there, either the remote was
       // deleted or the user lost access. Both surface identically; push
       // would otherwise hit git's opaque "Repository not found".
       // Note: this assumes `/auth/me` returns the full repo set (no
       // pagination). Safe today; revisit if the endpoint adds paging.
-      const stillVisible = me.repos.some((r) => r.repo_id === existing.repo_id);
+      const stillVisible = me.repos.some((r) => r.repo_id === hosted.repo_id);
       if (!stillVisible) {
         output.error(
-          `This folder is mapped to ${existing.namespace}/${existing.slug} ` +
-            `(repo_id=${existing.repo_id}) but that remote no longer exists ` +
+          `This folder is mapped to ${hosted.namespace}/${hosted.slug} ` +
+            `(repo_id=${hosted.repo_id}) but that remote no longer exists ` +
             `or you no longer have access to it. Re-run with --force to ` +
             `publish as a fresh space (new repo_id), or remove this folder's ` +
             `entry from ~/.ideaspaces/spaces.json and retry.`,
@@ -301,33 +380,33 @@ export const publishCommand: CommandDef = {
       if (ignored.length > 0) {
         output.error(
           `${ignored.join(", ")} only apply on first publish. ` +
-            `This folder is already mapped to ${existing.namespace}/${existing.slug}; ` +
+            `This folder is already mapped to ${hosted.namespace}/${hosted.slug}; ` +
             `re-publish reuses that record. Use --force to provision a new remote.`,
         );
         return 1;
       }
 
       output.log(
-        `This folder is already published as ${existing.namespace}/${existing.slug} ` +
-          `(repo_id=${existing.repo_id}). Re-pushing to the same remote. ` +
+        `This folder is already published as ${hosted.namespace}/${hosted.slug} ` +
+          `(repo_id=${hosted.repo_id}). Re-pushing to the same remote. ` +
           `Use --force to provision a new one — the old server repo isn't deleted, ` +
           `just unlinked from this folder.`,
       );
-      const projected = me.repos.find((candidate) => candidate.repo_id === existing.repo_id);
+      const projected = me.repos.find((candidate) => candidate.repo_id === hosted.repo_id);
       repo = {
-        repo_id: existing.repo_id,
-        root_node_id: projected?.root_node_id ?? existing.root_node_id ?? undefined,
-        slug: existing.slug,
-        name: existing.slug,
+        repo_id: hosted.repo_id,
+        root_node_id: projected?.root_node_id ?? hosted.root_node_id ?? undefined,
+        slug: hosted.slug,
+        name: hosted.name ?? hosted.slug,
       };
-      namespace = existing.namespace;
+      namespace = hosted.namespace;
     } else {
       const folderName = basename(cwd);
-      const name = flags.name?.toString() || folderName;
+      const name = flags.name?.toString() || unpublished?.name || folderName;
       // Server enforces ^[a-z0-9][a-z0-9-]*$ on slug. If the user passes
       // --slug, trust them but still normalize so a casing slip doesn't
       // become a 422. Otherwise derive from the folder basename.
-      const slugInput = flags.slug?.toString() || folderName;
+      const slugInput = flags.slug?.toString() || unpublished?.name || folderName;
       const slug = slugify(slugInput);
       // Surface the normalization when it changes the input. A user who
       // typed `--slug My_Space` (or pointed publish at a CamelCase
@@ -340,7 +419,19 @@ export const publishCommand: CommandDef = {
       namespace = hostname ?? me.username;
 
       try {
-        repo = await createRepo(config, { name, slug, hostname });
+        repo = await createRepo(config, {
+          name,
+          slug,
+          hostname,
+          ...(unpublished ? { root_node_id: unpublished.root_node_id } : {}),
+        });
+        if (unpublished && repo.root_node_id !== unpublished.root_node_id) {
+          output.error(
+            `The server returned ${repo.root_node_id || "no root identity"} instead of adopting ` +
+              `${unpublished.root_node_id}. The local fork remains unpublished; no remote was configured or pushed.`,
+          );
+          return 1;
+        }
       } catch (err) {
         if (err instanceof UnauthorizedError) {
           output.error(SESSION_EXPIRED_MSG);
@@ -365,7 +456,7 @@ export const publishCommand: CommandDef = {
     }
 
     // First-publish only — amending already-pushed commits creates divergence.
-    if (!existing || flags.force) {
+    if (!hosted || flags.force) {
       const tipAuthor = runGit(cwd, ["log", "-1", "--format=%ae"]);
       if (!tipAuthor.ok) {
         output.log("Could not read tip author; skipping author rewrite. If push fails the identity check, fix git history manually.");
@@ -436,7 +527,7 @@ export const publishCommand: CommandDef = {
       }
     }
 
-    const record: SpaceRecord = projected
+    const hostedRecord: HostedSpaceRecord = projected
       ? spaceRecordForRepo(projected, me.username)
       : {
           repo_id: repo.repo_id,
@@ -452,6 +543,7 @@ export const publishCommand: CommandDef = {
               }
             : {}),
         };
+    const record = withForkLineage(hostedRecord, existing);
     saveSpace(cwd, record);
 
     const webUrl = repo.root_node_id

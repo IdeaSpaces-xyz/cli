@@ -39,7 +39,11 @@ import {
 } from "../git.js";
 import { loadConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding } from "../auth/resolve-space.js";
-import { findSpaceFor, type SpaceRecord } from "../auth/spaces.js";
+import {
+  findSpaceFor,
+  isUnpublishedForkRecord,
+  type SpaceRecord,
+} from "../auth/spaces.js";
 import {
   fetchTrailLog,
   fetchTrailChanges,
@@ -290,13 +294,50 @@ export const syncCommand: CommandDef = {
       return 1;
     }
 
+    const config = loadConfig();
+    const record = findSpaceFor(root);
+    const initialRemoteState = remoteState(root);
+    // An unpublished fork intentionally has no destination remote. Do not run
+    // credential-helper or fetch effects and then report their expected failure
+    // as a network problem. Its source coordinate is still useful awareness.
+    if (record && isUnpublishedForkRecord(record)) {
+      const source = await sourceAwarenessFor(record, config);
+      const lines = [
+        "Unpublished local fork — no destination upstream exists yet.",
+        `Local identity: ${record.root_node_id}`,
+        `Source: ${record.source_root_node_id} at ${record.source_head.slice(0, 12)}`,
+        "Publish it with: ideaspaces publish",
+      ];
+      if (initialRemoteState.upstream) {
+        lines.push(
+          `Registry drift: git reports upstream ${initialRemoteState.upstream}; publication state was not inferred from it.`,
+        );
+      }
+      if (source) appendSourceAwareness(lines, source, limit);
+      output.result(
+        {
+          publication_state: "unpublished_fork",
+          root_node_id: record.root_node_id,
+          upstream: null,
+          ahead: 0,
+          behind: 0,
+          fetched: false,
+          incoming: null,
+          incoming_unavailable: null,
+          resolved_via: null,
+          outgoing: null,
+          source,
+          integrated: false,
+        },
+        lines.join("\n"),
+      );
+      return 0;
+    }
+
     // Separate from the fetch below, and guarded where `pull`/`push` call it
     // bare — both for the same reason. It writes the global git config, so
     // folding it into the fetch's catch would report an unwritable
-    // ~/.gitconfig as a network problem; and this is the one verb here reached
-    // by a caller with no repo membership (a fork, or someone shared with),
-    // where a hard failure would strand a reader with no other way to look.
-    // It cannot reject today; the guard is for the day that changes.
+    // ~/.gitconfig as a network problem.
     try {
       await registerGitCredentialHelper();
     } catch {
@@ -320,8 +361,6 @@ export const syncCommand: CommandDef = {
       lines.push(`Could not reach the remote (${fetchError}) — position below is from the last fetch.`);
     }
 
-    const config = loadConfig();
-    const record = findSpaceFor(root);
     // Start source awareness now, but do not serialize the fork-copy's incoming
     // trail behind it. A behind fork can ask both independent reads at once.
     const sourcePromise = sourceAwarenessFor(record, config);

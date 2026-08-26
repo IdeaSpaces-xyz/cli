@@ -48,6 +48,8 @@ export interface CreateRepoBody {
   name: string;
   slug?: string;
   hostname?: string | null;
+  /** Prescribed local identity adopted atomically on first registration. */
+  root_node_id?: string;
 }
 
 export interface CreateRepoResult {
