@@ -332,11 +332,12 @@ describe("ideaspaces publish", () => {
   it("publishes through stable root identity and stores canonical route metadata", async () => {
     const rootNodeId = "n_0123456789abcdef01234567";
     const dir = initLocalRepo("canonical");
+    declareRootIdentity(dir, rootNodeId);
     process.chdir(dir);
     await writeCredentials();
 
     let authCalls = 0;
-    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.endsWith("/auth/me")) {
         authCalls++;
@@ -370,6 +371,7 @@ describe("ideaspaces publish", () => {
         );
       }
       if (url.endsWith("/repos")) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ root_node_id: rootNodeId });
         return new Response(
           JSON.stringify({
             repo_id: "repo_canonical",
@@ -407,6 +409,76 @@ describe("ideaspaces publish", () => {
       route_slug: "canonical",
       canonical_path: `/spaces/${rootNodeId}`,
     });
+  });
+
+  it("adopts the identity minted by offline create", async () => {
+    const { createCommand } = await import("../commands/create.js");
+    expect(
+      await createCommand.run(["offline-created"], {}, { ...baseGlobal, yes: true }),
+    ).toBe(0);
+    const dir = join(tmp, "offline-created");
+    const foundation = readFileSync(join(dir, "_agent", "foundation.md"), "utf-8");
+    const rootNodeId = foundation.match(/^root_node_id: (n_[0-9a-f]{24})$/m)?.[1];
+    expect(rootNodeId).toMatch(/^n_[0-9a-f]{24}$/);
+    process.chdir(dir);
+    await writeCredentials();
+
+    let registered = false;
+    const projected = {
+      repo_id: "repo_offline",
+      root_node_id: rootNodeId,
+      slug: "offline-created",
+      hostname: null,
+      role: "OWNER",
+      member_count: 1,
+      route_status: "resolved",
+      route_namespace: "ernests_s",
+      route_slug: "offline-created",
+      canonical_path: `/spaces/${rootNodeId}`,
+    };
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) {
+        return new Response(
+          JSON.stringify({
+            user_id: 1,
+            username: "ernests_s",
+            email: null,
+            name: null,
+            repos: registered ? [projected] : [],
+            onboarding_complete: true,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/repos")) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ root_node_id: rootNodeId });
+        registered = true;
+        return new Response(
+          JSON.stringify({
+            repo_id: projected.repo_id,
+            root_node_id: rootNodeId,
+            slug: projected.slug,
+            name: "Offline Created",
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const bare = setupRootBareRemote(rootNodeId!);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+    expect(
+      spawnSync("git", ["--git-dir", bare, "show", "main:_agent/foundation.md"], {
+        encoding: "utf-8",
+      }).stdout,
+    ).toContain(`root_node_id: ${rootNodeId}`);
+    const map = JSON.parse(readFileSync(join(tmp, ".ideaspaces", "spaces.json"), "utf-8"));
+    expect(map[Object.keys(map).find((candidate) => candidate.endsWith("offline-created"))!])
+      .toMatchObject({ repo_id: projected.repo_id, root_node_id: rootNodeId });
   });
 
   it("adopts an unpublished fork identity once and preserves source lineage", async () => {
@@ -742,13 +814,10 @@ describe("ideaspaces publish", () => {
     expect(createCallCount).toBe(1);
     expect(readSpaceRecord().repo_id).toBe("repo_first");
 
-    // --force opts into a fresh remote and replaces the local mapping. The
-    // server provisions a new empty bare repo for repo_second; model that so
-    // the amended (rewritten) tip pushes as a ref creation, not a non-ff.
-    setupBareRemote("ernests_s", "reused");
-    expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
-    expect(createCallCount).toBe(2);
-    expect(readSpaceRecord().repo_id).toBe("repo_second");
+    // Force cannot turn an established binding into a different Space.
+    expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(1);
+    expect(createCallCount).toBe(1);
+    expect(readSpaceRecord().repo_id).toBe("repo_first");
   }, 15_000);
 
   it("detects stale folder mapping (remote deleted on server) and surfaces a fix hint", async () => {
@@ -795,11 +864,11 @@ describe("ideaspaces publish", () => {
     }
     expect(exit).toBe(1);
     expect(stderr).toContain("no longer exists or you no longer have access");
-    expect(stderr).toContain("--force");
+    expect(stderr).not.toContain("--force");
     expect(stderr).toContain("repo_stale");
-  });
+  }, 15_000);
 
-  it("--force bypasses the stale-mapping check and provisions a fresh remote", async () => {
+  it("--force refuses to replace a stale hosted binding", async () => {
     const dir = initLocalRepo("stale-force");
     process.chdir(dir);
     await writeCredentials();
@@ -829,12 +898,9 @@ describe("ideaspaces publish", () => {
     // Simulate server-side deletion.
     ownedRepoIds.length = 0;
 
-    // --force skips the stale-mapping check and creates a fresh repo. Model the
-    // new empty server bare repo so the rewritten tip pushes as a ref creation.
-    setupBareRemote("ernests_s", "stale-force");
-    expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
-    expect(createCallCount).toBe(2);
-  });
+    expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(1);
+    expect(createCallCount).toBe(1);
+  }, 15_000);
 
   it("rejects --name / --slug / --hostname on re-publish without --force", async () => {
     const dir = initLocalRepo("reject-flags");
@@ -1064,10 +1130,7 @@ describe("ideaspaces publish", () => {
       expect(sha_after_second).toBe(sha_after_first);
     });
 
-    it("amends on --force re-publish even when mapping exists", async () => {
-      // After the first publish writes spaces.json, the existing-mapping
-      // guard would normally skip the amend. --force reopens the create
-      // path and should also rewrite a stale tip.
+    it("refuses --force re-publish without rewriting shared history", async () => {
       const dir = initLocalRepo("force-rewrite");
       process.chdir(dir);
       await writeCredentials();
@@ -1104,16 +1167,13 @@ describe("ideaspaces publish", () => {
       }).stdout.trim();
       expect(before).toBe("wrong@example.com");
 
-      // --force opens the create branch and the amend guard. The forced
-      // re-publish provisions a new empty server repo, so model that here —
-      // the rewritten tip pushes as a ref creation, not a non-fast-forward.
-      setupBareRemote("ernests_s", "force-rewrite");
-      expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(0);
+      expect(await publishCommand.run([], { force: true }, baseGlobal)).toBe(1);
 
       const after = spawnSync("git", ["-C", dir, "log", "-1", "--format=%ae"], {
         encoding: "utf-8",
       }).stdout.trim();
-      expect(after).toBe("person:ernests_s@ideaspaces");
+      expect(after).toBe("wrong@example.com");
+      expect(createCallCount).toBe(1);
     });
   });
 });

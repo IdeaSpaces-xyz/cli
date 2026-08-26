@@ -6,6 +6,7 @@ import { identityEmail, identityName } from "../auth/identity.js";
 import { cloneRepo, setLocalConfig } from "../git.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
+import { inspectLocalRootIdentity } from "../root-identity.js";
 import {
   canonicalGitUrl,
   canonicalSpaceUrl,
@@ -107,6 +108,29 @@ export const cloneCommand: CommandDef = {
       return 1;
     }
 
+    // Verify the portable declaration against the canonical origin before
+    // trusting either as this checkout's identity. A legacy clone without a
+    // declaration remains valid and reports legacy_unstamped.
+    let rootIdentity;
+    try {
+      rootIdentity = inspectLocalRootIdentity(dir, config.apiUrl);
+    } catch (err) {
+      output.error(`Clone succeeded, but Space identity could not be inspected: ${err instanceof Error ? err.message : String(err)}`);
+      return 1;
+    }
+    if (["invalid", "drift", "ambiguous"].includes(rootIdentity.state)) {
+      output.error(
+        `Clone succeeded, but its root identity is ${rootIdentity.state}. The folder was not bound locally; inspect _agent/foundation.md and origin before using it.`,
+      );
+      return 1;
+    }
+    if (stableRoot && rootIdentity.root_node_id !== stableRoot) {
+      output.error(
+        `Clone succeeded, but the checkout reports ${rootIdentity.root_node_id ?? "no root identity"} instead of ${stableRoot}. The folder was not bound locally.`,
+      );
+      return 1;
+    }
+
     // Bind the folder to the space so `sync` knows what it is. The clone already
     // succeeded — a registry write failure is a warning, not a hard failure.
     try {
@@ -138,6 +162,7 @@ export const cloneCommand: CommandDef = {
         space_url: spaceUrl,
         remote_url: url,
         path: dir,
+        identity_state: rootIdentity.state,
       },
       `Cloned ${spaceUrl ?? `${namespace}/${slug}`} → ${dir}`,
     );

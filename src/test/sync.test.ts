@@ -26,7 +26,10 @@ const {
   registerHelperMock: vi.fn(),
 }));
 
-vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
+vi.mock("../auth/credentials.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../auth/credentials.js")>();
+  return { ...actual, loadConfig: loadConfigMock };
+});
 vi.mock("../auth/spaces.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/spaces.js")>();
   return { ...actual, findSpaceFor: findSpaceForMock, saveSpace: saveSpaceMock };

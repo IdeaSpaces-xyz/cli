@@ -14,6 +14,7 @@ import {
   toPortableRepoPath,
 } from "../local-effects-adapter.js";
 import { createOutput } from "../output.js";
+import { inspectLocalRootIdentity } from "../root-identity.js";
 import type { CommandDef } from "../types.js";
 
 export const statusCommand: CommandDef = {
@@ -92,6 +93,13 @@ export const statusCommand: CommandDef = {
 
     const gs = await gitState(root);
     const tracked = stagedIdeaspacePaths(root);
+    let rootIdentity;
+    try {
+      rootIdentity = inspectLocalRootIdentity(root);
+    } catch (err) {
+      output.error(`Could not inspect Space identity: ${err instanceof Error ? err.message : String(err)}`);
+      return 1;
+    }
 
     const data = {
       repoRoot: gs.repoRoot,
@@ -101,6 +109,7 @@ export const statusCommand: CommandDef = {
       dirty: gs.dirty,
       untracked_in_tracked_dirs: gs.untrackedInTrackedDirs,
       tracked_captures: tracked,
+      root_identity: rootIdentity,
     };
 
     const lines: string[] = [];
@@ -111,6 +120,12 @@ export const statusCommand: CommandDef = {
       lines.push("remote:  no upstream");
     }
     lines.push(`tree:    ${gs.dirty ? "dirty" : "clean"}`);
+    lines.push(
+      `identity: ${rootIdentity.state}${rootIdentity.root_node_id ? ` (${rootIdentity.root_node_id})` : ""}`,
+    );
+    if (rootIdentity.declaration.dirty) {
+      lines.push("identity declaration: uncommitted change (publish will refuse)");
+    }
     if (tracked.length) {
       lines.push("", `captures awaiting commit (${tracked.length}):`);
       for (const p of tracked) lines.push(`  ${p}`);

@@ -2,14 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GlobalFlags } from "../types.js";
 
-const { loadConfigMock, fetchAuthMeMock, cloneRepoMock, saveSpaceMock, registerHelperMock } =
-  vi.hoisted(() => ({
-    loadConfigMock: vi.fn(),
-    fetchAuthMeMock: vi.fn(),
-    cloneRepoMock: vi.fn(),
-    saveSpaceMock: vi.fn(),
-    registerHelperMock: vi.fn(),
-  }));
+const {
+  loadConfigMock,
+  fetchAuthMeMock,
+  cloneRepoMock,
+  saveSpaceMock,
+  registerHelperMock,
+  inspectRootIdentityMock,
+} = vi.hoisted(() => ({
+  loadConfigMock: vi.fn(),
+  fetchAuthMeMock: vi.fn(),
+  cloneRepoMock: vi.fn(),
+  saveSpaceMock: vi.fn(),
+  registerHelperMock: vi.fn(),
+  inspectRootIdentityMock: vi.fn(),
+}));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
 vi.mock("../auth/api.js", async (importOriginal) => {
@@ -18,6 +25,7 @@ vi.mock("../auth/api.js", async (importOriginal) => {
 });
 vi.mock("../git.js", () => ({ cloneRepo: cloneRepoMock }));
 vi.mock("../auth/spaces.js", () => ({ saveSpace: saveSpaceMock }));
+vi.mock("../root-identity.js", () => ({ inspectLocalRootIdentity: inspectRootIdentityMock }));
 // Stub the credential-helper self-heal so the test doesn't run real
 // `git config --global` against the developer's ~/.gitconfig.
 vi.mock("../auth/git-credential-helper.js", () => ({ registerGitCredentialHelper: registerHelperMock }));
@@ -37,6 +45,12 @@ beforeEach(() => {
   cloneRepoMock.mockReset();
   saveSpaceMock.mockReset();
   registerHelperMock.mockReset();
+  inspectRootIdentityMock.mockReset();
+  inspectRootIdentityMock.mockReturnValue({
+    state: "absent",
+    root_node_id: null,
+    declaration: { head: null, index: null, worktree: null, dirty: false },
+  });
   stdoutChunks = [];
   stderrChunks = [];
   originalOut = process.stdout.write.bind(process.stdout);
@@ -63,6 +77,11 @@ describe("clone", () => {
   it("clones an exact Space URL through the root-addressed Git endpoint", async () => {
     const rootNodeId = "n_0123456789abcdef01234567";
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    inspectRootIdentityMock.mockReturnValue({
+      state: "aligned",
+      root_node_id: rootNodeId,
+      declaration: { head: rootNodeId, index: rootNodeId, worktree: rootNodeId, dirty: false },
+    });
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
       name: "Alice",

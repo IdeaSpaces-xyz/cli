@@ -71,6 +71,9 @@ describe("ideaspaces create", () => {
       const dir = join(tmp, "nogit-space");
       // Files materialized despite no git...
       expect(existsSync(join(dir, "_agent", "foundation.md"))).toBe(true);
+      expect(await fs.readFile(join(dir, "_agent", "foundation.md"), "utf-8")).toMatch(
+        /^root_node_id: n_[0-9a-f]{24}$/m,
+      );
       expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
       // ...and no repo was created (git init never ran).
       expect(existsSync(join(dir, ".git"))).toBe(false);
@@ -142,6 +145,15 @@ describe("ideaspaces create", () => {
     await expectNoNodeId(join(tmp, "CLAUDE.md"));
     await expectNoNodeId(join(tmp, "_agent", "foundation.md"));
     await expectNoNodeId(join(tmp, "_agent", "guide.md"));
+    const foundation = await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8");
+    const rootNodeId = foundation.match(/^root_node_id: (n_[0-9a-f]{24})$/m)?.[1];
+    expect(rootNodeId).toMatch(/^n_[0-9a-f]{24}$/);
+    const committedFoundation = spawnSync(
+      "git",
+      ["-C", tmp, "show", "HEAD:_agent/foundation.md"],
+      { encoding: "utf-8" },
+    ).stdout;
+    expect(committedFoundation).toContain(`root_node_id: ${rootNodeId}`);
     expect(existsSync(join(tmp, ".gitignore"))).toBe(true);
     expect(existsSync(join(tmp, ".gitattributes"))).toBe(true);
     expect(existsSync(join(tmp, ".git"))).toBe(true);
@@ -225,6 +237,9 @@ describe("ideaspaces create", () => {
     // CLAUDE.local.md instead of CLAUDE.md when private
     expect(existsSync(join(tmp, "CLAUDE.local.md"))).toBe(true);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
+    expect(await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8")).not.toContain(
+      "root_node_id:",
+    );
   });
 
   it("opts into shared _agent/ for code repo with --shared", async () => {

@@ -189,11 +189,21 @@ async function resolveTarget(
   output.error(
     binding.failure === "unpublished"
       ? "This is an unpublished local fork. Publish it before sharing the destination Space."
-      : binding.failure === "unreachable"
-        ? "Could not reach your account to work out which Space this is. Retry when you're back online."
-        : binding.failure === "ambiguous"
-          ? "This clone's origin matches more than one of your Spaces. Name one: --space <url>"
-          : "Could not tell which Space this clone belongs to. Name one: --space <url>",
+      : binding.failure === "local-only"
+        ? "This Space has local identity but no hosted destination. Publish it before sharing."
+        : binding.failure === "identity-dirty"
+        ? "The root identity declaration has an uncommitted change. Commit or restore _agent/foundation.md before sharing."
+        : binding.failure === "identity-drift"
+          ? "The foundation, canonical origin, and local registry disagree on Space identity. Refusing to choose one."
+          : binding.failure === "identity-ambiguous"
+            ? "The canonical origin and local registry name different Spaces. Repair the binding before sharing."
+            : binding.failure === "identity-invalid"
+              ? "Space identity evidence is invalid. Inspect _agent/foundation.md before sharing."
+              : binding.failure === "unreachable"
+                ? "Could not reach your account to work out which Space this is. Retry when you're back online."
+                : binding.failure === "ambiguous"
+                  ? "This clone's origin matches more than one of your Spaces. Name one: --space <url>"
+                  : "Could not tell which Space this clone belongs to. Name one: --space <url>",
   );
   return null;
 }

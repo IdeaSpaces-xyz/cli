@@ -10,7 +10,9 @@
  *
  * Scaffolds the seed of the contract: foundation.md + guide.md + the
  * skills/ and perspectives/ convention READMEs + CLAUDE.md + .gitignore
- * + .gitattributes. purpose.md / now.md / next.md are emergent — the agent
+ * + .gitattributes. Shared scaffolds mint portable root identity into the
+ * foundation before login; a code repo's private gitignored contract remains
+ * unstamped. purpose.md / now.md / next.md are emergent — the agent
  * on first session reads foundation+guide, sees those names without
  * matching files, and proposes capturing them in conversation.
  *
@@ -31,6 +33,7 @@ import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe } from "../auth/api.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { gitAvailability } from "../git.js";
+import { mintDeclaredRootIdentity } from "../root-identity.js";
 import type { CommandDef } from "../types.js";
 import {
   agentClaudeMd,
@@ -147,8 +150,9 @@ export const createCommand: CommandDef = {
     let versioned: boolean;
     let gitNote: string | undefined;
     let committablePaths: string[];
+    let rootNodeId: string | null;
     try {
-      ({ versioned, gitNote, commitPaths: committablePaths } = await applyPlan({
+      ({ versioned, gitNote, commitPaths: committablePaths, rootNodeId } = await applyPlan({
         targetDir,
         inspection,
         privateAgent,
@@ -168,6 +172,7 @@ export const createCommand: CommandDef = {
     if (inspection.nestedInRepo) {
       lines.push(nestingNotice(targetDir, inspection.nestedInRepo));
     }
+    if (rootNodeId) lines.push(`Space identity: ${rootNodeId}`);
     if (!versioned) {
       lines.push(
         `Working locally — no version history yet. ${gitNote ?? ""}`.trim(),
@@ -183,7 +188,16 @@ export const createCommand: CommandDef = {
       lines.push(`When ready to host this remotely, run \`ideaspaces publish\` from inside ${where}.`);
     }
     output.result(
-      { target: targetDir, shape, privateAgent, agent: agentMode, scaffolded: true, versioned },
+      {
+        target: targetDir,
+        shape,
+        privateAgent,
+        agent: agentMode,
+        scaffolded: true,
+        versioned,
+        root_node_id: rootNodeId,
+        identity_state: rootNodeId ? "local_only" : "unstamped_private",
+      },
       lines.join("\n"),
     );
     return 0;
@@ -356,8 +370,20 @@ async function applyPlan(opts: {
   privateAgent: boolean;
   contract: Record<string, string>;
   claudeMd: string;
-}): Promise<{ versioned: boolean; gitNote?: string; commitPaths: string[] }> {
+}): Promise<{
+  versioned: boolean;
+  gitNote?: string;
+  commitPaths: string[];
+  rootNodeId: string | null;
+}> {
   const { targetDir, inspection, privateAgent, contract, claudeMd } = opts;
+  let rootNodeId: string | null = null;
+  let materializedContract = contract;
+  if (!privateAgent) {
+    const declared = mintDeclaredRootIdentity(contract.foundation);
+    rootNodeId = declared.rootNodeId;
+    materializedContract = { ...contract, foundation: declared.content };
+  }
 
   // Relative paths this scaffold wrote that belong in the initial commit.
   // In the private-_agent/ shape, `_agent/` and CLAUDE.local.md are gitignored
@@ -368,7 +394,7 @@ async function applyPlan(opts: {
   // 1. Materialize files. The local space always succeeds — git or not.
   await fs.mkdir(targetDir, { recursive: true });
   await fs.mkdir(join(targetDir, "_agent"), { recursive: true });
-  for (const [name, content] of Object.entries(contract)) {
+  for (const [name, content] of Object.entries(materializedContract)) {
     const rel = join("_agent", `${name}.md`);
     await fs.writeFile(join(targetDir, rel), content, "utf-8");
     if (trackAgent) commitPaths.push(rel);
@@ -415,7 +441,7 @@ async function applyPlan(opts: {
   // staged (or untracked) in an existing repo into the scaffold commit.
   const availability = gitAvailability();
   if (availability.state !== "usable") {
-    return { versioned: false, gitNote: availability.hint, commitPaths };
+    return { versioned: false, gitNote: availability.hint, commitPaths, rootNodeId };
   }
   try {
     if (!inspection.isGitRepo) {
@@ -432,12 +458,13 @@ async function applyPlan(opts: {
       runGit(targetDir, ["add", "--", ...commitPaths]);
       runGit(targetDir, ["commit", "-q", "-m", "Initial ideaspace scaffold", "--", ...commitPaths]);
     }
-    return { versioned: true, commitPaths };
+    return { versioned: true, commitPaths, rootNodeId };
   } catch (err) {
     return {
       versioned: false,
       gitNote: err instanceof Error ? err.message : String(err),
       commitPaths,
+      rootNodeId,
     };
   }
 }

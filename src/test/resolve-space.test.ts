@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,7 +56,34 @@ describe("resolveSpaceBinding", () => {
     expect(fetchAuthMeMock).not.toHaveBeenCalled();
   });
 
-  it("does not resolve an unpublished fork as a hosted destination", async () => {
+  it("fails closed when the committed declaration drifts from the registry", async () => {
+    const { saveSpace } = await import("../auth/spaces.js");
+    const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
+    const dir = repoWithOrigin("drift", "https://git.example.test/alice/notes.git");
+    mkdirSync(join(dir, "_agent"));
+    writeFileSync(
+      join(dir, "_agent", "foundation.md"),
+      `---\nname: Test\nsummary: Test.\nroot_node_id: ${ROOT}\n---\n\n# Foundation\n`,
+    );
+    spawnSync("git", ["-C", dir, "add", "_agent/foundation.md"]);
+    spawnSync("git", [
+      "-C", dir,
+      "-c", "user.name=Test",
+      "-c", "user.email=test@example.com",
+      "commit", "-q", "-m", "declare identity",
+    ]);
+    saveSpace(dir, {
+      repo_id: "r",
+      slug: "notes",
+      namespace: "alice",
+      root_node_id: "n_aaaaaaaaaaaaaaaaaaaaaaaa",
+    });
+
+    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({ failure: "identity-drift" });
+    expect(fetchAuthMeMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when an unpublished fork registry conflicts with canonical origin", async () => {
     const { saveSpace } = await import("../auth/spaces.js");
     const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
     const dir = repoWithOrigin("unpublished", `https://git.example.test/spaces/${ROOT}.git`);
@@ -69,7 +96,7 @@ describe("resolveSpaceBinding", () => {
       source_baseline_initialized: true,
     });
 
-    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({ failure: "unpublished" });
+    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({ failure: "identity-ambiguous" });
     expect(fetchAuthMeMock).not.toHaveBeenCalled();
   });
 
