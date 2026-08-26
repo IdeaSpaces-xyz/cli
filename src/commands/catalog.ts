@@ -73,8 +73,11 @@ export function deriveCatalog(
     return { sync: { branch: st.branch, ahead: st.ahead, behind: st.behind, dirty: st.dirty } };
   };
 
-  const localEntry = (clone: CloneEntry, location: RepoLocation): CatalogEntry => {
+  const localEntry = (clone: CloneEntry, hostedLocation: RepoLocation): CatalogEntry => {
     const { record, path } = clone;
+    // Publication state is stronger evidence than account visibility: an
+    // unpublished fork is local-only even when hosted clones must fall back to
+    // `available` while logged out.
     if (isUnpublishedForkRecord(record)) {
       return {
         state: "unpublished_fork",
@@ -99,7 +102,7 @@ export function deriveCatalog(
       display_name: record.slug,
       hostname: null,
       namespace: record.namespace,
-      location,
+      location: hostedLocation,
       clone: { path },
       ...syncOf(path),
     };
