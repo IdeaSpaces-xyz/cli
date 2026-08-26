@@ -19,6 +19,7 @@ This installs the `ideaspaces` command. Node 20+ is required.
 ## Quick start
 
 ```sh
+ideaspaces doctor                   # check Node, Git, and optional remote auth
 ideaspaces create my-space --yes    # create the standard repository shape
 cd my-space
 ideaspaces navigate .               # orient: what's here, what changed
@@ -47,6 +48,11 @@ and typed failure facts; a partial write or commit exits non-zero.
 ## Commands
 
 Run `ideaspaces <command> --help` for full usage. `--json` is available on reads and local capture effects for scripting.
+
+### Diagnostics
+| Command | What it does |
+|---|---|
+| `doctor` | Check Node 20+, Git, and optional remote-auth readiness; use `--json` for stable machine output |
 
 ### Spaces & content
 | Command | What it does |

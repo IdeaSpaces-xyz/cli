@@ -1,6 +1,7 @@
 import type { CommandDef } from "./types.js";
 
 // Top-level commands
+import { doctorCommand } from "./commands/doctor.js";
 import { createCommand } from "./commands/create.js";
 import { loginCommand } from "./commands/login.js";
 import { publishCommand } from "./commands/publish.js";
@@ -52,6 +53,7 @@ const conversationCommand = makeConversationCommand(localConversationOps);
 const conversationsCommand = makeConversationsCommand(localConversationOps);
 
 const topLevel: CommandDef[] = [
+  doctorCommand,
   createCommand,
   loginCommand,
   whoamiCommand,
