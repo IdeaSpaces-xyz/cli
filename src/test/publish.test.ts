@@ -564,6 +564,34 @@ describe("ideaspaces publish", () => {
     expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"]).status).not.toBe(0);
   });
 
+  it("checks the committed declaration rather than a matching uncommitted edit", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    const dir = initLocalRepo("committed-declaration-drift");
+    declareRootIdentity(dir, "n_aaaaaaaaaaaaaaaaaaaaaaaa");
+    writeFileSync(
+      join(dir, "_agent", "foundation.md"),
+      `---\nname: Test Space\nsummary: Test.\nroot_node_id: ${rootNodeId}\n---\n\n# Foundation\n`,
+    );
+    process.chdir(dir);
+    await writeCredentials();
+    const { saveSpace } = await import("../auth/spaces.js");
+    saveSpace(dir, {
+      kind: "unpublished_fork",
+      root_node_id: rootNodeId,
+      name: "Committed Drift",
+      source_root_node_id: "n_ffffffffffffffffffffffff",
+      source_head: "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293",
+      source_baseline_initialized: true,
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"]).status).not.toBe(0);
+  });
+
   it("refuses an unpublished registry record that already has a destination remote", async () => {
     const rootNodeId = "n_0123456789abcdef01234567";
     const dir = initLocalRepo("remote-drift");

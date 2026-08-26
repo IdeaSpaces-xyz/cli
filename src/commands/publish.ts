@@ -149,28 +149,52 @@ export function slugify(input: string): string {
   return s.slice(0, 64).replace(/-+$/, "");
 }
 
+function declaredRootNodeId(content: string): unknown {
+  return parseFrontmatter(content)?.root_node_id;
+}
+
+function describeDeclaration(value: unknown): string {
+  return typeof value === "string" ? value : "absent";
+}
+
 function unpublishedDeclarationProblem(
   cwd: string,
   expectedRootNodeId: string,
 ): string | null {
-  const foundationPath = join(cwd, "_agent", "foundation.md");
-  if (!existsSync(foundationPath)) {
+  // Publish sends HEAD, not the worktree or index. The committed declaration is
+  // therefore the authority this preflight must compare with the registry.
+  const committed = runGit(cwd, ["show", "HEAD:_agent/foundation.md"]);
+  if (!committed.ok) {
     return (
-      "This unpublished fork has a local registry identity but no root " +
-      "_agent/foundation.md declaration. Refusing to publish an identity that the Space does not declare."
+      "This unpublished fork has no committed root _agent/foundation.md declaration. " +
+      "Commit the declared root identity before publishing."
     );
   }
-  let metadata: Record<string, unknown> | null;
+  const committedDeclaration = declaredRootNodeId(committed.stdout);
+  if (committedDeclaration !== expectedRootNodeId) {
+    return (
+      `The unpublished registry identity (${expectedRootNodeId}) does not match the committed root ` +
+      `foundation declaration (${describeDeclaration(committedDeclaration)}). ` +
+      "Refusing to guess, rewrite, or rekey the Space."
+    );
+  }
+
+  // Refuse immediate post-publish drift too: an uncommitted edit must not make
+  // the checkout disagree with the identity just registered from HEAD.
+  const foundationPath = join(cwd, "_agent", "foundation.md");
+  if (!existsSync(foundationPath)) {
+    return "The committed root identity exists, but _agent/foundation.md is missing from the worktree.";
+  }
+  let worktreeDeclaration: unknown;
   try {
-    metadata = parseFrontmatter(readFileSync(foundationPath, "utf-8"));
+    worktreeDeclaration = declaredRootNodeId(readFileSync(foundationPath, "utf-8"));
   } catch (err) {
     return `Could not read the root identity declaration: ${err instanceof Error ? err.message : String(err)}`;
   }
-  const declared = metadata?.root_node_id;
-  if (declared !== expectedRootNodeId) {
+  if (worktreeDeclaration !== expectedRootNodeId) {
     return (
-      `The unpublished registry identity (${expectedRootNodeId}) does not match the root ` +
-      `foundation declaration (${typeof declared === "string" ? declared : "absent"}). ` +
+      `The unpublished registry identity (${expectedRootNodeId}) does not match the worktree root ` +
+      `foundation declaration (${describeDeclaration(worktreeDeclaration)}). ` +
       "Refusing to guess, rewrite, or rekey the Space."
     );
   }
@@ -296,7 +320,9 @@ export const publishCommand: CommandDef = {
       if (unexpectedRemote.ok) {
         output.error(
           `This registry entry is unpublished, but git already has origin ${unexpectedRemote.stdout}. ` +
-            "Refusing to infer or replace a destination; reconcile the registry/remote drift first.",
+            "Refusing to infer or replace a destination. If the remote is accidental, remove it with " +
+            "`git remote remove origin`; if this folder is already hosted, run `ideaspaces forget .` " +
+            "then `ideaspaces link . <space>`.",
         );
         return 1;
       }
