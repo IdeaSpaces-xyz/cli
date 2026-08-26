@@ -7,7 +7,12 @@ import {
   type AuthMeResponse,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { findSpaceFor, saveSpace, withForkLineage } from "../auth/spaces.js";
+import {
+  findSpaceFor,
+  isUnpublishedForkRecord,
+  saveSpace,
+  withForkLineage,
+} from "../auth/spaces.js";
 import { identityEmail, identityName } from "../auth/identity.js";
 import { isInsideWorkTree, normalizeRepoUrl, originUrl, setLocalConfig } from "../git.js";
 import { createOutput } from "../output.js";
@@ -146,6 +151,18 @@ export const linkCommand: CommandDef = {
     // Lineage travels only when the binding stays the same Space: repointed
     // somewhere else, this clone's old source is no longer about it.
     const previous = findSpaceFor(dir);
+    if (
+      previous &&
+      isUnpublishedForkRecord(previous) &&
+      repo.root_node_id !== previous.root_node_id
+    ) {
+      output.error(
+        `This folder is an unpublished local fork with identity ${previous.root_node_id}. ` +
+          "Refusing to replace it with a different hosted Space. Publish it, or explicitly " +
+          "discard the local binding with `ideaspaces forget .` before linking another Space.",
+      );
+      return 1;
+    }
     try {
       saveSpace(dir, withForkLineage(spaceRecordForRepo(repo, me.username), previous));
     } catch {

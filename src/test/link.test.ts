@@ -45,6 +45,9 @@ let originalErr: typeof process.stderr.write;
 
 // Origin URL for alice's `notes` space under the test api host.
 const NOTES_ORIGIN = "https://git.example.test/alice/notes.git";
+const LOCAL_ROOT = "n_0123456789abcdef01234567";
+const SOURCE_ROOT = "n_ffffffffffffffffffffffff";
+const SOURCE_HEAD = "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293";
 const ALICE = {
   username: "alice",
   name: "Alice Smith",
@@ -118,6 +121,51 @@ describe("link — auto-detect from origin", () => {
     expect(written.source_root_node_id).toBe("n_ffffffffffffffffffffffff");
     expect(written.source_head).toBe("9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293");
     expect(written.repo_id).toBe("r1");
+  });
+
+  it("recovers an unpublished fork only when the hosted root is the same identity", async () => {
+    findSpaceForMock.mockReturnValue({
+      kind: "unpublished_fork",
+      root_node_id: LOCAL_ROOT,
+      name: "Local Guide",
+      source_root_node_id: SOURCE_ROOT,
+      source_head: SOURCE_HEAD,
+      source_baseline_initialized: true,
+    });
+    fetchAuthMeMock.mockResolvedValue({
+      ...ALICE,
+      repos: [{ ...ALICE.repos[0], root_node_id: LOCAL_ROOT }],
+    });
+    originUrlMock.mockReturnValue(`https://git.example.test/spaces/${LOCAL_ROOT}.git`);
+
+    expect(await linkCommand.run(["./theone"], {}, JSON_GLOBAL)).toBe(0);
+
+    const written = saveSpaceMock.mock.calls.at(-1)?.[1];
+    expect(written).toMatchObject({
+      repo_id: "r1",
+      root_node_id: LOCAL_ROOT,
+      source_root_node_id: SOURCE_ROOT,
+      source_head: SOURCE_HEAD,
+      source_baseline_initialized: true,
+    });
+    expect(written.kind).toBeUndefined();
+  });
+
+  it("refuses to replace an unpublished fork with another hosted Space", async () => {
+    findSpaceForMock.mockReturnValue({
+      kind: "unpublished_fork",
+      root_node_id: LOCAL_ROOT,
+      name: "Local Guide",
+      source_root_node_id: SOURCE_ROOT,
+      source_head: SOURCE_HEAD,
+      source_baseline_initialized: true,
+    });
+
+    expect(await linkCommand.run(["./theone"], {}, JSON_GLOBAL)).toBe(1);
+
+    expect(stderr()).toContain("unpublished local fork");
+    expect(stderr()).toContain("Refusing to replace it");
+    expect(saveSpaceMock).not.toHaveBeenCalled();
   });
 
   it("carries nothing across when the folder is re-pointed at another Space", async () => {

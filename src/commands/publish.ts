@@ -427,7 +427,7 @@ export const publishCommand: CommandDef = {
         });
         if (unpublished && repo.root_node_id !== unpublished.root_node_id) {
           output.error(
-            `Keeper returned ${repo.root_node_id || "no root identity"} instead of adopting ` +
+            `The server returned ${repo.root_node_id || "no root identity"} instead of adopting ` +
               `${unpublished.root_node_id}. The local fork remains unpublished; no remote was configured or pushed.`,
           );
           return 1;
