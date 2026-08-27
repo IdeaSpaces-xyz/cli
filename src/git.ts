@@ -17,6 +17,30 @@ import { resolve } from "node:path";
 
 export class GitError extends Error {}
 
+/** Remove ambient repository and identity overrides before a bounded Git operation. */
+export function sanitizedGitEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_CONFIG_COUNT",
+  ]) {
+    delete env[key];
+  }
+  for (const key of Object.keys(env)) {
+    if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)) delete env[key];
+  }
+  return { ...env, ...overrides };
+}
+
 /** Per-OS install hint, surfaced whenever git is missing from PATH. */
 export const GIT_MISSING_HINT =
   "git not found — install it and retry (macOS: `brew install git`; Windows: `winget install Git.Git`; Linux: your package manager).";

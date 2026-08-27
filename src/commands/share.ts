@@ -3,9 +3,9 @@
  *
  * The product surface is recipient-shaped: `person`, `team`, `list`, `remove`,
  * and `visibility`. People and teams receive one exact explore/fork/collaborate
- * grade; public visibility means anonymous view plus authenticated independent
- * copy, never Git history, clone, or push. Internal user, organization, Grant,
- * and repository ids stay behind the command.
+ * grade; public visibility means anonymous view plus bounded history-free local
+ * Fork, never Git history, clone, push, or an anonymous hosted owner. Internal
+ * user, organization, Grant, and repository ids stay behind the command.
  *
  * The older `invite`, `people`, and `unshare` words remain as aliases. Repo-
  * shaped access/member/invite commands remain compatibility paths for old
@@ -392,7 +392,7 @@ async function listProductAccess(rest: string[], flags: Flags, output: Output): 
   if (!visibility) {
     lines.push("  unavailable");
   } else if (visibility.read_public && visibility.copy_access === "public") {
-    lines.push("  public — anyone can view; signed-in people can fork");
+    lines.push("  public — anyone can view and fork locally; publishing requires sign-in");
   } else if (!visibility.read_public && visibility.copy_access === "owner") {
     lines.push("  private");
   } else {
@@ -563,7 +563,7 @@ async function setVisibility(rest: string[], flags: Flags, output: Output): Prom
   output.result(
     { ...result, visibility: requested },
     requested === "public"
-      ? "Public — anyone can view; signed-in people can fork. Git history, clone, and push remain private."
+      ? "Public — anyone can view and fork locally without an account. Publishing requires sign-in; Git history, clone, and push remain private."
       : "Private — public view and fork are off. Named people and team access are unchanged.",
   );
   return 0;

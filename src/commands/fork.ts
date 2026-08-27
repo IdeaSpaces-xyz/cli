@@ -1,26 +1,47 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import {
-  copySpace,
-  fetchAuthMe,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import {
   getSpace,
+  getSpaceCopySnapshot,
   UnauthorizedError,
-  type AuthMeRepo,
+  type PublicApiConfig,
+  type PublicSpaceResult,
 } from "../auth/api.js";
-import { loadConfig } from "../auth/credentials.js";
-import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
-import { identityEmail, identityName } from "../auth/identity.js";
-import { saveSpace, type HostedSpaceRecord } from "../auth/spaces.js";
-import { cloneRepo, commitPaths, setLocalConfig } from "../git.js";
-import { createOutput } from "../output.js";
-import { gitignoreWithDefaults } from "../templates/default.js";
+import { loadOptionalAuthConfig } from "../auth/credentials.js";
 import {
-  canonicalGitUrl,
-  canonicalSpaceUrl,
-  parseSpaceLocator,
-  spaceRecordForRepo,
-} from "../space-locator.js";
+  findSpaceFor,
+  saveSpace,
+  type UnpublishedForkRecord,
+} from "../auth/spaces.js";
+import {
+  loadForkBaseline,
+  removeForkBaseline,
+  saveForkBaseline,
+  type ForkSourceBaseline,
+} from "../fork-update.js";
+import { prepareForkSnapshot } from "../fork-snapshot.js";
+import { gitAvailability, sanitizedGitEnvironment } from "../git.js";
+import { createOutput } from "../output.js";
+import { mintDeclaredRootIdentity } from "../root-identity.js";
+import { canonicalSpaceUrl, parseSpaceLocator } from "../space-locator.js";
+import { gitignoreWithDefaults } from "../templates/default.js";
 import type { CommandDef } from "../types.js";
+import { slugify } from "./publish.js";
+
+const FOUNDATION_PATH = "_agent/foundation.md";
+const IMPORT_NAME = "IdeaSpaces Import";
+const IMPORT_EMAIL = "import@ideaspaces";
+const IMPORT_COMMIT = "Import Space fork";
 
 function stringFlag(
   flags: Record<string, string | boolean>,
@@ -30,259 +51,360 @@ function stringFlag(
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function fallbackRecord(
-  result: { repo_id: string; root_node_id: string; slug: string },
-  namespace: string,
-): HostedSpaceRecord {
-  return {
-    repo_id: result.repo_id,
-    root_node_id: result.root_node_id,
-    slug: result.slug,
-    namespace,
-    route_status: "unavailable",
-    route_namespace: null,
-    route_slug: null,
-    canonical_path: `/spaces/${result.root_node_id}`,
-  };
+function validateSource(value: unknown, rootNodeId: string): PublicSpaceResult {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    (value as PublicSpaceResult).kind !== "space" ||
+    (value as PublicSpaceResult).node_id !== rootNodeId ||
+    (value as PublicSpaceResult).container_node_id !== rootNodeId ||
+    typeof (value as PublicSpaceResult).name !== "string" ||
+    !(value as PublicSpaceResult).name.trim() ||
+    typeof (value as PublicSpaceResult).copy_enabled !== "boolean"
+  ) {
+    throw new Error("The source returned an invalid Space description");
+  }
+  return value as PublicSpaceResult;
 }
 
-/**
- * Give the clone the ignore rules the copy could not carry.
- *
- * A forked Space arrives with **no `.gitignore`** — the platform copy is
- * markdown-only, so ignore rules cannot cross the boundary and `create`'s
- * scaffold never runs on this path. Without this, local-only files in a fork
- * are stageable by default, and the first `commit --all` or `publish` takes
- * them with it.
- *
- * Best-effort by design, like `create`'s git finalize: a fork that already
- * succeeded must not fail because its ignore commit did.
- *
- * Returns whether local-only files are ignored in this clone — which is a
- * different question from whether we wrote anything. A copy that already
- * carries the defaults is protected without us, and a `.gitignore` written but
- * not committed is already in force, because git reads it from the working
- * tree.
- */
-function scaffoldIgnoreRules(dir: string, output: ReturnType<typeof createOutput>): boolean {
-  const path = join(dir, ".gitignore");
-  let written = false;
+async function optionalAuthRead<T>(
+  config: PublicApiConfig,
+  read: (current: PublicApiConfig) => Promise<T>,
+): Promise<{ value: T; config: PublicApiConfig }> {
   try {
-    // The read is for a copy that one day carries more than markdown; today it
-    // always finds nothing.
-    const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
-    const merged = gitignoreWithDefaults(existing, { privateAgent: false });
-    if (merged === null) return true;
-    writeFileSync(path, merged);
-    written = true;
-    commitPaths("Ignore local-only files", [".gitignore"], dir);
-    return true;
+    return { value: await read(config), config };
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    if (written) {
-      output.log(
-        `Fork succeeded and its .gitignore is in force, but committing it failed: ${reason}. ` +
-          "Local-only files are ignored here; commit `.gitignore` to keep it that way.",
-      );
-    } else {
-      // error(), not log(): --quiet suppresses log, and a clone where nothing
-      // is ignored must not exit 0 in silence.
-      output.error(
-        `Fork succeeded, but its ignore rules could not be written: ${reason}. ` +
-          "Local-only files are unprotected in this clone.",
-      );
+    // A stale ambient token must not make an otherwise-public Space unreadable.
+    // Retry once without auth; a private direct-Fork source then fails neutrally.
+    if (err instanceof UnauthorizedError && config.apiKey) {
+      const anonymous = { apiUrl: config.apiUrl };
+      return { value: await read(anonymous), config: anonymous };
     }
-    return written;
+    throw err;
+  }
+}
+
+function sourceReadError(err: unknown): string {
+  const detail = err instanceof Error ? err.message : String(err);
+  if (/→ (?:401|403|404):/.test(detail)) {
+    return "This Space is unavailable for local Fork. It may be private or not copyable.";
+  }
+  return `The Space could not be read: ${detail}`;
+}
+
+function runGit(cwd: string, args: string[], importIdentity = false): string {
+  const env = sanitizedGitEnvironment({
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+    ...(importIdentity
+      ? {
+          GIT_AUTHOR_NAME: IMPORT_NAME,
+          GIT_AUTHOR_EMAIL: IMPORT_EMAIL,
+          GIT_COMMITTER_NAME: IMPORT_NAME,
+          GIT_COMMITTER_EMAIL: IMPORT_EMAIL,
+        }
+      : {}),
+  });
+  const result = spawnSync("git", ["-C", cwd, ...args], {
+    encoding: "utf-8",
+    maxBuffer: 64 * 1024 * 1024,
+    env,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      (result.stderr || result.stdout || `git ${args.join(" ")} failed`).trim(),
+    );
+  }
+  return (result.stdout ?? "").trim();
+}
+
+function destinationRootIdentity(
+  markdown: Record<string, string>,
+  sourceRootNodeId: string,
+): { markdown: Record<string, string>; rootNodeId: string } {
+  const foundation = markdown[FOUNDATION_PATH];
+  if (!foundation) {
+    throw new Error("The projected Space has no root _agent/foundation.md to carry identity");
+  }
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let declared: ReturnType<typeof mintDeclaredRootIdentity>;
+    try {
+      declared = mintDeclaredRootIdentity(foundation);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("replace an existing root_node_id")) {
+        throw new Error(
+          "The source snapshot unexpectedly carries root_node_id; clean-copy projections must omit source identity",
+        );
+      }
+      throw err;
+    }
+    if (declared.rootNodeId !== sourceRootNodeId) {
+      return {
+        markdown: { ...markdown, [FOUNDATION_PATH]: declared.content },
+        rootNodeId: declared.rootNodeId,
+      };
+    }
+  }
+  throw new Error("Could not mint a destination identity distinct from the source");
+}
+
+function writeTree(
+  root: string,
+  markdown: Record<string, string>,
+  assets: Array<{ path: string; content: Buffer }>,
+): void {
+  for (const [path, content] of Object.entries(markdown)) {
+    const absolute = join(root, path);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, content, { encoding: "utf-8", flag: "wx" });
+  }
+  for (const asset of assets) {
+    const absolute = join(root, asset.path);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, asset.content, { flag: "wx" });
+  }
+  const ignore = gitignoreWithDefaults(null, { privateAgent: false });
+  if (ignore === null) throw new Error("Could not prepare local-only ignore rules");
+  writeFileSync(join(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
+}
+
+function initializeImport(root: string): void {
+  runGit(root, ["init", "-q", "-b", "main"]);
+  runGit(root, ["-c", "core.autocrlf=false", "add", "-A", "--", "."]);
+  runGit(
+    root,
+    ["-c", "commit.gpgsign=false", "commit", "-q", "-m", IMPORT_COMMIT],
+    true,
+  );
+  if (runGit(root, ["status", "--porcelain"])) {
+    throw new Error("The imported repository is not clean after its initial commit");
+  }
+  if (runGit(root, ["rev-list", "--count", "HEAD"]) !== "1") {
+    throw new Error("The imported repository does not have exactly one commit");
+  }
+  if (runGit(root, ["symbolic-ref", "--short", "HEAD"]) !== "main") {
+    throw new Error("The imported repository did not initialize on main");
+  }
+  if (runGit(root, ["remote"])) {
+    throw new Error("The imported repository unexpectedly has a remote");
+  }
+}
+
+function preflightDestination(path: string): string | null {
+  if (existsSync(path)) return `${path} already exists. Choose another destination folder.`;
+  if (findSpaceFor(path)) {
+    return `${path} still has a local Space registry record. Forget or repair that state before reusing the path.`;
+  }
+  try {
+    if (loadForkBaseline(path)) {
+      return `${path} still has a fork update baseline. Choose another destination or remove the stale local state.`;
+    }
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+  const parent = dirname(path);
+  try {
+    if (!statSync(parent).isDirectory()) return `${parent} is not a directory.`;
+  } catch {
+    return `Parent directory does not exist: ${parent}`;
+  }
+  return null;
+}
+
+function installLocalFork(opts: {
+  destination: string;
+  name: string;
+  sourceRootNodeId: string;
+  sourceHead: string;
+  rootNodeId: string;
+  markdown: Record<string, string>;
+  assets: Array<{ path: string; content: Buffer }>;
+}): void {
+  const { destination, name, sourceRootNodeId, sourceHead, rootNodeId, markdown, assets } = opts;
+  const parent = dirname(destination);
+  let temporary: string | null = null;
+  let installed = false;
+  let baselineSaved = false;
+  try {
+    temporary = mkdtempSync(join(parent, `.${basename(destination)}.ideaspaces-fork-`));
+    writeTree(temporary, markdown, assets);
+    initializeImport(temporary);
+    if (existsSync(destination)) throw new Error(`${destination} appeared while the fork was being prepared`);
+    renameSync(temporary, destination);
+    temporary = null;
+    installed = true;
+
+    const baseline: ForkSourceBaseline = {
+      source_root_node_id: sourceRootNodeId,
+      source_head: sourceHead,
+      files: markdown,
+      conflicts: [],
+    };
+    saveForkBaseline(destination, baseline);
+    baselineSaved = true;
+    const record: UnpublishedForkRecord = {
+      kind: "unpublished_fork",
+      root_node_id: rootNodeId,
+      name,
+      source_root_node_id: sourceRootNodeId,
+      source_head: sourceHead,
+      source_baseline_initialized: true,
+    };
+    saveSpace(destination, record);
+  } catch (err) {
+    if (baselineSaved) {
+      try {
+        removeForkBaseline(destination);
+      } catch {
+        // Preserve the original failure; the destination rollback still matters most.
+      }
+    }
+    if (installed) rmSync(destination, { recursive: true, force: true });
+    throw err;
+  } finally {
+    if (temporary) rmSync(temporary, { recursive: true, force: true });
   }
 }
 
 export const forkCommand: CommandDef = {
   name: "fork",
-  description: "Create and clone an independent, history-free Space copy",
-  usage: "ideaspaces fork <space-url> [dir] [--location personal|<team-hostname>] [--name <name>] [--slug <slug>]",
+  description: "Materialize an independent local Space without source history or an account",
+  usage: "ideaspaces fork <space-url> [dir] [--name <local-name>]",
   examples: [
     "ideaspaces fork https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567",
-    "ideaspaces fork https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567 ./manual --location acme.com",
+    "ideaspaces fork https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567 ./manual",
+    "ideaspaces fork https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567 ./manual --name \"My manual\"",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
     const target = args[0];
-    if (!target) {
-      output.error("Usage: ideaspaces fork <space-url> [dir] [--location personal|<team-hostname>]");
+    if (!target || args.length > 2) {
+      output.error("Usage: ideaspaces fork <space-url> [dir] [--name <local-name>]");
+      return 1;
+    }
+    if (flags.location !== undefined || flags.slug !== undefined) {
+      output.error(
+        "`fork` is local-only. --location and --slug are no longer accepted; choose hosting later with `ideaspaces publish --hostname/--slug`.",
+      );
+      return 1;
+    }
+    if (flags.name === true || (typeof flags.name === "string" && !flags.name.trim())) {
+      output.error("--name requires a non-empty local display name.");
       return 1;
     }
 
-    const config = loadConfig();
-    if (!config) {
-      output.error("Not logged in. Run `ideaspaces login`.");
+    const availability = gitAvailability();
+    if (availability.state !== "usable") {
+      output.error(availability.hint);
       return 1;
     }
 
-    let sourceRoot: string;
+    const initialConfig = loadOptionalAuthConfig();
+    let sourceRootNodeId: string;
     try {
-      sourceRoot = parseSpaceLocator(target, config.apiUrl).rootNodeId;
+      sourceRootNodeId = parseSpaceLocator(target, initialConfig.apiUrl).rootNodeId;
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
 
-    const location = stringFlag(flags, "location") ?? "personal";
-    const hostname = location === "personal" ? null : location;
-    if (flags.location === true || flags.name === true || flags.slug === true) {
-      output.error("--location, --name, and --slug require values when provided.");
-      return 1;
-    }
-    const requestedDir = args[1] ? resolve(args[1]) : undefined;
-    if (requestedDir && existsSync(requestedDir)) {
-      output.error(`${requestedDir} already exists. Choose another destination folder.`);
-      return 1;
-    }
-
-    let me;
-    try {
-      me = await fetchAuthMe(config);
-    } catch (err) {
-      if (err instanceof UnauthorizedError) {
-        output.error("Session expired. Run `ideaspaces login`.");
+    const explicitDestination = args[1] ? resolve(args[1]) : null;
+    if (explicitDestination) {
+      const problem = preflightDestination(explicitDestination);
+      if (problem) {
+        output.error(problem);
         return 1;
       }
-      output.error(err instanceof Error ? err.message : String(err));
-      return 1;
     }
 
-    let source;
+    output.progress(`Reading ${canonicalSpaceUrl(initialConfig.apiUrl, sourceRootNodeId)}…`);
+    let source: PublicSpaceResult;
+    let readConfig: PublicApiConfig;
     try {
-      source = await getSpace(config, sourceRoot);
+      const read = await optionalAuthRead(initialConfig, (config) =>
+        getSpace(config, sourceRootNodeId, { timeoutMs: 120_000 }),
+      );
+      source = validateSource(read.value, sourceRootNodeId);
+      readConfig = read.config;
     } catch (err) {
-      output.error(err instanceof Error ? err.message : String(err));
+      output.error(sourceReadError(err));
       return 1;
     }
     if (!source.copy_enabled) {
-      output.error("This Space does not allow an independent copy for your account.");
+      output.error("This Space is unavailable for local Fork. It may be private or not copyable.");
       return 1;
     }
 
-    const name = stringFlag(flags, "name") ?? source.name;
-    const slug = stringFlag(flags, "slug");
-    output.progress(`Creating an independent copy of ${canonicalSpaceUrl(config.apiUrl, sourceRoot)}…`);
-
-    let copied;
-    try {
-      copied = await copySpace(
-        config,
-        sourceRoot,
-        {
-          name,
-          ...(slug ? { slug } : {}),
-          hostname,
-        },
-        { timeoutMs: 120_000 },
-      );
-    } catch (err) {
-      output.error(err instanceof Error ? err.message : String(err));
-      return 1;
-    }
-
-    // Typed as required, but the response is cast rather than validated. A
-    // server that omits it must leave the pin unrecorded — an update path
-    // reading a blank commit is worse than one that reports no pin at all.
-    const pinnedHead =
-      typeof copied.source_head === "string" && copied.source_head.trim()
-        ? copied.source_head.trim()
-        : null;
-
-    const destinationUrl = canonicalSpaceUrl(config.apiUrl, copied.root_node_id);
-    const remoteUrl = canonicalGitUrl(config.apiUrl, copied.root_node_id);
-    const dir = requestedDir ?? resolve(copied.slug);
-    if (existsSync(dir)) {
-      output.error(
-        `Fork created at ${destinationUrl}, but ${dir} already exists. ` +
-          `Clone the new Space into another folder with \`ideaspaces clone ${destinationUrl} <dir>\`.`,
-      );
-      return 1;
-    }
-
-    await registerGitCredentialHelper();
-    output.progress(`Cloning new Space into ${dir}…`);
-    try {
-      cloneRepo(remoteUrl, dir);
-    } catch (err) {
-      output.error(
-        `Fork created at ${destinationUrl}, but cloning failed: ${err instanceof Error ? err.message : String(err)}. ` +
-          `Retry with \`ideaspaces clone ${destinationUrl} <dir>\`; do not repeat fork.`,
-      );
-      return 1;
-    }
-
-    let destinationRepo: AuthMeRepo | undefined;
-    try {
-      const refreshed = await fetchAuthMe(config);
-      destinationRepo = refreshed.repos.find((repo) => repo.repo_id === copied.repo_id);
-    } catch {
-      output.log("Fork succeeded, but current route metadata could not be refreshed; stable Space identity was saved.");
-    }
-
-    const namespace = hostname ?? me.username ?? "";
-    // The clone's remote is the copy's own. Record where it came from and at
-    // what commit, or nothing downstream can ever offer an update.
-    const record: HostedSpaceRecord = {
-      ...(destinationRepo
-        ? spaceRecordForRepo(destinationRepo, me.username)
-        : fallbackRecord(copied, namespace)),
-      source_root_node_id: sourceRoot,
-      ...(pinnedHead ? { source_head: pinnedHead } : {}),
-    };
-    try {
-      saveSpace(dir, record);
-    } catch {
-      output.error(
-        `Fork and clone succeeded at ${destinationUrl}, but the local registry could not be updated. ` +
-          "Run `ideaspaces link .` from this clone to repair the binding.",
-      );
-      return 1;
-    }
-
-    if (me.username) {
-      try {
-        setLocalConfig("user.email", identityEmail(me.username), dir);
-        setLocalConfig("user.name", identityName({ name: me.name, username: me.username }), dir);
-      } catch {
-        // Non-fatal — commit re-ensures the authenticated identity.
+    const name = stringFlag(flags, "name") ?? source.name.trim();
+    const destination = explicitDestination ?? resolve(slugify(name));
+    if (!explicitDestination) {
+      const problem = preflightDestination(destination);
+      if (problem) {
+        output.error(problem);
+        return 1;
       }
     }
 
-    // Identity first, then the ignore commit: this is the clone's tip, and
-    // publish's pre-receive check reads the tip author.
-    const ignoreRulesActive = scaffoldIgnoreRules(dir, output);
+    output.progress("Reading the complete history-free snapshot…");
+    let snapshot: Awaited<ReturnType<typeof getSpaceCopySnapshot>>;
+    try {
+      const read = await optionalAuthRead(readConfig, (config) =>
+        getSpaceCopySnapshot(config, sourceRootNodeId, { timeoutMs: 120_000 }),
+      );
+      snapshot = read.value;
+    } catch (err) {
+      output.error(sourceReadError(err));
+      return 1;
+    }
+
+    let prepared;
+    let destinationIdentity;
+    try {
+      prepared = prepareForkSnapshot(snapshot);
+      destinationIdentity = destinationRootIdentity(prepared.markdown, sourceRootNodeId);
+    } catch (err) {
+      output.error(
+        `The source projection could not be validated; no local files were changed. ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 1;
+    }
+
+    try {
+      installLocalFork({
+        destination,
+        name,
+        sourceRootNodeId,
+        sourceHead: prepared.sourceHead,
+        rootNodeId: destinationIdentity.rootNodeId,
+        markdown: destinationIdentity.markdown,
+        assets: prepared.assets,
+      });
+    } catch (err) {
+      output.error(
+        `The local Fork could not be installed; no destination was kept. ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 1;
+    }
 
     output.result(
       {
-        source_root_node_id: sourceRoot,
-        source_head: pinnedHead,
-        ignore_rules_active: ignoreRulesActive,
-        repo_id: copied.repo_id,
-        root_node_id: copied.root_node_id,
-        slug: copied.slug,
-        route_status: record.route_status ?? null,
-        route_namespace: record.route_namespace ?? null,
-        route_slug: record.route_slug ?? null,
-        space_url: destinationUrl,
-        remote_url: remoteUrl,
+        kind: "unpublished_fork",
+        path: destination,
+        name,
+        root_node_id: destinationIdentity.rootNodeId,
+        source_root_node_id: sourceRootNodeId,
+        source_head: prepared.sourceHead,
+        markdown_file_count: prepared.markdownFileCount,
+        asset_file_count: prepared.assetFileCount,
         source_history_copied: false,
-        index_status: copied.index_status,
-        path: dir,
+        published: false,
       },
       [
-        `Forked current content without source history → ${dir}`,
-        `Space: ${destinationUrl}`,
-        copied.index_status === "unindexed"
-          ? "Content is cloned; hosted indexing needs recovery."
-          : "Hosted index is fresh.",
-        // A degraded safety state belongs in the summary, not only in a log
-        // line — the human-readable path is where most people will see it.
-        ...(ignoreRulesActive
-          ? []
-          : ["Local-only files are NOT ignored in this clone — see the warning above."]),
+        `Forked current content without source history → ${destination}`,
+        `Local Space identity: ${destinationIdentity.rootNodeId}`,
+        `Source: ${canonicalSpaceUrl(initialConfig.apiUrl, sourceRootNodeId)} @ ${prepared.sourceHead.slice(0, 12)}`,
+        "This Space is local and unpublished. Sign in and run `ideaspaces publish` when you want to host it.",
       ].join("\n"),
     );
     return 0;

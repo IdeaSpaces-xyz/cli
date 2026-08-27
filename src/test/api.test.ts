@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  copySpace,
   createRepo,
   fetchAuthMe,
   getSpace,
@@ -122,43 +121,24 @@ describe("request() retry on timeout (cold start)", () => {
 });
 
 describe("Space locator and copy API", () => {
-  it("gets a Space and posts a clean-copy request through root identity", async () => {
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
+  it("gets a Space through stable root identity", async () => {
+    let captured: { url: string; init?: RequestInit } | undefined;
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string | URL | Request, init?: RequestInit) => {
-        calls.push({ url: String(url), init });
-        if ((init?.method ?? "GET") === "GET") {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                kind: "space",
-                node_id: "n_0123456789abcdef01234567",
-                container_node_id: "n_0123456789abcdef01234567",
-                name: "Manual",
-                canonical_url: "/spaces/n_0123456789abcdef01234567",
-                copy_enabled: true,
-                login_required_to_copy: false,
-                summary: null,
-                readme_markdown: null,
-              }),
-              { status: 200 },
-            ),
-          );
-        }
+        captured = { url: String(url), init };
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              repo_id: "repo_copy",
-              root_node_id: "n_89abcdef0123456701234567",
-              slug: "manual",
+              kind: "space",
+              node_id: "n_0123456789abcdef01234567",
+              container_node_id: "n_0123456789abcdef01234567",
               name: "Manual",
-              source_head: "abc",
-              markdown_file_count: 1,
-              markdown_bytes: 10,
-              indexed_files: 1,
-              index_status: "fresh",
-              last_index_error: null,
+              canonical_url: "/spaces/n_0123456789abcdef01234567",
+              copy_enabled: true,
+              login_required_to_copy: false,
+              summary: null,
+              readme_markdown: null,
             }),
             { status: 200 },
           ),
@@ -167,22 +147,13 @@ describe("Space locator and copy API", () => {
     );
 
     const source = await getSpace(config, "n_0123456789abcdef01234567");
-    const copied = await copySpace(config, "n_0123456789abcdef01234567", {
-      name: "Manual",
-      hostname: null,
-    });
 
     expect(source.copy_enabled).toBe(true);
-    expect(copied.root_node_id).toBe("n_89abcdef0123456701234567");
-    expect(calls[0].url).toBe("http://api.test/api/v1/spaces/n_0123456789abcdef01234567");
-    expect(calls[1].url).toBe(
-      "http://api.test/api/v1/spaces/n_0123456789abcdef01234567/copy",
-    );
-    expect(calls[1].init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ name: "Manual", hostname: null });
+    expect(captured?.url).toBe("http://api.test/api/v1/spaces/n_0123456789abcdef01234567");
+    expect(captured?.init?.method).toBe("GET");
   });
 
-  it("gets the maintained clean-copy snapshot by stable source identity", async () => {
+  it("gets the complete clean-copy snapshot by stable source identity", async () => {
     let captured: { url: string; init?: RequestInit } | undefined;
     vi.stubGlobal(
       "fetch",
@@ -195,6 +166,9 @@ describe("Space locator and copy API", () => {
               markdown_file_count: 1,
               markdown_bytes: 10,
               files: [{ path: "_agent/guide.md", content: "Guide" }],
+              asset_file_count: 1,
+              asset_bytes: 7,
+              assets: [{ path: "_assets/picture.png", content_base64: "cGF5bG9hZA==" }],
             }),
             { status: 200 },
           ),
@@ -208,10 +182,45 @@ describe("Space locator and copy API", () => {
     );
 
     expect(snapshot.files[0].path).toBe("_agent/guide.md");
+    expect(snapshot.assets[0].path).toBe("_assets/picture.png");
     expect(captured?.url).toBe(
       "http://api.test/api/v1/spaces/n_0123456789abcdef01234567/copy-snapshot",
     );
     expect(captured?.init?.method).toBe("GET");
+    expect((captured?.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
+  });
+
+  it("omits Authorization entirely for credential-free public reads", async () => {
+    const calls: RequestInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        calls.push(init ?? {});
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              kind: "space",
+              node_id: "n_0123456789abcdef01234567",
+              container_node_id: "n_0123456789abcdef01234567",
+              name: "Guide",
+              canonical_url: "/spaces/n_0123456789abcdef01234567",
+              copy_enabled: true,
+              login_required_to_copy: false,
+              summary: null,
+              readme_markdown: null,
+            }),
+            { status: 200 },
+          ),
+        );
+      }),
+    );
+
+    await getSpace({ apiUrl: "http://api.test" }, "n_0123456789abcdef01234567");
+    await getSpace({ apiUrl: "http://api.test", apiKey: "   " }, "n_0123456789abcdef01234567");
+
+    for (const call of calls) {
+      expect(call.headers).not.toHaveProperty("Authorization");
+    }
   });
 });
 

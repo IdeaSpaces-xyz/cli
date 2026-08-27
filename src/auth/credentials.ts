@@ -95,3 +95,8 @@ export function loadConfig(): LoadedConfig | null {
 export function getDefaultApiUrl(): string {
   return (process.env.IS_API_URL || DEFAULT_API_URL).replace(/\/$/, "");
 }
+
+/** Public-read configuration: use ambient credentials when present, never invent an empty token. */
+export function loadOptionalAuthConfig(): { apiUrl: string; apiKey?: string } {
+  return loadConfig() ?? { apiUrl: getDefaultApiUrl() };
+}

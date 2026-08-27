@@ -1,5 +1,6 @@
+import { isValidRootNodeId } from "@ideaspaces/protocol";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -7,6 +8,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +16,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
 import type { SpaceCopySnapshotFile } from "./auth/api.js";
 import { configDir } from "./auth/config-dir.js";
+import { declareRootIdentity } from "./root-identity.js";
 
 export interface ForkUpdateConflict {
   path: string;
@@ -44,17 +47,19 @@ function runGit(args: string[], cwd: string): string {
 }
 
 function safePath(path: string): string {
-  const normalized = path.replaceAll("\\", "/");
   if (
-    !normalized ||
-    normalized.startsWith("/") ||
-    normalized.split("/").includes("..") ||
-    /[\0\r\n]/.test(normalized) ||
-    !normalized.endsWith(".md")
+    !path ||
+    path.startsWith("/") ||
+    path.endsWith("/") ||
+    path.includes("\\") ||
+    path.includes("//") ||
+    path.split("/").some((segment) => segment === "." || segment === "..") ||
+    /[\0\r\n]/.test(path) ||
+    !path.endsWith(".md")
   ) {
     throw new Error(`Unsafe Markdown path in source snapshot: ${path}`);
   }
-  return normalized;
+  return path;
 }
 
 function isLocalOnly(path: string): boolean {
@@ -86,6 +91,18 @@ function replaceNodeId(content: string, replacement: string): string {
   if (!nodeIdLine.test(header)) throw new Error("Projected Markdown is missing node_id");
   const next = header.replace(nodeIdLine, `node_id: ${replacement}`);
   return `---\n${next}${content.slice(end)}`;
+}
+
+function rootIdentity(content: string | undefined): string | null {
+  if (!content?.startsWith("---\n")) return null;
+  const end = content.indexOf("\n---\n", 4);
+  if (end < 0) return null;
+  try {
+    const value = parse(content.slice(4, end))?.root_node_id;
+    return isValidRootNodeId(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeSnapshot(
@@ -122,6 +139,14 @@ export function normalizeSnapshot(
       if (from === to) continue;
       content = content.replaceAll(`node:${from}`, `node:${to}`);
       content = content.replaceAll(`/n/${from}`, `/n/${to}`);
+    }
+    if (path === "_agent/foundation.md") {
+      const retainedRoot = rootIdentity(baseline[path]);
+      const incomingRoot = rootIdentity(content);
+      if (retainedRoot && incomingRoot && retainedRoot !== incomingRoot) {
+        throw new Error("Projected foundation conflicts with the fork root identity");
+      }
+      if (retainedRoot && !incomingRoot) content = declareRootIdentity(content, retainedRoot);
     }
     normalized[path] = content;
   }
@@ -257,9 +282,23 @@ export function loadForkBaseline(root: string): ForkSourceBaseline | null {
 export function saveForkBaseline(root: string, baseline: ForkSourceBaseline): void {
   const path = baselinePath(root);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temp = `${path}.${process.pid}.tmp`;
-  writeFileSync(temp, JSON.stringify(baseline) + "\n", { mode: 0o600 });
-  renameSync(temp, path);
+  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(baseline) + "\n", { mode: 0o600 });
+    renameSync(temp, path);
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
+/** Remove fork-local source state during an interrupted atomic installation. */
+export function removeForkBaseline(root: string): void {
+  const path = baselinePath(root);
+  try {
+    unlinkSync(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
 }
 
 export function initialForkBaseline(
