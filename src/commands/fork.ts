@@ -128,7 +128,17 @@ function destinationRootIdentity(
     throw new Error("The projected Space has no root _agent/foundation.md to carry identity");
   }
   for (let attempt = 0; attempt < 10; attempt++) {
-    const declared = mintDeclaredRootIdentity(foundation);
+    let declared: ReturnType<typeof mintDeclaredRootIdentity>;
+    try {
+      declared = mintDeclaredRootIdentity(foundation);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("replace an existing root_node_id")) {
+        throw new Error(
+          "The source snapshot unexpectedly carries root_node_id; clean-copy projections must omit source identity",
+        );
+      }
+      throw err;
+    }
     if (declared.rootNodeId !== sourceRootNodeId) {
       return {
         markdown: { ...markdown, [FOUNDATION_PATH]: declared.content },

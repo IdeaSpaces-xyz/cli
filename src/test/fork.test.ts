@@ -344,6 +344,29 @@ describe("account-free local fork", () => {
     expect(readdirSync(work).some((name) => name.startsWith(".rollback.ideaspaces-fork-"))).toBe(false);
   });
 
+  it("fails closed with a specific contract error if a snapshot carries source identity", async () => {
+    const destination = join(work, "source-identity");
+    const files = [
+      {
+        path: "_agent/foundation.md",
+        content: md(
+          "n_111111111111111111111111",
+          "Foundation",
+          `root_node_id: ${SOURCE_ROOT}\n`,
+        ),
+      },
+    ];
+    getSpaceCopySnapshotMock.mockResolvedValueOnce(
+      snapshotResult({ files, markdown_file_count: 1 }),
+    );
+
+    const code = await forkCommand.run([SOURCE_URL, destination], {}, JSON_GLOBAL);
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("clean-copy projections must omit source identity");
+    expect(existsSync(destination)).toBe(false);
+  });
+
   it("refuses a projection without an existing root foundation", async () => {
     const destination = join(work, "foundationless");
     const files = [{ path: "README.md", content: md("n_222222222222222222222222", "Read") }];

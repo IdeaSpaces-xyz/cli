@@ -76,25 +76,6 @@ export interface PublicSpaceResult {
   readme_markdown: string | null;
 }
 
-export interface CopySpaceBody {
-  name: string;
-  slug?: string;
-  hostname: string | null;
-}
-
-export interface CopySpaceResult {
-  repo_id: string;
-  root_node_id: string;
-  slug: string;
-  name: string;
-  source_head: string;
-  markdown_file_count: number;
-  markdown_bytes: number;
-  indexed_files: number;
-  index_status: "fresh" | "unindexed";
-  last_index_error: string | null;
-}
-
 export interface SpaceCopySnapshotFile {
   path: string;
   content: string;
@@ -292,21 +273,6 @@ export async function getSpace(
     "GET",
     `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}`,
     undefined,
-    opts,
-  );
-}
-
-export async function copySpace(
-  config: ApiConfig,
-  rootNodeId: string,
-  body: CopySpaceBody,
-  opts?: RequestOptions,
-): Promise<CopySpaceResult> {
-  return request<CopySpaceResult>(
-    config,
-    "POST",
-    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/copy`,
-    body,
     opts,
   );
 }

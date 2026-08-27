@@ -1,6 +1,6 @@
 import { isValidRootNodeId } from "@ideaspaces/protocol";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -282,7 +282,7 @@ export function loadForkBaseline(root: string): ForkSourceBaseline | null {
 export function saveForkBaseline(root: string, baseline: ForkSourceBaseline): void {
   const path = baselinePath(root);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const temp = `${path}.${process.pid}.tmp`;
+  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temp, JSON.stringify(baseline) + "\n", { mode: 0o600 });
     renameSync(temp, path);
