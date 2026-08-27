@@ -8,7 +8,7 @@ import type {
   LocalGitRunner,
 } from "@ideaspaces/protocol";
 import { nodeLocalEffectFileSystem } from "@ideaspaces/protocol/local-effects";
-import { GIT_MISSING_HINT } from "./git.js";
+import { GIT_MISSING_HINT, sanitizedGitEnvironment } from "./git.js";
 import type { Output } from "./output.js";
 import type { GlobalFlags } from "./types.js";
 
@@ -19,24 +19,9 @@ import type { GlobalFlags } from "./types.js";
  * this runner and never discovers Git, identity, credentials, or network state.
  */
 function localEffectGitEnvironment(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
   // The request's root, index, author, and committer are explicit protocol
   // inputs. Git's environment overrides must not silently replace them.
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_AUTHOR_NAME",
-    "GIT_AUTHOR_EMAIL",
-    "GIT_COMMITTER_NAME",
-    "GIT_COMMITTER_EMAIL",
-  ]) {
-    delete env[key];
-  }
-  return env;
+  return sanitizedGitEnvironment();
 }
 
 export const localEffectGitRunner: LocalGitRunner = async (root, args) => {

@@ -27,6 +27,9 @@ ideaspaces inspect work/Next.md      # deepen one document, summary first
 ideaspaces write decisions/idea.md --content "Idea body text"
 ideaspaces commit -m "Capture idea" decisions/idea.md
 
+# Or take a public, copy-enabled Space home without an account or source history
+ideaspaces fork https://ideaspaces.xyz/spaces/<root_node_id> ./my-fork
+
 # Optional: host or collaborate remotely
 ideaspaces login
 ideaspaces publish
@@ -39,7 +42,10 @@ until you choose to publish or push them. Shared `create` mints a portable `root
 committed root foundation before login; private gitignored `_agent/` scaffolds remain unstamped.
 First `publish` asks the server to adopt that exact committed identity. Declaration,
 canonical-origin, or registry drift refuses before network mutation, and `publish --force` never
-forks or rekeys a Space.
+forks or rekeys a Space. `fork` is also local-first: it reads one bounded, copy-authorized snapshot,
+validates it before touching the destination, and creates an unpublished one-commit Space with fresh
+identity and no remote. Public View + Fork needs no account; signing in is required only when a
+private source was shared directly or when the local fork is later published.
 
 `status` reports the local root-identity state and its HEAD/index/worktree declaration facts without
 network access or mutation. `write` operates only inside that canonical Git worktree. It preserves
@@ -65,7 +71,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 | Command | What it does |
 |---|---|
 | `clone <space-url> [dir]` | Clone an authorized Space, preserve its declaration, and verify it against the canonical origin |
-| `fork <space-url> [dir]` | Create and clone an independent current-content copy without source history |
+| `fork <space-url> [dir]` | Materialize an independent unpublished Space without source history or an account |
 | `update [--yes]` | Preview or apply maintained source updates to a fork without displacing local work |
 | `clones` | List hosted clones and unpublished local forks |
 | `create <name>` | Create a local Space; shared scaffolds mint portable root identity before login |
@@ -116,11 +122,12 @@ ideaspaces share person @someone --grade fork
 ideaspaces share team acme.com --grade collaborate
 ideaspaces share list
 ideaspaces share remove team:acme.com
-ideaspaces share visibility public   # anyone can view; signed-in people can fork
+ideaspaces share visibility public   # anyone can view and fork locally; publishing still requires sign-in
 ideaspaces share visibility private  # named access is unchanged
 ```
 
-Public visibility never makes Git history, clone, or push public.
+Public visibility permits a bounded, history-free local Fork; it never makes Git history, clone, or
+push public and never creates an anonymous hosted owner.
 
 ### Identity
 | Command | What it does |

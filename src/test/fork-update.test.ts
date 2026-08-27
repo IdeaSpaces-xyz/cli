@@ -60,6 +60,21 @@ describe("fork update merge", () => {
     expect(normalized).not.toHaveProperty("progress.local.md");
   });
 
+  it("retains the destination root identity while normalizing later source snapshots", () => {
+    const rootNodeId = "n_abcdefabcdefabcdefabcdef";
+    const baselineFoundation = `---\nnode_id: ${A}\nroot_node_id: ${rootNodeId}\n---\nOld\n`;
+    const incomingFoundation = md(X, "New");
+
+    const normalized = normalizeSnapshot(
+      [{ path: "_agent/foundation.md", content: incomingFoundation }],
+      { "_agent/foundation.md": baselineFoundation },
+    );
+
+    expect(normalized["_agent/foundation.md"]).toContain(`node_id: ${A}`);
+    expect(normalized["_agent/foundation.md"]).toContain(`root_node_id: ${rootNodeId}`);
+    expect(normalized["_agent/foundation.md"]).toContain("New");
+  });
+
   it("applies source-only changes and preserves edits, additions, progress, and conflicts", () => {
     const before = {
       "changed.md": md(A, "old"),

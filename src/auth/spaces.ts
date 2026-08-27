@@ -7,7 +7,16 @@
  */
 
 import { CURRENT_ROOT_NODE_ID_PATTERN, isValidRootNodeId } from "@ideaspaces/protocol";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { configDir } from "./config-dir.js";
 
@@ -154,6 +163,19 @@ export function loadSpaces(): SpacesMap {
   }
 }
 
+function writeSpaces(map: SpacesMap): void {
+  const dir = configDir();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const destination = spacesFile();
+  const temp = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(map, null, 2) + "\n", { mode: 0o600 });
+    renameSync(temp, destination);
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
 export function saveSpace(absolutePath: string, record: SpaceRecord): void {
   const parsed = parseSpaceRecord(record);
   if (!parsed) {
@@ -167,11 +189,7 @@ export function saveSpace(absolutePath: string, record: SpaceRecord): void {
     if (existing !== key && folderKey(existing) === key) delete map[existing];
   }
   map[key] = parsed;
-  const dir = configDir();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
-  writeFileSync(spacesFile(), JSON.stringify(map, null, 2) + "\n", { mode: 0o600 });
+  writeSpaces(map);
 }
 
 export function findSpaceFor(absolutePath: string): SpaceRecord | null {
@@ -197,11 +215,7 @@ export function removeSpace(absolutePath: string): boolean {
   const keys = Object.keys(map).filter((path) => folderKey(path) === canonical);
   if (!keys.length) return false;
   for (const key of keys) delete map[key];
-  const dir = configDir();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-  }
-  writeFileSync(spacesFile(), JSON.stringify(map, null, 2) + "\n", { mode: 0o600 });
+  writeSpaces(map);
   return true;
 }
 

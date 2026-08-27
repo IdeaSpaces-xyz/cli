@@ -182,7 +182,7 @@ describe("Space locator and copy API", () => {
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({ name: "Manual", hostname: null });
   });
 
-  it("gets the maintained clean-copy snapshot by stable source identity", async () => {
+  it("gets the complete clean-copy snapshot by stable source identity", async () => {
     let captured: { url: string; init?: RequestInit } | undefined;
     vi.stubGlobal(
       "fetch",
@@ -195,6 +195,9 @@ describe("Space locator and copy API", () => {
               markdown_file_count: 1,
               markdown_bytes: 10,
               files: [{ path: "_agent/guide.md", content: "Guide" }],
+              asset_file_count: 1,
+              asset_bytes: 7,
+              assets: [{ path: "_assets/picture.png", content_base64: "cGF5bG9hZA==" }],
             }),
             { status: 200 },
           ),
@@ -208,10 +211,45 @@ describe("Space locator and copy API", () => {
     );
 
     expect(snapshot.files[0].path).toBe("_agent/guide.md");
+    expect(snapshot.assets[0].path).toBe("_assets/picture.png");
     expect(captured?.url).toBe(
       "http://api.test/api/v1/spaces/n_0123456789abcdef01234567/copy-snapshot",
     );
     expect(captured?.init?.method).toBe("GET");
+    expect((captured?.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
+  });
+
+  it("omits Authorization entirely for credential-free public reads", async () => {
+    const calls: RequestInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        calls.push(init ?? {});
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              kind: "space",
+              node_id: "n_0123456789abcdef01234567",
+              container_node_id: "n_0123456789abcdef01234567",
+              name: "Guide",
+              canonical_url: "/spaces/n_0123456789abcdef01234567",
+              copy_enabled: true,
+              login_required_to_copy: false,
+              summary: null,
+              readme_markdown: null,
+            }),
+            { status: 200 },
+          ),
+        );
+      }),
+    );
+
+    await getSpace({ apiUrl: "http://api.test" }, "n_0123456789abcdef01234567");
+    await getSpace({ apiUrl: "http://api.test", apiKey: "   " }, "n_0123456789abcdef01234567");
+
+    for (const call of calls) {
+      expect(call.headers).not.toHaveProperty("Authorization");
+    }
   });
 });
 

@@ -408,7 +408,7 @@ describe("the product Share surface", () => {
     });
 
     expect(await shareCommand.run(["list"], {}, TEXT_G)).toBe(0);
-    expect(stdout).toContain("public — anyone can view; signed-in people can fork");
+    expect(stdout).toContain("public — anyone can view and fork locally; publishing requires sign-in");
     expect(stdout).toContain("bob");
     expect(stdout).toContain("fork + history");
     expect(stdout).toContain("clone through another path");

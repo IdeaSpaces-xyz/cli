@@ -12,8 +12,13 @@
 
 const API_V1 = "/api/v1";
 
-export interface ApiConfig {
+export interface PublicApiConfig {
   apiUrl: string;
+  /** Present only when the caller has ambient credentials worth sending. */
+  apiKey?: string;
+}
+
+export interface ApiConfig extends PublicApiConfig {
   apiKey: string;
 }
 
@@ -95,11 +100,19 @@ export interface SpaceCopySnapshotFile {
   content: string;
 }
 
+export interface SpaceCopySnapshotAsset {
+  path: string;
+  content_base64: string;
+}
+
 export interface SpaceCopySnapshotResult {
   source_head: string;
   markdown_file_count: number;
   markdown_bytes: number;
   files: SpaceCopySnapshotFile[];
+  asset_file_count: number;
+  asset_bytes: number;
+  assets: SpaceCopySnapshotAsset[];
 }
 
 /** Default request timeout — protects callers from indefinite hangs on a
@@ -188,18 +201,18 @@ function unreachableMessage(apiUrl: string, timedOut: boolean): string {
   return `${lead} If you're in Cowork, its sandbox blocks remote access — switch to Claude Code view to browse and sync (local capture still works).`;
 }
 
-/** Auth + JSON headers, shared so the streaming path can't drift from request()
- * if auth ever grows (versioned header, signature, …). */
-function authHeaders(config: ApiConfig, extra?: Record<string, string>): Record<string, string> {
+/** Optional auth + JSON headers, shared so streaming and public reads cannot drift. */
+function authHeaders(config: PublicApiConfig, extra?: Record<string, string>): Record<string, string> {
+  const apiKey = config.apiKey?.trim();
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${config.apiKey}`,
+    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     ...extra,
   };
 }
 
 async function request<T>(
-  config: ApiConfig,
+  config: PublicApiConfig,
   method: string,
   path: string,
   body?: unknown,
@@ -270,7 +283,7 @@ export async function createRepo(
 }
 
 export async function getSpace(
-  config: ApiConfig,
+  config: PublicApiConfig,
   rootNodeId: string,
   opts?: RequestOptions,
 ): Promise<PublicSpaceResult> {
@@ -299,7 +312,7 @@ export async function copySpace(
 }
 
 export async function getSpaceCopySnapshot(
-  config: ApiConfig,
+  config: PublicApiConfig,
   rootNodeId: string,
   opts?: RequestOptions,
 ): Promise<SpaceCopySnapshotResult> {
