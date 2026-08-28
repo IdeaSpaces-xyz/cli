@@ -7,6 +7,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   unlinkSync,
@@ -392,14 +393,29 @@ export function applyForkUpdate(plan: ForkUpdatePlan, root: string): void {
   }
 }
 
-function baselinePath(root: string): string {
-  const key = createHash("sha256").update(resolve(root)).digest("hex");
-  return join(configDir(), "fork-baselines", `${key}.json`);
+function baselinePaths(root: string): string[] {
+  const lexical = resolve(root);
+  let canonical = lexical;
+  try {
+    canonical = realpathSync.native(lexical);
+  } catch {
+    // A destination preflight may ask before the folder exists.
+  }
+  const roots = new Set([canonical, lexical]);
+  // S3 keyed the caller's lexical destination. macOS reports /var and /tmp
+  // checkouts through their physical /private aliases once Git opens them.
+  if (process.platform === "darwin" && canonical.startsWith("/private/")) {
+    roots.add(canonical.slice("/private".length));
+  }
+  return [...roots].map((candidate) => {
+    const key = createHash("sha256").update(candidate).digest("hex");
+    return join(configDir(), "fork-baselines", `${key}.json`);
+  });
 }
 
 export function loadForkBaseline(root: string): ForkSourceBaseline | null {
-  const path = baselinePath(root);
-  if (!existsSync(path)) return null;
+  const path = baselinePaths(root).find(existsSync);
+  if (!path) return null;
   try {
     return JSON.parse(readFileSync(path, "utf-8")) as ForkSourceBaseline;
   } catch {
@@ -408,7 +424,7 @@ export function loadForkBaseline(root: string): ForkSourceBaseline | null {
 }
 
 export function saveForkBaseline(root: string, baseline: ForkSourceBaseline): void {
-  const path = baselinePath(root);
+  const path = baselinePaths(root)[0];
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
@@ -421,11 +437,12 @@ export function saveForkBaseline(root: string, baseline: ForkSourceBaseline): vo
 
 /** Remove fork-local source state during an interrupted atomic installation. */
 export function removeForkBaseline(root: string): void {
-  const path = baselinePath(root);
-  try {
-    unlinkSync(path);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  for (const path of baselinePaths(root)) {
+    try {
+      unlinkSync(path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
   }
 }
 

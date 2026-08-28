@@ -1,14 +1,26 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyForkUpdate,
   assetRevisions,
   initialForkBaseline,
+  loadForkBaseline,
   normalizeSnapshot,
   planForkUpdate,
+  removeForkBaseline,
+  saveForkBaseline,
   withForkAssetBaseline,
   type ForkSourceBaseline,
 } from "../fork-update.js";
@@ -23,10 +35,19 @@ function md(id: string, body: string): string {
 }
 
 let root: string;
+let home: string;
+let oldHome: string | undefined;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "is-fork-update-"));
+  home = mkdtempSync(join(tmpdir(), "is-fork-update-home-"));
+  oldHome = process.env.HOME;
+  process.env.HOME = home;
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => {
+  process.env.HOME = oldHome;
+  rmSync(root, { recursive: true, force: true });
+  rmSync(home, { recursive: true, force: true });
+});
 
 function write(path: string, content: string | Buffer): void {
   const absolute = join(root, path);
@@ -219,6 +240,37 @@ describe("fork update merge", () => {
     expect(second.writes).toEqual({});
     expect(second.conflicts).toEqual([{ path: "note.md", kind: "content" }]);
   });
+
+  it("addresses a baseline by the checkout's canonical physical path", () => {
+    const expected = baseline({ "README.md": md(A, "initial") });
+
+    saveForkBaseline(root, expected);
+
+    expect(loadForkBaseline(realpathSync.native(root))).toEqual(expected);
+    removeForkBaseline(realpathSync.native(root));
+    expect(loadForkBaseline(root)).toBeNull();
+  });
+
+  it.skipIf(process.platform !== "darwin")(
+    "reads and removes the lexical S3 baseline alias for a canonical macOS checkout",
+    () => {
+      const canonical = realpathSync.native(root);
+      const lexical = canonical.startsWith("/private/")
+        ? canonical.slice("/private".length)
+        : resolve(root);
+      expect(canonical).not.toBe(lexical);
+      const directory = join(home, ".ideaspaces", "fork-baselines");
+      mkdirSync(directory, { recursive: true });
+      const key = createHash("sha256").update(lexical).digest("hex");
+      const legacyPath = join(directory, `${key}.json`);
+      const expected = baseline({ "README.md": md(A, "initial") });
+      writeFileSync(legacyPath, JSON.stringify(expected));
+
+      expect(loadForkBaseline(canonical)).toEqual(expected);
+      removeForkBaseline(canonical);
+      expect(() => readFileSync(legacyPath)).toThrow();
+    },
+  );
 
   it("reconstructs the initial source baseline from the fork's first commit", () => {
     execFileSync("git", ["init"], { cwd: root });
