@@ -13,7 +13,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import {
   getSpace,
   getSpaceCopySnapshot,
-  UnauthorizedError,
+  optionalAuthRead,
   type PublicApiConfig,
   type PublicSpaceResult,
 } from "../auth/api.js";
@@ -24,6 +24,7 @@ import {
   type UnpublishedForkRecord,
 } from "../auth/spaces.js";
 import {
+  assetRevisions,
   loadForkBaseline,
   removeForkBaseline,
   saveForkBaseline,
@@ -65,23 +66,6 @@ function validateSource(value: unknown, rootNodeId: string): PublicSpaceResult {
     throw new Error("The source returned an invalid Space description");
   }
   return value as PublicSpaceResult;
-}
-
-async function optionalAuthRead<T>(
-  config: PublicApiConfig,
-  read: (current: PublicApiConfig) => Promise<T>,
-): Promise<{ value: T; config: PublicApiConfig }> {
-  try {
-    return { value: await read(config), config };
-  } catch (err) {
-    // A stale ambient token must not make an otherwise-public Space unreadable.
-    // Retry once without auth; a private direct-Fork source then fails neutrally.
-    if (err instanceof UnauthorizedError && config.apiKey) {
-      const anonymous = { apiUrl: config.apiUrl };
-      return { value: await read(anonymous), config: anonymous };
-    }
-    throw err;
-  }
 }
 
 function sourceReadError(err: unknown): string {
@@ -239,6 +223,7 @@ function installLocalFork(opts: {
       source_root_node_id: sourceRootNodeId,
       source_head: sourceHead,
       files: markdown,
+      assets: assetRevisions(assets),
       conflicts: [],
     };
     saveForkBaseline(destination, baseline);

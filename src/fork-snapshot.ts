@@ -112,7 +112,10 @@ function decodeBase64(value: unknown, path: string): Buffer {
 }
 
 /** Validate the complete bounded envelope before any destination path is touched. */
-export function prepareForkSnapshot(value: unknown): PreparedForkSnapshot {
+export function prepareForkSnapshot(
+  value: unknown,
+  markdownBaseline: Record<string, string> = {},
+): PreparedForkSnapshot {
   if (!isRecord(value)) throw new Error("The source returned an invalid snapshot envelope");
   const snapshot = value as unknown as SpaceCopySnapshotResult;
   if (
@@ -169,7 +172,7 @@ export function prepareForkSnapshot(value: unknown): PreparedForkSnapshot {
   }
 
   assertNoPathCollisions([...files.map((file) => file.path), ...assets.map((asset) => asset.path)]);
-  const markdown = normalizeSnapshot(files, {});
+  const markdown = normalizeSnapshot(files, markdownBaseline);
   return {
     sourceHead: snapshot.source_head,
     markdown,

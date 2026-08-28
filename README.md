@@ -45,7 +45,10 @@ canonical-origin, or registry drift refuses before network mutation, and `publis
 forks or rekeys a Space. `fork` is also local-first: it reads one bounded, copy-authorized snapshot,
 validates it before touching the destination, and creates an unpublished one-commit Space with fresh
 identity and no remote. Public View + Fork needs no account; signing in is required only when a
-private source was shared directly or when the local fork is later published.
+private source was shared directly or when the local fork is later published. `update` keeps that
+relationship account-free while both public permissions remain enabled. It previews before apply,
+validates the complete Markdown plus exact `_assets/` snapshot, and uses a three-way plan that
+preserves local work and reports conflicts; directly shared private sources still use ambient auth.
 
 `status` reports the local root-identity state and its HEAD/index/worktree declaration facts without
 network access or mutation. `write` operates only inside that canonical Git worktree. It preserves
@@ -72,7 +75,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 |---|---|
 | `clone <space-url> [dir]` | Clone an authorized Space, preserve its declaration, and verify it against the canonical origin |
 | `fork <space-url> [dir]` | Materialize an independent unpublished Space without source history or an account |
-| `update [--yes]` | Preview or apply maintained source updates to a fork without displacing local work |
+| `update [--yes]` | Preview or apply account-optional three-way source updates without displacing local work |
 | `clones` | List hosted clones and unpublished local forks |
 | `create <name>` | Create a local Space; shared scaffolds mint portable root identity before login |
 | `repos` | List spaces you can access |
