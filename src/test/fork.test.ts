@@ -188,6 +188,7 @@ describe("account-free local fork", () => {
       source_root_node_id: SOURCE_ROOT,
       source_head: HEAD,
       files: { "_agent/foundation.md": expect.stringContaining(String(metadata.root_node_id)) },
+      assets: { "_assets/picture.png": expect.stringMatching(/^[0-9a-f]{64}$/) },
       conflicts: [],
     });
 

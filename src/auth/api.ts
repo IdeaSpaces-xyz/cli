@@ -159,6 +159,28 @@ export class NetworkError extends Error {
   }
 }
 
+/**
+ * Read through ambient credentials when present, then retry one authenticated
+ * 401 without Authorization so an expired token cannot hide a public Space.
+ *
+ * Every other refusal keeps its original auth mode. In particular, a neutral
+ * 404 from a denied private source must not become an anonymous policy probe.
+ */
+export async function optionalAuthRead<T>(
+  config: PublicApiConfig,
+  read: (current: PublicApiConfig) => Promise<T>,
+): Promise<{ value: T; config: PublicApiConfig }> {
+  try {
+    return { value: await read(config), config };
+  } catch (err) {
+    if (err instanceof UnauthorizedError && config.apiKey) {
+      const anonymous = { apiUrl: config.apiUrl };
+      return { value: await read(anonymous), config: anonymous };
+    }
+    throw err;
+  }
+}
+
 /** undici's fetch throws `TypeError: fetch failed` for connect/DNS/reset errors
  * (the errno rides on `.cause`) — as opposed to an HTTP status or a JSON parse
  * error, which surface as ordinary Errors / SyntaxErrors. */

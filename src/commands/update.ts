@@ -1,22 +1,51 @@
-import { getSpaceCopySnapshot, UnauthorizedError } from "../auth/api.js";
-import { loadConfig } from "../auth/credentials.js";
+import { getSpaceCopySnapshot, optionalAuthRead } from "../auth/api.js";
+import { loadOptionalAuthConfig } from "../auth/credentials.js";
 import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import {
   applyForkUpdate,
   describeChanges,
   initialForkBaseline,
   loadForkBaseline,
-  normalizeSnapshot,
   planForkUpdate,
   saveForkBaseline,
+  withForkAssetBaseline,
+  type ForkSourceBaseline,
+  type ForkUpdateConflict,
 } from "../fork-update.js";
+import { prepareForkSnapshot } from "../fork-snapshot.js";
 import { repoRoot } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
+function recordsEqual<T>(left: Record<string, T>, right: Record<string, T>): boolean {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key])
+  );
+}
+
+function conflictsEqual(left: ForkUpdateConflict[], right: ForkUpdateConflict[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (item, index) => item.path === right[index]?.path && item.kind === right[index]?.kind,
+    )
+  );
+}
+
+function sourceUpdateError(err: unknown): string {
+  const detail = err instanceof Error ? err.message : String(err);
+  if (/→ (?:401|403|404):/.test(detail)) {
+    return "The maintained source is unavailable. It may no longer be shared or allow Fork; no local state was changed.";
+  }
+  return `The maintained source update channel is unavailable; no local state was changed. ${detail}`;
+}
+
 export const updateCommand: CommandDef = {
   name: "update",
-  description: "Apply maintained source updates to a fork without displacing local work",
+  description: "Preview or apply account-optional three-way source updates without displacing local work",
   usage: "ideaspaces update [--yes]",
   examples: [
     "ideaspaces update       # preview source changes and conflicts",
@@ -38,30 +67,27 @@ export const updateCommand: CommandDef = {
       return 1;
     }
 
-    const config = loadConfig();
-    if (!config) {
-      output.error("Not logged in. Run `ideaspaces login`.");
-      return 1;
-    }
-
-    let baseline;
+    let baseline: ForkSourceBaseline;
+    let baselineCreated = false;
+    let baselineMigrated = false;
     try {
-      baseline = loadForkBaseline(root);
-      if (baseline && baseline.source_root_node_id !== record.source_root_node_id) {
+      const loaded = loadForkBaseline(root);
+      if (loaded && loaded.source_root_node_id !== record.source_root_node_id) {
         throw new Error("The local fork baseline names a different source; no files were changed.");
       }
-      if (!baseline) {
+      if (!loaded) {
         if (record.source_baseline_initialized) {
           throw new Error("The local fork update baseline is missing; no files were changed.");
         }
         if (!record.source_head) {
           throw new Error("This fork has no pinned source head; no files were changed.");
         }
-        baseline = initialForkBaseline(
-          root,
-          record.source_root_node_id,
-          record.source_head,
-        );
+        baseline = initialForkBaseline(root, record.source_root_node_id, record.source_head);
+        baselineCreated = true;
+      } else {
+        const hydrated = withForkAssetBaseline(root, loaded);
+        baseline = hydrated.baseline;
+        baselineMigrated = hydrated.migrated;
       }
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
@@ -69,118 +95,138 @@ export const updateCommand: CommandDef = {
     }
 
     output.progress("Reading the maintained source projection…");
-    let snapshot;
+    let snapshot: Awaited<ReturnType<typeof getSpaceCopySnapshot>>;
     try {
-      snapshot = await getSpaceCopySnapshot(config, record.source_root_node_id, {
-        timeoutMs: 120_000,
-      });
+      const read = await optionalAuthRead(loadOptionalAuthConfig(), (config) =>
+        getSpaceCopySnapshot(config, record.source_root_node_id!, { timeoutMs: 120_000 }),
+      );
+      snapshot = read.value;
     } catch (err) {
-      if (err instanceof UnauthorizedError) {
-        output.error("Session expired. Run `ideaspaces login`.");
-      } else {
-        output.error(
-          "The maintained source update channel is unavailable; no local files were changed. " +
-            (err instanceof Error ? err.message : String(err)),
-        );
-      }
+      output.error(sourceUpdateError(err));
       return 1;
     }
 
-    let plan;
+    let prepared: ReturnType<typeof prepareForkSnapshot>;
+    let plan: ReturnType<typeof planForkUpdate>;
     try {
+      prepared = prepareForkSnapshot(snapshot, baseline.files);
+      plan = planForkUpdate(baseline, prepared.markdown, root, prepared.assets);
       if (
-        !snapshot ||
-        typeof snapshot.source_head !== "string" ||
-        !/^[0-9a-f]{40}$/.test(snapshot.source_head) ||
-        !Number.isInteger(snapshot.markdown_file_count) ||
-        snapshot.markdown_file_count < 0 ||
-        !Number.isInteger(snapshot.markdown_bytes) ||
-        snapshot.markdown_bytes < 0 ||
-        !Array.isArray(snapshot.files) ||
-        snapshot.files.length !== snapshot.markdown_file_count
+        baseline.source_head === prepared.sourceHead &&
+        (!recordsEqual(baseline.files, plan.incoming) ||
+          (!baselineMigrated && !recordsEqual(baseline.assets ?? {}, plan.incoming_assets)))
       ) {
-        throw new Error("The source returned an invalid snapshot envelope");
+        throw new Error("The source projection changed without changing its source head");
       }
-      let receivedBytes = 0;
-      for (const file of snapshot.files) {
-        if (!file || typeof file.path !== "string" || typeof file.content !== "string") {
-          throw new Error("The source returned an invalid snapshot file");
-        }
-        receivedBytes += Buffer.byteLength(file.content, "utf-8");
-      }
-      if (receivedBytes > 20_000_000) {
-        throw new Error("The source snapshot exceeds the local update limit");
-      }
-      const incoming = normalizeSnapshot(snapshot.files, baseline.files);
-      plan = planForkUpdate(baseline, incoming, root);
     } catch (err) {
       output.error(
-        `The source projection could not be validated; no local files were changed. ${err instanceof Error ? err.message : String(err)}`,
+        `The source projection could not be validated; no local state was changed. ${err instanceof Error ? err.message : String(err)}`,
       );
       return 1;
     }
 
+    const writes = Object.keys(plan.writes).sort();
+    const assetWrites = Object.keys(plan.asset_writes).sort();
     const changes = describeChanges(plan);
+    const worktreeNeeded = writes.length > 0 || assetWrites.length > 0 || plan.deletes.length > 0;
+    const baselineNeeded =
+      baselineCreated ||
+      baselineMigrated ||
+      baseline.source_head !== prepared.sourceHead ||
+      !recordsEqual(baseline.files, plan.incoming) ||
+      !recordsEqual(baseline.assets ?? {}, plan.incoming_assets) ||
+      !conflictsEqual(baseline.conflicts, plan.conflicts);
+    const registryNeeded =
+      record.source_head !== prepared.sourceHead || !record.source_baseline_initialized;
+    const changed = worktreeNeeded || baselineNeeded || registryNeeded;
+
+    const result = {
+      apply: global.yes,
+      changed,
+      worktree_changed: worktreeNeeded,
+      source_head: prepared.sourceHead,
+      writes,
+      asset_writes: assetWrites,
+      deletes: plan.deletes,
+      conflicts: plan.conflicts,
+    };
+
     if (!global.yes) {
       output.result(
-        {
-          apply: false,
-          source_head: snapshot.source_head,
-          writes: Object.keys(plan.writes),
-          deletes: plan.deletes,
-          conflicts: plan.conflicts,
-        },
-        changes.length
-          ? [
-              `Source update ${snapshot.source_head.slice(0, 12)} is ready:`,
-              ...changes.map((change) => `  ${change}`),
-              "Run `ideaspaces update --yes` to apply non-conflicting changes.",
-            ].join("\n")
-          : "Already up to date — no source changes to apply.",
+        result,
+        !changed
+          ? plan.conflicts.length
+            ? `Already up to date — ${plan.conflicts.length} unresolved conflict(s) remain.`
+            : "Already up to date — no source changes to apply."
+          : changes.length
+            ? [
+                `Source update ${prepared.sourceHead.slice(0, 12)} is ready:`,
+                ...changes.map((change) => `  ${change}`),
+                "Run `ideaspaces update --yes` to apply non-conflicting changes.",
+              ].join("\n")
+            : "Source content is current; run `ideaspaces update --yes` to finish local baseline recovery.",
       );
       return 0;
     }
 
-    try {
-      applyForkUpdate(plan, root);
-      // The baseline must become durable before spaces.json advances. If the
-      // latter write is interrupted, the baseline remains sufficient to retry
-      // safely and heal the display pin on the next successful run.
-      saveForkBaseline(root, {
-        source_root_node_id: record.source_root_node_id,
-        source_head: snapshot.source_head,
-        files: plan.incoming,
-        conflicts: plan.conflicts,
-      });
-      saveSpace(root, {
-        ...record,
-        source_head: snapshot.source_head,
-        source_baseline_initialized: true,
-      });
-    } catch (err) {
-      output.error(
-        `The update could not be finalized: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return 1;
+    if (worktreeNeeded) {
+      try {
+        applyForkUpdate(plan, root);
+      } catch (err) {
+        output.error(
+          `The source update could not be applied; baseline and registry were not advanced. ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return 1;
+      }
+    }
+
+    if (baselineNeeded) {
+      try {
+        saveForkBaseline(root, {
+          source_root_node_id: record.source_root_node_id,
+          source_head: prepared.sourceHead,
+          files: plan.incoming,
+          assets: plan.incoming_assets,
+          conflicts: plan.conflicts,
+        });
+      } catch (err) {
+        output.error(
+          `${worktreeNeeded ? "Source changes reached the worktree, but" : "The worktree was unchanged and"} the durable baseline could not be advanced. Rerun the identical update to recover safely. ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return 1;
+      }
+    }
+
+    if (registryNeeded) {
+      try {
+        saveSpace(root, {
+          ...record,
+          source_head: prepared.sourceHead,
+          source_baseline_initialized: true,
+        });
+      } catch (err) {
+        output.error(
+          `The source baseline is current, but the local registry pin could not be advanced. Rerun the identical update to repair it. ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return 1;
+      }
     }
 
     output.result(
-      {
-        apply: true,
-        source_head: snapshot.source_head,
-        writes: Object.keys(plan.writes),
-        deletes: plan.deletes,
-        conflicts: plan.conflicts,
-      },
-      changes.length
-        ? [
-            `Updated from source ${snapshot.source_head.slice(0, 12)}.`,
-            ...changes.map((change) => `  ${change}`),
-            ...(plan.conflicts.length
-              ? ["Conflicting local files were preserved; resolve them before the next update."]
-              : []),
-          ].join("\n")
-        : "Already up to date — the source baseline is current.",
+      result,
+      !changed
+        ? plan.conflicts.length
+          ? `Already up to date — ${plan.conflicts.length} unresolved conflict(s) remain.`
+          : "Already up to date — no source changes to apply."
+        : changes.length
+          ? [
+              `Updated from source ${prepared.sourceHead.slice(0, 12)}.`,
+              ...changes.map((change) => `  ${change}`),
+              ...(plan.conflicts.length
+                ? ["Conflicting local files were preserved; resolve them before the next update."]
+                : []),
+            ].join("\n")
+          : "Already up to date — the source baseline is current.",
     );
     return 0;
   },
