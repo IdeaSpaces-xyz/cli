@@ -17,6 +17,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
 import type { SpaceCopySnapshotFile } from "./auth/api.js";
 import { configDir } from "./auth/config-dir.js";
+import { isExactAssetPayloadPath } from "./fork-paths.js";
 import { sanitizedGitEnvironment } from "./git.js";
 import { declareRootIdentity } from "./root-identity.js";
 
@@ -105,10 +106,7 @@ function isAssetPayloadPath(path: string): boolean {
   }
   const parts = path.split("/");
   if (parts.some((part) => part === "." || part === "..")) return false;
-  for (const part of parts.slice(0, -1)) {
-    if (part.startsWith("_") || part.toLowerCase() === ".git") return part === "_assets";
-  }
-  return false;
+  return isExactAssetPayloadPath(path);
 }
 
 function isLocalOnly(path: string): boolean {
@@ -202,11 +200,6 @@ export function normalizeSnapshot(
   return normalized;
 }
 
-function readLocalText(path: string, root: string): string | null {
-  const content = readLocalBuffer(path, root);
-  return content === null ? null : content.toString("utf-8");
-}
-
 function readLocalBuffer(path: string, root: string): Buffer | null {
   const absolute = resolve(root, path);
   const rel = relative(root, absolute);
@@ -264,17 +257,19 @@ export function planForkUpdate(
   for (const path of [...markdownPaths].sort()) {
     const before = baseline.files[path] ?? null;
     const after = incoming[path] ?? null;
-    const local = readLocalText(path, root);
+    const beforeRevision = before === null ? null : assetRevision(Buffer.from(before, "utf-8"));
+    const afterRevision = after === null ? null : assetRevision(Buffer.from(after, "utf-8"));
+    const localContent = readLocalBuffer(path, root);
+    const localRevision = localContent === null ? null : assetRevision(localContent);
 
     if (after === before) {
-      if (conflicts.has(path) && local === after) conflicts.delete(path);
+      if (conflicts.has(path) && localRevision === afterRevision) conflicts.delete(path);
       continue;
     }
-    if (local === before || local === after) {
+    if (localRevision === beforeRevision || localRevision === afterRevision) {
       conflicts.delete(path);
-      if (local !== after) {
-        expectedRevisions[path] =
-          local === null ? null : assetRevision(Buffer.from(local, "utf-8"));
+      if (localRevision !== afterRevision) {
+        expectedRevisions[path] = localRevision;
         if (after === null) deletes.add(path);
         else writes[path] = after;
       }

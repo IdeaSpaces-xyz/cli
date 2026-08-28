@@ -1,4 +1,5 @@
 import type { SpaceCopySnapshotFile, SpaceCopySnapshotResult } from "./auth/api.js";
+import { isExactAssetPayloadParts } from "./fork-paths.js";
 import { normalizeSnapshot } from "./fork-update.js";
 
 const MAX_MARKDOWN_FILES = 1_000;
@@ -22,13 +23,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function boundedInteger(value: unknown, max: number): value is number {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= max;
-}
-
-function isAssetPayload(parts: string[]): boolean {
-  for (const part of parts.slice(0, -1)) {
-    if (part.startsWith("_") || part.toLowerCase() === ".git") return part === "_assets";
-  }
-  return false;
 }
 
 /** Validate one server-authored portable path before it reaches the host filesystem. */
@@ -61,7 +55,7 @@ function validatePath(value: unknown, role: "markdown" | "asset"): string {
   ) {
     throw new Error(`Unsafe ${role} path in source snapshot: ${value}`);
   }
-  const assetPayload = isAssetPayload(parts);
+  const assetPayload = isExactAssetPayloadParts(parts);
   if (role === "markdown" && (!value.endsWith(".md") || assetPayload)) {
     throw new Error(`Invalid Markdown path in source snapshot: ${value}`);
   }

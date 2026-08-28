@@ -260,6 +260,10 @@ describe("update command", () => {
     stdout = [];
     expect(await updateCommand.run([], {}, { ...JSON_GLOBAL, yes: true })).toBe(0);
     expect(readFileSync(join(root, "_assets", "picture.bin"))).toEqual(Buffer.from([1]));
+    expect(JSON.parse(stdout.join(""))).toMatchObject({
+      writes: [],
+      asset_writes: ["_assets/picture.bin"],
+    });
     expect(saveBaselineMock).toHaveBeenCalledWith(
       realpathSync.native(process.cwd()),
       expect.objectContaining({

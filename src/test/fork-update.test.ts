@@ -163,6 +163,21 @@ describe("fork update merge", () => {
     })).toBe(stagedBefore);
   });
 
+  it("treats non-UTF-8 Markdown bytes as local work instead of a false plan race", () => {
+    const decoded = Buffer.from([0xff]).toString("utf-8");
+    write("note.md", Buffer.from([0xff]));
+
+    const plan = planForkUpdate(
+      baseline({ "note.md": decoded }),
+      { "note.md": "source text\n" },
+      root,
+    );
+
+    expect(plan.writes).toEqual({});
+    expect(plan.conflicts).toEqual([{ path: "note.md", kind: "content" }]);
+    expect(readFileSync(join(root, "note.md"))).toEqual(Buffer.from([0xff]));
+  });
+
   it.skipIf(process.platform === "win32")(
     "refuses to follow a symlink in a selected update path",
     () => {

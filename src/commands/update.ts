@@ -43,13 +43,9 @@ function sourceUpdateError(err: unknown): string {
   return `The maintained source update channel is unavailable; no local state was changed. ${detail}`;
 }
 
-function writePaths(plan: ReturnType<typeof planForkUpdate>): string[] {
-  return [...Object.keys(plan.writes), ...Object.keys(plan.asset_writes)].sort();
-}
-
 export const updateCommand: CommandDef = {
   name: "update",
-  description: "Apply maintained source updates to a fork without displacing local work",
+  description: "Preview or apply account-optional three-way source updates without displacing local work",
   usage: "ideaspaces update [--yes]",
   examples: [
     "ideaspaces update       # preview source changes and conflicts",
@@ -129,9 +125,10 @@ export const updateCommand: CommandDef = {
       return 1;
     }
 
-    const writes = writePaths(plan);
+    const writes = Object.keys(plan.writes).sort();
+    const assetWrites = Object.keys(plan.asset_writes).sort();
     const changes = describeChanges(plan);
-    const worktreeNeeded = writes.length > 0 || plan.deletes.length > 0;
+    const worktreeNeeded = writes.length > 0 || assetWrites.length > 0 || plan.deletes.length > 0;
     const baselineNeeded =
       baselineCreated ||
       baselineMigrated ||
@@ -149,7 +146,7 @@ export const updateCommand: CommandDef = {
       worktree_changed: worktreeNeeded,
       source_head: prepared.sourceHead,
       writes,
-      asset_writes: Object.keys(plan.asset_writes).sort(),
+      asset_writes: assetWrites,
       deletes: plan.deletes,
       conflicts: plan.conflicts,
     };
