@@ -13,6 +13,10 @@ import {
   listTeamShares,
   setTeamShare,
   removeTeamShare,
+  fetchInbox,
+  fetchExchange,
+  sendInquiry,
+  replyToExchange,
   UnauthorizedError,
   NetworkError,
 } from "../auth/api.js";
@@ -341,6 +345,74 @@ describe("sharing (members / invites / access)", () => {
     await expect(removeRepoMember(config, "repo_abc", 7)).resolves.toBeUndefined();
   });
 })
+
+describe("direct Inbox API", () => {
+  it("calls the four person-authenticated exchange routes", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        calls.push({ url: String(url), init });
+        const path = String(url);
+        const body = path.endsWith("/inbox")
+          ? { items: [] }
+          : path.includes("/replies") || path.endsWith("/inquiries")
+            ? {
+                note_node_id: "n_note",
+                exchange_id: "x_one",
+                event_id: "evt_one",
+                position: 1,
+                created_at: "2026-08-29T00:00:00Z",
+                target_node_id: "n_target",
+                author_ref: "person:user_1",
+                recipient_ref: "person:user_2",
+                actor_ref: "person:user_1",
+                surface: "human",
+                action: path.includes("/replies") ? "note.replied" : "inquiry.opened",
+              }
+            : {
+                mode: "direct",
+                exchange_id: "x_one",
+                target_node_id: "n_target",
+                participants: [],
+                messages: [],
+              };
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      }),
+    );
+
+    const note = {
+      send_id: "send-one",
+      name: "Question",
+      summary: "A focused question",
+      markdown: "# Question",
+    };
+    await fetchInbox(config);
+    await fetchExchange(config, "x_one");
+    await sendInquiry(config, {
+      ...note,
+      target_node_id: "n_target",
+      recipient: { username: "two" },
+    });
+    await replyToExchange(config, "x_one", { ...note, send_id: "reply-one" });
+
+    expect(calls.map((call) => [call.init?.method ?? "GET", call.url])).toEqual([
+      ["GET", "http://api.test/api/v1/inbox"],
+      ["GET", "http://api.test/api/v1/exchanges/x_one"],
+      ["POST", "http://api.test/api/v1/inquiries"],
+      ["POST", "http://api.test/api/v1/exchanges/x_one/replies"],
+    ]);
+    expect(JSON.parse(String(calls[2].init?.body))).toMatchObject({
+      send_id: "send-one",
+      target_node_id: "n_target",
+      recipient: { username: "two" },
+    });
+    expect(JSON.parse(String(calls[3].init?.body))).toMatchObject({ send_id: "reply-one" });
+    for (const call of calls) {
+      expect((call.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
+    }
+  });
+});
 
 describe("describeTrailRefusal", () => {
   // The server answers 404 for every refusal so a stranger probing root node
