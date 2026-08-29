@@ -17,4 +17,8 @@ describe("router", () => {
   it("exposes local progressive Markdown inspection", () => {
     expect(findCommand_("inspect")?.name).toBe("inspect");
   });
+
+  it("exposes direct Inbox exchanges", () => {
+    expect(findCommand_("inbox")?.name).toBe("inbox");
+  });
 });

@@ -114,6 +114,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 | `conversation` | Start or continue a conversation (online or `--local`) |
 | `conversations` | List conversations |
 | `share` | Share a Space at a grade — explore, fork, or collaborate — and see who has it |
+| `inbox` | Ask, read, and reply through direct exchanges about shared Content |
 | `agents` | List agents available to you |
 | `times` | Activity timeline |
 
@@ -127,7 +128,19 @@ ideaspaces share list
 ideaspaces share remove team:acme.com
 ideaspaces share visibility public   # anyone can view and fork locally; publishing still requires sign-in
 ideaspaces share visibility private  # named access is unchanged
+
+# Ask the owner of shared Content from a local agent or terminal
+ideaspaces inbox send @owner --about n_0123456789abcdef01234567 \
+  --name "Question" --summary "One decision" --message "What should happen next?"
+ideaspaces inbox list
+ideaspaces inbox read x_example
+printf '# Answer\n\nKeep it narrow.' | ideaspaces inbox reply x_example \
+  --name "Answer" --summary "A bounded answer"
 ```
+
+Inbox commands act as the logged-in person. Bare Agent credentials cannot read or write a person's
+Inbox; plugins expose these person-accountable commands to a local agent after the person logs in.
+Every exchange remains attached to the exact Content `node_id` it concerns.
 
 Public visibility permits a bounded, history-free local Fork; it never makes Git history, clone, or
 push public and never creates an anonymous hosted owner.

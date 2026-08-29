@@ -528,6 +528,131 @@ export async function fetchAgents(
   return res.agents;
 }
 
+export interface InboxParticipant {
+  participant: string;
+  username: string | null;
+  name: string | null;
+  person_node_id: string | null;
+}
+
+export interface ExchangeMessageSummary {
+  note_node_id: string;
+  name: string;
+  summary: string;
+  author_ref: string;
+  actor_ref: string;
+  surface: "human" | "agent";
+  action: "inquiry.opened" | "note.replied";
+  recipient_ref: string;
+  position: number;
+  created_at: string;
+  event_at: string;
+}
+
+export interface ExchangeMessage extends ExchangeMessageSummary {
+  markdown: string;
+}
+
+export interface InboxItem {
+  kind: "inquiry";
+  mode: "direct";
+  exchange_id: string;
+  target_node_id: string;
+  participants: InboxParticipant[];
+  opening_note: ExchangeMessageSummary;
+  latest_message: ExchangeMessageSummary;
+  latest_position: number;
+  latest_received_position: number;
+  message_count: number;
+  received_message_count: number;
+}
+
+export interface InboxResponse {
+  items: InboxItem[];
+}
+
+export interface ExchangeReadResponse {
+  mode: "direct";
+  exchange_id: string;
+  target_node_id: string;
+  participants: InboxParticipant[];
+  messages: ExchangeMessage[];
+}
+
+export interface ExchangeNoteWrite {
+  send_id: string;
+  name: string;
+  summary: string;
+  markdown: string;
+}
+
+export interface InquirySendBody extends ExchangeNoteWrite {
+  target_node_id: string;
+  recipient: { user_id: number } | { username: string } | { email: string };
+}
+
+export interface ExchangeWriteResponse {
+  note_node_id: string;
+  exchange_id: string;
+  event_id: string;
+  position: number;
+  created_at: string;
+  target_node_id: string;
+  author_ref: string;
+  recipient_ref: string;
+  actor_ref: string;
+  surface: "human" | "agent";
+  action: "inquiry.opened" | "note.replied";
+}
+
+/** Direct exchanges received by the logged-in person, newest activity first. */
+export async function fetchInbox(
+  config: ApiConfig,
+  opts?: RequestOptions,
+): Promise<InboxResponse> {
+  return request<InboxResponse>(config, "GET", `${API_V1}/inbox`, undefined, opts);
+}
+
+/** Complete immutable message history for one exchange. Non-parties receive the same 404 as absent ids. */
+export async function fetchExchange(
+  config: ApiConfig,
+  exchangeId: string,
+  opts?: RequestOptions,
+): Promise<ExchangeReadResponse> {
+  return request<ExchangeReadResponse>(
+    config,
+    "GET",
+    `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}`,
+    undefined,
+    opts,
+  );
+}
+
+/** Open a direct inquiry about a readable Content target as the logged-in person. */
+export async function sendInquiry(
+  config: ApiConfig,
+  body: InquirySendBody,
+  opts?: RequestOptions,
+): Promise<ExchangeWriteResponse> {
+  return request<ExchangeWriteResponse>(config, "POST", `${API_V1}/inquiries`, body, opts);
+}
+
+/** Reply through an existing direct exchange as the logged-in person. */
+export async function replyToExchange(
+  config: ApiConfig,
+  exchangeId: string,
+  body: ExchangeNoteWrite,
+  opts?: RequestOptions,
+): Promise<ExchangeWriteResponse> {
+  return request<ExchangeWriteResponse>(
+    config,
+    "POST",
+    `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/replies`,
+    body,
+    opts,
+  );
+}
+
 export interface NodeDetail {
   node_id: string;
   name: string;
