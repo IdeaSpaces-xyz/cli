@@ -1,9 +1,11 @@
+import { Readable } from "node:stream";
 import { describe, it, expect } from "vitest";
 import {
   harvestWorkspace,
   deriveConversationName,
   buildPiArgs,
   isValidPiThinkingLevel,
+  readRpcLines,
 } from "../pi/local-agent.js";
 import type { ToolInvocation } from "@ideaspaces/sdk";
 import type { LocalTurnOptions } from "../pi/local-agent.js";
@@ -76,6 +78,20 @@ describe("deriveConversationName (first-message naming)", () => {
   });
 });
 
+describe("readRpcLines (strict Pi RPC framing)", () => {
+  it("splits only on LF and preserves Unicode line separators inside JSON", async () => {
+    const input = Readable.from([
+      Buffer.from('{"text":"before'),
+      Buffer.from("\u2028after"),
+      Buffer.from('"}\r\n{"second":true}\n'),
+    ]);
+    const lines: string[] = [];
+    for await (const line of readRpcLines(input)) lines.push(line);
+
+    expect(lines).toEqual(['{"text":"before\u2028after"}', '{"second":true}']);
+  });
+});
+
 describe("buildPiArgs (pi rpc argv)", () => {
   const pairs = (args: string[], flag: string): string[] =>
     args.flatMap((a, i) => (args[i - 1] === flag ? [a] : []));
@@ -102,6 +118,13 @@ describe("buildPiArgs (pi rpc argv)", () => {
 
   it("emits no --skill when skillPaths is absent (dev: pi-install'ed)", () => {
     expect(buildPiArgs(baseOpts)).not.toContain("--skill");
+  });
+
+  it("appends Map orientation only when a map-note was selected", () => {
+    expect(buildPiArgs(baseOpts)).not.toContain("--append-system-prompt");
+    expect(buildPiArgs({ ...baseOpts, mapOrientation: "[IdeaSpaces Map]\nMembers (0, ordered):" })).toEqual(
+      expect.arrayContaining(["--append-system-prompt", "[IdeaSpaces Map]\nMembers (0, ordered):"]),
+    );
   });
 
   it("adds --model only when piModel is set", () => {
