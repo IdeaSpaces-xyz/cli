@@ -101,12 +101,19 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 | Command | What it does |
 |---|---|
 | `navigate <path>` | Orient at a position — contract, awareness, what changed |
+| `map [<repo>]` | Derive a local repository Map; `--depth full` explicitly enumerates the complete Content tree |
 | `inspect <path>` | Inspect one local Markdown file by summary, outline, or selected section |
 | `catalog` | Join local checkouts with remote Spaces and their publication/sync state |
 | `ls [<path>]` | List files and folders under a path, typed (folder / repo / ideaspace) |
 | `search <query>` | Full-text search (filename + BM25) over the local clone |
 | `status` | Working-copy and offline root-identity status, including uncommitted declaration drift |
 | `skills` | List the skill catalog, or print one skill's markdown |
+
+`map` is local and network-free, and it does not require an `_agent/` contract. Numeric depths stay
+bounded to 1–4; `--depth full` is deliberate enumeration rather than ambient orientation. JSON
+members use the protocol's `name/summary/surface/children/full` vocabulary and can seed a map-note
+without translating positions or rungs. Dirty or identity-less roots are labeled non-portable rather
+than presented as an exact snapshot.
 
 ### Collaborate
 | Command | What it does |

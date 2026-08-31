@@ -229,9 +229,14 @@ export function ignoredPaths(paths: string[], cwd?: string): string[] {
     .out.split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  return matched.filter(
-    (path) => gitExit(["ls-files", "--error-unmatch", "--", path], cwd) !== 0,
+  if (!matched.length) return [];
+  const tracked = new Set(
+    git(["ls-files", "--", ...matched], cwd)
+      .out.split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean),
   );
+  return matched.filter((path) => !tracked.has(path));
 }
 
 /**
