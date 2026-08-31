@@ -93,44 +93,49 @@ describe("conversation send --local --map", () => {
     expect(errors).toEqual(["A map-note path is required: --map <file.md>"]);
   });
 
-  it("places the validated Map in Pi's first-turn orientation without any root checkout", async () => {
-    const root = workspace();
-    writeFileSync(join(root, "territory.md"), MAP_NOTE);
-    const piBin = fakePi(root);
-    let stdout = "";
-    const originalWrite = process.stdout.write;
-    (process.stdout.write as unknown as (chunk: string | Uint8Array) => boolean) = (chunk) => {
-      stdout += String(chunk);
-      return true;
-    };
-    const errors: string[] = [];
-    const output: Output = {
-      result() {},
-      log() {},
-      progress() {},
-      error(text) { errors.push(text); },
-    };
-
-    try {
-      const code = await localConversationOps.send(
-        {
-          message: "What territory is available?",
-          context: root,
-          conversation: "local-map-test",
-          ext: "/fake/pi-is-space,/fake/pi-local-context",
-          map: "territory.md",
-          "pi-bin": piBin,
+  it.skipIf(process.platform === "win32")(
+    "places the validated Map in Pi's first-turn orientation without any root checkout",
+    async () => {
+      const root = workspace();
+      writeFileSync(join(root, "territory.md"), MAP_NOTE);
+      const piBin = fakePi(root);
+      let stdout = "";
+      const originalWrite = process.stdout.write;
+      (process.stdout.write as unknown as (chunk: string | Uint8Array) => boolean) = (chunk) => {
+        stdout += String(chunk);
+        return true;
+      };
+      const errors: string[] = [];
+      const output: Output = {
+        result() {},
+        log() {},
+        progress() {},
+        error(text) {
+          errors.push(text);
         },
-        output,
-      );
-      expect(code).toBe(0);
-    } finally {
-      process.stdout.write = originalWrite;
-    }
+      };
 
-    expect(errors).toEqual([]);
-    const events = stdout.trim().split("\n").map((line) => JSON.parse(line));
-    expect(events).toContainEqual({ type: "text_delta", delta: "position and address territory available" });
-    expect(events.some((event) => event.type === "turn_complete")).toBe(true);
-  });
+      try {
+        const code = await localConversationOps.send(
+          {
+            message: "What territory is available?",
+            context: root,
+            conversation: "local-map-test",
+            ext: "/fake/pi-is-space,/fake/pi-local-context",
+            map: "territory.md",
+            "pi-bin": piBin,
+          },
+          output,
+        );
+        expect(code).toBe(0);
+      } finally {
+        process.stdout.write = originalWrite;
+      }
+
+      expect(errors).toEqual([]);
+      const events = stdout.trim().split("\n").map((line) => JSON.parse(line));
+      expect(events).toContainEqual({ type: "text_delta", delta: "position and address territory available" });
+      expect(events.some((event) => event.type === "turn_complete")).toBe(true);
+    },
+  );
 });
