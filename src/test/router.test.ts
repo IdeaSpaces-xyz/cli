@@ -14,6 +14,10 @@ describe("router", () => {
     expect(findCommand_("fork")?.name).toBe("fork");
   });
 
+  it("exposes the derived local Map command", () => {
+    expect(findCommand_("map")?.name).toBe("map");
+  });
+
   it("exposes local progressive Markdown inspection", () => {
     expect(findCommand_("inspect")?.name).toBe("inspect");
   });

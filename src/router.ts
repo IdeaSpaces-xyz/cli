@@ -9,6 +9,7 @@ import { writeCommand } from "./commands/write.js";
 import { commitCommand } from "./commands/commit.js";
 import { changeCommand } from "./commands/change.js";
 import { navigateCommand } from "./commands/navigate.js";
+import { mapCommand } from "./commands/map.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { statusCommand } from "./commands/status.js";
 import { syncCommand } from "./commands/sync.js";
@@ -81,6 +82,7 @@ const topLevel: CommandDef[] = [
   commitCommand,
   changeCommand,
   navigateCommand,
+  mapCommand,
   inspectCommand,
   statusCommand,
   timesCommand,
