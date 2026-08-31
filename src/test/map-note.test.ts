@@ -1,8 +1,13 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadMapNote, loadMapNoteOrientation, renderMapNoteOrientation } from "../pi/map-note.js";
+import {
+  MAX_MAP_ORIENTATION_LENGTH,
+  loadMapNote,
+  loadMapNoteOrientation,
+  renderMapNoteOrientation,
+} from "../pi/map-note.js";
 
 const roots: string[] = [];
 
@@ -58,6 +63,15 @@ describe("loadMapNote", () => {
     expect(note.legend).toContain("Start with the market report.");
   });
 
+  it("keeps an explicitly relative outside path relative in the orientation", () => {
+    const root = workspace();
+    const context = join(root, "context");
+    mkdirSync(context);
+    writeFileSync(join(root, "territory.md"), VALID_MAP_NOTE);
+
+    expect(loadMapNote("../territory.md", context).path).toBe("../territory.md");
+  });
+
   it("refuses malformed and absent map projections with precise errors", () => {
     const root = workspace();
     writeFileSync(join(root, "absent.md"), "---\nname: Plain note\n---\nBody\n");
@@ -92,6 +106,15 @@ describe("renderMapNoteOrientation", () => {
       '[1] kind=address address="https://example.com/source" depth=summary name="Primary source" summary="External evidence."',
     );
     expect(rendered).toContain("  | Start with the market report.");
+  });
+
+  it("refuses an orientation that cannot safely travel as one Pi argument", () => {
+    const root = workspace();
+    writeFileSync(join(root, "huge.md"), `${VALID_MAP_NOTE}${"x".repeat(MAX_MAP_ORIENTATION_LENGTH)}`);
+
+    expect(() => loadMapNoteOrientation("huge.md", root)).toThrow(
+      `local launch supports at most ${MAX_MAP_ORIENTATION_LENGTH}`,
+    );
   });
 
   it("does not render a legend section when the authored body is empty", () => {

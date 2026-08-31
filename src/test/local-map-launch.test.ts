@@ -70,27 +70,31 @@ Map legend.
 `;
 
 describe("conversation send --local --map", () => {
-  it("refuses a missing map-note value before spawning Pi", async () => {
-    const errors: string[] = [];
-    const output: Output = {
-      result() {},
-      log() {},
-      progress() {},
-      error(text) { errors.push(text); },
-    };
+  it("refuses a missing or empty map-note value before spawning Pi", async () => {
+    for (const map of [true, ""] as const) {
+      const errors: string[] = [];
+      const output: Output = {
+        result() {},
+        log() {},
+        progress() {},
+        error(text) {
+          errors.push(text);
+        },
+      };
 
-    const code = await localConversationOps.send(
-      {
-        message: "What territory is available?",
-        ext: "/fake/pi-is-space,/fake/pi-local-context",
-        map: true,
-        "pi-bin": "/does/not/exist",
-      },
-      output,
-    );
+      const code = await localConversationOps.send(
+        {
+          message: "What territory is available?",
+          ext: "/fake/pi-is-space,/fake/pi-local-context",
+          map,
+          "pi-bin": "/does/not/exist",
+        },
+        output,
+      );
 
-    expect(code).toBe(1);
-    expect(errors).toEqual(["A map-note path is required: --map <file.md>"]);
+      expect(code).toBe(1);
+      expect(errors).toEqual(["A map-note path is required: --map <file.md>"]);
+    }
   });
 
   it.skipIf(process.platform === "win32")(

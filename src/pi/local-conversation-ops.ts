@@ -78,7 +78,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
 
   // A Map is a local map-note path in the file-first lane. Parse it before pi is
   // spawned, append only the standard projection, and never resolve/fetch roots.
-  if (flags.map === true) {
+  if (flags.map === true || (typeof flags.map === "string" && !flags.map.trim())) {
     output.error("A map-note path is required: --map <file.md>");
     return 1;
   }

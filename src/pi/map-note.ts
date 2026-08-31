@@ -11,6 +11,8 @@ import {
   type MapPositionMember,
 } from "@ideaspaces/protocol";
 
+export const MAX_MAP_ORIENTATION_LENGTH = 12_000;
+
 export interface LoadedMapNote {
   path: string;
   name?: string;
@@ -27,10 +29,10 @@ function quoted(value: string): string {
   return JSON.stringify(value);
 }
 
-function displayPath(absolutePath: string, contextRoot: string): string {
+function displayPath(absolutePath: string, contextRoot: string, reference: string): string {
   const local = relative(contextRoot, absolutePath);
   const outside = local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local);
-  return local && !outside ? local : absolutePath;
+  return local && !outside ? local : reference;
 }
 
 /** Read and validate one file-first Map without resolving or fetching any root. */
@@ -71,7 +73,7 @@ export function loadMapNote(reference: string, contextRoot: string): LoadedMapNo
   const name = scalar(frontmatter.name);
   const summary = scalar(frontmatter.summary);
   return {
-    path: displayPath(absolutePath, resolve(contextRoot)),
+    path: displayPath(absolutePath, resolve(contextRoot), reference),
     ...(name ? { name } : {}),
     ...(summary ? { summary } : {}),
     legend: stripFrontmatter(content).trim(),
@@ -147,5 +149,12 @@ export function renderMapNoteOrientation(note: LoadedMapNote): string {
 }
 
 export function loadMapNoteOrientation(reference: string, contextRoot: string): string {
-  return renderMapNoteOrientation(loadMapNote(reference, contextRoot));
+  const orientation = renderMapNoteOrientation(loadMapNote(reference, contextRoot));
+  if (orientation.length > MAX_MAP_ORIENTATION_LENGTH) {
+    throw new Error(
+      `Map note ${quoted(reference)} renders to ${orientation.length} characters; ` +
+      `local launch supports at most ${MAX_MAP_ORIENTATION_LENGTH}. Use a smaller legend or Map.`,
+    );
+  }
+  return orientation;
 }
