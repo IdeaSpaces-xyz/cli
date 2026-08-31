@@ -9,6 +9,7 @@ import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
+import { loadMapNoteOrientation } from "./map-note.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -75,6 +76,21 @@ async function send(flags: Flags, output: Output): Promise<number> {
   // never used, silently falling back to a globally-installed pi.
   const piBin = typeof flags["pi-bin"] === "string" ? flags["pi-bin"] : undefined;
 
+  // A Map is a local map-note path in the file-first lane. Parse it before pi is
+  // spawned, append only the standard projection, and never resolve/fetch roots.
+  if (flags.map === true || (typeof flags.map === "string" && !flags.map.trim())) {
+    output.error("A map-note path is required: --map <file.md>");
+    return 1;
+  }
+  let mapOrientation: string | undefined;
+  if (typeof flags.map === "string") {
+    try {
+      mapOrientation = loadMapNoteOrientation(flags.map, repoPath);
+    } catch (err) {
+      return reportLocalError(err, output);
+    }
+  }
+
   // Abort propagation: SIGINT/SIGTERM (or the desktop killing the sidecar) kills
   // the local pi turn. Guarded so repeats don't double-fire.
   const controller = new AbortController();
@@ -96,6 +112,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
       conversationId,
       sessionDir,
       modelTier,
+      mapOrientation,
       piModel,
       thinkingLevel: piThinking,
       piBin,

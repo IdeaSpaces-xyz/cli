@@ -307,7 +307,7 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
       "ideaspaces conversation participants repo_abc c_123",
       "ideaspaces conversation remove repo_abc c_123 alice",
       "ideaspaces conversation send repo_abc c_123 --message 'Hi'  # streams JSON lines",
-      "ideaspaces conversation send --local --context /ws --conversation c1 --message 'Hi' --ext a,b --skill a/skills,b/skills --pi-bin /path/pi --pi-model sonnet --pi-thinking high  # local pi turn",
+      "ideaspaces conversation send --local --context /ws --conversation c1 --message 'Hi' --map maps/research.md --ext a,b --skill a/skills,b/skills --pi-bin /path/pi --pi-model sonnet --pi-thinking high  # local pi turn over a map-note",
       "ideaspaces conversation get repo_abc c_123        # detail + history",
       "ideaspaces conversation cancel repo_abc c_123     # stop the active turn",
     ],

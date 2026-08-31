@@ -26,7 +26,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import readline from "node:readline";
+import { StringDecoder } from "node:string_decoder";
 import {
   KeeperTranslator,
   emptyWorkspaceSurface,
@@ -112,6 +112,8 @@ export interface LocalTurnOptions {
   sessionDir: string;
   /** Keeper model-tier label for the events. Default "local". */
   modelTier?: string;
+  /** File-first Map rendered as user-authored navigation data for this launch. */
+  mapOrientation?: string;
   /** pi model pattern (`--model`), if overriding pi's configured default. */
   piModel?: string;
   /** pi thinking level (`--thinking`), if overriding the model/session default.
@@ -163,9 +165,32 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
   if (opts.extensionPaths.length) args.push("--no-extensions");
   for (const ext of opts.extensionPaths) args.push("--extension", ext);
   for (const skill of opts.skillPaths ?? []) args.push("--skill", skill);
+  if (opts.mapOrientation) args.push("--append-system-prompt", opts.mapOrientation);
   if (opts.piModel) args.push("--model", opts.piModel);
   if (opts.thinkingLevel) args.push("--thinking", opts.thinkingLevel);
   return args;
+}
+
+/** Strict LF-only JSONL framing required by Pi RPC. Unicode U+2028/U+2029 are
+ * valid inside JSON strings and must not be treated as record separators. */
+export async function* readRpcLines(
+  input: AsyncIterable<Uint8Array | string>,
+): AsyncGenerator<string> {
+  const decoder = new StringDecoder("utf8");
+  let buffer = "";
+  for await (const chunk of input) {
+    buffer += decoder.write(Buffer.from(chunk));
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline === -1) break;
+      let line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      yield line;
+    }
+  }
+  buffer += decoder.end();
+  if (buffer) yield buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer;
 }
 
 /**
@@ -224,9 +249,8 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
   send({ type: "get_state", id: "__state" });
   send({ type: "prompt", message: opts.message, id: "p1" });
 
-  const rl = readline.createInterface({ input: pi.stdout, terminal: false });
   try {
-    for await (const line of rl) {
+    for await (const line of readRpcLines(pi.stdout)) {
       const text = line.trim();
       if (!text) continue;
       let msg: Record<string, unknown>;
@@ -269,7 +293,6 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
     }
   } finally {
     opts.signal?.removeEventListener("abort", onAbort);
-    rl.close();
     try {
       pi.stdin.end();
     } catch {

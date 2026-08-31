@@ -162,7 +162,9 @@ Run an agent over your local working copy — offline, on your own key.
 | `pi-login` | Configure a model provider (writes the local agent's credentials) |
 | `pi-logout` | Remove a configured model provider |
 | `pi-models` | List the models a configured provider offers |
-| `conversation send --local` | Run a local agent turn over a folder |
+| `conversation send --local` | Run a local agent turn over a folder; add `--map <map-note.md>` to launch over its ordered territory without fetching its roots |
+
+A local Map launch reads the provisional `map:` frontmatter from the selected Note, validates it through the protocol, and appends its roots, pins, ordered members, representation depths, and legend to Pi's launch orientation. Invalid Maps and orientations over 12,000 characters fail before Pi starts; omitting `--map` preserves the folder-only launch.
 
 ## Configuration
 
