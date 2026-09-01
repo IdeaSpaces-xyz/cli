@@ -32,7 +32,8 @@ ideaspaces fork https://ideaspaces.xyz/spaces/<root_node_id> ./my-fork
 
 # Optional: host or collaborate remotely
 ideaspaces login
-ideaspaces publish
+ideaspaces publish        # shows the plan; nothing changes yet
+ideaspaces publish --yes  # hosts it (private to your account)
 ideaspaces push
 ideaspaces pull
 ```
@@ -95,7 +96,7 @@ Run `ideaspaces <command> --help` for full usage. `--json` is available on reads
 | `sync` | Report where you, the Space, and a fork's recorded source stand — reads only, integrates nothing |
 | `push` | Send your committed captures to the remote |
 | `pull` | Integrate changes from the fork's own Git remote |
-| `publish` | Adopt the committed local identity on first publish; never silently rebind or rekey |
+| `publish` | Plan first; `--yes` publishes. Adopts the committed local identity on first publish; never silently rebinds or rekeys |
 
 ### Navigate & search
 | Command | What it does |
@@ -133,8 +134,9 @@ ideaspaces share person @someone --grade fork
 ideaspaces share team acme.com --grade collaborate
 ideaspaces share list
 ideaspaces share remove team:acme.com
-ideaspaces share visibility public   # anyone can view and fork locally; publishing still requires sign-in
-ideaspaces share visibility private  # named access is unchanged
+ideaspaces share visibility public        # plan only — shows what opens up
+ideaspaces share visibility public --yes  # anyone can view and fork locally; publishing still requires sign-in
+ideaspaces share visibility private       # named access is unchanged; reducing exposure needs no flag
 
 # Ask the owner of shared Content from a local agent or terminal
 ideaspaces inbox send @owner --about n_0123456789abcdef01234567 \
