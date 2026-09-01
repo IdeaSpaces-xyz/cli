@@ -420,6 +420,19 @@ export const publishCommand: CommandDef = {
             "Note: that remote is not currently visible to your account; --yes would refuse.",
           );
         }
+        // Mirror the apply path's ignored-flags rejection so the plan never
+        // predicts a re-publish that --yes would actually refuse.
+        const ignoredFlags = [
+          flags.name && "--name",
+          flags.slug && "--slug",
+          flags.hostname && "--hostname",
+        ].filter(Boolean);
+        if (ignoredFlags.length > 0) {
+          lines.push("");
+          lines.push(
+            `Note: ${ignoredFlags.join(", ")} only apply on first publish; --yes would refuse them here.`,
+          );
+        }
         steps.push(`IDENTITY  git user.email → ${identityEmailPlanned} (this directory only)`);
         steps.push(`REMOTE    origin → ${remoteUrlPlanned}`);
         steps.push(`PUSH      main (${commitCount} commit${commitCount === "1" ? "" : "s"})`);
