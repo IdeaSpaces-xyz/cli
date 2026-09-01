@@ -215,14 +215,31 @@ function trackedMarkdownFiles(cwd: string): string[] {
     .map((path) => join(cwd, path));
 }
 
+/** Fresh-publish naming, shared by the plan and the apply path so the plan
+ * can never describe a different destination than --yes would create. */
+function deriveFreshNaming(
+  cwd: string,
+  flags: PublishFlags,
+  unpublishedName: string | undefined,
+  username: string,
+): { name: string; slug: string; slugInput: string; hostname: string | null; namespace: string } {
+  const folderName = basename(cwd);
+  const name = flags.name?.toString() || unpublishedName || folderName;
+  const slugInput = flags.slug?.toString() || unpublishedName || folderName;
+  const slug = slugify(slugInput);
+  const hostname = flags.hostname?.toString() ?? null;
+  return { name, slug, slugInput, hostname, namespace: hostname ?? username };
+}
+
 export const publishCommand: CommandDef = {
   name: "publish",
-  description: "Publish this folder as a remote ideaspace",
-  usage: "ideaspaces publish [--slug <slug>] [--name <name>] [--hostname <host>]",
+  description: "Plan hosting this folder as a remote ideaspace; --yes publishes",
+  usage: "ideaspaces publish [--yes] [--slug <slug>] [--name <name>] [--hostname <host>]",
   examples: [
-    "ideaspaces publish                     # publish current directory",
-    "ideaspaces publish --slug my-notes     # explicit slug",
-    "ideaspaces publish --hostname acme.com # publish into an org space (must be a member)",
+    "ideaspaces publish                     # show the plan, change nothing",
+    "ideaspaces publish --yes               # publish current directory",
+    "ideaspaces publish --yes --slug my-notes     # explicit slug",
+    "ideaspaces publish --yes --hostname acme.com # publish into an org space (must be a member)",
   ],
   async run(_args, rawFlags, global) {
     const output = createOutput(global);
@@ -374,6 +391,106 @@ export const publishCommand: CommandDef = {
       return 1;
     }
 
+    // Plan-first: publishing is an outward action, so without --yes the
+    // command states exactly what it would do and exits with zero mutations —
+    // local or remote. Every check above is a read; everything below this
+    // gate changes state (createRepo, git config, remote, push, spaces.json).
+    // The gate lives in the contract rather than in skill prose so no
+    // non-interactive mode can strip it (see the 2026-09-01 incident).
+    if (global.yes !== true) {
+      const identityEmailPlanned = formatIdentityEmail(me.username);
+      const commitCount = runGit(cwd, ["rev-list", "--count", "HEAD"]).stdout || "?";
+      const apiUrl = config.apiUrl;
+      const lines: string[] = [];
+      const steps: string[] = [];
+      let planData: Record<string, unknown>;
+
+      if (hosted) {
+        const stillVisible = me.repos.some((r) => r.repo_id === hosted.repo_id);
+        const rootId = rootIdentity.root_node_id ?? hosted.root_node_id ?? null;
+        const remoteUrlPlanned = rootId
+          ? canonicalGitUrl(apiUrl, rootId)
+          : legacyGitUrl(apiUrl, hosted.namespace, hosted.slug);
+        lines.push(
+          `Plan — re-publish to ${hosted.namespace}/${hosted.slug} (existing Space identity)`,
+        );
+        if (!stillVisible) {
+          lines.push("");
+          lines.push(
+            "Note: that remote is not currently visible to your account; --yes would refuse.",
+          );
+        }
+        // Mirror the apply path's ignored-flags rejection so the plan never
+        // predicts a re-publish that --yes would actually refuse.
+        const ignoredFlags = [
+          flags.name && "--name",
+          flags.slug && "--slug",
+          flags.hostname && "--hostname",
+        ].filter(Boolean);
+        if (ignoredFlags.length > 0) {
+          lines.push("");
+          lines.push(
+            `Note: ${ignoredFlags.join(", ")} only apply on first publish; --yes would refuse them here.`,
+          );
+        }
+        steps.push(`IDENTITY  git user.email → ${identityEmailPlanned} (this directory only)`);
+        steps.push(`REMOTE    origin → ${remoteUrlPlanned}`);
+        steps.push(`PUSH      main (${commitCount} commit${commitCount === "1" ? "" : "s"})`);
+        planData = {
+          action: "re-publish",
+          namespace: hosted.namespace,
+          slug: hosted.slug,
+          root_node_id: rootId,
+          remote_url: remoteUrlPlanned,
+          identity_email: identityEmailPlanned,
+          commits: Number(commitCount) || null,
+        };
+      } else {
+        const naming = deriveFreshNaming(cwd, flags, unpublished?.name, me.username);
+        const prescribed =
+          typeof rootIdentity.declaration.head === "string" ? rootIdentity.declaration.head : null;
+        const remoteUrlPlanned = prescribed
+          ? canonicalGitUrl(apiUrl, prescribed)
+          : legacyGitUrl(apiUrl, naming.namespace, naming.slug);
+        lines.push(`Plan — publish ${naming.namespace}/${naming.slug} to ${apiUrl}`);
+        if (naming.slug !== naming.slugInput) {
+          lines.push(`  (slug normalized from "${naming.slugInput}")`);
+        }
+        steps.push(
+          `CREATE    remote Space ${naming.namespace}/${naming.slug}` +
+            (prescribed
+              ? ` — adopts the committed identity ${prescribed}`
+              : " — the server mints its identity"),
+        );
+        steps.push(`IDENTITY  git user.email → ${identityEmailPlanned} (this directory only)`);
+        const tipAuthor = runGit(cwd, ["log", "-1", "--format=%ae"]).stdout;
+        if (tipAuthor && tipAuthor !== identityEmailPlanned) {
+          steps.push(`REWRITE   tip commit author → ${identityEmailPlanned} (currently ${tipAuthor})`);
+        }
+        steps.push(`REMOTE    origin → ${remoteUrlPlanned}`);
+        steps.push(`PUSH      main (${commitCount} commit${commitCount === "1" ? "" : "s"})`);
+        planData = {
+          action: "publish",
+          namespace: naming.namespace,
+          slug: naming.slug,
+          root_node_id: prescribed,
+          remote_url: remoteUrlPlanned,
+          identity_email: identityEmailPlanned,
+          tip_author_rewrite: Boolean(tipAuthor && tipAuthor !== identityEmailPlanned),
+          commits: Number(commitCount) || null,
+        };
+      }
+
+      lines.push("");
+      for (const step of steps) lines.push(`  ${step}`);
+      lines.push("");
+      lines.push(
+        "The Space stays private to your account until you share it. Nothing has changed yet — re-run with --yes to publish.",
+      );
+      output.result({ plan: planData, applied: false }, lines.join("\n"));
+      return 0;
+    }
+
     // Re-publish idempotency: if this folder is already mapped to a remote,
     // reuse that record instead of creating another server-side repo.
     let repo: { repo_id: string; root_node_id?: string; slug: string; name: string };
@@ -427,13 +544,11 @@ export const publishCommand: CommandDef = {
       };
       namespace = hosted.namespace;
     } else {
-      const folderName = basename(cwd);
-      const name = flags.name?.toString() || unpublished?.name || folderName;
       // Server enforces ^[a-z0-9][a-z0-9-]*$ on slug. If the user passes
       // --slug, trust them but still normalize so a casing slip doesn't
       // become a 422. Otherwise derive from the folder basename.
-      const slugInput = flags.slug?.toString() || unpublished?.name || folderName;
-      const slug = slugify(slugInput);
+      const naming = deriveFreshNaming(cwd, flags, unpublished?.name, me.username);
+      const { name, slug, slugInput, hostname } = naming;
       // Surface the normalization when it changes the input. A user who
       // typed `--slug My_Space` (or pointed publish at a CamelCase
       // folder) deserves to see that the URL slug is `my-space`, not
@@ -441,8 +556,7 @@ export const publishCommand: CommandDef = {
       if (slug !== slugInput) {
         output.log(`Using slug: ${slug} (normalized from "${slugInput}")`);
       }
-      const hostname = flags.hostname?.toString() ?? null;
-      namespace = hostname ?? me.username;
+      namespace = naming.namespace;
 
       const prescribedRootNodeId =
         typeof rootIdentity.declaration.head === "string"

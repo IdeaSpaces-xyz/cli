@@ -522,8 +522,24 @@ describe("the product Share surface", () => {
     ["public", { read_public: true, copy_access: "public" }],
     ["private", { read_public: false, copy_access: "owner" }],
   ] as const)("sets %s as one visibility choice", async (visibility, expected) => {
-    expect(await shareCommand.run(["visibility", visibility], {}, JSON_G)).toBe(0);
+    // public is outward-facing and plan-first: it applies only with --yes.
+    // private reduces exposure and needs no flag.
+    const global = visibility === "public" ? { ...JSON_G, yes: true } : JSON_G;
+    expect(await shareCommand.run(["visibility", visibility], {}, global)).toBe(0);
     expect(setSpaceAccessMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", expected);
+  });
+
+  it("visibility public without --yes plans and applies nothing", async () => {
+    expect(await shareCommand.run(["visibility", "public"], {}, JSON_G)).toBe(0);
+    expect(setSpaceAccessMock).not.toHaveBeenCalled();
+  });
+
+  it("visibility private stays ungated — no --yes needed", async () => {
+    expect(await shareCommand.run(["visibility", "private"], {}, JSON_G)).toBe(0);
+    expect(setSpaceAccessMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", {
+      read_public: false,
+      copy_access: "owner",
+    });
   });
 
   it("refuses visibility mutation when the root is not in the managed catalog", async () => {

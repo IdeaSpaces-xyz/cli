@@ -545,10 +545,15 @@ async function removeProductAccess(
   return 1;
 }
 
-async function setVisibility(rest: string[], flags: Flags, output: Output): Promise<number> {
+async function setVisibility(
+  rest: string[],
+  flags: Flags,
+  output: Output,
+  yes: boolean,
+): Promise<number> {
   const requested = rest[0]?.toLowerCase();
   if ((requested !== "public" && requested !== "private") || rest.length !== 1) {
-    output.error("Usage: ideaspaces share visibility <public|private> [--space <url>]");
+    output.error("Usage: ideaspaces share visibility <public|private> [--yes] [--space <url>]");
     return 1;
   }
   const config = requireConfig(output);
@@ -556,6 +561,23 @@ async function setVisibility(rest: string[], flags: Flags, output: Output): Prom
   const target = await resolveTarget(flagStr(flags, "space"), config, output);
   if (!target) return 1;
   const repoId = await repoIdForRoot(config, target);
+  // Going public is an outward action: plan-first without --yes, applied only
+  // on the explicit flag so no non-interactive mode can skip the agreement.
+  // Going private reduces exposure and stays ungated.
+  if (requested === "public" && !yes) {
+    output.result(
+      { plan: { action: "visibility", visibility: "public", repo_id: repoId }, applied: false },
+      [
+        "Plan — make this Space public.",
+        "",
+        "  Anyone can view and fork it locally without an account. Publishing",
+        "  requires sign-in; Git history, clone, and push remain private.",
+        "",
+        "Nothing has changed yet — re-run with --yes to apply.",
+      ].join("\n"),
+    );
+    return 0;
+  }
   const result = await setSpaceAccess(config, repoId, {
     read_public: requested === "public",
     copy_access: requested === "public" ? "public" : "owner",
@@ -569,7 +591,13 @@ async function setVisibility(rest: string[], flags: Flags, output: Output): Prom
   return 0;
 }
 
-async function run(sub: string, rest: string[], flags: Flags, output: Output): Promise<number> {
+async function run(
+  sub: string,
+  rest: string[],
+  flags: Flags,
+  output: Output,
+  yes: boolean,
+): Promise<number> {
   // Named for the repo-shaped subcommands, which is all that used them when
   // this dispatcher was written. The product verbs (`invite`, `people`,
   // `unshare`) take an address and read `rest[0]` directly.
@@ -583,7 +611,7 @@ async function run(sub: string, rest: string[], flags: Flags, output: Output): P
       case "list":
         return await listProductAccess(rest, flags, output);
       case "visibility":
-        return await setVisibility(rest, flags, output);
+        return await setVisibility(rest, flags, output, yes);
       case "access": {
         const config = setup(repoId, "ideaspaces share access <repo_id>", output);
         if (!config) return 1;
@@ -897,12 +925,13 @@ export const shareCommand: CommandDef = {
     "ideaspaces share list",
     "ideaspaces share remove someone@example.com",
     "ideaspaces share remove team:acme.com",
-    "ideaspaces share visibility public",
+    "ideaspaces share visibility public        # plan only — shows what opens up",
+    "ideaspaces share visibility public --yes  # apply",
     "ideaspaces share visibility private --space https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
     const [sub, ...rest] = args;
-    return run(sub ?? "", rest, flags, output);
+    return run(sub ?? "", rest, flags, output, global.yes === true);
   },
 };

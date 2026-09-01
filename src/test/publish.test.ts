@@ -9,10 +9,13 @@ import { slugify, preflightSize, renderSizeProblems } from "../commands/publish.
 import { gitignoreDefaults } from "../templates/default.js";
 import type { GlobalFlags } from "../types.js";
 
+// Publish is plan-first: without --yes it prints the plan and changes
+// nothing. These tests exercise the apply path, so yes is on; the
+// plan-first describe block below runs with yes off.
 const baseGlobal: GlobalFlags = {
   json: true,
   quiet: true,
-  yes: false,
+  yes: true,
   help: false,
 };
 
@@ -1174,6 +1177,121 @@ describe("ideaspaces publish", () => {
       }).stdout.trim();
       expect(after).toBe("wrong@example.com");
       expect(createCallCount).toBe(1);
+    });
+  });
+
+  describe("plan-first (no --yes)", () => {
+    const planGlobal: GlobalFlags = { ...baseGlobal, yes: false };
+
+    function captureStdout() {
+      let out = "";
+      const orig = process.stdout.write.bind(process.stdout);
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        out += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+        return true;
+      }) as typeof process.stdout.write;
+      return { text: () => out, restore: () => (process.stdout.write = orig) };
+    }
+
+    it("prints the plan and mutates nothing on fresh publish", async () => {
+      const dir = initLocalRepo("plan-fresh");
+      process.chdir(dir);
+      await writeCredentials();
+
+      const shaBefore = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+
+      const fetchMock = vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) return authMeResponse();
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const cap = captureStdout();
+      let exit: number;
+      try {
+        const { publishCommand } = await import("../commands/publish.js");
+        exit = await publishCommand.run([], {}, planGlobal);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exit).toBe(0);
+      // Read-only: exactly one network call (/auth/me), no repo creation.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // No local mutations of any kind.
+      expect(
+        spawnSync("git", ["-C", dir, "config", "--local", "user.email"], {
+          encoding: "utf-8",
+        }).stdout.trim(),
+      ).toBe("local@example.com");
+      expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"]).status).not.toBe(0);
+      expect(existsSync(join(tmp, ".ideaspaces", "spaces.json"))).toBe(false);
+      expect(
+        spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf-8" }).stdout.trim(),
+      ).toBe(shaBefore);
+      // The plan itself, as data.
+      const payload = JSON.parse(cap.text());
+      expect(payload.applied).toBe(false);
+      expect(payload.plan).toMatchObject({
+        action: "publish",
+        namespace: "ernests_s",
+        slug: "plan-fresh",
+        identity_email: "person:ernests_s@ideaspaces",
+        tip_author_rewrite: true,
+        commits: 1,
+      });
+    });
+
+    it("plans a re-publish without touching the existing record", async () => {
+      const dir = initLocalRepo("plan-republish");
+      process.chdir(dir);
+      await writeCredentials();
+
+      const createdRepoIds: string[] = [];
+      const fetchMock = vi.fn(async (input: string | URL | Request) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.endsWith("/auth/me")) return authMeResponse("ernests_s", createdRepoIds);
+        if (url.endsWith("/repos")) {
+          createdRepoIds.push("repo_plan");
+          return new Response(
+            JSON.stringify({ repo_id: "repo_plan", slug: "plan-republish", name: "n" }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      setupBareRemote("ernests_s", "plan-republish");
+
+      const { publishCommand } = await import("../commands/publish.js");
+      expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+      const callsAfterPublish = fetchMock.mock.calls.length;
+      const shaAfterPublish = spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+        encoding: "utf-8",
+      }).stdout.trim();
+      const recordBefore = readFileSync(join(tmp, ".ideaspaces", "spaces.json"), "utf-8");
+
+      const cap = captureStdout();
+      let exit: number;
+      try {
+        exit = await publishCommand.run([], {}, planGlobal);
+      } finally {
+        cap.restore();
+      }
+
+      expect(exit).toBe(0);
+      // Only /auth/me on top of the earlier publish — no second createRepo.
+      expect(fetchMock.mock.calls.length).toBe(callsAfterPublish + 1);
+      expect(readFileSync(join(tmp, ".ideaspaces", "spaces.json"), "utf-8")).toBe(recordBefore);
+      expect(
+        spawnSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf-8" }).stdout.trim(),
+      ).toBe(shaAfterPublish);
+      const payload = JSON.parse(cap.text());
+      expect(payload.applied).toBe(false);
+      expect(payload.plan).toMatchObject({ action: "re-publish", slug: "plan-republish" });
     });
   });
 });
