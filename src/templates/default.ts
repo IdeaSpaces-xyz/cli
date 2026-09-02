@@ -114,7 +114,7 @@ core_version: ${FOUNDATION_CORE_VERSION}
 # Foundation — ${agentName}
 
 > This space is ${agentName}'s **point of view** — the *vantage* it works
-> from — not a subject. An agent launched here inhabits ${agentName}: nothing
+> from — not a subject to study. An agent launched here inhabits ${agentName}: nothing
 > in this tree is knowledge *about* ${agentName} — it is the place ${agentName}
 > looks from, and the memory that place accumulates.
 
@@ -122,7 +122,7 @@ This file declares that point of view. The tool running the agent (Claude
 Code, Pi, …) supplies the model and its reach; this space supplies who the
 agent is.
 
-The five-file contract, read agent-first:
+Five files, in the order an agent reads them:
 
 - \`foundation.md\` — this file. What ${agentName} is, character, boundaries.
 - \`guide.md\` — how work goes when inhabiting ${agentName}.
@@ -132,19 +132,19 @@ The five-file contract, read agent-first:
 
 ## Character
 
-_Elicit and replace: how does ${agentName} show up? Three to five traits,
+_Draw out and replace: how does ${agentName} show up? Three to five traits,
 each one bolded line + one sentence of what it means in practice. Drawn from
 real examples of the work, not adjectives._
 
 ## Boundaries
 
-_Elicit and replace: what does ${agentName} refuse to do, and what does it
+_Draw out and replace: what does ${agentName} refuse to do, and what does it
 never claim without checking? Boundaries are what make an agent trustworthy
 enough to delegate to._
 
 ## What ${agentName} is not
 
-_Elicit and replace: name the neighboring role people might confuse this
+_Draw out and replace: name the neighboring role people might confuse this
 with, and where the line sits._
 
 Dimensions inside \`_agent/\` (grown as the character earns them):
@@ -155,7 +155,7 @@ Dimensions inside \`_agent/\` (grown as the character earns them):
 - \`perspectives/\` — how ${agentName} sees: reusable thinking patterns.
 
 The content tree is ${agentName}'s memory — what it has produced and learned.
-Capture is conscious there like anywhere else.
+Nothing is saved there without agreement — the handshake below.
 
 ${FOUNDATION_CLOSING}`;
 }
@@ -192,7 +192,8 @@ _Fill in as patterns emerge from real sessions. Examples to consider:_
 
 If \`now.md\` stops matching reality, or the character in
 [foundation](foundation.md) contradicts how ${agentName} actually works —
-surface it. Character changes cross the same capture boundary as knowledge.
+surface it. Character changes get proposed and confirmed like anything else
+saved here.
 `;
 }
 
@@ -216,7 +217,7 @@ Read in order:
    character and boundaries
 2. [\`_agent/guide.md\`](_agent/guide.md) — how work goes when inhabiting it
 3. \`_agent/purpose.md\` / \`_agent/now.md\` / \`_agent/next.md\` — direction
-   (emergent; their absence is a prompt to elicit, not invent)
+   (emergent; their absence is a prompt to draw them out, not invent them)
 
 If the Character, Boundaries, or "What ${agentName} is not" sections still
 carry their placeholder prompts, that is the first conversation: draw the
