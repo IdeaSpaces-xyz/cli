@@ -187,7 +187,7 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
   if (!note) return 1;
   return runAuthenticated(output, async (config) => {
     const result = await replyToExchange(config, exchangeId, note);
-    output.result(result, `Replied in ${result.exchange_id}.`);
+    output.result(result, `Replied in thread ${result.exchange_id}.`);
     return 0;
   });
 }
