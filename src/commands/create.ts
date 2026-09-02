@@ -93,7 +93,7 @@ export const createCommand: CommandDef = {
     "ideaspaces create my-space --yes       # scaffold and commit",
     "ideaspaces create --yes                # scaffold in current directory",
     "ideaspaces create --yes --shared       # in a code repo, opt into shared (committed) _agent/",
-    "ideaspaces create scribe --yes --agent # agent vantage: the space IS the character",
+    "ideaspaces create scribe --yes --agent # an agent: the space IS its character",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -121,7 +121,7 @@ export const createCommand: CommandDef = {
     const agentMode = Boolean(flags.agent);
     if (agentMode && shape === "code-repo") {
       output.error(
-        `${describeTarget(targetDir, name)} looks like a code repo. An agent vantage is its own space — the tree is the agent's memory, not a codebase. Create it in a fresh folder: \`ideaspaces create <name> --agent\`.`,
+        `${describeTarget(targetDir, name)} looks like a code repo. An agent is its own space — the tree is the agent's memory, not a codebase. Create it in a fresh folder: \`ideaspaces create <name> --agent\`.`,
       );
       return 5;
     }
@@ -131,7 +131,7 @@ export const createCommand: CommandDef = {
     if (agentMode && !isSafeAgentName(agentName)) {
       // The name lands verbatim in YAML frontmatter — refuse rather than escape.
       output.error(
-        `Agent name \`${agentName}\` contains characters that don't survive frontmatter (allowed: letters, digits, spaces, . _ -). ${name ? "Pick a simpler name." : "This directory's name isn't usable — pass a name: `ideaspaces create <name> --agent`."}`,
+        `Agent name \`${agentName}\` contains characters that don't survive the file's header (allowed: letters, digits, spaces, . _ -). ${name ? "Pick a simpler name." : "This directory's name isn't usable — pass a name: `ideaspaces create <name> --agent`."}`,
       );
       return 5;
     }
@@ -167,7 +167,7 @@ export const createCommand: CommandDef = {
 
     const where = name ? `./${name}` : "this directory";
     const lines = [
-      `Scaffolded ${describeTarget(targetDir, name)} (${agentMode ? `agent vantage: ${agentName}` : shape}${privateAgent ? ", private _agent/" : ""}).`,
+      `Scaffolded ${describeTarget(targetDir, name)} (${agentMode ? `agent: ${agentName}` : shape}${privateAgent ? ", private _agent/" : ""}).`,
     ];
     if (inspection.nestedInRepo) {
       lines.push(nestingNotice(targetDir, inspection.nestedInRepo));
@@ -181,7 +181,7 @@ export const createCommand: CommandDef = {
     }
     lines.push(
       agentMode
-        ? `Next: open Claude Code in ${where} — the agent will read the vantage contract and help you shape ${agentName}'s character in conversation.`
+        ? `Next: open Claude Code in ${where} — the agent will read who ${agentName} is and help you shape its character in conversation.`
         : `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
     );
     if (versioned && loadStoredCredentials()) {
@@ -340,13 +340,13 @@ function renderPlanText(opts: {
   privateAgent: boolean;
   plan: Plan;
   nestedInRepo: string | null;
-  /** Present when scaffolding an agent vantage — the plan must say so before --yes. */
+  /** Present when scaffolding an agent — the plan must say so before --yes. */
   agentName?: string;
 }): string {
   const { targetDir, name, shape, privateAgent, plan, nestedInRepo, agentName } = opts;
   const lines: string[] = [];
   lines.push(
-    `Plan for ${describeTarget(targetDir, name)} — ${agentName ? `agent vantage: ${agentName} (the space IS the character)` : `shape: ${shape}`}${privateAgent ? " (private _agent/)" : ""}`,
+    `Plan for ${describeTarget(targetDir, name)} — ${agentName ? `agent: ${agentName} (the space IS its character)` : `shape: ${shape}`}${privateAgent ? " (private _agent/)" : ""}`,
   );
   if (nestedInRepo) {
     lines.push("");

@@ -95,37 +95,38 @@ go there. Propose changes; never edit silently.
 ${FOUNDATION_CLOSING}`;
 
 /**
- * Agent-vantage variant (`create --agent`): the space IS the character.
+ * Agent variant (`create --agent`): the space IS the character.
  * Same five-file contract, same protocol conduct core — read agent-first:
- * foundation declares the vantage, guide is how work goes when inhabiting it,
- * skills are what the agent can repeat. Character sections ship as elicitation
- * prompts, not filler — the agent draws them out in conversation and replaces
- * them with real content.
+ * foundation declares the agent's point of view, guide is how work goes when
+ * inhabiting it, skills are what the agent can repeat. Character sections
+ * ship as prompts, not filler — the agent draws them out in conversation and
+ * replaces them with real content.
  */
 export function agentFoundationMd(agentName: string): string {
   return `---
 name: Foundation — ${agentName}
-summary: The declared vantage of ${agentName}. This space is not a subject to
-  study — it is a way of looking, inhabited by an agent. Character, boundaries,
-  and what this vantage is not.
+summary: What ${agentName} is. This space is not a subject to study — it is
+  ${agentName}'s point of view, inhabited by an agent. Character, boundaries,
+  and what ${agentName} is not.
 core_version: ${FOUNDATION_CORE_VERSION}
 ---
 
 # Foundation — ${agentName}
 
-> This space is a **vantage**, not a subject. An agent launched here inhabits
-> ${agentName}: nothing in this tree is knowledge *about* ${agentName} — it is
-> the position ${agentName} looks from, and the memory that position accumulates.
+> This space is ${agentName}'s **point of view** — the *vantage* it works
+> from — not a subject. An agent launched here inhabits ${agentName}: nothing
+> in this tree is knowledge *about* ${agentName} — it is the place ${agentName}
+> looks from, and the memory that place accumulates.
 
-\`agent = stable identity + name + description + declared vantage\`. This file
-is the declared vantage. The habitat (Claude Code, Pi, …) supplies model,
-tools, and reach; identity names who is inhabiting.
+This file declares that point of view. The tool running the agent (Claude
+Code, Pi, …) supplies the model and its reach; this space supplies who the
+agent is.
 
 The five-file contract, read agent-first:
 
 - \`foundation.md\` — this file. What ${agentName} is, character, boundaries.
 - \`guide.md\` — how work goes when inhabiting ${agentName}.
-- \`purpose.md\` — why this vantage exists (emergent).
+- \`purpose.md\` — why ${agentName} exists (emergent).
 - \`now.md\` — the current lane (emergent).
 - \`next.md\` — what's queued (emergent).
 
@@ -141,7 +142,7 @@ _Elicit and replace: what does ${agentName} refuse to do, and what does it
 never claim without checking? Boundaries are what make an agent trustworthy
 enough to delegate to._
 
-## What this vantage is not
+## What ${agentName} is not
 
 _Elicit and replace: name the neighboring role people might confuse this
 with, and where the line sits._
@@ -198,38 +199,38 @@ surface it. Character changes cross the same capture boundary as knowledge.
 export function agentClaudeMd(agentName: string): string {
   return `---
 name: Claude Code orientation — ${agentName}
-summary: Tells Claude Code this space is a vantage, not a subject. Launching
-  here means inhabiting ${agentName}.
+summary: Tells Claude Code this space is ${agentName}'s point of view, not a
+  subject. Launching here means inhabiting ${agentName}.
 ---
 
 # CLAUDE.md — ${agentName}
 
-> This ideaspace is a **vantage**, not a subject. Launching here means
-> inhabiting ${agentName}, not studying it.
+> This ideaspace is ${agentName}'s **point of view**, not a subject.
+> Launching here means inhabiting ${agentName}, not studying it.
 
 ## Orient
 
 Read in order:
 
-1. [\`_agent/foundation.md\`](_agent/foundation.md) — the declared vantage:
+1. [\`_agent/foundation.md\`](_agent/foundation.md) — who ${agentName} is:
    character and boundaries
 2. [\`_agent/guide.md\`](_agent/guide.md) — how work goes when inhabiting it
 3. \`_agent/purpose.md\` / \`_agent/now.md\` / \`_agent/next.md\` — direction
    (emergent; their absence is a prompt to elicit, not invent)
 
-If the Character, Boundaries, or "What this vantage is not" sections still
-carry elicitation prompts, that is the first conversation: draw the character
-out from the user with real examples, replace the prompts, and confirm before
-committing.
+If the Character, Boundaries, or "What ${agentName} is not" sections still
+carry their placeholder prompts, that is the first conversation: draw the
+character out from the user with real examples, replace the prompts, and
+confirm before committing.
 
 ## The work
 
 The content tree here is ${agentName}'s memory. The subject of the work may
-live elsewhere — this repo carries the position it is seen from.
+live elsewhere — this space carries the point of view it is seen from.
 `;
 }
 
-/** Contract files for an agent-vantage scaffold, keyed like CONTRACT_TEMPLATES. */
+/** Contract files for an agent scaffold, keyed like CONTRACT_TEMPLATES. */
 export function agentContractTemplates(agentName: string): Record<string, string> {
   return {
     foundation: agentFoundationMd(agentName),
