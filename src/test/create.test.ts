@@ -261,13 +261,15 @@ describe("ideaspaces create", () => {
     expect(gitignore).toContain("# ideaspace defaults");
   });
 
-  it("scaffolds an agent vantage with --agent", async () => {
+  it("scaffolds an agent with --agent", async () => {
     const exit = await createCommand.run(["scribe"], { agent: true }, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const dir = join(tmp, "scribe");
     const foundation = await fs.readFile(join(dir, "_agent", "foundation.md"), "utf-8");
     expect(foundation).toContain("Foundation — scribe");
-    expect(foundation).toContain("vantage**, not a subject");
+    expect(foundation).toContain("point of view** — the *vantage* it works");
+    // The glossed bridge is the only place the word appears in a fresh space.
+    expect(foundation.match(/vantage/g)).toHaveLength(1);
     expect(foundation).toContain("core_version:"); // protocol conduct core still composed in
     expect(foundation).toContain("## The Agreement");
     const claude = await fs.readFile(join(dir, "CLAUDE.md"), "utf-8");
@@ -302,7 +304,7 @@ describe("ideaspaces create", () => {
       createCommand.run(["scribe"], { agent: true }, { ...baseGlobal, json: false }),
     );
     expect(captured.exit).toBe(0);
-    expect(captured.out).toContain("agent vantage: scribe");
+    expect(captured.out).toContain("agent: scribe");
     expect(existsSync(join(tmp, "scribe"))).toBe(false); // still a dry run
   });
 
