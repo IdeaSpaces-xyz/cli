@@ -105,7 +105,7 @@ const writeResult = {
 };
 
 describe("inbox", () => {
-  it("lists direct exchanges as JSON", async () => {
+  it("lists threads as JSON", async () => {
     fetchInboxMock.mockResolvedValue({
       items: [{
         kind: "inquiry",
@@ -142,7 +142,7 @@ describe("inbox", () => {
 
     expect(code).toBe(0);
     expect(fetchExchangeMock).toHaveBeenCalledWith(CFG, "x_one");
-    expect(stdout()).toContain("Exchange x_one");
+    expect(stdout()).toContain("Thread x_one");
     expect(stdout()).toContain("# Question\n\nWhat next?");
   });
 

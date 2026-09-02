@@ -33,7 +33,7 @@
       "tracked": false,
       "consumes": "npm pin",
       "pin": { "file": "package.json", "path": ["devDependencies", "@ideaspaces/cli"] },
-      "note": "Bumped on the desktop vantage's own flow, which runs its own checks. Listed so the set is complete, not to be driven from here. It also depends on pi-is-space, so it can resolve two CLI builds at once — worth knowing when a behaviour differs between its sidecars."
+      "note": "Bumped on the desktop app's own flow, which runs its own checks. Listed so the set is complete, not to be driven from here. It also depends on pi-is-space, so it can resolve two CLI builds at once — worth knowing when a behaviour differs between its sidecars."
     }
   ]
 }
