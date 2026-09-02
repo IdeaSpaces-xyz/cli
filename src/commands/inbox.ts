@@ -22,7 +22,7 @@ const USAGE = "ideaspaces inbox <list|read|send|reply> ...";
 const SEND_USAGE =
   "ideaspaces inbox send <email|@handle> --about <node_id> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 const REPLY_USAGE =
-  "ideaspaces inbox reply <exchange_id> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces inbox reply <thread_id> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 
 function flagString(flags: Flags, name: string): string | undefined {
   return typeof flags[name] === "string" ? flags[name] : undefined;
@@ -88,7 +88,7 @@ function inboxItemText(item: InboxItem): string {
 
 function exchangeText(exchange: ExchangeReadResponse): string {
   const lines = [
-    `Exchange ${exchange.exchange_id}`,
+    `Thread ${exchange.exchange_id}`,
     `About ${exchange.target_node_id}`,
     `Participants: ${participantsText(exchange.participants)}`,
   ];
@@ -146,7 +146,7 @@ async function list(rest: string[], output: Output): Promise<number> {
 async function read(rest: string[], output: Output): Promise<number> {
   const [exchangeId] = rest;
   if (!exchangeId || rest.length !== 1) {
-    output.error("Usage: ideaspaces inbox read <exchange_id>");
+    output.error("Usage: ideaspaces inbox read <thread_id>");
     return 1;
   }
   return runAuthenticated(output, async (config) => {
@@ -172,7 +172,7 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
       target_node_id: target,
       recipient,
     });
-    output.result(result, `Sent inquiry ${result.exchange_id} about ${result.target_node_id}.`);
+    output.result(result, `Sent. Thread ${result.exchange_id} is about ${result.target_node_id}.`);
     return 0;
   });
 }
@@ -187,14 +187,14 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
   if (!note) return 1;
   return runAuthenticated(output, async (config) => {
     const result = await replyToExchange(config, exchangeId, note);
-    output.result(result, `Replied in ${result.exchange_id}.`);
+    output.result(result, `Replied in thread ${result.exchange_id}.`);
     return 0;
   });
 }
 
 export const inboxCommand: CommandDef = {
   name: "inbox",
-  description: "Ask, read, and reply through direct exchanges about shared Content",
+  description: "Ask, read, and reply to messages about shared Content",
   usage: USAGE,
   examples: [
     "ideaspaces inbox list",
