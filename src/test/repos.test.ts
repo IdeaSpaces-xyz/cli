@@ -65,8 +65,22 @@ describe("repos", () => {
     expect(code).toBe(0);
     const data = JSON.parse(stdout());
     expect(data.username).toBe("alice");
-    expect(data.repos[0]).toMatchObject({ slug: "notes", role: "owner", namespace: "alice" });
-    expect(data.repos[1]).toMatchObject({ slug: "team", namespace: "acme.com" });
+    expect(data.repos[0]).toMatchObject({
+      slug: "notes",
+      relationship: "owner",
+      namespace: "alice",
+      role: "owner",
+      member_count: 1,
+      actions: ["open", "copy", "clone", "collaborate"],
+    });
+    expect(data.repos[1]).toMatchObject({
+      slug: "team",
+      relationship: "member",
+      namespace: "acme.com",
+      role: "member",
+      member_count: 4,
+      actions: ["open", "clone", "collaborate"],
+    });
     expect(stdout()).not.toContain("\"apiKey\"");
   });
 
@@ -99,7 +113,7 @@ describe("repos", () => {
     expect(stderr()).toContain("500");
   });
 
-  it("prints human-readable output with correct singular/plural", async () => {
+  it("prints human-readable relationships and independent actions", async () => {
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
@@ -112,8 +126,8 @@ describe("repos", () => {
     const code = await reposCommand.run([], {}, HUMAN_GLOBAL);
 
     expect(code).toBe(0);
-    expect(stdout()).toContain("notes (owner, 1 member)");
-    expect(stdout()).toContain("team (member, 4 members)");
+    expect(stdout()).toContain("notes (owner) — open, copy, clone, collaborate");
+    expect(stdout()).toContain("team (member) — open, clone, collaborate");
   });
 
   it("shows an empty-state hint when there are no spaces", async () => {

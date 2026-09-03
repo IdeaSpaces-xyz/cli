@@ -7,10 +7,12 @@ import { cloneRepo, setLocalConfig } from "../git.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
+import { hasRootAction } from "../root-actions.js";
 import {
   canonicalGitUrl,
   canonicalSpaceUrl,
   parseSpaceLocator,
+  repoDisplaySlug,
   repoRouteNamespace,
   spaceRecordForRepo,
 } from "../space-locator.js";
@@ -67,11 +69,11 @@ export const cloneCommand: CommandDef = {
     const matches = me.repos.filter((r) => {
       if (rootNodeId) return r.root_node_id === rootNodeId;
       const namespace = repoRouteNamespace(r, me.username);
-      const slug = r.route_slug ?? r.slug;
+      const slug = repoDisplaySlug(r);
       return r.repo_id === target || slug === target || `${namespace}/${slug}` === target;
     });
     if (matches.length === 0) {
-      output.error(`No space matches "${target}" in your Git-access catalog. Run \`ideaspaces repos\` to list yours.`);
+      output.error(`No space matches "${target}" in your account catalog. Run \`ideaspaces repos\` to list yours.`);
       return 1;
     }
     if (matches.length > 1) {
@@ -80,8 +82,12 @@ export const cloneCommand: CommandDef = {
     }
 
     const repo = matches[0];
+    if (!hasRootAction(repo, "clone")) {
+      output.error(`Space "${target}" is in your account catalog but does not allow clone.`);
+      return 1;
+    }
     const namespace = repoRouteNamespace(repo, me.username);
-    const slug = repo.route_slug ?? repo.slug;
+    const slug = repoDisplaySlug(repo);
     const stableRoot = repo.root_node_id ?? rootNodeId;
     if (!stableRoot && !namespace) {
       output.error("Could not resolve stable Space identity or a compatibility route.");

@@ -1,12 +1,13 @@
 import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
-import { canonicalSpaceUrl, repoRouteNamespace } from "../space-locator.js";
+import { availableRootActions, rootRelationshipLabel } from "../root-actions.js";
+import { canonicalSpaceUrl, repoDisplaySlug, repoRouteNamespace } from "../space-locator.js";
 import type { CommandDef } from "../types.js";
 
 export const reposCommand: CommandDef = {
   name: "repos",
-  description: "List your spaces — slug, role, and member count",
+  description: "List your spaces — relationship and available actions",
   usage: "ideaspaces repos [--json]",
   examples: [
     "ideaspaces repos",
@@ -35,21 +36,29 @@ export const reposCommand: CommandDef = {
 
     const repos = me.repos.map((r) => ({
       repo_id: r.repo_id,
-      slug: r.slug,
-      hostname: r.hostname,
+      slug: repoDisplaySlug(r),
+      hostname: r.hostname ?? null,
       root_node_id: r.root_node_id ?? null,
       route_status: r.route_status ?? null,
       namespace: repoRouteNamespace(r, me.username),
       space_url: r.root_node_id ? canonicalSpaceUrl(config.apiUrl, r.root_node_id) : null,
-      role: r.role,
-      member_count: r.member_count,
+      // Rolling compatibility for sidecar consumers; never use these fields
+      // to derive the independent receipt actions above.
+      role: r.role ?? null,
+      member_count: r.member_count ?? null,
+      relationship: rootRelationshipLabel(r),
+      receipt_classes: r.receipt_classes ?? [],
+      actions: availableRootActions(r),
     }));
 
     output.result(
       { username: me.username, repos },
       repos.length
         ? repos
-            .map((r) => `${r.slug} (${r.role}, ${r.member_count} member${r.member_count === 1 ? "" : "s"})`)
+            .map((r) => {
+              const actions = r.actions.length ? r.actions.join(", ") : "no available actions";
+              return `${r.slug} (${r.relationship}) — ${actions}`;
+            })
             .join("\n")
         : "No spaces yet. Create one at your account, or `ideaspaces create`.",
     );

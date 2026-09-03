@@ -823,6 +823,88 @@ describe("ideaspaces publish", () => {
     expect(readSpaceRecord().repo_id).toBe("repo_first");
   }, 15_000);
 
+  it("refuses re-publish when the catalog receipt lacks collaborate", async () => {
+    const dir = initLocalRepo("copy-only");
+    process.chdir(dir);
+    await writeCredentials();
+
+    let created = false;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/auth/me")) {
+        return new Response(
+          JSON.stringify({
+            user_id: 1,
+            username: "ernests_s",
+            email: null,
+            name: null,
+            repos: created
+              ? [
+                  {
+                    repo_id: "repo_copy_only",
+                    slug: "copy-only",
+                    hostname: null,
+                    role: null,
+                    actions: ["copy"],
+                  },
+                ]
+              : [],
+            onboarding_complete: true,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/repos")) {
+        created = true;
+        return new Response(
+          JSON.stringify({ repo_id: "repo_copy_only", slug: "copy-only", name: "copy-only" }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setupBareRemote("ernests_s", "copy-only");
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
+
+    let planOutput = "";
+    const originalStdout = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      planOutput += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      expect(
+        await publishCommand.run([], {}, { ...baseGlobal, json: false, quiet: false, yes: false }),
+      ).toBe(0);
+    } finally {
+      process.stdout.write = originalStdout;
+    }
+    expect(planOutput).toContain(
+      "your current relationship does not allow publishing changes; --yes would refuse",
+    );
+
+    let stderr = "";
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+      return true;
+    }) as typeof process.stderr.write;
+
+    let exit: number;
+    try {
+      exit = await publishCommand.run([], {}, baseGlobal);
+    } finally {
+      process.stderr.write = origWrite;
+    }
+
+    expect(exit).toBe(1);
+    expect(stderr).toContain("does not allow publishing changes");
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/repos"))).toHaveLength(1);
+  }, 15_000);
+
   it("detects stale folder mapping (remote deleted on server) and surfaces a fix hint", async () => {
     const dir = initLocalRepo("stale-mapping");
     process.chdir(dir);

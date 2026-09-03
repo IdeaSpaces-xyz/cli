@@ -75,12 +75,16 @@ export function repoRouteNamespace(repo: AuthMeRepo, username: string | null): s
   return repo.hostname ?? username;
 }
 
+export function repoDisplaySlug(repo: AuthMeRepo): string {
+  return repo.route_slug ?? repo.slug ?? repo.repo_id;
+}
+
 /** Build an additive registry record while preserving old-reader compatibility. */
 export function spaceRecordForRepo(repo: AuthMeRepo, username: string | null): HostedSpaceRecord {
   const routeNamespace = repoRouteNamespace(repo, username);
   return {
     repo_id: repo.repo_id,
-    slug: repo.route_slug ?? repo.slug,
+    slug: repoDisplaySlug(repo),
     namespace: routeNamespace ?? repo.hostname ?? username ?? "",
     ...(repo.root_node_id ? { root_node_id: repo.root_node_id } : {}),
     ...(repo.route_status ? { route_status: repo.route_status } : {}),
@@ -110,8 +114,9 @@ export function repoKeys(
     if (canonical) keys.push(canonical);
   }
   const namespace = repoRouteNamespace(repo, me.username);
-  if (namespace) {
-    const legacy = normalizeRepoUrl(`${gitBase}/${namespace}/${repo.route_slug ?? repo.slug}.git`);
+  const slug = repo.route_slug ?? repo.slug;
+  if (namespace && slug) {
+    const legacy = normalizeRepoUrl(`${gitBase}/${namespace}/${slug}.git`);
     if (legacy) keys.push(legacy);
   }
   return keys;

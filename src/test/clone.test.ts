@@ -129,6 +129,36 @@ describe("clone", () => {
     });
   });
 
+  it("keeps a Copy-only receipt visible but refuses clone", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({
+      username: "alice",
+      repos: [
+        {
+          repo_id: "r1",
+          root_node_id: rootNodeId,
+          name: "Shared thoughts",
+          receipt_classes: ["direct_person"],
+          actions: ["copy"],
+          route_status: "resolved",
+          route_namespace: "alice",
+          route_slug: "thoughts",
+        },
+      ],
+    });
+
+    const code = await cloneCommand.run(
+      [`https://example.test/spaces/${rootNodeId}`],
+      {},
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("does not allow clone");
+    expect(cloneRepoMock).not.toHaveBeenCalled();
+  });
+
   it("rejects arbitrary URLs instead of handing them to Git", async () => {
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({ username: "alice", repos: [] });

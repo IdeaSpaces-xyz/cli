@@ -66,6 +66,31 @@ describe("deriveCatalog — logged in", () => {
     expect(by.rX).toMatchObject({ location: "local-only", clone: { path: "/w/scratch" } });
   });
 
+  it("projects receipt actions and stable fallbacks for a slugless root", () => {
+    const receiptOnly = repo({
+      repo_id: "repo_shared",
+      slug: null,
+      name: "Shared Guide",
+      role: null,
+      receipt_classes: ["direct_person"],
+      actions: ["copy"],
+    });
+
+    const entry = deriveCatalog({ username: "alice", repos: [receiptOnly] }, [], new Map())[0];
+
+    expect(entry).toMatchObject({
+      repo_id: "repo_shared",
+      slug: "repo_shared",
+      display_name: "Shared Guide",
+      role: null,
+      member_count: 1,
+      relationship: "shared",
+      receipt_classes: ["direct_person"],
+      actions: ["copy"],
+      location: "online-only",
+    });
+  });
+
   it("emits one available entry per clone when a repo is cloned twice", () => {
     const clones = [clone("/a/notes", "r1"), clone("/b/notes", "r1")];
     const status = new Map<string, RepoStatus>([
