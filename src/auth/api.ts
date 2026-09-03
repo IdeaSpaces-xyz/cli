@@ -28,11 +28,13 @@ export interface AuthMeRepo {
   repo_id: string;
   slug?: string | null;
   hostname?: string | null;
-  /** Deprecated compatibility fields; root actions and receipts are authoritative. */
+  /** Deprecated RepoMembership compatibility role. */
   role?: string | null;
+  /** Deprecated RepoMembership compatibility count. */
   member_count?: number | null;
   name?: string | null;
   archived?: boolean;
+  /** New servers emit non-null arrays; optionality supports older servers during rollout. */
   receipt_classes?: string[];
   receipt_subjects?: string[];
   actions?: Array<"open" | "copy" | "clone" | "collaborate">;
