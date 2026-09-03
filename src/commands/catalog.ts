@@ -47,6 +47,9 @@ export interface CatalogEntry {
   namespace: string;
   source_root_node_id?: string;
   source_head?: string;
+  /** Deprecated compatibility fields retained for rolling sidecar consumers. */
+  role?: string | null;
+  member_count?: number | null;
   relationship?: string;
   receipt_classes?: string[];
   actions?: string[];
@@ -136,6 +139,8 @@ export function deriveCatalog(
         display_name: repo.name ?? slug,
         hostname: repo.hostname ?? null,
         namespace,
+        role: repo.role ?? null,
+        member_count: repo.member_count ?? null,
         relationship,
         receipt_classes: repo.receipt_classes ?? [],
         actions: availableRootActions(repo),
@@ -153,6 +158,8 @@ export function deriveCatalog(
         display_name: repo.name ?? slug,
         hostname: repo.hostname ?? null,
         namespace,
+        role: repo.role ?? null,
+        member_count: repo.member_count ?? null,
         relationship,
         receipt_classes: repo.receipt_classes ?? [],
         actions: availableRootActions(repo),

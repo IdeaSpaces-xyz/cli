@@ -42,6 +42,10 @@ export const reposCommand: CommandDef = {
       route_status: r.route_status ?? null,
       namespace: repoRouteNamespace(r, me.username),
       space_url: r.root_node_id ? canonicalSpaceUrl(config.apiUrl, r.root_node_id) : null,
+      // Rolling compatibility for sidecar consumers; never use these fields
+      // to derive the independent receipt actions above.
+      role: r.role ?? null,
+      member_count: r.member_count ?? null,
       relationship: rootRelationshipLabel(r),
       receipt_classes: r.receipt_classes ?? [],
       actions: availableRootActions(r),

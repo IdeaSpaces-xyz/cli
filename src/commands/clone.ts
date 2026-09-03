@@ -69,7 +69,7 @@ export const cloneCommand: CommandDef = {
     const matches = me.repos.filter((r) => {
       if (rootNodeId) return r.root_node_id === rootNodeId;
       const namespace = repoRouteNamespace(r, me.username);
-      const slug = r.route_slug ?? r.slug;
+      const slug = repoDisplaySlug(r);
       return r.repo_id === target || slug === target || `${namespace}/${slug}` === target;
     });
     if (matches.length === 0) {

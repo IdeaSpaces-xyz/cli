@@ -82,6 +82,8 @@ describe("deriveCatalog — logged in", () => {
       repo_id: "repo_shared",
       slug: "repo_shared",
       display_name: "Shared Guide",
+      role: null,
+      member_count: 1,
       relationship: "shared",
       receipt_classes: ["direct_person"],
       actions: ["copy"],

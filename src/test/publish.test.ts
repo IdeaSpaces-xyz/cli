@@ -869,6 +869,23 @@ describe("ideaspaces publish", () => {
     const { publishCommand } = await import("../commands/publish.js");
     expect(await publishCommand.run([], {}, baseGlobal)).toBe(0);
 
+    let planOutput = "";
+    const originalStdout = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      planOutput += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      expect(
+        await publishCommand.run([], {}, { ...baseGlobal, json: false, quiet: false, yes: false }),
+      ).toBe(0);
+    } finally {
+      process.stdout.write = originalStdout;
+    }
+    expect(planOutput).toContain(
+      "your current relationship does not allow publishing changes; --yes would refuse",
+    );
+
     let stderr = "";
     const origWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((chunk: string | Uint8Array) => {

@@ -69,12 +69,16 @@ describe("repos", () => {
       slug: "notes",
       relationship: "owner",
       namespace: "alice",
+      role: "owner",
+      member_count: 1,
       actions: ["open", "copy", "clone", "collaborate"],
     });
     expect(data.repos[1]).toMatchObject({
       slug: "team",
       relationship: "member",
       namespace: "acme.com",
+      role: "member",
+      member_count: 4,
       actions: ["open", "clone", "collaborate"],
     });
     expect(stdout()).not.toContain("\"apiKey\"");
