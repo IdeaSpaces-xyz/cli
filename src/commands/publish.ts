@@ -45,6 +45,7 @@ import {
   identityName as formatIdentityName,
 } from "../auth/identity.js";
 import { normalizeRepoUrl } from "../git.js";
+import { hasRootAction } from "../root-actions.js";
 import {
   inspectLocalRootIdentity,
   type LocalRootIdentityReport,
@@ -536,6 +537,12 @@ export const publishCommand: CommandDef = {
           `(repo_id=${hosted.repo_id}). Re-pushing to the same Space identity.`,
       );
       const projected = me.repos.find((candidate) => candidate.repo_id === hosted.repo_id);
+      if (projected && !hasRootAction(projected, "collaborate")) {
+        output.error(
+          `This Space is in your account catalog, but your current relationship does not allow publishing changes.`,
+        );
+        return 1;
+      }
       repo = {
         repo_id: hosted.repo_id,
         root_node_id: projected?.root_node_id ?? hosted.root_node_id ?? undefined,

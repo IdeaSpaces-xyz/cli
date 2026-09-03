@@ -18,7 +18,8 @@ import { isHostedSpaceRecord, isUnpublishedForkRecord, listClones } from "../aut
 import type { SpaceRecord } from "../auth/spaces.js";
 import { fetch as gitFetch } from "../git.js";
 import { createOutput } from "../output.js";
-import { repoRouteNamespace } from "../space-locator.js";
+import { availableRootActions, rootRelationshipLabel } from "../root-actions.js";
+import { repoDisplaySlug, repoRouteNamespace } from "../space-locator.js";
 import type { CommandDef } from "../types.js";
 
 /** Where a repo lives relative to this machine + account. */
@@ -46,8 +47,9 @@ export interface CatalogEntry {
   namespace: string;
   source_root_node_id?: string;
   source_head?: string;
-  role?: string;
-  member_count?: number;
+  relationship?: string;
+  receipt_classes?: string[];
+  actions?: string[];
   location: RepoLocation;
   clone?: { path: string };
   sync?: { branch: string | null; ahead: number | null; behind: number | null; dirty: boolean };
@@ -122,18 +124,21 @@ export function deriveCatalog(
   const used = new Set<string>();
   for (const repo of me.repos) {
     const namespace = repoRouteNamespace(repo, me.username) ?? "";
+    const slug = repoDisplaySlug(repo);
+    const relationship = rootRelationshipLabel(repo);
     const matching = clonesByRepo.get(repo.repo_id) ?? [];
     if (matching.length === 0) {
       entries.push({
         state: "hosted",
         repo_id: repo.repo_id,
         root_node_id: repo.root_node_id ?? null,
-        slug: repo.slug,
-        display_name: repo.slug,
-        hostname: repo.hostname,
+        slug,
+        display_name: repo.name ?? slug,
+        hostname: repo.hostname ?? null,
         namespace,
-        role: repo.role,
-        member_count: repo.member_count,
+        relationship,
+        receipt_classes: repo.receipt_classes ?? [],
+        actions: availableRootActions(repo),
         location: "online-only",
       });
       continue;
@@ -144,12 +149,13 @@ export function deriveCatalog(
         state: "hosted",
         repo_id: repo.repo_id,
         root_node_id: repo.root_node_id ?? null,
-        slug: repo.slug,
-        display_name: repo.slug,
-        hostname: repo.hostname,
+        slug,
+        display_name: repo.name ?? slug,
+        hostname: repo.hostname ?? null,
         namespace,
-        role: repo.role,
-        member_count: repo.member_count,
+        relationship,
+        receipt_classes: repo.receipt_classes ?? [],
+        actions: availableRootActions(repo),
         location: "available",
         clone: { path: c.path },
         ...syncOf(c.path),

@@ -26,11 +26,17 @@ export type RepoRouteStatus = "resolved" | "unresolved" | "conflict" | "unavaila
 
 export interface AuthMeRepo {
   repo_id: string;
-  slug: string;
-  hostname: string | null;
-  role: string;
+  slug?: string | null;
+  hostname?: string | null;
+  /** Deprecated compatibility fields; root actions and receipts are authoritative. */
+  role?: string | null;
+  member_count?: number | null;
+  name?: string | null;
+  archived?: boolean;
+  receipt_classes?: string[];
+  receipt_subjects?: string[];
+  actions?: Array<"open" | "copy" | "clone" | "collaborate">;
   root_node_id?: string | null;
-  member_count: number;
   route_status?: RepoRouteStatus;
   route_kind?: "person" | "hostname" | null;
   route_namespace?: string | null;
