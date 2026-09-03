@@ -209,6 +209,36 @@ describe("link — auto-detect from origin", () => {
     expect(JSON.parse(stdout())).toMatchObject({ repo_id: "r1", slug: "notes", namespace: "alice" });
   });
 
+  it("uses a stable display fallback for a slugless catalog receipt", async () => {
+    fetchAuthMeMock.mockResolvedValue({
+      ...ALICE,
+      repos: [
+        {
+          repo_id: "repo_shared",
+          root_node_id: LOCAL_ROOT,
+          slug: null,
+          hostname: null,
+          role: null,
+          route_status: "unavailable",
+          actions: ["open", "clone"],
+        },
+      ],
+    });
+    originUrlMock.mockReturnValue(`https://git.example.test/spaces/${LOCAL_ROOT}.git`);
+
+    expect(await linkCommand.run(["./theone"], {}, JSON_GLOBAL)).toBe(0);
+
+    expect(saveSpaceMock).toHaveBeenCalledWith(expect.stringContaining("theone"), {
+      repo_id: "repo_shared",
+      root_node_id: LOCAL_ROOT,
+      slug: "repo_shared",
+      namespace: "alice",
+      route_status: "unavailable",
+    });
+    expect(JSON.parse(stdout())).toMatchObject({ slug: "repo_shared", namespace: "alice" });
+    expect(stdout()).not.toContain("undefined");
+  });
+
   it.each([
     "https://git.example.test/spaces/n_0123456789abcdef01234567.git",
     "https://git.example.test/alice/notes.git",

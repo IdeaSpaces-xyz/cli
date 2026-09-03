@@ -18,6 +18,7 @@ import { isInsideWorkTree, normalizeRepoUrl, originUrl, setLocalConfig } from ".
 import { createOutput } from "../output.js";
 import {
   canonicalGitUrl,
+  repoDisplaySlug,
   repoRouteNamespace,
   spaceRecordForRepo,
   repoKeys,
@@ -88,7 +89,7 @@ export const linkCommand: CommandDef = {
       // Explicit: resolve the named space, then confirm the folder is its clone.
       const matches = me.repos.filter((r) => {
         const namespace = repoRouteNamespace(r, me.username);
-        const slug = r.route_slug ?? r.slug;
+        const slug = repoDisplaySlug(r);
         return r.repo_id === target || r.root_node_id === target || slug === target || `${namespace}/${slug}` === target;
       });
       if (matches.length === 0) {
@@ -101,11 +102,12 @@ export const linkCommand: CommandDef = {
       }
       repo = matches[0];
       if (!repoKeys(repo, me, gitBase, config.apiUrl).includes(originKey)) {
+        const displaySlug = repoDisplaySlug(repo);
         const expected = repo.root_node_id
           ? canonicalGitUrl(config.apiUrl, repo.root_node_id)
-          : `${gitBase}/${repoRouteNamespace(repo, me.username)}/${repo.route_slug ?? repo.slug}.git`;
+          : `${gitBase}/${repoRouteNamespace(repo, me.username)}/${displaySlug}.git`;
         output.error(
-          `${dir}'s origin (${origin}) doesn't match ${repo.slug}.\n` +
+          `${dir}'s origin (${origin}) doesn't match ${displaySlug}.\n` +
             `Expected a clone of ${expected}.`,
         );
         return 1;
@@ -182,9 +184,10 @@ export const linkCommand: CommandDef = {
       }
     }
 
+    const displaySlug = repoDisplaySlug(repo);
     output.result(
-      { repo_id: repo.repo_id, root_node_id: repo.root_node_id ?? null, slug: repo.slug, namespace, path: dir },
-      `Linked ${namespace}/${repo.slug} → ${dir}`,
+      { repo_id: repo.repo_id, root_node_id: repo.root_node_id ?? null, slug: displaySlug, namespace, path: dir },
+      `Linked ${namespace}/${displaySlug} → ${dir}`,
     );
     return 0;
   },

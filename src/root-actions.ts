@@ -16,6 +16,8 @@ export function hasRootAction(repo: AuthMeRepo, action: RootAction): boolean {
   if (action === "open") return ["OWNER", "MEMBER", "CLONER", "READER"].includes(role ?? "");
   if (action === "clone") return ["OWNER", "MEMBER", "CLONER"].includes(role ?? "");
   if (action === "collaborate") return ["OWNER", "MEMBER"].includes(role ?? "");
+  // Old servers had no independent Copy contract; keep that fallback
+  // owner-only rather than inferring new authority from a broad role.
   return role === "OWNER";
 }
 
