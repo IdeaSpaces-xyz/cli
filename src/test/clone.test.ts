@@ -129,7 +129,39 @@ describe("clone", () => {
     });
   });
 
-  it("keeps a Copy-only receipt visible but refuses clone", async () => {
+  it("clones an exact Space URL that is absent from the account catalog", async () => {
+    const rootNodeId = "n_0123456789abcdef01234567";
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({ username: "bob", name: "Bob", repos: [] });
+    inspectRootIdentityMock.mockReturnValue({
+      state: "aligned",
+      root_node_id: rootNodeId,
+      declaration: { head: rootNodeId, index: rootNodeId, worktree: rootNodeId, dirty: false },
+    });
+
+    const code = await cloneCommand.run(
+      [`https://example.test/spaces/${rootNodeId}`],
+      {},
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(cloneRepoMock).toHaveBeenCalledWith(
+      `https://git.example.test/spaces/${rootNodeId}.git`,
+      expect.stringContaining(rootNodeId),
+    );
+    expect(saveSpaceMock).not.toHaveBeenCalled();
+    expect(JSON.parse(stdout())).toMatchObject({
+      repo_id: null,
+      root_node_id: rootNodeId,
+      slug: null,
+      namespace: null,
+      space_url: `https://example.test/spaces/${rootNodeId}`,
+      remote_url: `https://git.example.test/spaces/${rootNodeId}.git`,
+    });
+  });
+
+  it("lets Git authority refuse an exact Space URL without fetch access", async () => {
     const rootNodeId = "n_0123456789abcdef01234567";
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({
@@ -147,6 +179,9 @@ describe("clone", () => {
         },
       ],
     });
+    cloneRepoMock.mockImplementation(() => {
+      throw new Error("remote: Repository not found");
+    });
 
     const code = await cloneCommand.run(
       [`https://example.test/spaces/${rootNodeId}`],
@@ -155,8 +190,12 @@ describe("clone", () => {
     );
 
     expect(code).toBe(1);
-    expect(stderr()).toContain("does not allow clone");
-    expect(cloneRepoMock).not.toHaveBeenCalled();
+    expect(stderr()).toContain("Repository not found");
+    expect(cloneRepoMock).toHaveBeenCalledWith(
+      `https://git.example.test/spaces/${rootNodeId}.git`,
+      expect.anything(),
+    );
+    expect(saveSpaceMock).not.toHaveBeenCalled();
   });
 
   it("rejects arbitrary URLs instead of handing them to Git", async () => {
