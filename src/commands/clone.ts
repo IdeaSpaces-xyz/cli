@@ -64,15 +64,18 @@ export const cloneCommand: CommandDef = {
       }
     }
 
-    // Canonical URLs match stable root identity. Legacy repo ID, slug, and
-    // namespace/slug inputs remain compatibility locators during migration.
+    // An exact canonical URL is already the stable root coordinate. Do not
+    // require it to appear in the account catalog: a Grant-only collaborator
+    // may hold git_fetch without a RepoMembership-backed catalog row. Git is
+    // the authority for that path. Legacy repo ID, slug, and namespace/slug
+    // inputs remain catalog-backed compatibility locators during migration.
     const matches = me.repos.filter((r) => {
       if (rootNodeId) return r.root_node_id === rootNodeId;
       const namespace = repoRouteNamespace(r, me.username);
       const slug = repoDisplaySlug(r);
       return r.repo_id === target || slug === target || `${namespace}/${slug}` === target;
     });
-    if (matches.length === 0) {
+    if (!rootNodeId && matches.length === 0) {
       output.error(`No space matches "${target}" in your account catalog. Run \`ideaspaces repos\` to list yours.`);
       return 1;
     }
@@ -82,13 +85,13 @@ export const cloneCommand: CommandDef = {
     }
 
     const repo = matches[0];
-    if (!hasRootAction(repo, "clone")) {
+    if (!rootNodeId && repo && !hasRootAction(repo, "clone")) {
       output.error(`Space "${target}" is in your account catalog but does not allow clone.`);
       return 1;
     }
-    const namespace = repoRouteNamespace(repo, me.username);
-    const slug = repoDisplaySlug(repo);
-    const stableRoot = repo.root_node_id ?? rootNodeId;
+    const namespace = repo ? repoRouteNamespace(repo, me.username) : null;
+    const slug = repo ? repoDisplaySlug(repo) : rootNodeId;
+    const stableRoot = rootNodeId ?? repo?.root_node_id;
     if (!stableRoot && !namespace) {
       output.error("Could not resolve stable Space identity or a compatibility route.");
       return 1;
@@ -137,12 +140,15 @@ export const cloneCommand: CommandDef = {
       return 1;
     }
 
-    // Bind the folder to the space so `sync` knows what it is. The clone already
-    // succeeded — a registry write failure is a warning, not a hard failure.
-    try {
-      saveSpace(dir, spaceRecordForRepo(repo, me.username));
-    } catch {
-      output.error("Clone succeeded but the folder could not be bound — re-run clone to bind it.");
+    // Preserve the rich local binding when catalog metadata exists. A direct
+    // Grant-only clone remains addressable through its canonical origin; do not
+    // invent repo, slug, or route fields just to put it in the registry.
+    if (repo) {
+      try {
+        saveSpace(dir, spaceRecordForRepo(repo, me.username));
+      } catch {
+        output.error("Clone succeeded but the folder could not be bound — re-run clone to bind it.");
+      }
     }
 
     // Wire the OAuth identity into the new clone so commits made in it pass the
@@ -161,9 +167,9 @@ export const cloneCommand: CommandDef = {
     const spaceUrl = stableRoot ? canonicalSpaceUrl(config.apiUrl, stableRoot) : null;
     output.result(
       {
-        repo_id: repo.repo_id,
+        repo_id: repo?.repo_id ?? null,
         root_node_id: stableRoot ?? null,
-        slug,
+        slug: repo ? slug : null,
         namespace,
         space_url: spaceUrl,
         remote_url: url,
