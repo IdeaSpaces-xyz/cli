@@ -17,9 +17,10 @@ const {
   removeTeamShareMock,
   getSpaceAccessMock,
   setSpaceAccessMock,
-  createRepoInvitesMock,
   removePersonShareMock,
   revokePersonShareInviteMock,
+  resendPersonShareInviteMock,
+  setPersonShareHistoryMock,
   repoRootMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
@@ -34,9 +35,10 @@ const {
   removeTeamShareMock: vi.fn(),
   getSpaceAccessMock: vi.fn(),
   setSpaceAccessMock: vi.fn(),
-  createRepoInvitesMock: vi.fn(),
   removePersonShareMock: vi.fn(),
   revokePersonShareInviteMock: vi.fn(),
+  resendPersonShareInviteMock: vi.fn(),
+  setPersonShareHistoryMock: vi.fn(),
   repoRootMock: vi.fn(),
 }));
 
@@ -56,9 +58,10 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     removeTeamShare: removeTeamShareMock,
     getSpaceAccess: getSpaceAccessMock,
     setSpaceAccess: setSpaceAccessMock,
-    createRepoInvites: createRepoInvitesMock,
     removePersonShare: removePersonShareMock,
     revokePersonShareInvite: revokePersonShareInviteMock,
+    resendPersonShareInvite: resendPersonShareInviteMock,
+    setPersonShareHistory: setPersonShareHistoryMock,
   };
 });
 vi.mock("../git.js", async (importOriginal) => {
@@ -106,9 +109,10 @@ beforeEach(() => {
     removeTeamShareMock,
     getSpaceAccessMock,
     setSpaceAccessMock,
-    createRepoInvitesMock,
     removePersonShareMock,
     revokePersonShareInviteMock,
+    resendPersonShareInviteMock,
+    setPersonShareHistoryMock,
     repoRootMock,
   ]) {
     m.mockReset();
@@ -125,6 +129,23 @@ beforeEach(() => {
   listTeamSharesMock.mockResolvedValue({ target_node_id: ROOT, relationships: [] });
   setTeamShareMock.mockResolvedValue({ target_node_id: ROOT, org_node_id: "n_org", status: "shared" });
   removeTeamShareMock.mockResolvedValue({ target_node_id: ROOT, org_node_id: "n_org", status: "removed" });
+  resendPersonShareInviteMock.mockResolvedValue({
+    invite_id: "inv_1",
+    invited_email: "new@example.com",
+    intent_kind: "content",
+    grade: "explore",
+    share_history: false,
+    created_at: "2026-09-07T00:00:00Z",
+    expires_at: "2026-09-14T00:00:00Z",
+    delivery_status: "sent",
+    can_resend: false,
+  });
+  setPersonShareHistoryMock.mockResolvedValue({
+    target_node_id: ROOT,
+    user_id: 7,
+    status: "granted",
+    share_history: true,
+  });
   getSpaceAccessMock.mockResolvedValue({
     repo_id: "repo_abc",
     root_node_id: ROOT,
@@ -151,9 +172,9 @@ beforeEach(() => {
   }) as typeof process.stderr.write);
 });
 
-describe("share invite — a grade on a Space, not a seat in a repo", () => {
+describe("share person — a grade on a Space, not a seat in a repo", () => {
   it("invites from the folder you are standing in, with no repo_id anywhere", async () => {
-    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(0);
+    expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(0);
 
     // The done-when's first clause: the owner never discovers an internal
     // repository identifier to share what they are looking at.
@@ -173,7 +194,7 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
     addPersonShareMock.mockResolvedValue(addResult({ grade: "collaborate", share_history: true }));
 
     expect(
-      await shareCommand.run(["invite", "bob@example.com"], { grade: "collaborate", history: true }, JSON_G),
+      await shareCommand.run(["person", "bob@example.com"], { grade: "collaborate", history: true }, JSON_G),
     ).toBe(0);
 
     expect(addPersonShareMock).toHaveBeenCalledWith(
@@ -185,7 +206,7 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
   });
 
   it("refuses a grade the product does not have", async () => {
-    expect(await shareCommand.run(["invite", "bob@example.com"], { grade: "owner" }, JSON_G)).toBe(1);
+    expect(await shareCommand.run(["person", "bob@example.com"], { grade: "owner" }, JSON_G)).toBe(1);
     expect(stderr).toContain("explore, fork, collaborate");
     expect(addPersonShareMock).not.toHaveBeenCalled();
   });
@@ -210,7 +231,7 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
       }),
     );
 
-    expect(await shareCommand.run(["invite", "new@example.com"], { grade: "fork" }, TEXT_G)).toBe(0);
+    expect(await shareCommand.run(["person", "new@example.com"], { grade: "fork" }, TEXT_G)).toBe(0);
     expect(stdout).toContain("No account yet");
     expect(stdout).toContain("fork");
   });
@@ -220,7 +241,7 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
     // absorbed: someone else granted this, and we did not change it.
     addPersonShareMock.mockResolvedValue(addResult({ status: "already_direct" }));
 
-    expect(await shareCommand.run(["invite", "bob@example.com"], {}, TEXT_G)).toBe(0);
+    expect(await shareCommand.run(["person", "bob@example.com"], {}, TEXT_G)).toBe(0);
     expect(stdout).toContain("already has direct access");
     expect(stdout).toContain("Nothing changed");
   });
@@ -231,7 +252,7 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
     });
 
     const code = await shareCommand.run(
-      ["invite", "bob@example.com"],
+      ["person", "bob@example.com"],
       { space: `https://example.test/spaces/${ROOT}` },
       JSON_G,
     );
@@ -245,7 +266,7 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
   it("says which way it could not tell, when the clone is unbound", async () => {
     resolveSpaceBindingMock.mockResolvedValue({ failure: "ambiguous" });
 
-    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("more than one");
     expect(addPersonShareMock).not.toHaveBeenCalled();
   });
@@ -253,7 +274,7 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
   it("does not share an unpublished fork as though it were hosted", async () => {
     resolveSpaceBindingMock.mockResolvedValue({ failure: "unpublished" });
 
-    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("unpublished local fork");
     expect(stderr).toContain("Publish it before sharing");
     expect(addPersonShareMock).not.toHaveBeenCalled();
@@ -264,46 +285,8 @@ describe("share invite — a grade on a Space, not a seat in a repo", () => {
       throw new Error("not inside a git repository");
     });
 
-    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("--space");
-  });
-});
-
-describe("share people — who holds this, including what we did not grant", () => {
-  it("lists accepted relationships and outstanding invitations together", async () => {
-    listPersonSharesMock.mockResolvedValue({
-      target_node_id: ROOT,
-      target_type: "repo",
-      recipient_route: "r",
-      actions: { can_manage_existing: true, can_add: true },
-      relationships: [
-        { user_id: 7, username: "bob", account_status: "active", access: "view", share_history: true },
-      ],
-    });
-    listPersonShareInvitesMock.mockResolvedValue({
-      invites: [{ invited_email: "new@example.com", grade: "fork" }],
-    });
-
-    expect(await shareCommand.run(["people"], {}, TEXT_G)).toBe(0);
-    // Neither half answers "who has this" alone: one accepted, one has not yet.
-    expect(stdout).toContain("bob");
-    expect(stdout).toContain("+ history");
-    expect(stdout).toContain("new@example.com");
-    expect(stdout).toContain("invited (fork)");
-  });
-
-  it("surfaces why adding is blocked instead of showing an empty list", async () => {
-    listPersonSharesMock.mockResolvedValue({
-      target_node_id: ROOT,
-      target_type: "repo",
-      recipient_route: "r",
-      actions: { can_manage_existing: false, can_add: false, add_blocked_reason: "not_owner" },
-      relationships: [],
-    });
-    listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
-
-    expect(await shareCommand.run(["people"], {}, TEXT_G)).toBe(0);
-    expect(stdout).toContain("not_owner");
   });
 });
 
@@ -393,7 +376,16 @@ describe("the product Share surface", () => {
       ],
     });
     listPersonShareInvitesMock.mockResolvedValue({
-      invites: [{ invited_email: "new@example.com", grade: "explore", share_history: false }],
+      invites: [{
+        invite_id: "inv_1",
+        invited_email: "new@example.com",
+        intent_kind: "content",
+        grade: "explore",
+        share_history: false,
+        delivery_status: "failed",
+        delivery_error: "provider_rejected",
+        can_resend: true,
+      }],
     });
     listTeamSharesMock.mockResolvedValue({
       target_node_id: ROOT,
@@ -413,6 +405,7 @@ describe("the product Share surface", () => {
     expect(stdout).toContain("fork + history");
     expect(stdout).toContain("clone through another path");
     expect(stdout).toContain("new@example.com");
+    expect(stdout).toContain("delivery failed (provider_rejected); resend available");
     expect(stdout).toContain("acme.com");
     expect(stdout).toContain("collaborate");
   });
@@ -445,21 +438,26 @@ describe("the product Share surface", () => {
   });
 
   it("removes a person's direct bundle and reports surviving access", async () => {
-    listPersonSharesMock.mockResolvedValue({
-      target_node_id: ROOT,
-      target_type: "repo",
-      recipient_route: "r",
-      actions: { can_manage_existing: true, can_add: true },
-      relationships: [],
-      standings: [{
-        user_id: 7,
-        username: "bob",
-        email: "bob@example.com",
-        account_status: "active",
-        direct_capabilities: ["read"],
-        effective_capabilities: ["read"],
-      }],
-    });
+    listPersonSharesMock
+      .mockResolvedValueOnce({
+        target_node_id: ROOT,
+        target_type: "repo",
+        recipient_route: "r",
+        actions: { can_manage_existing: true, can_add: true },
+        relationships: [],
+        standings: [{
+          user_id: 7,
+          username: "bob",
+          email: "bob@example.com",
+          account_status: "active",
+          direct_capabilities: ["read"],
+          effective_capabilities: ["read"],
+        }],
+      })
+      .mockResolvedValueOnce({
+        target_node_id: ROOT,
+        standings: [{ user_id: 7, effective_capabilities: ["read"] }],
+      });
     listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
     removePersonShareMock.mockResolvedValue({
       target_node_id: ROOT,
@@ -474,16 +472,47 @@ describe("the product Share surface", () => {
     expect(stdout).toContain("still has view through another path");
   });
 
-  it("reports a raced person removal as already removed", async () => {
-    listPersonSharesMock.mockResolvedValue({
-      standings: [{
-        user_id: 7,
-        username: "bob",
-        email: "bob@example.com",
-        direct_capabilities: ["read"],
-        effective_capabilities: ["read"],
-      }],
+  it("rechecks effective access instead of echoing a stale removal response", async () => {
+    listPersonSharesMock
+      .mockResolvedValueOnce({
+        standings: [{
+          user_id: 7,
+          username: "bob",
+          email: "bob@example.com",
+          direct_capabilities: ["read", "git_fetch", "git_push"],
+          effective_capabilities: ["read", "git_fetch", "git_push"],
+        }],
+      })
+      .mockResolvedValueOnce({ standings: [] });
+    listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
+    removePersonShareMock.mockResolvedValue({
+      target_node_id: ROOT,
+      user_id: 7,
+      status: "removed",
+      effective_read_remains: true,
+      effective_capabilities: ["read", "git_fetch", "git_push"],
     });
+
+    expect(await shareCommand.run(["remove", "bob@example.com"], {}, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({
+      effective_read_remains: false,
+      effective_capabilities: [],
+      effective_capabilities_unavailable: null,
+    });
+  });
+
+  it("reports a raced person removal as already removed", async () => {
+    listPersonSharesMock
+      .mockResolvedValueOnce({
+        standings: [{
+          user_id: 7,
+          username: "bob",
+          email: "bob@example.com",
+          direct_capabilities: ["read"],
+          effective_capabilities: ["read"],
+        }],
+      })
+      .mockResolvedValueOnce({ standings: [] });
     listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
     removePersonShareMock.mockResolvedValue({
       target_node_id: ROOT,
@@ -551,108 +580,120 @@ describe("the product Share surface", () => {
   });
 });
 
-describe("the role vocabulary is gone from new invitations", () => {
-  it("points CLONER at the grade that replaced it", async () => {
-    expect(
-      await shareCommand.run(["legacy-invite", "repo_abc", "bob@example.com"], { role: "CLONER" }, JSON_G),
-    ).toBe(1);
-    expect(stderr).toContain("--grade fork");
-    expect(createRepoInvitesMock).not.toHaveBeenCalled();
-  });
-
-  it("keeps the compatibility path for the roles that still mean something", async () => {
-    createRepoInvitesMock.mockResolvedValue({ results: [{ email: "bob@example.com", status: "invited" }] });
-
-    expect(
-      await shareCommand.run(["legacy-invite", "repo_abc", "bob@example.com"], { role: "MEMBER" }, JSON_G),
-    ).toBe(0);
-    expect(createRepoInvitesMock).toHaveBeenCalledWith(
-      expect.anything(),
-      "repo_abc",
-      ["bob@example.com"],
-      "MEMBER",
-    );
-  });
-
-  it("never sends a role for a new invitation", async () => {
-    await shareCommand.run(["invite", "bob@example.com"], { grade: "fork" }, JSON_G);
-
-    expect(createRepoInvitesMock).not.toHaveBeenCalled();
-    const body = addPersonShareMock.mock.calls[0][2];
-    expect(JSON.stringify(body)).not.toMatch(/MEMBER|CLONER|READER|role/i);
-  });
-});
-
-describe("share invite — one person at a time", () => {
+describe("share person — one person at a time", () => {
   it("refuses a list rather than inviting the first and dropping the rest", async () => {
     // The verb this replaced took a list. Silently honouring only the first
     // address would be the exact surprise this command's reporting exists to
     // avoid.
     expect(
-      await shareCommand.run(["invite", "a@x.com", "b@x.com"], { grade: "fork" }, JSON_G),
+      await shareCommand.run(["person", "a@x.com", "b@x.com"], { grade: "fork" }, JSON_G),
     ).toBe(1);
-    expect(stderr).toContain("b@x.com");
-    // "ignored" read as though the first address had been processed; nothing is.
-    expect(stderr).toContain("nothing was sent");
+    expect(stderr).toContain("Usage: ideaspaces share person");
     expect(addPersonShareMock).not.toHaveBeenCalled();
   });
 });
 
-describe("share unshare — the undo", () => {
-  beforeEach(() => {
-    listPersonSharesMock.mockResolvedValue({
-      target_node_id: ROOT,
-      target_type: "repo",
-      recipient_route: "r",
-      actions: { can_manage_existing: true, can_add: true },
-      relationships: [
-        { user_id: 7, username: "bob", email: "bob@example.com", account_status: "active", access: "view", share_history: false },
-      ],
-    });
+describe("share invitation and history lifecycle", () => {
+  const pending = {
+    invite_id: "inv_1",
+    invited_email: "new@example.com",
+    intent_kind: "content",
+    grade: "fork",
+    share_history: false,
+    created_at: "2026-09-07T00:00:00Z",
+    expires_at: "2026-09-14T00:00:00Z",
+    delivery_status: "failed",
+    delivery_error: "provider_rejected",
+    can_resend: true,
+    resend_retry_after_seconds: null,
+  };
+
+  it("resends a matching pending invitation without changing its grade", async () => {
+    listPersonShareInvitesMock.mockResolvedValue({ invites: [pending] });
+    resendPersonShareInviteMock.mockResolvedValue({ ...pending, delivery_status: "sent", can_resend: false });
+
+    expect(await shareCommand.run(["resend", "new@example.com"], {}, JSON_G)).toBe(0);
+    expect(resendPersonShareInviteMock).toHaveBeenCalledWith(expect.anything(), ROOT, "inv_1");
+    expect(JSON.parse(stdout).grade).toBe("fork");
+  });
+
+  it("reports the resend cooldown locally", async () => {
     listPersonShareInvitesMock.mockResolvedValue({
-      invites: [{ invite_id: "inv_1", invited_email: "new@example.com", grade: "fork" }],
+      invites: [{ ...pending, can_resend: false, resend_retry_after_seconds: 42 }],
     });
+
+    expect(await shareCommand.run(["resend", "new@example.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("42 seconds");
+    expect(resendPersonShareInviteMock).not.toHaveBeenCalled();
   });
 
-  it("removes an accepted relationship by the address you shared with", async () => {
-    expect(await shareCommand.run(["unshare", "bob@example.com"], {}, JSON_G)).toBe(0);
-    expect(removePersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, 7);
-    expect(revokePersonShareInviteMock).not.toHaveBeenCalled();
+  it("changes only hosted history for a direct person share", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      standings: [{
+        user_id: 7,
+        username: "bob",
+        email: "bob@example.com",
+        direct_capabilities: ["read", "git_fetch", "git_push"],
+        effective_capabilities: ["read", "git_fetch", "git_push"],
+      }],
+    });
+
+    expect(await shareCommand.run(["history", "@bob", "on"], {}, JSON_G)).toBe(0);
+    expect(setPersonShareHistoryMock).toHaveBeenCalledWith(expect.anything(), ROOT, 7, true);
+    expect(JSON.parse(stdout)).toMatchObject({ share_history: true, status: "granted" });
   });
 
-  it("withdraws an invitation nobody accepted, from the same address", async () => {
-    // The person undoing knows who they shared with, not whether that person
-    // ever accepted — so one verb resolves which of the two it is.
-    expect(await shareCommand.run(["unshare", "new@example.com"], {}, JSON_G)).toBe(0);
-    expect(revokePersonShareInviteMock).toHaveBeenCalledWith(expect.anything(), ROOT, "inv_1");
-    expect(removePersonShareMock).not.toHaveBeenCalled();
+  it("turns hosted history off without changing the person share", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      standings: [{
+        user_id: 7,
+        username: "bob",
+        direct_capabilities: ["read", "history", "git_fetch", "git_push"],
+        effective_capabilities: ["read", "history", "git_fetch", "git_push"],
+      }],
+    });
+    setPersonShareHistoryMock.mockResolvedValue({
+      target_node_id: ROOT,
+      user_id: 7,
+      status: "revoked",
+      share_history: false,
+    });
+
+    expect(await shareCommand.run(["history", "@bob", "off"], {}, JSON_G)).toBe(0);
+    expect(setPersonShareHistoryMock).toHaveBeenCalledWith(expect.anything(), ROOT, 7, false);
+    expect(JSON.parse(stdout)).toMatchObject({ share_history: false, status: "revoked" });
   });
 
-  it("says nothing was undone rather than reporting success", async () => {
-    expect(await shareCommand.run(["unshare", "stranger@example.com"], {}, JSON_G)).toBe(1);
-    expect(stderr).toContain("no direct access");
-    expect(removePersonShareMock).not.toHaveBeenCalled();
-    expect(revokePersonShareInviteMock).not.toHaveBeenCalled();
+  it("points conflicting pending access at remove then share", async () => {
+    addPersonShareMock.mockRejectedValue(
+      new Error('POST /person-shares → 409: {"detail":"invitation_grade_conflict"}'),
+    );
+
+    expect(await shareCommand.run(["person", "new@example.com"], { grade: "collaborate" }, JSON_G)).toBe(1);
+    expect(stderr).toContain("share remove <email>");
+    expect(stderr).toContain("then share again");
   });
 });
 
-describe("share people — an unread half is not an empty half", () => {
-  it("says the invitations could not be read instead of showing none", async () => {
-    listPersonSharesMock.mockResolvedValue({
-      target_node_id: ROOT,
-      target_type: "repo",
-      recipient_route: "r",
-      actions: { can_manage_existing: true, can_add: true },
-      relationships: [],
-    });
-    listPersonShareInvitesMock.mockRejectedValue(new Error("403 not permitted"));
-
-    expect(await shareCommand.run(["people"], {}, JSON_G)).toBe(0);
-    const out = JSON.parse(stdout);
-    // A scripted caller must be able to tell "nobody is invited" from "we could
-    // not find out".
-    expect(out.invites_unavailable).toContain("403");
-    expect(out.pending_invites).toEqual([]);
+describe("retired Share commands fail locally", () => {
+  it.each([
+    ["access", "repo_abc"],
+    ["set-access", "repo_abc"],
+    ["members", "repo_abc"],
+    ["invites", "repo_abc"],
+    ["legacy-invite", "repo_abc", "a@example.com"],
+    ["revoke", "repo_abc", "inv_1"],
+    ["invite", "a@example.com"],
+    ["people"],
+    ["unshare", "a@example.com"],
+    ["remove", "repo_abc", "7"],
+  ])("rejects %s with migration guidance and no network", async (...argv) => {
+    expect(await shareCommand.run(argv, {}, JSON_G)).toBe(1);
+    expect(stderr).toMatch(/removed|retired/);
+    expect(loadConfigMock).not.toHaveBeenCalled();
+    expect(fetchAuthMeMock).not.toHaveBeenCalled();
+    expect(addPersonShareMock).not.toHaveBeenCalled();
+    expect(removePersonShareMock).not.toHaveBeenCalled();
   });
 });
 
@@ -662,14 +703,14 @@ describe("what the live walk found", () => {
     // history clause ran straight into the name. Only visible by running it.
     addPersonShareMock.mockResolvedValue(addResult({ grade: "fork", share_history: true }));
 
-    await shareCommand.run(["invite", "bob@example.com"], { grade: "fork", history: true }, TEXT_G);
+    await shareCommand.run(["person", "bob@example.com"], { grade: "fork", history: true }, TEXT_G);
 
     expect(stdout).toContain("Shared with bob at fork, with the trail");
     expect(stdout).not.toContain("trail with bob");
   });
 
   it("labels the recipient route instead of printing a bare path", async () => {
-    await shareCommand.run(["invite", "bob@example.com"], {}, TEXT_G);
+    await shareCommand.run(["person", "bob@example.com"], {}, TEXT_G);
     // The server returns a route, not a URL; unlabelled it reads as stray output.
     expect(stdout).toContain("They reach it at");
   });
@@ -683,9 +724,9 @@ describe("what the live walk found", () => {
       ),
     );
 
-    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("ownership record was never established");
-    expect(stderr).toContain("legacy-invite");
+    expect(stderr).toContain("CLI 0.1.22");
     expect(stderr).not.toContain("root_governance_unestablished");
   });
 });
@@ -706,7 +747,7 @@ describe("every outcome says something true", () => {
   for (const [status, over, expected] of cases) {
     it(`${status} reads as a sentence`, async () => {
       addPersonShareMock.mockResolvedValue(addResult({ status, ...over }));
-      await shareCommand.run(["invite", "bob@example.com"], {}, TEXT_G);
+      await shareCommand.run(["person", "bob@example.com"], {}, TEXT_G);
       for (const fragment of expected) expect(stdout).toContain(fragment);
       // The generic pronoun is a fallback, never the answer when a name or an
       // address was available.
@@ -729,19 +770,21 @@ describe("every outcome says something true", () => {
       }),
     );
 
-    await shareCommand.run(["invite", "nouser@example.com"], {}, TEXT_G);
+    await shareCommand.run(["person", "nouser@example.com"], {}, TEXT_G);
     expect(stdout).toContain("nouser@example.com");
     expect(stdout).not.toContain("them");
   });
 });
 
-describe("the three product verbs need a session", () => {
+describe("the product verbs need a session", () => {
   // The pattern this repo tests elsewhere (agents, clone) and this command did
   // not: every new subcommand refuses before touching the network.
   for (const argv of [
-    ["invite", "bob@example.com"],
-    ["people"],
-    ["unshare", "bob@example.com"],
+    ["person", "bob@example.com"],
+    ["list"],
+    ["remove", "bob@example.com"],
+    ["resend", "bob@example.com"],
+    ["history", "@bob", "on"],
   ]) {
     it(`${argv[0]} says so when logged out`, async () => {
       loadConfigMock.mockReturnValue(null);
@@ -755,16 +798,14 @@ describe("the three product verbs need a session", () => {
   }
 });
 
-describe("invite argument errors name the right argument", () => {
-  it("faults the address before it faults the extras", async () => {
-    expect(await shareCommand.run(["invite", "notanemail", "extra@x.com"], {}, JSON_G)).toBe(1);
-    expect(stderr).toContain("Not an email address: notanemail");
-    expect(stderr).not.toContain("Extra addresses");
-  });
-
-  it("still names the extras when the address itself is fine", async () => {
-    expect(await shareCommand.run(["invite", "a@x.com", "b@x.com"], {}, JSON_G)).toBe(1);
-    expect(stderr).toContain("b@x.com");
+describe("person argument errors", () => {
+  it("rejects malformed or multiple recipients before sharing", async () => {
+    expect(await shareCommand.run(["person", "notanemail"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Expected an email address or @handle");
+    stderr = "";
+    expect(await shareCommand.run(["person", "a@x.com", "b@x.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Usage: ideaspaces share person");
+    expect(addPersonShareMock).not.toHaveBeenCalled();
   });
 });
 
@@ -776,7 +817,7 @@ describe("share refusals other than the governance one", () => {
       new Error('POST /api/v1/nodes/n_x/person-shares → 409: {"detail":"Person Share is unavailable for this target"}'),
     );
 
-    expect(await shareCommand.run(["invite", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("Direct person sharing is unavailable");
     expect(stderr).not.toContain("409");
   });
@@ -784,7 +825,7 @@ describe("share refusals other than the governance one", () => {
 
 describe("what people actually type", () => {
   it("takes a grade in any case", async () => {
-    expect(await shareCommand.run(["invite", "bob@example.com"], { grade: "Fork" }, JSON_G)).toBe(0);
+    expect(await shareCommand.run(["person", "bob@example.com"], { grade: "Fork" }, JSON_G)).toBe(0);
     expect(addPersonShareMock).toHaveBeenCalledWith(
       expect.anything(),
       ROOT,
@@ -792,47 +833,6 @@ describe("what people actually type", () => {
     );
   });
 
-  it("still points a lowercase cloner at the grade that replaced it", async () => {
-    expect(
-      await shareCommand.run(["legacy-invite", "repo_abc", "bob@example.com"], { role: "cloner" }, JSON_G),
-    ).toBe(1);
-    expect(stderr).toContain("--grade fork");
-  });
-});
-
-describe("unshare degrades the way people does", () => {
-  it("still removes someone you can see when the invite list is forbidden", async () => {
-    // The exact asymmetry `people` was built to survive: relationships readable,
-    // invitations not. Making the two lookups concurrent must not cost it.
-    listPersonSharesMock.mockResolvedValue({
-      target_node_id: ROOT,
-      target_type: "repo",
-      recipient_route: "r",
-      actions: { can_manage_existing: true, can_add: true },
-      relationships: [
-        { user_id: 7, username: "bob", email: "bob@example.com", account_status: "active", access: "view", share_history: false },
-      ],
-    });
-    listPersonShareInvitesMock.mockRejectedValue(new Error("403 not permitted"));
-
-    expect(await shareCommand.run(["unshare", "bob@example.com"], {}, JSON_G)).toBe(0);
-    expect(removePersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, 7);
-  });
-
-  it("does not claim there is no invitation when it could not look", async () => {
-    listPersonSharesMock.mockResolvedValue({
-      target_node_id: ROOT,
-      target_type: "repo",
-      recipient_route: "r",
-      actions: { can_manage_existing: true, can_add: true },
-      relationships: [],
-    });
-    listPersonShareInvitesMock.mockRejectedValue(new Error("403 not permitted"));
-
-    expect(await shareCommand.run(["unshare", "stranger@example.com"], {}, JSON_G)).toBe(1);
-    expect(stderr).toContain("could not be read");
-    expect(stderr).not.toContain("has no invitation outstanding");
-  });
 });
 
 describe("people says what you may not do, before you find out by refusal", () => {
@@ -850,10 +850,11 @@ describe("people says what you may not do, before you find out by refusal", () =
       relationships: [
         { user_id: 7, username: "bob", account_status: "active", access: "view", share_history: false },
       ],
+      standings: [],
     });
     listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
 
-    expect(await shareCommand.run(["people"], {}, TEXT_G)).toBe(0);
+    expect(await shareCommand.run(["list"], {}, TEXT_G)).toBe(0);
     expect(stdout).toContain("You cannot add people here");
     // The one that was missing: without it, the first sign is a 403 from unshare.
     expect(stdout).toContain("You cannot change who has it");

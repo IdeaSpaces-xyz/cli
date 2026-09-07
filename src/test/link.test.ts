@@ -51,7 +51,7 @@ const SOURCE_HEAD = "9f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f60718293";
 const ALICE = {
   username: "alice",
   name: "Alice Smith",
-  repos: [{ repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 }],
+  repos: [{ repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] }],
 };
 
 beforeEach(() => {
@@ -218,7 +218,6 @@ describe("link — auto-detect from origin", () => {
           root_node_id: LOCAL_ROOT,
           slug: null,
           hostname: null,
-          role: null,
           route_status: "unavailable",
           actions: ["open", "clone"],
         },
@@ -314,8 +313,8 @@ describe("link — explicit target", () => {
     fetchAuthMeMock.mockResolvedValue({
       ...ALICE,
       repos: [
-        { repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 },
-        { repo_id: "r2", slug: "other", hostname: null, role: "owner", member_count: 1 },
+        { repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] },
+        { repo_id: "r2", slug: "other", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] },
       ],
     });
     const code = await linkCommand.run(["./theone", "alice/other"], {}, JSON_GLOBAL);
@@ -335,8 +334,8 @@ describe("link — explicit target", () => {
     fetchAuthMeMock.mockResolvedValue({
       ...ALICE,
       repos: [
-        { repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 },
-        { repo_id: "r2", slug: "notes", hostname: "acme.com", role: "member", member_count: 3 },
+        { repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] },
+        { repo_id: "r2", slug: "notes", hostname: "acme.com", receipt_classes: ["organization_members"], actions: ["open", "clone", "collaborate"] },
       ],
     });
     const code = await linkCommand.run(["./theone", "notes"], {}, JSON_GLOBAL);
@@ -354,7 +353,7 @@ describe("link — identity wiring", () => {
     fetchAuthMeMock.mockResolvedValue({
       username: null,
       name: null,
-      repos: [{ repo_id: "r9", slug: "team", hostname: "acme.com", role: "member", member_count: 2 }],
+      repos: [{ repo_id: "r9", slug: "team", hostname: "acme.com", receipt_classes: ["organization_members"], actions: ["open", "clone", "collaborate"] }],
     });
     const code = await linkCommand.run(["./team"], {}, JSON_GLOBAL);
     expect(code).toBe(0);

@@ -5,9 +5,8 @@ import {
   getSpace,
   getSpaceCopySnapshot,
   putFile,
-  listRepoMembers,
-  createRepoInvites,
-  removeRepoMember,
+  resendPersonShareInvite,
+  setPersonShareHistory,
   setSpaceAccess,
   listEligibleTeamAudiences,
   listTeamShares,
@@ -259,7 +258,7 @@ describe("putFile", () => {
   });
 })
 
-describe("sharing (members / invites / access)", () => {
+describe("sharing relationships and visibility", () => {
   function capture(status: number, body: unknown) {
     const calls: { url: string; init?: RequestInit }[] = [];
     vi.stubGlobal(
@@ -274,20 +273,37 @@ describe("sharing (members / invites / access)", () => {
     return calls;
   }
 
-  it("lists members (GET /members)", async () => {
-    const calls = capture(200, [{ user_id: 1, username: "a", email: null, role: "OWNER" }]);
-    const members = await listRepoMembers(config, "repo_abc");
-    expect(calls[0].init?.method ?? "GET").toBe("GET");
-    expect(calls[0].url).toBe("http://api.test/api/v1/repos/repo_abc/members");
-    expect(members[0].role).toBe("OWNER");
+  it("resends a Content invitation by stable target and invite ids", async () => {
+    const calls = capture(200, {
+      invite_id: "inv_abc",
+      invited_email: "a@x.com",
+      intent_kind: "content",
+      grade: "fork",
+      share_history: false,
+      delivery_status: "sent",
+      can_resend: false,
+    });
+    const invite = await resendPersonShareInvite(config, "n_root", "inv_abc");
+    expect(calls[0].init?.method).toBe("POST");
+    expect(calls[0].url).toBe(
+      "http://api.test/api/v1/nodes/n_root/person-share-invites/inv_abc/resend",
+    );
+    expect(invite.grade).toBe("fork");
   });
 
-  it("creates invites (POST /invites with emails + role)", async () => {
-    const calls = capture(200, { results: [{ email: "a@x.com", status: "sent" }] });
-    const res = await createRepoInvites(config, "repo_abc", ["a@x.com"], "MEMBER");
-    expect(calls[0].init?.method).toBe("POST");
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ emails: ["a@x.com"], role: "MEMBER" });
-    expect(res.results[0].status).toBe("sent");
+  it("toggles only a person's hosted history", async () => {
+    const calls = capture(200, {
+      target_node_id: "n_root",
+      user_id: 7,
+      status: "granted",
+      share_history: true,
+    });
+    await setPersonShareHistory(config, "n_root", 7, true);
+    await setPersonShareHistory(config, "n_root", 7, false);
+    expect(calls.map((call) => [call.init?.method, call.url])).toEqual([
+      ["PUT", "http://api.test/api/v1/nodes/n_root/person-shares/7/history"],
+      ["DELETE", "http://api.test/api/v1/nodes/n_root/person-shares/7/history"],
+    ]);
   });
 
   it("sets access (PATCH /space-access)", async () => {
@@ -338,11 +354,6 @@ describe("sharing (members / invites / access)", () => {
       ["DELETE", "http://api.test/api/v1/nodes/n_root/team-shares/n_org"],
     ]);
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({ grade: "collaborate" });
-  });
-
-  it("tolerates a 204 (empty body) on member removal", async () => {
-    capture(204, undefined);
-    await expect(removeRepoMember(config, "repo_abc", 7)).resolves.toBeUndefined();
   });
 })
 

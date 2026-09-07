@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AuthMeRepo } from "../auth/api.js";
-import { rootRelationshipLabel } from "../root-actions.js";
+import { availableRootActions, rootRelationshipLabel } from "../root-actions.js";
 
 function repo(receiptClass: string): AuthMeRepo {
   return {
@@ -27,5 +27,11 @@ describe("root relationship labels", () => {
 
   it("maps a direct-person receipt to shared", () => {
     expect(rootRelationshipLabel(repo("direct_person"))).toBe("shared");
+  });
+
+  it("does not infer actions or relationship from a legacy role", () => {
+    const legacy = { repo_id: "repo_test", role: "OWNER", member_count: 1 } as unknown as AuthMeRepo;
+    expect(availableRootActions(legacy)).toEqual([]);
+    expect(rootRelationshipLabel(legacy)).toBe("available");
   });
 });

@@ -55,8 +55,8 @@ describe("repos", () => {
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
       repos: [
-        { repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 },
-        { repo_id: "r2", slug: "team", hostname: "acme.com", role: "member", member_count: 4 },
+        { repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] },
+        { repo_id: "r2", slug: "team", hostname: "acme.com", receipt_classes: ["organization_members"], actions: ["open", "clone", "collaborate"] },
       ],
     });
 
@@ -69,18 +69,16 @@ describe("repos", () => {
       slug: "notes",
       relationship: "owner",
       namespace: "alice",
-      role: "owner",
-      member_count: 1,
       actions: ["open", "copy", "clone", "collaborate"],
     });
     expect(data.repos[1]).toMatchObject({
       slug: "team",
-      relationship: "member",
+      relationship: "team",
       namespace: "acme.com",
-      role: "member",
-      member_count: 4,
       actions: ["open", "clone", "collaborate"],
     });
+    expect(data.repos[0]).not.toHaveProperty("role");
+    expect(data.repos[0]).not.toHaveProperty("member_count");
     expect(stdout()).not.toContain("\"apiKey\"");
   });
 
@@ -118,8 +116,8 @@ describe("repos", () => {
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
       repos: [
-        { repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 },
-        { repo_id: "r2", slug: "team", hostname: "acme.com", role: "member", member_count: 4 },
+        { repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] },
+        { repo_id: "r2", slug: "team", hostname: "acme.com", receipt_classes: ["organization_members"], actions: ["open", "clone", "collaborate"] },
       ],
     });
 
@@ -127,7 +125,7 @@ describe("repos", () => {
 
     expect(code).toBe(0);
     expect(stdout()).toContain("notes (owner) — open, copy, clone, collaborate");
-    expect(stdout()).toContain("team (member) — open, clone, collaborate");
+    expect(stdout()).toContain("team (team) — open, clone, collaborate");
   });
 
   it("shows an empty-state hint when there are no spaces", async () => {

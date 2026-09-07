@@ -50,6 +50,10 @@ ideaspaces pull
 
 Anything that leaves your machine prints its plan and runs only with `--yes`.
 
+`share` stays recipient-shaped: `person`, `team`, `list`, `remove`, `resend`, `history`, and
+`visibility`. It does not expose repository memberships, internal Grant records, or organization
+administration.
+
 ## Commands
 
 `ideaspaces <command> --help` for usage. `--json` on reads and local writes.

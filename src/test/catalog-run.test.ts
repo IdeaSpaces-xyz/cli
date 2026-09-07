@@ -88,8 +88,8 @@ describe("catalog — command run()", () => {
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
       repos: [
-        { repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 },
-        { repo_id: "r2", slug: "team", hostname: "acme.com", role: "member", member_count: 3 },
+        { repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] },
+        { repo_id: "r2", slug: "team", hostname: "acme.com", receipt_classes: ["organization_members"], actions: ["open", "clone", "collaborate"] },
       ],
     });
     listClonesMock.mockReturnValue([{ path: "/w/notes", record: { repo_id: "r1", slug: "notes", namespace: "alice" } }]);

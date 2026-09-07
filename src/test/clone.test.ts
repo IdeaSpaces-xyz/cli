@@ -91,8 +91,8 @@ describe("clone", () => {
           root_node_id: rootNodeId,
           slug: "notes",
           hostname: null,
-          role: "OWNER",
-          member_count: 1,
+          receipt_classes: ["person_owner"],
+          actions: ["open", "copy", "clone", "collaborate"],
           route_status: "resolved",
           route_namespace: "alice",
           route_slug: "notes",
@@ -217,7 +217,7 @@ describe("clone", () => {
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
-      repos: [{ repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 }],
+      repos: [{ repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] }],
     });
 
     const code = await cloneCommand.run(["notes"], {}, JSON_GLOBAL);
@@ -241,7 +241,7 @@ describe("clone", () => {
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
-      repos: [{ repo_id: "r2", slug: "team", hostname: "acme.com", role: "member", member_count: 4 }],
+      repos: [{ repo_id: "r2", slug: "team", hostname: "acme.com", receipt_classes: ["organization_members"], actions: ["open", "clone", "collaborate"] }],
     });
 
     const code = await cloneCommand.run(["team"], {}, JSON_GLOBAL);
@@ -257,7 +257,7 @@ describe("clone", () => {
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
-      repos: [{ repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 }],
+      repos: [{ repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] }],
     });
 
     const code = await cloneCommand.run(["alice/notes"], {}, JSON_GLOBAL);
@@ -274,8 +274,8 @@ describe("clone", () => {
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
       repos: [
-        { repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 },
-        { repo_id: "r2", slug: "notes", hostname: "acme.com", role: "member", member_count: 3 },
+        { repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] },
+        { repo_id: "r2", slug: "notes", hostname: "acme.com", receipt_classes: ["organization_members"], actions: ["open", "clone", "collaborate"] },
       ],
     });
 
@@ -290,7 +290,7 @@ describe("clone", () => {
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
-      repos: [{ repo_id: "r1", slug: "notes", hostname: null, role: "owner", member_count: 1 }],
+      repos: [{ repo_id: "r1", slug: "notes", hostname: null, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] }],
     });
     cloneRepoMock.mockImplementation(() => {
       throw new Error("destination path 'notes' already exists");

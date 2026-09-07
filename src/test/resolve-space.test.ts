@@ -168,8 +168,8 @@ describe("resolveSpaceBinding", () => {
           slug: "notes",
           hostname: null,
           root_node_id: ROOT,
-          role: "OWNER",
-          member_count: 1,
+          receipt_classes: ["person_owner"],
+          actions: ["open", "copy", "clone", "collaborate"],
         },
       ],
     });
@@ -199,8 +199,8 @@ describe("resolveSpaceBinding", () => {
           slug: "manual",
           hostname: null,
           root_node_id: ROOT,
-          role: "OWNER",
-          member_count: 1,
+          receipt_classes: ["person_owner"],
+          actions: ["open", "copy", "clone", "collaborate"],
         },
       ],
     });
@@ -240,7 +240,7 @@ describe("resolveSpaceBinding", () => {
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
       repos: [
-        { repo_id: "repo_notes", slug: "notes", hostname: null, root_node_id: ROOT, role: "OWNER", member_count: 1 },
+        { repo_id: "repo_notes", slug: "notes", hostname: null, root_node_id: ROOT, receipt_classes: ["person_owner"], actions: ["open", "copy", "clone", "collaborate"] },
       ],
     });
 
@@ -261,8 +261,8 @@ describe("resolveSpaceBinding", () => {
       slug: "notes",
       hostname: null,
       root_node_id: ROOT,
-      role: "OWNER",
-      member_count: 1,
+      receipt_classes: ["person_owner"],
+      actions: ["open", "copy", "clone", "collaborate"],
     };
     fetchAuthMeMock.mockResolvedValue({
       username: "alice",
