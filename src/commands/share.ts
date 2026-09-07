@@ -633,11 +633,19 @@ async function setHistory(
   }
   const enabled = requested === "on";
   const result = await setPersonShareHistory(config, target, standing.user_id, enabled);
-  const unchanged = result.status === "already_granted" || result.status === "not_direct";
+  if (result.status === "not_direct") {
+    output.result(
+      result,
+      enabled
+        ? `${recipientName(standing)} no longer has a direct person share, so hosted history was not enabled.`
+        : `No direct hosted history remained for ${recipientName(standing)}. Other access was not changed by this command.`,
+    );
+    return 0;
+  }
   output.result(
     result,
-    unchanged
-      ? `Hosted history was already ${enabled ? "on" : "off"} for ${recipientName(standing)}.`
+    result.status === "already_granted"
+      ? `Hosted history was already on for ${recipientName(standing)}.`
       : `Hosted history is now ${enabled ? "on" : "off"} for ${recipientName(standing)}. Other access is unchanged.`,
   );
   return 0;

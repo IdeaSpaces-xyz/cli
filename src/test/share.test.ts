@@ -664,6 +664,27 @@ describe("share invitation and history lifecycle", () => {
     expect(JSON.parse(stdout)).toMatchObject({ share_history: false, status: "revoked" });
   });
 
+  it("does not call a raced history removal 'already off'", async () => {
+    listPersonSharesMock.mockResolvedValue({
+      standings: [{
+        user_id: 7,
+        username: "bob",
+        direct_capabilities: ["read", "history"],
+        effective_capabilities: ["read", "history"],
+      }],
+    });
+    setPersonShareHistoryMock.mockResolvedValue({
+      target_node_id: ROOT,
+      user_id: 7,
+      status: "not_direct",
+      share_history: false,
+    });
+
+    expect(await shareCommand.run(["history", "@bob", "off"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("No direct hosted history remained");
+    expect(stdout).not.toContain("already off");
+  });
+
   it("points conflicting pending access at remove then share", async () => {
     addPersonShareMock.mockRejectedValue(
       new Error('POST /person-shares → 409: {"detail":"invitation_grade_conflict"}'),
