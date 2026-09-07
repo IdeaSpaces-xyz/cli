@@ -7,8 +7,8 @@ const repo = (over: Partial<AuthMeRepo>): AuthMeRepo => ({
   repo_id: "r",
   slug: "s",
   hostname: null,
-  role: "owner",
-  member_count: 1,
+  receipt_classes: ["person_owner"],
+  actions: ["open", "copy", "clone", "collaborate"],
   ...over,
 });
 
@@ -37,7 +37,7 @@ describe("deriveCatalog — logged in", () => {
     username: "alice",
     repos: [
       repo({ repo_id: "r1", slug: "notes" }),
-      repo({ repo_id: "r2", slug: "team", hostname: "acme.com", role: "member", member_count: 4 }),
+      repo({ repo_id: "r2", slug: "team", hostname: "acme.com", receipt_classes: ["organization_members"], actions: ["open", "clone", "collaborate"] }),
     ],
   };
 
@@ -71,7 +71,6 @@ describe("deriveCatalog — logged in", () => {
       repo_id: "repo_shared",
       slug: null,
       name: "Shared Guide",
-      role: null,
       receipt_classes: ["direct_person"],
       actions: ["copy"],
     });
@@ -82,13 +81,13 @@ describe("deriveCatalog — logged in", () => {
       repo_id: "repo_shared",
       slug: "repo_shared",
       display_name: "Shared Guide",
-      role: null,
-      member_count: 1,
       relationship: "shared",
       receipt_classes: ["direct_person"],
       actions: ["copy"],
       location: "online-only",
     });
+    expect(entry).not.toHaveProperty("role");
+    expect(entry).not.toHaveProperty("member_count");
   });
 
   it("emits one available entry per clone when a repo is cloned twice", () => {

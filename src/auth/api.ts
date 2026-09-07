@@ -28,13 +28,9 @@ export interface AuthMeRepo {
   repo_id: string;
   slug?: string | null;
   hostname?: string | null;
-  /** Deprecated RepoMembership compatibility role. */
-  role?: string | null;
-  /** Deprecated RepoMembership compatibility count. */
-  member_count?: number | null;
   name?: string | null;
   archived?: boolean;
-  /** New servers emit non-null arrays; optionality supports older servers during rollout. */
+  /** Current servers emit non-null arrays; absence grants no inferred relationship or action. */
   receipt_classes?: string[];
   receipt_subjects?: string[];
   actions?: Array<"open" | "copy" | "clone" | "collaborate">;
@@ -724,56 +720,11 @@ export async function putFile(
   return request<WriteFileResponse>(config, "PUT", filesPath(repoId, path), { content }, opts);
 }
 
-// ── Sharing: members, invites, and the public-link access policy ──────────────
-// The data behind the Share dialog. All owner-gated on
-// the backend — a non-owner caller gets a 403.
+// ── Sharing: recipient relationships and public visibility ──────────────────
+// The data behind the Share surface. All management operations are owner-gated
+// on the backend — a non-owner caller gets a 403.
 
-/**
- * Roles the legacy repo-invite endpoint still accepts from this CLI.
- *
- * `CLONER` is not representable here on purpose. The capability it named —
- * may take a copy — is a grade on a target now (`ShareGrade["fork"]`), and a
- * type that can still spell the old word is a type that lets it come back.
- */
-export type InviteRole = "MEMBER" | "READER";
-/**
- * A role the backend may *report* — deliberately not derived from `InviteRole`.
- *
- * Narrowing what this CLI may send is a decision about our writes. It says
- * nothing about existing state: nothing migrates a legacy repo's `CLONER`
- * members or pending invites, so the server can still hand one back. A read
- * type that inherits the write type's narrowing is a type that lies, and the
- * next exhaustive `switch` over it would be wrong in a way the compiler
- * endorses.
- */
-export type MemberRole = "OWNER" | "MEMBER" | "READER" | "CLONER";
 export type CopyAccessLevel = "owner" | "member" | "reader" | "public";
-
-export interface Member {
-  user_id: number;
-  username: string | null;
-  email: string | null;
-  role: MemberRole;
-}
-
-export interface PendingInvite {
-  invite_id: string;
-  invited_email: string;
-  role: MemberRole; // reported, not sent — may still be CLONER on a legacy repo
-  expires_at: string;
-  created_at: string;
-}
-
-export interface InviteResult {
-  email: string;
-  status: "sent" | "already_member" | "already_invited" | "invalid_hostname" | "email_failed";
-  invite_id?: string;
-  reason?: string;
-}
-
-export interface CreateInvitesResponse {
-  results: InviteResult[];
-}
 
 export interface SpaceAccessResponse {
   repo_id: string;
@@ -889,6 +840,13 @@ export interface PersonShareRemoveResult {
   effective_capabilities: ShareCapability[];
 }
 
+export interface PersonShareHistoryResult {
+  target_node_id: string;
+  user_id: number;
+  status: "granted" | "already_granted" | "revoked" | "not_direct";
+  share_history: boolean;
+}
+
 export type TeamShareCapability = "read" | "space_copy" | "git_fetch" | "git_push";
 
 export interface EligibleTeamAudience {
@@ -969,9 +927,17 @@ export function describeShareRefusal(err: unknown): string | null {
   const message = err instanceof Error ? err.message : String(err);
   if (message.includes("root_governance_unestablished")) {
     return (
-      "This Space cannot share with a person directly yet — its ownership record was never " +
-      "established, which is true of most Spaces created before the change.\n" +
-      "The older path still works for it: ideaspaces share legacy-invite <repo_id> <email> --role READER"
+      "This Space cannot use current sharing because its ownership record was never established. " +
+      "Ask the server administrator to migrate it, or use CLI 0.1.22 while that server is upgraded."
+    );
+  }
+  if (
+    message.includes("invitation_grade_conflict") ||
+    message.includes("invitation_history_conflict")
+  ) {
+    return (
+      "A pending invitation already exists with different access or history. " +
+      "Remove it with `ideaspaces share remove <email>`, then share again."
     );
   }
   if (message.includes("→ 409") && message.includes("Person Share is unavailable")) {
@@ -1007,6 +973,39 @@ export async function revokePersonShareInvite(
     config,
     "DELETE",
     `${nodeBase(targetNodeId)}/person-share-invites/${encodeURIComponent(inviteId)}`,
+    undefined,
+    opts,
+  );
+}
+
+/** Redeliver an invitation without changing its access or history. */
+export async function resendPersonShareInvite(
+  config: ApiConfig,
+  targetNodeId: string,
+  inviteId: string,
+  opts?: RequestOptions,
+): Promise<PendingContentInvite> {
+  return request(
+    config,
+    "POST",
+    `${nodeBase(targetNodeId)}/person-share-invites/${encodeURIComponent(inviteId)}/resend`,
+    undefined,
+    opts,
+  );
+}
+
+/** Toggle only hosted history for a directly shared person. */
+export async function setPersonShareHistory(
+  config: ApiConfig,
+  targetNodeId: string,
+  userId: number,
+  enabled: boolean,
+  opts?: RequestOptions,
+): Promise<PersonShareHistoryResult> {
+  return request(
+    config,
+    enabled ? "PUT" : "DELETE",
+    `${nodeBase(targetNodeId)}/person-shares/${encodeURIComponent(String(userId))}/history`,
     undefined,
     opts,
   );
@@ -1066,42 +1065,6 @@ export async function removeTeamShare(
     undefined,
     opts,
   );
-}
-
-export async function listRepoMembers(config: ApiConfig, repoId: string): Promise<Member[]> {
-  return request<Member[]>(config, "GET", `${repoBase(repoId)}/members`);
-}
-
-export async function removeRepoMember(
-  config: ApiConfig,
-  repoId: string,
-  userId: number,
-): Promise<void> {
-  await request(config, "DELETE", `${repoBase(repoId)}/members/${encodeURIComponent(String(userId))}`);
-}
-
-export async function listRepoInvites(config: ApiConfig, repoId: string): Promise<PendingInvite[]> {
-  return request<PendingInvite[]>(config, "GET", `${repoBase(repoId)}/invites`);
-}
-
-export async function createRepoInvites(
-  config: ApiConfig,
-  repoId: string,
-  emails: string[],
-  role: InviteRole,
-): Promise<CreateInvitesResponse> {
-  return request<CreateInvitesResponse>(config, "POST", `${repoBase(repoId)}/invites`, {
-    emails,
-    role,
-  });
-}
-
-export async function revokeRepoInvite(
-  config: ApiConfig,
-  repoId: string,
-  inviteId: string,
-): Promise<void> {
-  await request(config, "DELETE", `${repoBase(repoId)}/invites/${encodeURIComponent(inviteId)}`);
 }
 
 export async function getSpaceAccess(
