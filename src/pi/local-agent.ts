@@ -114,6 +114,8 @@ export interface LocalTurnOptions {
   modelTier?: string;
   /** File-first Map rendered as user-authored navigation data for this launch. */
   mapOrientation?: string;
+  /** Validated local working coordinates; appended to orientation, never to user messages. */
+  launchOrientation?: string;
   /** pi model pattern (`--model`), if overriding pi's configured default. */
   piModel?: string;
   /** pi thinking level (`--thinking`), if overriding the model/session default.
@@ -165,7 +167,8 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
   if (opts.extensionPaths.length) args.push("--no-extensions");
   for (const ext of opts.extensionPaths) args.push("--extension", ext);
   for (const skill of opts.skillPaths ?? []) args.push("--skill", skill);
-  if (opts.mapOrientation) args.push("--append-system-prompt", opts.mapOrientation);
+  const orientation = [opts.mapOrientation, opts.launchOrientation].filter(Boolean).join("\n\n");
+  if (orientation) args.push("--append-system-prompt", orientation);
   if (opts.piModel) args.push("--model", opts.piModel);
   if (opts.thinkingLevel) args.push("--thinking", opts.thinkingLevel);
   return args;

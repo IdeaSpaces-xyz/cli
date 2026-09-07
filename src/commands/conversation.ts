@@ -202,6 +202,7 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
       "ideaspaces conversation new repo_abc --agent agent_node_xyz  # pick the agent",
       "ideaspaces conversation send repo_abc c_123 --message 'Hi'  # streams JSON lines",
       "ideaspaces conversation send --local --context /ws --conversation c1 --message 'Hi' --map maps/research.md --ext a,b --skill a/skills,b/skills --pi-bin /path/pi --pi-model sonnet --pi-thinking high  # local pi turn over a map-note",
+      "ideaspaces conversation send --local --context /agents/desktop --working-root /work --focus note.md --session-dir /work/.pi/sessions --conversation c1 --message 'Explain this' --ext a,b  # POV launch; orientation is separate from the user message",
       "ideaspaces conversation get repo_abc c_123        # detail + history",
       "ideaspaces conversation cancel repo_abc c_123     # stop the active turn",
     ],
