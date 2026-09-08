@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { UnauthorizedError } from "../auth/api.js";
 import type { GlobalFlags } from "../types.js";
@@ -198,8 +201,7 @@ describe("inbox", () => {
 
   it("sends only a reviewed Map selection and infers its target", async () => {
     sendInquiryMock.mockResolvedValue(writeResult);
-    const file = `/tmp/is-cli-map-selection-${process.pid}.json`;
-    const { writeFileSync, unlinkSync } = await import("node:fs");
+    const file = join(tmpdir(), `is-cli-map-selection-${process.pid}.json`);
     writeFileSync(file, JSON.stringify(selection));
     try {
       const code = await inboxCommand.run(
@@ -230,8 +232,7 @@ describe("inbox", () => {
   });
 
   it("refuses a target that disagrees with the reviewed selection", async () => {
-    const file = `/tmp/is-cli-map-selection-mismatch-${process.pid}.json`;
-    const { writeFileSync, unlinkSync } = await import("node:fs");
+    const file = join(tmpdir(), `is-cli-map-selection-mismatch-${process.pid}.json`);
     writeFileSync(file, JSON.stringify(selection));
     try {
       const code = await inboxCommand.run(
