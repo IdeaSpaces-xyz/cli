@@ -1,3 +1,5 @@
+import type { MapBlock, MapMember } from "@ideaspaces/protocol";
+
 /**
  * Thin fetch helpers for the IdeaSpaces server API.
  *
@@ -555,6 +557,7 @@ export interface ExchangeMessageSummary {
 
 export interface ExchangeMessage extends ExchangeMessageSummary {
   markdown: string;
+  map?: MapBlock | null;
 }
 
 export interface InboxItem {
@@ -593,6 +596,7 @@ export interface ExchangeNoteWrite {
 export interface InquirySendBody extends ExchangeNoteWrite {
   target_node_id: string;
   recipient: { user_id: number } | { username: string } | { email: string };
+  map?: MapBlock;
 }
 
 export interface ExchangeWriteResponse {
@@ -632,6 +636,28 @@ export async function fetchExchange(
   );
 }
 
+export interface ExchangeMapMemberResponse {
+  member_ordinal: number;
+  member: MapMember;
+  representation: Record<string, unknown>;
+}
+
+/** Reauthorize and expand one preserved Map member for an exchange party. */
+export async function fetchExchangeMapMember(
+  config: ApiConfig,
+  exchangeId: string,
+  memberOrdinal: number,
+  opts?: RequestOptions,
+): Promise<ExchangeMapMemberResponse> {
+  return request<ExchangeMapMemberResponse>(
+    config,
+    "GET",
+    `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/map/members/${encodeURIComponent(String(memberOrdinal))}`,
+    undefined,
+    opts,
+  );
+}
+
 /** Open a direct inquiry about a readable Content target as the logged-in person. */
 export async function sendInquiry(
   config: ApiConfig,
@@ -653,6 +679,73 @@ export async function replyToExchange(
     "POST",
     `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/replies`,
     body,
+    opts,
+  );
+}
+
+export interface EntityDetail {
+  node_id: string;
+  entity_type: string;
+  entity_key: string;
+  name: string;
+  summary: string;
+  content: string;
+}
+
+/** Read one known hostname/person entity through exact Actor authorization. */
+export async function fetchEntity(
+  config: ApiConfig,
+  entityType: "hostname" | "person",
+  entityKey: string,
+  opts?: RequestOptions,
+): Promise<EntityDetail> {
+  return request<EntityDetail>(
+    config,
+    "GET",
+    `${API_V1}/entities/${encodeURIComponent(entityType)}/${encodeURIComponent(entityKey)}`,
+    undefined,
+    opts,
+  );
+}
+
+export interface ContentTreeEntry {
+  name: string;
+  type: "dir" | "file";
+  path: string;
+  node_id: string | null;
+  node_type: string | null;
+  name_display: string | null;
+  summary: string | null;
+}
+
+export interface ContentTreeResponse {
+  kind: "content_tree";
+  target_node_id: string;
+  target_type: "repo" | "dir";
+  root_node_id: string;
+  hosted_history_available: boolean;
+  path: string;
+  node_id: string | null;
+  name: string;
+  summary: string | null;
+  children: ContentTreeEntry[];
+}
+
+/** Resolve one bounded tree position under a repo-free Content coordinate. */
+export async function fetchContentTree(
+  config: ApiConfig,
+  targetNodeId: string,
+  path = "",
+  opts?: RequestOptions,
+): Promise<ContentTreeResponse> {
+  const suffix = path
+    ? `/${path.split("/").map(encodeURIComponent).join("/")}`
+    : "";
+  return request<ContentTreeResponse>(
+    config,
+    "GET",
+    `${API_V1}/content/${encodeURIComponent(targetNodeId)}/tree${suffix}`,
+    undefined,
     opts,
   );
 }

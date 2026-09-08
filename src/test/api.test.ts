@@ -14,6 +14,9 @@ import {
   removeTeamShare,
   fetchInbox,
   fetchExchange,
+  fetchExchangeMapMember,
+  fetchContentTree,
+  fetchEntity,
   sendInquiry,
   replyToExchange,
   UnauthorizedError,
@@ -358,7 +361,7 @@ describe("sharing relationships and visibility", () => {
 })
 
 describe("direct Inbox API", () => {
-  it("calls the four person-authenticated exchange routes", async () => {
+  it("calls the direct exchange and selected-source routes", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     vi.stubGlobal(
       "fetch",
@@ -398,27 +401,39 @@ describe("direct Inbox API", () => {
       summary: "A focused question",
       markdown: "# Question",
     };
+    const map = {
+      roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }],
+      members: [{ address: "hostname:example.com", depth: "summary" as const }],
+    };
     await fetchInbox(config);
     await fetchExchange(config, "x_one");
+    await fetchExchangeMapMember(config, "x_one", 0);
+    await fetchContentTree(config, "n_0123456789abcdef01234567", "notes/current");
+    await fetchEntity(config, "hostname", "example.com");
     await sendInquiry(config, {
       ...note,
       target_node_id: "n_target",
       recipient: { username: "two" },
+      map,
     });
     await replyToExchange(config, "x_one", { ...note, send_id: "reply-one" });
 
     expect(calls.map((call) => [call.init?.method ?? "GET", call.url])).toEqual([
       ["GET", "http://api.test/api/v1/inbox"],
       ["GET", "http://api.test/api/v1/exchanges/x_one"],
+      ["GET", "http://api.test/api/v1/exchanges/x_one/map/members/0"],
+      ["GET", "http://api.test/api/v1/content/n_0123456789abcdef01234567/tree/notes/current"],
+      ["GET", "http://api.test/api/v1/entities/hostname/example.com"],
       ["POST", "http://api.test/api/v1/inquiries"],
       ["POST", "http://api.test/api/v1/exchanges/x_one/replies"],
     ]);
-    expect(JSON.parse(String(calls[2].init?.body))).toMatchObject({
+    expect(JSON.parse(String(calls[5].init?.body))).toMatchObject({
       send_id: "send-one",
       target_node_id: "n_target",
       recipient: { username: "two" },
+      map,
     });
-    expect(JSON.parse(String(calls[3].init?.body))).toMatchObject({ send_id: "reply-one" });
+    expect(JSON.parse(String(calls[6].init?.body))).toMatchObject({ send_id: "reply-one" });
     for (const call of calls) {
       expect((call.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
     }

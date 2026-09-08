@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { UnauthorizedError } from "../auth/api.js";
 import type { GlobalFlags } from "../types.js";
@@ -7,12 +10,14 @@ const {
   loadConfigMock,
   fetchInboxMock,
   fetchExchangeMock,
+  fetchExchangeMapMemberMock,
   sendInquiryMock,
   replyToExchangeMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   fetchInboxMock: vi.fn(),
   fetchExchangeMock: vi.fn(),
+  fetchExchangeMapMemberMock: vi.fn(),
   sendInquiryMock: vi.fn(),
   replyToExchangeMock: vi.fn(),
 }));
@@ -24,6 +29,7 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     ...actual,
     fetchInbox: fetchInboxMock,
     fetchExchange: fetchExchangeMock,
+    fetchExchangeMapMember: fetchExchangeMapMemberMock,
     sendInquiry: sendInquiryMock,
     replyToExchange: replyToExchangeMock,
   };
@@ -45,6 +51,7 @@ beforeEach(() => {
   loadConfigMock.mockReset().mockReturnValue(CFG);
   fetchInboxMock.mockReset();
   fetchExchangeMock.mockReset();
+  fetchExchangeMapMemberMock.mockReset();
   sendInquiryMock.mockReset();
   replyToExchangeMock.mockReset();
   stdoutChunks = [];
@@ -88,6 +95,34 @@ const message = {
   position: 1,
   created_at: "2026-08-29T00:00:00Z",
   event_at: "2026-08-29T00:00:00Z",
+};
+
+const map = {
+  roots: [{
+    space: "git.example.test/spaces/n_0123456789abcdef01234567",
+    root_node_id: "n_0123456789abcdef01234567",
+    sha: "a".repeat(40),
+  }],
+  members: [
+    {
+      space: 0,
+      position: "notes/finding.md",
+      depth: "surface" as const,
+      name: "Why this Note",
+      disclosure: { name: "Finding", summary: "Observed at the pin." },
+    },
+    {
+      address: "hostname:example.com",
+      depth: "summary" as const,
+      disclosure: { name: "Example", summary: "Observed when sent." },
+    },
+  ],
+};
+
+const selection = {
+  kind: "exchange-map-selection",
+  target_node_id: TARGET,
+  map,
 };
 
 const writeResult = {
@@ -144,6 +179,128 @@ describe("inbox", () => {
     expect(fetchExchangeMock).toHaveBeenCalledWith(CFG, "x_one");
     expect(stdout()).toContain("Thread x_one");
     expect(stdout()).toContain("# Question\n\nWhat next?");
+  });
+
+  it("renders preserved Map context without losing the question", async () => {
+    fetchExchangeMock.mockResolvedValue({
+      mode: "direct",
+      exchange_id: "x_one",
+      target_node_id: TARGET,
+      participants: [participant(1, "One"), participant(2, "Two")],
+      messages: [{ ...message, markdown: "# Question\n\nWhat next?", map }],
+    });
+
+    const code = await inboxCommand.run(["read", "x_one"], {}, TEXT_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(stdout()).toContain("Context Map (2 ordered members)");
+    expect(stdout()).toContain("observed name=\"Finding\" summary=\"Observed at the pin.\"");
+    expect(stdout()).toContain("curated name=\"Why this Note\"");
+    expect(stdout()).toContain("# Question\n\nWhat next?");
+  });
+
+  it("sends only a reviewed Map selection and infers its target", async () => {
+    sendInquiryMock.mockResolvedValue(writeResult);
+    const file = join(tmpdir(), `is-cli-map-selection-${process.pid}.json`);
+    writeFileSync(file, JSON.stringify(selection));
+    try {
+      const code = await inboxCommand.run(
+        ["send", "@two"],
+        {
+          map: file,
+          name: "Question",
+          summary: "A focused question",
+          message: "# Question\n\nWhat next?",
+          "send-id": "send-map",
+        },
+        JSON_GLOBAL,
+      );
+
+      expect(code).toBe(0);
+      expect(sendInquiryMock).toHaveBeenCalledWith(CFG, {
+        target_node_id: TARGET,
+        recipient: { username: "two" },
+        send_id: "send-map",
+        name: "Question",
+        summary: "A focused question",
+        markdown: "# Question\n\nWhat next?",
+        map,
+      });
+    } finally {
+      unlinkSync(file);
+    }
+  });
+
+  it("refuses a target that disagrees with the reviewed selection", async () => {
+    const file = join(tmpdir(), `is-cli-map-selection-mismatch-${process.pid}.json`);
+    writeFileSync(file, JSON.stringify(selection));
+    try {
+      const code = await inboxCommand.run(
+        ["send", "@two"],
+        {
+          map: file,
+          about: "n_abcdefabcdefabcdefabcdef",
+          name: "Question",
+          summary: "Summary",
+          message: "Body",
+        },
+        TEXT_GLOBAL,
+      );
+      expect(code).toBe(1);
+      expect(stderr()).toContain("does not match");
+      expect(sendInquiryMock).not.toHaveBeenCalled();
+    } finally {
+      unlinkSync(file);
+    }
+  });
+
+  it("expands one member while retaining its exact root reference", async () => {
+    fetchExchangeMock.mockResolvedValue({
+      mode: "direct",
+      exchange_id: "x_one",
+      target_node_id: TARGET,
+      participants: [participant(1, "One"), participant(2, "Two")],
+      messages: [{ ...message, markdown: "Question", map }],
+    });
+    fetchExchangeMapMemberMock.mockResolvedValue({
+      member_ordinal: 0,
+      member: map.members[0],
+      representation: { name: "Finding", summary: "Observed at the pin.", surface: "# Finding" },
+    });
+
+    const code = await inboxCommand.run(["expand", "x_one", "0"], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(fetchExchangeMapMemberMock).toHaveBeenCalledWith(CFG, "x_one", 0);
+    expect(JSON.parse(stdout())).toMatchObject({
+      member_ordinal: 0,
+      map: { roots: map.roots, members: [map.members[0]] },
+      representation: { surface: "# Finding" },
+    });
+  });
+
+  it("renders expansion as reference, ceiling, preserved disclosure, and resolved content", async () => {
+    fetchExchangeMock.mockResolvedValue({
+      mode: "direct",
+      exchange_id: "x_one",
+      target_node_id: TARGET,
+      participants: [participant(1, "One"), participant(2, "Two")],
+      messages: [{ ...message, markdown: "Question", map }],
+    });
+    fetchExchangeMapMemberMock.mockResolvedValue({
+      member_ordinal: 0,
+      member: map.members[0],
+      representation: { name: "Finding", summary: "Observed at the pin.", surface: "# Finding\n\nExact body." },
+    });
+
+    const code = await inboxCommand.run(["expand", "x_one", "0"], {}, TEXT_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(stdout()).toContain(`${map.roots[0].root_node_id}@${map.roots[0].sha}:notes/finding.md`);
+    expect(stdout()).toContain("Declared ceiling: surface");
+    expect(stdout()).toContain("observed name=\"Finding\" summary=\"Observed at the pin.\"");
+    expect(stdout()).toContain("Resolved representation:");
+    expect(stdout()).toContain("# Finding\n\nExact body.");
   });
 
   it("sends an inquiry to a handle about one target", async () => {
