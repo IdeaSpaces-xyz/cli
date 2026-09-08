@@ -22,6 +22,7 @@ import { resolve } from "node:path";
 import { ignoredPaths, originUrl, statusEntries } from "../git.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
+import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
 
 interface DerivedMapRoot {
   local_path: string;
@@ -96,15 +97,19 @@ function localOnlyMarkdownPaths(paths: string[], root: string): string[] {
 
 export const mapCommand: CommandDef = {
   name: "map",
-  description: "Derive a local repository Map at bounded or explicit full depth",
-  usage: "ideaspaces map [<repo>] [--depth <1..4|full>] [--json]",
+  description: "Derive a local Map or select exact portable context for Inbox",
+  usage: `ideaspaces map [<repo>] [--depth <1..4|full>] [--json]\n       ${MAP_SELECT_USAGE}`,
   examples: [
     "ideaspaces map . --json",
+    "ideaspaces map select notes/finding.md --hostname example.com --note-depth surface --json",
     "ideaspaces map ../research --depth 2 --json",
     "ideaspaces map ../research --depth full --json  # complete local Content tree",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
+    if (args[0] === "select") {
+      return runMapSelection(args.slice(1), flags, global, output);
+    }
     const depth = parseDepth(flags.depth);
     if (depth === null) {
       output.error("Map depth must be 1, 2, 3, 4, or full: --depth <1..4|full>");

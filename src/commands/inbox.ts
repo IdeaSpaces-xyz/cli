@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
 
 import {
   fetchExchange,
+  fetchExchangeMapMember,
   fetchInbox,
   replyToExchange,
   sendInquiry,
   UnauthorizedError,
+  type ExchangeMapMemberResponse,
   type ExchangeNoteWrite,
   type ExchangeReadResponse,
   type InboxItem,
@@ -13,14 +16,22 @@ import {
   type InquirySendBody,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
+import {
+  formatPortableMap,
+  memberReference,
+  parseExchangeMapSelection,
+  type ExchangeMapSelection,
+} from "../exchange-map-selection.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
 
-const USAGE = "ideaspaces inbox <list|read|send|reply> ...";
+const USAGE = "ideaspaces inbox <list|read|send|reply|expand> ...";
 const SEND_USAGE =
-  "ideaspaces inbox send <email|@handle> --about <node_id> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces inbox send <email|@handle> [--about <node_id>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+const EXPAND_USAGE = "ideaspaces inbox expand <thread_id> <member_ordinal>";
+const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
   "ideaspaces inbox reply <thread_id> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 
@@ -69,6 +80,21 @@ async function writeBody(flags: Flags, output: Output): Promise<ExchangeNoteWrit
   };
 }
 
+function loadMapSelection(flags: Flags, output: Output): ExchangeMapSelection | null | undefined {
+  const path = flagString(flags, "map");
+  if (!path) return undefined;
+  try {
+    if (statSync(path).size > MAX_SELECTION_FILE_BYTES) {
+      throw new Error(`selection file exceeds ${MAX_SELECTION_FILE_BYTES} bytes`);
+    }
+    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parseExchangeMapSelection(raw);
+  } catch (error) {
+    output.error(`Could not load --map selection: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
 function participantLabel(participant: InboxParticipant): string {
   return participant.name ?? participant.username ?? participant.participant;
 }
@@ -101,8 +127,9 @@ function exchangeText(exchange: ExchangeReadResponse): string {
       "",
       `[${message.position}] ${author ? participantLabel(author) : message.author_ref}${actor} — ${message.name}`,
       message.summary,
-      message.markdown,
     );
+    if (message.map) lines.push(...formatPortableMap(message.map));
+    lines.push(message.markdown);
   }
   return lines.join("\n");
 }
@@ -159,7 +186,14 @@ async function read(rest: string[], output: Output): Promise<number> {
 async function send(rest: string[], flags: Flags, output: Output): Promise<number> {
   const [recipientValue] = rest;
   const recipient = recipientValue ? recipientSelector(recipientValue) : null;
-  const target = flagString(flags, "about")?.trim();
+  const selection = loadMapSelection(flags, output);
+  if (selection === null) return 1;
+  const requestedTarget = flagString(flags, "about")?.trim();
+  if (selection && requestedTarget && requestedTarget !== selection.target_node_id) {
+    output.error("--about does not match the reviewed Map selection target_node_id.");
+    return 1;
+  }
+  const target = requestedTarget ?? selection?.target_node_id;
   if (!recipientValue || rest.length !== 1 || !recipient || !target) {
     output.error(`Usage: ${SEND_USAGE}`);
     return 1;
@@ -171,8 +205,63 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
       ...note,
       target_node_id: target,
       recipient,
+      ...(selection ? { map: selection.map } : {}),
     });
     output.result(result, `Sent. Thread ${result.exchange_id} is about ${result.target_node_id}.`);
+    return 0;
+  });
+}
+
+function expansionText(result: ExchangeMapMemberResponse, exchange: ExchangeReadResponse): string {
+  const map = exchange.messages.find((message) => message.map)?.map;
+  const roots = map?.roots ?? [];
+  const lines = [
+    `Member [${result.member_ordinal}] ${memberReference(result.member, roots)}`,
+    `Declared ceiling: ${result.member.depth ?? "summary"}`,
+    ...formatPortableMap({ roots, members: [result.member] }).slice(2),
+    "Resolved representation:",
+  ];
+  const representation = result.representation;
+  if (typeof representation.name === "string") lines.push(`  Name: ${representation.name}`);
+  if (typeof representation.summary === "string") lines.push(`  Summary: ${representation.summary}`);
+  if (typeof representation.surface === "string") lines.push("  Surface:", representation.surface);
+  if (Array.isArray(representation.children)) {
+    lines.push("  Children:");
+    for (const child of representation.children) {
+      if (child && typeof child === "object") {
+        const item = child as Record<string, unknown>;
+        lines.push(`    ${"#".repeat(Number(item.level) || 1)} ${String(item.name ?? "")} (${String(item.position ?? "")})`);
+      }
+    }
+    if (Number(representation.children_omitted) > 0) {
+      lines.push(`    … ${Number(representation.children_omitted)} omitted`);
+    }
+  }
+  return lines.join("\n");
+}
+
+async function expand(rest: string[], output: Output): Promise<number> {
+  const [exchangeId, rawOrdinal] = rest;
+  if (!exchangeId || !rawOrdinal || rest.length !== 2 || !/^\d+$/.test(rawOrdinal)) {
+    output.error(`Usage: ${EXPAND_USAGE}`);
+    return 1;
+  }
+  const memberOrdinal = Number(rawOrdinal);
+  if (!Number.isSafeInteger(memberOrdinal)) {
+    output.error(`Usage: ${EXPAND_USAGE}`);
+    return 1;
+  }
+  return runAuthenticated(output, async (config) => {
+    const [exchange, result] = await Promise.all([
+      fetchExchange(config, exchangeId),
+      fetchExchangeMapMember(config, exchangeId, memberOrdinal),
+    ]);
+    const map = exchange.messages.find((message) => message.map)?.map;
+    if (!map || !map.members[result.member_ordinal]) {
+      throw new Error("Exchange Map reference is unavailable");
+    }
+    const data = { ...result, map: { roots: map.roots, members: [result.member] } };
+    output.result(data, expansionText(result, exchange));
     return 0;
   });
 }
@@ -199,6 +288,8 @@ export const inboxCommand: CommandDef = {
   examples: [
     "ideaspaces inbox list",
     "ideaspaces inbox read x_example",
+    "ideaspaces inbox expand x_example 0",
+    "ideaspaces inbox send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces inbox send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "printf '# Reply\\n\\nKeep it narrow.' | ideaspaces inbox reply x_example --name 'Answer' --summary 'A bounded answer'",
   ],
@@ -214,6 +305,8 @@ export const inboxCommand: CommandDef = {
         return send(rest, flags, output);
       case "reply":
         return reply(rest, flags, output);
+      case "expand":
+        return expand(rest, output);
       default:
         output.error(`Usage: ${USAGE}`);
         return 1;
