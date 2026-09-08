@@ -5,20 +5,12 @@ import type { GlobalFlags } from "../types.js";
 const {
   loadConfigMock,
   createConversationMock,
-  listParticipantsMock,
-  addParticipantMock,
-  removeParticipantMock,
-  fetchRepoMembersMock,
   streamConversationMessageMock,
   getConversationMock,
   cancelConversationTurnMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   createConversationMock: vi.fn(),
-  listParticipantsMock: vi.fn(),
-  addParticipantMock: vi.fn(),
-  removeParticipantMock: vi.fn(),
-  fetchRepoMembersMock: vi.fn(),
   streamConversationMessageMock: vi.fn(),
   getConversationMock: vi.fn(),
   cancelConversationTurnMock: vi.fn(),
@@ -30,10 +22,6 @@ vi.mock("../auth/api.js", async (importOriginal) => {
   return {
     ...actual,
     createConversation: createConversationMock,
-    listParticipants: listParticipantsMock,
-    addParticipant: addParticipantMock,
-    removeParticipant: removeParticipantMock,
-    fetchRepoMembers: fetchRepoMembersMock,
     streamConversationMessage: streamConversationMessageMock,
     getConversation: getConversationMock,
     cancelConversationTurn: cancelConversationTurnMock,
@@ -60,10 +48,6 @@ let originalErr: typeof process.stderr.write;
 beforeEach(() => {
   loadConfigMock.mockReset();
   createConversationMock.mockReset();
-  listParticipantsMock.mockReset();
-  addParticipantMock.mockReset();
-  removeParticipantMock.mockReset();
-  fetchRepoMembersMock.mockReset();
   streamConversationMessageMock.mockReset();
   getConversationMock.mockReset();
   cancelConversationTurnMock.mockReset();
@@ -89,17 +73,6 @@ afterEach(() => {
 const stdout = () => stdoutChunks.join("");
 const stderr = () => stderrChunks.join("");
 
-const participant = (over: Record<string, unknown> = {}) => ({
-  id: "p1",
-  process_node_id: "n_conv",
-  participant: "person:bob",
-  role: "member",
-  joined_at: null,
-  joined_via: null,
-  revoked_at: null,
-  ...over,
-});
-
 describe("conversation — dispatch", () => {
   it("rejects an unknown subcommand with usage", async () => {
     const code = await conversationCommand.run(["frobnicate"], {}, JSON_GLOBAL);
@@ -112,6 +85,34 @@ describe("conversation — dispatch", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("Usage");
   });
+
+  it("advertises only private conversation operations", () => {
+    expect(conversationCommand.description).toBe("Create and run a private conversation");
+    expect(conversationCommand.usage).toContain("<new|send|get|cancel>");
+    expect(conversationCommand.usage).not.toMatch(/participants|members|add|remove/);
+    expect(conversationCommand.examples?.join("\n")).not.toMatch(
+      /conversation (participants|members|add|remove)/,
+    );
+  });
+
+  it.each(["members", "participants", "add", "remove"])(
+    "rejects retired %s locally with migration guidance",
+    async (sub) => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      try {
+        const code = await conversationCommand.run([sub, "repo_abc", "c1", "alice"], {}, JSON_GLOBAL);
+        expect(code).toBe(1);
+        expect(stderr()).toContain(`conversation ${sub}`);
+        expect(stderr()).toContain("Conversations are private");
+        expect(stderr()).toContain("ideaspaces share person <email|@handle>");
+        expect(stderr()).toContain("ideaspaces share team <hostname>");
+        expect(loadConfigMock).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    },
+  );
 });
 
 describe("conversation new", () => {
@@ -146,95 +147,6 @@ describe("conversation new", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("Usage");
     expect(createConversationMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("conversation add", () => {
-  it("normalizes a bare username to a person principal", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    addParticipantMock.mockResolvedValue(participant({ participant: "person:alice" }));
-    const code = await conversationCommand.run(["add", "repo_abc", "c1", "alice"], {}, JSON_GLOBAL);
-    expect(code).toBe(0);
-    expect(addParticipantMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", "c1", "person:alice", "member");
-  });
-
-  it("passes a prefixed principal through unchanged (e.g. an agent)", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    addParticipantMock.mockResolvedValue(participant({ participant: "agent:n_x" }));
-    await conversationCommand.run(["add", "repo_abc", "c1", "agent:n_x"], {}, JSON_GLOBAL);
-    expect(addParticipantMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", "c1", "agent:n_x", "member");
-  });
-
-  it("honors --role reader", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    addParticipantMock.mockResolvedValue(participant({ role: "reader" }));
-    await conversationCommand.run(["add", "repo_abc", "c1", "bob"], { role: "reader" }, JSON_GLOBAL);
-    expect(addParticipantMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", "c1", "person:bob", "reader");
-  });
-
-  it("rejects an invalid --role without calling the API", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    const code = await conversationCommand.run(["add", "repo_abc", "c1", "bob"], { role: "admin" }, JSON_GLOBAL);
-    expect(code).toBe(1);
-    expect(stderr()).toContain("member");
-    expect(addParticipantMock).not.toHaveBeenCalled();
-  });
-
-  it("requires repo, conversation, and actor", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    const code = await conversationCommand.run(["add", "repo_abc"], {}, JSON_GLOBAL);
-    expect(code).toBe(1);
-    expect(stderr()).toContain("Usage");
-  });
-
-  it("maps a 401 to session-expired", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    addParticipantMock.mockRejectedValue(new UnauthorizedError("401"));
-    const code = await conversationCommand.run(["add", "repo_abc", "c1", "alice"], {}, JSON_GLOBAL);
-    expect(code).toBe(1);
-    expect(stderr()).toContain("Session expired");
-  });
-});
-
-describe("conversation remove", () => {
-  it("removes by normalized principal", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    removeParticipantMock.mockResolvedValue(participant({ revoked_at: "2026-06-15T00:00:00Z" }));
-    const code = await conversationCommand.run(["remove", "repo_abc", "c1", "alice"], {}, JSON_GLOBAL);
-    expect(code).toBe(0);
-    expect(removeParticipantMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", "c1", "person:alice");
-  });
-});
-
-describe("conversation participants", () => {
-  it("lists the roster (human)", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    listParticipantsMock.mockResolvedValue({
-      participants: [
-        participant({ participant: "person:alice", role: "owner", id: null }),
-        participant({ participant: "person:bob", role: "member" }),
-      ],
-    });
-    const code = await conversationCommand.run(["participants", "repo_abc", "c1"], {}, HUMAN_GLOBAL);
-    expect(code).toBe(0);
-    expect(stdout()).toContain("person:bob — member");
-  });
-
-  it("shows an empty-state hint", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    listParticipantsMock.mockResolvedValue({ participants: [] });
-    await conversationCommand.run(["participants", "repo_abc", "c1"], {}, HUMAN_GLOBAL);
-    expect(stdout()).toContain("No participants");
-  });
-});
-
-describe("conversation members", () => {
-  it("lists repo members as add candidates", async () => {
-    loadConfigMock.mockReturnValue(CFG);
-    fetchRepoMembersMock.mockResolvedValue([{ user_id: 1, username: "alice", email: null, role: "OWNER" }]);
-    const code = await conversationCommand.run(["members", "repo_abc"], {}, JSON_GLOBAL);
-    expect(code).toBe(0);
-    expect(JSON.parse(stdout()).members[0].username).toBe("alice");
   });
 });
 
@@ -387,7 +299,7 @@ describe("conversation cancel", () => {
 describe("conversation — auth", () => {
   it("errors when not logged in", async () => {
     loadConfigMock.mockReturnValue(null);
-    const code = await conversationCommand.run(["participants", "repo_abc", "c1"], {}, JSON_GLOBAL);
+    const code = await conversationCommand.run(["get", "repo_abc", "c1"], {}, JSON_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("Not logged in");
   });

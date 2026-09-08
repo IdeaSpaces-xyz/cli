@@ -65,8 +65,8 @@ export const cloneCommand: CommandDef = {
     }
 
     // An exact canonical URL is already the stable root coordinate. Do not
-    // require it to appear in the account catalog: a Grant-only collaborator
-    // may hold git_fetch without a RepoMembership-backed catalog row. Git is
+    // require it to appear in the account catalog: a known-link collaborator
+    // may hold git_fetch without a catalog row. Git is
     // the authority for that path. Legacy repo ID, slug, and namespace/slug
     // inputs remain catalog-backed compatibility locators during migration.
     const matches = me.repos.filter((r) => {
