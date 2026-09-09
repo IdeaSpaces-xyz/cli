@@ -95,6 +95,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
   // A selected agent launches at --context; its working material is independent.
   // Keep host orientation out of the RPC prompt and therefore out of user history.
   let launchOrientation: string | undefined;
+  let workingRoot: string | undefined;
   if (flags["working-root"] !== undefined || flags.focus !== undefined) {
     if (typeof flags["working-root"] !== "string" ||
         (flags.focus !== undefined && typeof flags.focus !== "string")) {
@@ -102,7 +103,8 @@ async function send(flags: Flags, output: Output): Promise<number> {
       return 1;
     }
     try {
-      launchOrientation = localLaunchOrientation(repoPath, flags["working-root"], flags.focus as string | undefined);
+      workingRoot = flags["working-root"];
+      launchOrientation = localLaunchOrientation(repoPath, workingRoot, flags.focus as string | undefined);
     } catch (err) {
       return reportLocalError(err, output);
     }
@@ -123,6 +125,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
   try {
     for await (const event of runLocalTurn({
       repoPath,
+      workingRoot,
       message,
       extensionPaths,
       skillPaths,

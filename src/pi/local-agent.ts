@@ -23,15 +23,14 @@
  * pi-local-context's `context_conversation`.
  */
 
+import { harvestLocalFiles } from "./workspace-files.js";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import {
   KeeperTranslator,
-  emptyWorkspaceSurface,
   type KeeperStreamEvent,
-  type KeeperWorkspaceSurface,
   type PiAgentEvent,
   type ToolInvocation,
 } from "@ideaspaces/sdk";
@@ -39,38 +38,7 @@ import {
 /** Non-agent stdout kinds we skip (command acks + fire-and-forget UI chrome). */
 const NON_AGENT_TYPES = new Set(["response", "extension_ui_request"]);
 
-/**
- * Classify a turn's pi-is-space tool calls into the workspace surface. Connector
- * knowledge: `is_write`/`is_commit` change notes; `is_navigate`/`read` reference
- * them. Errored calls touch nothing. (Created-vs-modified is not yet
- * distinguished — both count as "changed"; refine when is_write reports it.)
- */
-export function harvestWorkspace(tools: ToolInvocation[]): KeeperWorkspaceSurface {
-  const ws = emptyWorkspaceSurface();
-  const add = (arr: string[], p: unknown): void => {
-    if (typeof p === "string" && p && !arr.includes(p)) arr.push(p);
-  };
-  for (const t of tools) {
-    if (t.isError) continue;
-    const path = t.args.path;
-    switch (t.name) {
-      case "is_write":
-        add(ws.modified, path);
-        break;
-      case "is_commit":
-        if (Array.isArray(t.args.paths)) for (const p of t.args.paths) add(ws.modified, p);
-        else add(ws.modified, path);
-        break;
-      case "is_navigate":
-      case "read":
-        add(ws.read, path);
-        break;
-      default:
-        break;
-    }
-  }
-  return ws;
-}
+export { harvestLocalFiles as harvestWorkspace } from "./workspace-files.js";
 
 /** The last position an `is_navigate` moved to, for `turn_complete.position`. */
 function lastPosition(tools: ToolInvocation[]): string {
@@ -94,8 +62,10 @@ export function isValidPiThinkingLevel(level: string): level is PiThinkingLevel 
 }
 
 export interface LocalTurnOptions {
-  /** The workspace/context root (cwd) — an ideaspace that may mount repos. */
+  /** The selected POV root and Pi process cwd. */
   repoPath: string;
+  /** The selected material root, independent of the POV. Defaults to repoPath. */
+  workingRoot?: string;
   /** The user's message for this turn. */
   message: string;
   /** Extensions to load, in order — pi-is-space (Space) + pi-local-context. */
@@ -211,7 +181,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
     modelTier,
     harvestWorkspace: (tools) => {
       turnTools = tools;
-      return harvestWorkspace(tools);
+      return harvestLocalFiles(tools, opts.repoPath, opts.workingRoot);
     },
   });
 
