@@ -62,8 +62,10 @@ export function isValidPiThinkingLevel(level: string): level is PiThinkingLevel 
 }
 
 export interface LocalTurnOptions {
-  /** The workspace/context root (cwd) — an ideaspace that may mount repos. */
+  /** The selected POV root and Pi process cwd. */
   repoPath: string;
+  /** The selected material root, independent of the POV. Defaults to repoPath. */
+  workingRoot?: string;
   /** The user's message for this turn. */
   message: string;
   /** Extensions to load, in order — pi-is-space (Space) + pi-local-context. */
@@ -179,7 +181,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
     modelTier,
     harvestWorkspace: (tools) => {
       turnTools = tools;
-      return harvestLocalFiles(tools, opts.repoPath);
+      return harvestLocalFiles(tools, opts.repoPath, opts.workingRoot);
     },
   });
 

@@ -1,5 +1,5 @@
 import { existsSync, statSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { repoRoot } from "../git.js";
 import { emptyWorkspaceSurface, type KeeperWorkspaceSurface, type ToolInvocation } from "@ideaspaces/sdk";
 
@@ -11,9 +11,20 @@ export interface LocalWorkspaceSurface extends KeeperWorkspaceSurface {
 
 /** Resolve at the tool boundary, while cwd is still known. Navigation changes
  * awareness, not native tool cwd. Never interpret arbitrary shell commands. */
-export function harvestLocalFiles(tools: ToolInvocation[], launchCwd: string): LocalWorkspaceSurface {
+export function harvestLocalFiles(
+  tools: ToolInvocation[],
+  launchCwd: string,
+  workingRoot: string = launchCwd,
+): LocalWorkspaceSurface {
   const ws: LocalWorkspaceSurface = { ...emptyWorkspaceSurface(), file_coordinates: {} };
   const roots = new Map<string, { root: string; root_kind: "repo" | "folder" }>();
+  const knownFolderRoots = [...new Set([workingRoot, launchCwd].map((root) => {
+    try { return realpathSync.native(root); } catch { return resolve(root); }
+  }))];
+  const contains = (root: string, target: string): boolean => {
+    const path = relative(root, target);
+    return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
+  };
   for (const tool of tools) {
     if (tool.isError) continue;
     const knowledgeTool = ["is_write", "is_commit", "is_inspect"].includes(tool.name);
@@ -30,11 +41,12 @@ export function harvestLocalFiles(tools: ToolInvocation[], launchCwd: string): L
       let present = true;
       try { if (!statSync(absolute).isFile()) continue; } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") present = false;
-        else throw error;
+        else continue;
       }
       let ancestor = present ? absolute : dirname(absolute);
       while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor);
-      absolute = resolve(realpathSync.native(ancestor), relative(ancestor, absolute));
+      try { absolute = resolve(realpathSync.native(ancestor), relative(ancestor, absolute)); }
+      catch { continue; }
       const bucket = present ? kind : "deleted";
       if (!ws[bucket].includes(absolute)) ws[bucket].push(absolute);
       let directory = dirname(absolute);
@@ -42,7 +54,15 @@ export function harvestLocalFiles(tools: ToolInvocation[], launchCwd: string): L
       let scope = roots.get(directory);
       if (!scope) {
         try { scope = { root: repoRoot(directory), root_kind: "repo" }; }
-        catch { scope = { root: directory, root_kind: "folder" }; }
+        catch {
+          let explicitRoot: string | undefined;
+          if (knowledgeTool && typeof tool.args.cwd === "string") {
+            try { explicitRoot = realpathSync.native(cwd); } catch { /* unavailable cwd */ }
+          }
+          const folderRoot = [...knownFolderRoots, ...(explicitRoot ? [explicitRoot] : [])]
+            .find((root) => contains(root, absolute));
+          scope = { root: folderRoot ?? directory, root_kind: "folder" };
+        }
         roots.set(directory, scope);
       }
       ws.file_coordinates[absolute] = { ...scope, path: relative(scope.root, absolute).split("\\").join("/") };

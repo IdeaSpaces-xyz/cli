@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -26,16 +26,26 @@ it("preserves sibling repo coordinates, native edits, explicit cwd, and removed 
   expect(ws.file_coordinates[moved]).toMatchObject({ root_kind: "repo", path: "notes/one.md" });
   expect(basename(ws.file_coordinates[moved].root)).toBe("findings");
 });
-it("uses launch cwd for native tools, ignores navigation and shell text, and supports non-repo folders", () => {
-  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-folder-"))); dirs.push(root);
-  writeFileSync(join(root, "one.md"), "# One");
+it("keeps POV and nested non-repo material in their selected folder roots", () => {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-folder-"))); dirs.push(dir);
+  const pov = join(dir, "agent"); const root = join(dir, "material");
+  mkdirSync(pov); mkdirSync(join(root, "docs"), { recursive: true });
+  const launchFile = join(pov, "launch.md"); const materialFile = join(root, "docs/one.md");
+  writeFileSync(launchFile, "# Launch"); writeFileSync(materialFile, "# Material");
   const ws = harvestLocalFiles([
     tool("is_navigate", { path: "/elsewhere" }),
-    tool("read", { path: "one.md" }),
-    tool("is_inspect", { cwd: root, path: "one.md" }),
+    tool("read", { path: "launch.md" }),
+    tool("read", { path: materialFile }),
+    tool("is_inspect", { cwd: root, path: "docs/one.md" }),
     tool("read", { path: "." }),
     tool("bash", { command: "cat secret.md" }),
-  ], root);
-  expect(ws.read).toEqual([join(root, "one.md")]);
-  expect(ws.file_coordinates[join(root, "one.md")]).toEqual({ root, path: "one.md", root_kind: "folder" });
+  ], pov, root);
+  expect(ws.read).toEqual([launchFile, materialFile]);
+  expect(ws.file_coordinates[launchFile]).toEqual({ root: pov, path: "launch.md", root_kind: "folder" });
+  expect(ws.file_coordinates[materialFile]).toEqual({ root, path: "docs/one.md", root_kind: "folder" });
+});
+it.skipIf(process.platform === "win32")("skips a path whose file state cannot be read", () => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-unreadable-"))); dirs.push(root);
+  const loop = join(root, "loop.md"); symlinkSync("loop.md", loop);
+  expect(harvestLocalFiles([tool("read", { path: loop })], root).read).toEqual([]);
 });
