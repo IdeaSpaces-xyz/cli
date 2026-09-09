@@ -19,7 +19,7 @@ import type { SpaceRecord } from "../auth/spaces.js";
 import { fetch as gitFetch } from "../git.js";
 import { createOutput } from "../output.js";
 import { availableRootActions, rootRelationshipLabel } from "../root-actions.js";
-import { repoDisplaySlug, repoRouteNamespace } from "../space-locator.js";
+import { repoDisplaySlug, repoRouteNamespace } from "../repo-locator.js";
 import type { CommandDef } from "../types.js";
 
 /** Where a repo lives relative to this machine + account. */

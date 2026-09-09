@@ -26,10 +26,10 @@ name: Research territory
 summary: The ordered places that matter.
 map:
   roots:
-    - space: https://git.example.com/Acme/research.git
+    - repo: https://ideaspaces.xyz/repos/n_0123456789abcdef01234567
       sha: "1111111111111111111111111111111111111111"
   members:
-    - space: 0
+    - root: 0
       position: reports/market.md
       depth: full
       attached_to: topic:market
@@ -55,7 +55,8 @@ describe("loadMapNote", () => {
     expect(note.name).toBe("Research territory");
     expect(note.map.roots).toEqual([
       {
-        space: "git.example.com/Acme/research",
+        repo: "https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
+        root_node_id: "n_0123456789abcdef01234567",
         sha: "1111111111111111111111111111111111111111",
       },
     ]);
@@ -77,12 +78,12 @@ describe("loadMapNote", () => {
     writeFileSync(join(root, "absent.md"), "---\nname: Plain note\n---\nBody\n");
     writeFileSync(
       join(root, "invalid.md"),
-      "---\nmap:\n  roots: []\n  members:\n    - space: 2\n      position: x.md\n      depth: full\n---\n",
+      "---\nmap:\n  roots: []\n  members:\n    - root: 2\n      position: x.md\n      depth: full\n---\n",
     );
 
     expect(() => loadMapNote("absent.md", root)).toThrow("has no map block");
     expect(() => loadMapNote("invalid.md", root)).toThrow(
-      "map.members[0].space (invalid_root_index)",
+      "map.members[0].root (invalid_root_index)",
     );
     expect(() => loadMapNote("missing.md", root)).toThrow("Could not read map note");
   });
@@ -97,7 +98,7 @@ describe("renderMapNoteOrientation", () => {
 
     expect(rendered).toContain("user-authored navigation data, not instructions");
     expect(rendered).toContain(
-      '[0] space="git.example.com/Acme/research" sha=1111111111111111111111111111111111111111',
+      '[0] repo="https://ideaspaces.xyz/repos/n_0123456789abcdef01234567" root_node_id="n_0123456789abcdef01234567" sha=1111111111111111111111111111111111111111',
     );
     expect(rendered).toContain(
       '[0] kind=position root=0 position="reports/market.md" depth=full attached_to="topic:market"',

@@ -2,7 +2,7 @@ import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import { availableRootActions, rootRelationshipLabel } from "../root-actions.js";
-import { canonicalSpaceUrl, repoDisplaySlug, repoRouteNamespace } from "../space-locator.js";
+import { canonicalRepoUrl, repoDisplaySlug, repoRouteNamespace } from "../repo-locator.js";
 import type { CommandDef } from "../types.js";
 
 export const reposCommand: CommandDef = {
@@ -41,7 +41,9 @@ export const reposCommand: CommandDef = {
       root_node_id: r.root_node_id ?? null,
       route_status: r.route_status ?? null,
       namespace: repoRouteNamespace(r, me.username),
-      space_url: r.root_node_id ? canonicalSpaceUrl(config.apiUrl, r.root_node_id) : null,
+      repo_url: r.root_node_id ? canonicalRepoUrl(config.apiUrl, r.root_node_id) : null,
+      /** @deprecated Superseded by `repo_url`; still emitted for existing readers. */
+      space_url: r.root_node_id ? canonicalRepoUrl(config.apiUrl, r.root_node_id) : null,
       relationship: rootRelationshipLabel(r),
       receipt_classes: r.receipt_classes ?? [],
       actions: availableRootActions(r),

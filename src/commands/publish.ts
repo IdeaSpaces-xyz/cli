@@ -37,9 +37,9 @@ import {
 } from "../auth/spaces.js";
 import {
   canonicalGitUrl,
-  canonicalSpaceUrl,
+  canonicalRepoUrl,
   spaceRecordForRepo,
-} from "../space-locator.js";
+} from "../repo-locator.js";
 import {
   identityEmail as formatIdentityEmail,
   identityName as formatIdentityName,
@@ -697,7 +697,7 @@ export const publishCommand: CommandDef = {
                 route_status: "unavailable" as const,
                 route_namespace: null,
                 route_slug: null,
-                canonical_path: `/spaces/${repo.root_node_id}`,
+                canonical_path: `/repos/${repo.root_node_id}`,
               }
             : {}),
         };
@@ -705,7 +705,7 @@ export const publishCommand: CommandDef = {
     saveSpace(cwd, record);
 
     const webUrl = repo.root_node_id
-      ? canonicalSpaceUrl(config.apiUrl, repo.root_node_id)
+      ? canonicalRepoUrl(config.apiUrl, repo.root_node_id)
       : legacyWebUrl(config.apiUrl, namespace, repo.slug);
     output.result(
       {
@@ -717,6 +717,8 @@ export const publishCommand: CommandDef = {
         route_namespace: record.route_namespace ?? null,
         route_slug: record.route_slug ?? null,
         remote_url: remoteUrl,
+        repo_url: webUrl,
+        /** @deprecated Superseded by `repo_url`; still emitted for existing readers. */
         space_url: webUrl,
         web_url: webUrl,
         identity_email: identityEmail,

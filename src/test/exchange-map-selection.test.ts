@@ -10,10 +10,10 @@ function selection() {
     kind: "exchange-map-selection",
     target_node_id: "n_abcdefabcdefabcdefabcdef",
     map: {
-      roots: [{ space: `git.example.test/spaces/${ROOT}`, root_node_id: ROOT, sha: SHA }],
+      roots: [{ repo: `https://ideaspaces.xyz/repos/${ROOT}`, root_node_id: ROOT, sha: SHA }],
       members: [
         {
-          space: 0,
+          root: 0,
           position: "notes/finding.md",
           depth: "surface",
           name: "Why this one",

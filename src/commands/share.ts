@@ -35,7 +35,7 @@ import {
 import { loadConfig, type LoadedConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding } from "../auth/resolve-space.js";
 import { repoRoot } from "../git.js";
-import { parseSpaceLocator } from "../space-locator.js";
+import { parseRepoLocator } from "../repo-locator.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
@@ -177,7 +177,7 @@ async function resolveTarget(
 ): Promise<string | null> {
   if (spaceUrl) {
     try {
-      return parseSpaceLocator(spaceUrl, config.apiUrl).rootNodeId;
+      return parseRepoLocator(spaceUrl, config.apiUrl).rootNodeId;
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
       return null;
@@ -773,7 +773,7 @@ export const shareCommand: CommandDef = {
     "ideaspaces share remove team:acme.com",
     "ideaspaces share visibility public        # plan only — shows what opens up",
     "ideaspaces share visibility public --yes  # apply",
-    "ideaspaces share visibility private --space https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567",
+    "ideaspaces share visibility private --space https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);

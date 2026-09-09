@@ -35,7 +35,7 @@ ideaspaces commit -m "Capture the pricing decision" decisions/pricing.md
 
 ```sh
 git clone https://github.com/IdeaSpaces-xyz/hn-reader && cd hn-reader    # any git host
-ideaspaces fork https://ideaspaces.xyz/spaces/<space-id> ./theirs         # public space, no account
+ideaspaces fork https://ideaspaces.xyz/repos/<repo-id> ./theirs         # public space, no account
 ideaspaces update --yes                                                   # later: pull in source changes that don't conflict
 ```
 

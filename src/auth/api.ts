@@ -299,7 +299,7 @@ export async function getSpace(
   return request<PublicSpaceResult>(
     config,
     "GET",
-    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}`,
+    `${API_V1}/public/repos/${encodeURIComponent(rootNodeId)}`,
     undefined,
     opts,
   );
@@ -313,7 +313,7 @@ export async function getSpaceCopySnapshot(
   return request<SpaceCopySnapshotResult>(
     config,
     "GET",
-    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/copy-snapshot`,
+    `${API_V1}/public/repos/${encodeURIComponent(rootNodeId)}/copy-snapshot`,
     undefined,
     opts,
   );
@@ -408,7 +408,7 @@ export async function fetchTrailLog(
   return request(
     config,
     "GET",
-    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/git?op=log&limit=${encodeURIComponent(String(limit))}`,
+    `${API_V1}/public/repos/${encodeURIComponent(rootNodeId)}/git?op=log&limit=${encodeURIComponent(String(limit))}`,
     undefined,
     opts,
   );
@@ -424,7 +424,7 @@ export async function fetchTrailChanges(
   return request(
     config,
     "GET",
-    `${API_V1}/spaces/${encodeURIComponent(rootNodeId)}/git?op=changes&since=${encodeURIComponent(since)}`,
+    `${API_V1}/public/repos/${encodeURIComponent(rootNodeId)}/git?op=changes&since=${encodeURIComponent(since)}`,
     undefined,
     opts,
   );

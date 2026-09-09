@@ -18,6 +18,7 @@ const JSON_FLAGS: GlobalFlags = {
 
 let root: string;
 let originalCwd: string;
+const ROOT_NODE_ID = "n_0123456789abcdef01234567";
 
 function git(args: string[]): string {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
@@ -65,7 +66,7 @@ beforeEach(async () => {
   git(["init", "-q", "-b", "main"]);
   git(["config", "user.email", "map@example.com"]);
   git(["config", "user.name", "Map Test"]);
-  git(["remote", "add", "origin", "https://GitHub.com/Acme/Research.git"]);
+  git(["remote", "add", "origin", `https://git.ideaspaces.xyz/repos/${ROOT_NODE_ID}.git`]);
 });
 
 afterEach(async () => {
@@ -115,7 +116,7 @@ describe("ideaspaces map", () => {
         roots: [
           {
             local_path: root,
-            space: "github.com/Acme/Research",
+            repo: `https://ideaspaces.xyz/repos/${ROOT_NODE_ID}`,
             sha: head,
           },
         ],
@@ -124,15 +125,15 @@ describe("ideaspaces map", () => {
     expect(parseMap(result.data.map).status).toBe("valid");
     expect(result.data.map.members).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ space: 0, position: "alpha", depth: "children" }),
+        expect.objectContaining({ root: 0, position: "alpha", depth: "children" }),
         expect.objectContaining({
-          space: 0,
+          root: 0,
           position: "alpha/bravo/charlie/delta/echo/finding.md",
           depth: "summary",
           summary: "Deep finding.",
         }),
         expect.objectContaining({
-          space: 0,
+          root: 0,
           position: "README.md",
           depth: "summary",
           summary: "Repository surface.",
@@ -147,6 +148,28 @@ describe("ideaspaces map", () => {
     expect(result.data.map.members.some((member: { position: string }) =>
       member.position.includes("_assets"),
     )).toBe(false);
+  });
+
+  it("gives a foreign remote no repo address and calls it non-portable", async () => {
+    git(["remote", "set-url", "origin", "https://GitHub.com/Acme/Research.git"]);
+    await writeDeepTree();
+    git(["add", "."]);
+    git(["commit", "-q", "-m", "seed"]);
+
+    const result = await runMap(["."], { depth: "full" });
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect(result.data.portable).toBe(false);
+    expect(result.data.map.roots[0]).not.toHaveProperty("repo");
+    // A checkout with no hosted origin and no declaration has no stable
+    // identity, so the protocol declines it as a Map root rather than
+    // inventing a coordinate the Inbox could not resolve.
+    expect(result.data.map.roots[0]).not.toHaveProperty("root_node_id");
+    const parsed = parseMap(result.data.map);
+    expect(parsed.status).toBe("invalid");
+    expect(parsed.status === "invalid" && parsed.issues.map((issue) => issue.code)).toContain(
+      "missing_root_identity",
+    );
   });
 
   it("keeps bounded depth bounded and labels ignored local Content non-portable", async () => {

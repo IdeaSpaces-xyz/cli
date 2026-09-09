@@ -10,12 +10,12 @@ import { inspectLocalRootIdentity } from "../root-identity.js";
 import { hasRootAction } from "../root-actions.js";
 import {
   canonicalGitUrl,
-  canonicalSpaceUrl,
-  parseSpaceLocator,
+  canonicalRepoUrl,
+  parseRepoLocator,
   repoDisplaySlug,
   repoRouteNamespace,
   spaceRecordForRepo,
-} from "../space-locator.js";
+} from "../repo-locator.js";
 import type { CommandDef } from "../types.js";
 
 export const cloneCommand: CommandDef = {
@@ -23,7 +23,7 @@ export const cloneCommand: CommandDef = {
   description: "Clone an authorized Space into a local folder",
   usage: "ideaspaces clone <space-url|legacy-space> [dir]",
   examples: [
-    "ideaspaces clone https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567",
+    "ideaspaces clone https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
     "ideaspaces clone alice/notes ./n       # legacy compatibility locator",
   ],
   async run(args, _flags, global) {
@@ -57,7 +57,7 @@ export const cloneCommand: CommandDef = {
     let rootNodeId: string | undefined;
     if (urlLike) {
       try {
-        rootNodeId = parseSpaceLocator(target, config.apiUrl).rootNodeId;
+        rootNodeId = parseRepoLocator(target, config.apiUrl).rootNodeId;
       } catch (err) {
         output.error(err instanceof Error ? err.message : String(err));
         return 1;
@@ -108,7 +108,7 @@ export const cloneCommand: CommandDef = {
     await registerGitCredentialHelper();
 
     output.progress(
-      `Cloning ${stableRoot ? canonicalSpaceUrl(config.apiUrl, stableRoot) : `${namespace}/${slug}`}…`,
+      `Cloning ${stableRoot ? canonicalRepoUrl(config.apiUrl, stableRoot) : `${namespace}/${slug}`}…`,
     );
     try {
       cloneRepo(url, dir);
@@ -164,19 +164,21 @@ export const cloneCommand: CommandDef = {
       }
     }
 
-    const spaceUrl = stableRoot ? canonicalSpaceUrl(config.apiUrl, stableRoot) : null;
+    const repoUrl = stableRoot ? canonicalRepoUrl(config.apiUrl, stableRoot) : null;
     output.result(
       {
         repo_id: repo?.repo_id ?? null,
         root_node_id: stableRoot ?? null,
         slug: repo ? slug : null,
         namespace,
-        space_url: spaceUrl,
+        repo_url: repoUrl,
+        /** @deprecated Superseded by `repo_url`; still emitted for existing readers. */
+        space_url: repoUrl,
         remote_url: url,
         path: dir,
         identity_state: rootIdentity.state,
       },
-      `Cloned ${spaceUrl ?? `${namespace}/${slug}`} → ${dir}`,
+      `Cloned ${repoUrl ?? `${namespace}/${slug}`} → ${dir}`,
     );
     return 0;
   },

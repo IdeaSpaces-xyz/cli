@@ -84,7 +84,7 @@ beforeEach(() => {
 
   loadConfigMock.mockReset().mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
   resolveSpaceBindingMock.mockReset().mockResolvedValue({ rootNodeId: ROOT_NODE_ID, via: "origin" });
-  originUrlMock.mockReset().mockReturnValue(`https://git.example.test/spaces/${ROOT_NODE_ID}.git`);
+  originUrlMock.mockReset().mockReturnValue(`https://git.example.test/repos/${ROOT_NODE_ID}.git`);
   fetchContentTreeMock.mockReset().mockResolvedValue({
     kind: "content_tree",
     target_node_id: ROOT_NODE_ID,
@@ -144,13 +144,13 @@ describe("ideaspaces map select", () => {
       target_node_id: TARGET_NODE_ID,
       map: {
         roots: [{
-          space: `git.example.test/spaces/${ROOT_NODE_ID}`,
+          repo: `https://example.test/repos/${ROOT_NODE_ID}`,
           root_node_id: ROOT_NODE_ID,
           sha: git(["rev-parse", "HEAD"]),
         }],
         members: [
           {
-            space: 0,
+            root: 0,
             position: "notes/finding.md",
             depth: "surface",
             name: "Why this Note",
