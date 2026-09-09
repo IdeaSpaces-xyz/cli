@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { realpathSync } from "node:fs";
@@ -6,8 +6,14 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAP_DEPTHS, parseMap } from "@ideaspaces/protocol";
+import { loadConfig } from "../auth/credentials.js";
 import { mapCommand } from "../commands/map.js";
 import type { GlobalFlags } from "../types.js";
+
+vi.mock("../auth/credentials.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../auth/credentials.js")>()),
+  loadConfig: vi.fn(() => null),
+}));
 
 const JSON_FLAGS: GlobalFlags = {
   json: true,
@@ -67,6 +73,7 @@ beforeEach(async () => {
   git(["config", "user.email", "map@example.com"]);
   git(["config", "user.name", "Map Test"]);
   git(["remote", "add", "origin", `https://git.ideaspaces.xyz/repos/${ROOT_NODE_ID}.git`]);
+  vi.mocked(loadConfig).mockReturnValue(null);
 });
 
 afterEach(async () => {
@@ -170,6 +177,20 @@ describe("ideaspaces map", () => {
     expect(parsed.status === "invalid" && parsed.issues.map((issue) => issue.code)).toContain(
       "missing_root_identity",
     );
+  });
+
+  it("recognizes a hosted origin on the session's own deployment", async () => {
+    vi.mocked(loadConfig).mockReturnValue({ apiUrl: "https://api.self.hosted", apiKey: "k" });
+    git(["remote", "set-url", "origin", `https://git.self.hosted/repos/${ROOT_NODE_ID}.git`]);
+    await writeDeepTree();
+    git(["add", "."]);
+    git(["commit", "-q", "-m", "seed"]);
+
+    const result = await runMap(["."], { depth: "full" });
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect(result.data.portable).toBe(true);
+    expect(result.data.map.roots[0].repo).toBe(`https://self.hosted/repos/${ROOT_NODE_ID}`);
   });
 
   it("keeps bounded depth bounded and labels ignored local Content non-portable", async () => {

@@ -18,7 +18,7 @@ import {
 } from "@ideaspaces/protocol";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { getDefaultApiUrl } from "../auth/credentials.js";
+import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
 import { ignoredPaths, statusEntries } from "../git.js";
 import { canonicalRepoUrl } from "../repo-locator.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
@@ -163,7 +163,9 @@ export const mapCommand: CommandDef = {
     // A Map root is addressed by stable identity. A declared checkout has one
     // before it is ever published; only a hosted origin also earns the
     // canonical repo URL, and only that makes the selection portable.
-    const apiUrl = getDefaultApiUrl();
+    // A logged-in session's deployment decides which origins are hosted; the
+    // default only stands in when there is no session.
+    const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
     const identity = inspectLocalRootIdentity(repoRoot, apiUrl);
     const root: DerivedMapRoot = {
       local_path: repoRoot,
