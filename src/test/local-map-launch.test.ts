@@ -57,10 +57,10 @@ name: Research territory
 summary: Two kinds of territory.
 map:
   roots:
-    - space: git.example.com/Acme/research
+    - repo: https://ideaspaces.xyz/repos/n_0123456789abcdef01234567
       sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   members:
-    - space: 0
+    - root: 0
       position: reports/market.md
       depth: full
     - address: https://example.com/source

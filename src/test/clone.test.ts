@@ -74,7 +74,7 @@ const stdout = () => stdoutChunks.join("");
 const stderr = () => stderrChunks.join("");
 
 describe("clone", () => {
-  it("clones an exact Space URL through the root-addressed Git endpoint", async () => {
+  it("clones a legacy Space URL through the root-addressed Git endpoint", async () => {
     const rootNodeId = "n_0123456789abcdef01234567";
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     inspectRootIdentityMock.mockReturnValue({
@@ -96,7 +96,7 @@ describe("clone", () => {
           route_status: "resolved",
           route_namespace: "alice",
           route_slug: "notes",
-          canonical_path: `/spaces/${rootNodeId}`,
+          canonical_path: `/repos/${rootNodeId}`,
         },
       ],
     });
@@ -109,7 +109,7 @@ describe("clone", () => {
 
     expect(code).toBe(0);
     expect(cloneRepoMock).toHaveBeenCalledWith(
-      `https://git.example.test/spaces/${rootNodeId}.git`,
+      `https://git.example.test/repos/${rootNodeId}.git`,
       expect.stringContaining("local-notes"),
     );
     expect(saveSpaceMock).toHaveBeenCalledWith(expect.stringContaining("local-notes"), {
@@ -120,16 +120,17 @@ describe("clone", () => {
       route_status: "resolved",
       route_namespace: "alice",
       route_slug: "notes",
-      canonical_path: `/spaces/${rootNodeId}`,
+      canonical_path: `/repos/${rootNodeId}`,
     });
     expect(JSON.parse(stdout())).toMatchObject({
       root_node_id: rootNodeId,
-      space_url: `https://example.test/spaces/${rootNodeId}`,
-      remote_url: `https://git.example.test/spaces/${rootNodeId}.git`,
+      repo_url: `https://example.test/repos/${rootNodeId}`,
+      space_url: `https://example.test/repos/${rootNodeId}`,
+      remote_url: `https://git.example.test/repos/${rootNodeId}.git`,
     });
   });
 
-  it("clones an exact Space URL that is absent from the account catalog", async () => {
+  it("clones an exact repo URL that is absent from the account catalog", async () => {
     const rootNodeId = "n_0123456789abcdef01234567";
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({ username: "bob", name: "Bob", repos: [] });
@@ -140,14 +141,14 @@ describe("clone", () => {
     });
 
     const code = await cloneCommand.run(
-      [`https://example.test/spaces/${rootNodeId}`],
+      [`https://example.test/repos/${rootNodeId}`],
       {},
       JSON_GLOBAL,
     );
 
     expect(code).toBe(0);
     expect(cloneRepoMock).toHaveBeenCalledWith(
-      `https://git.example.test/spaces/${rootNodeId}.git`,
+      `https://git.example.test/repos/${rootNodeId}.git`,
       expect.stringContaining(rootNodeId),
     );
     expect(saveSpaceMock).not.toHaveBeenCalled();
@@ -156,12 +157,13 @@ describe("clone", () => {
       root_node_id: rootNodeId,
       slug: null,
       namespace: null,
-      space_url: `https://example.test/spaces/${rootNodeId}`,
-      remote_url: `https://git.example.test/spaces/${rootNodeId}.git`,
+      repo_url: `https://example.test/repos/${rootNodeId}`,
+      space_url: `https://example.test/repos/${rootNodeId}`,
+      remote_url: `https://git.example.test/repos/${rootNodeId}.git`,
     });
   });
 
-  it("lets Git authority refuse an exact Space URL without fetch access", async () => {
+  it("lets Git authority refuse an exact repo URL without fetch access", async () => {
     const rootNodeId = "n_0123456789abcdef01234567";
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({
@@ -184,7 +186,7 @@ describe("clone", () => {
     });
 
     const code = await cloneCommand.run(
-      [`https://example.test/spaces/${rootNodeId}`],
+      [`https://example.test/repos/${rootNodeId}`],
       {},
       JSON_GLOBAL,
     );
@@ -192,7 +194,7 @@ describe("clone", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("Repository not found");
     expect(cloneRepoMock).toHaveBeenCalledWith(
-      `https://git.example.test/spaces/${rootNodeId}.git`,
+      `https://git.example.test/repos/${rootNodeId}.git`,
       expect.anything(),
     );
     expect(saveSpaceMock).not.toHaveBeenCalled();

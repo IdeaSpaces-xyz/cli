@@ -825,7 +825,7 @@ describe("ideaspaces sync — awareness, not integration", () => {
     // position comes from the refs we have, and the coordinate from the URL.
     // Built from the CLI's own helper so the host matches whatever the mocked
     // config derives — hardcoding it here would test the wrong deployment.
-    const { canonicalGitUrl } = await import("../space-locator.js");
+    const { canonicalGitUrl } = await import("../repo-locator.js");
     git(clone, ["remote", "set-url", "origin", canonicalGitUrl("https://api.test", ROOT_NODE_ID)]);
     findSpaceForMock.mockReturnValue(null);
 

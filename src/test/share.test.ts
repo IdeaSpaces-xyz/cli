@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { parseArgs } from "../argv.js";
 import type { GlobalFlags } from "../types.js";
 
 const JSON_G: GlobalFlags = { json: true, quiet: true, yes: false, help: false };
@@ -246,7 +247,47 @@ describe("share person — a grade on a Space, not a seat in a repo", () => {
     expect(stdout).toContain("Nothing changed");
   });
 
-  it("names a Space explicitly when you are not standing in one", async () => {
+  it("names a repo explicitly when you are not standing in one", async () => {
+    repoRootMock.mockImplementation(() => {
+      throw new Error("not inside a git repository");
+    });
+
+    const code = await shareCommand.run(
+      ["person", "bob@example.com"],
+      { repo: `https://example.test/repos/${ROOT}` },
+      JSON_G,
+    );
+
+    expect(code).toBe(0);
+    expect(addPersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, expect.anything());
+    // An explicit target needs no binding lookup at all.
+    expect(resolveSpaceBindingMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["--repo", `--repo=https://example.test/repos/${ROOT}`],
+    ["--repo with a separate value", `--repo https://example.test/repos/${ROOT}`],
+    ["--space", `--space=https://example.test/spaces/${ROOT}`],
+  ])("reaches the command through the real argv path: %s", async (_label, tail) => {
+    // `--repo` is intercepted as a global flag, so asserting on a hand-built
+    // flags object would pass while the actual CLI could not target anything.
+    repoRootMock.mockImplementation(() => {
+      throw new Error("not inside a git repository");
+    });
+    const parsed = parseArgs(["share", "person", "bob@example.com", ...tail.split(" ")]);
+
+    const code = await shareCommand.run(parsed.args, parsed.flags, {
+      ...parsed.global,
+      json: true,
+      quiet: true,
+    });
+
+    expect(code).toBe(0);
+    expect(addPersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, expect.anything());
+    expect(resolveSpaceBindingMock).not.toHaveBeenCalled();
+  });
+
+  it("still honors the pre-rename --space flag and its legacy URL", async () => {
     repoRootMock.mockImplementation(() => {
       throw new Error("not inside a git repository");
     });
@@ -259,8 +300,6 @@ describe("share person — a grade on a Space, not a seat in a repo", () => {
 
     expect(code).toBe(0);
     expect(addPersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, expect.anything());
-    // An explicit target needs no binding lookup at all.
-    expect(resolveSpaceBindingMock).not.toHaveBeenCalled();
   });
 
   it("says which way it could not tell, when the clone is unbound", async () => {
@@ -280,13 +319,13 @@ describe("share person — a grade on a Space, not a seat in a repo", () => {
     expect(addPersonShareMock).not.toHaveBeenCalled();
   });
 
-  it("refuses outside a Space with the way out", async () => {
+  it("refuses outside a repo with the way out", async () => {
     repoRootMock.mockImplementation(() => {
       throw new Error("not inside a git repository");
     });
 
     expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(1);
-    expect(stderr).toContain("--space");
+    expect(stderr).toContain("--repo");
   });
 });
 

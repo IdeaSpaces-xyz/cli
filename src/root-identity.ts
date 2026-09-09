@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { loadConfig, getDefaultApiUrl } from "./auth/credentials.js";
 import { findSpaceFor } from "./auth/spaces.js";
 import { originUrl } from "./git.js";
-import { rootNodeIdFromGitUrl } from "./space-locator.js";
+import { rootNodeIdFromGitUrl } from "./repo-locator.js";
 
 const FOUNDATION_PATH = "_agent/foundation.md";
 const INVALID_DECLARATION = Object.freeze({ invalid_root_identity_declaration: true });

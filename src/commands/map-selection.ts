@@ -1,6 +1,5 @@
 import {
   buildMap,
-  canonicalizeMapSpace,
   gitState,
   inspectFrontmatterSyntax,
   parseFrontmatter,
@@ -21,6 +20,7 @@ import {
   sanitizedGitEnvironment,
 } from "../git.js";
 import { formatPortableMap, parseExchangeMapSelection } from "../exchange-map-selection.js";
+import { canonicalRepoUrl, rootNodeIdFromGitUrl } from "../repo-locator.js";
 import type { Output } from "../output.js";
 import type { GlobalFlags } from "../types.js";
 
@@ -200,14 +200,14 @@ export async function runMapSelection(
       );
     }
     const remote = originUrl(repoRoot);
-    const portableRemote = remote ? canonicalizeMapSpace(remote) : { status: "invalid" as const };
-    if (portableRemote.status !== "valid") {
+    const originRootNodeId = remote ? rootNodeIdFromGitUrl(remote, config.apiUrl) : null;
+    if (!originRootNodeId) {
       throw new Error("The selected checkout has no portable origin. Publish it before sharing exact context.");
     }
-    const [, ...remotePath] = portableRemote.space.split("/");
-    if (remotePath.join("/") !== `spaces/${binding.rootNodeId}`) {
-      throw new Error("The origin is not the canonical hosted Space for this root identity");
+    if (originRootNodeId !== binding.rootNodeId) {
+      throw new Error("The origin is not the canonical hosted repository for this root identity");
     }
+    const repo = canonicalRepoUrl(config.apiUrl, binding.rootNodeId);
 
     const parent = posix.dirname(position) === "." ? "" : posix.dirname(position);
     const [tree, entity] = await Promise.all([
@@ -240,13 +240,13 @@ export async function runMapSelection(
       : { name: entity.name, summary: entity.summary };
     const built = buildMap({
       roots: [{
-        space: portableRemote.space,
+        repo,
         root_node_id: binding.rootNodeId,
         sha: state.headSha,
       }],
       members: [
         {
-          space: 0,
+          root: 0,
           position,
           depth: selectedNoteDepth,
           ...annotation(flags, "note"),

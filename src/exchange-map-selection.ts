@@ -54,7 +54,7 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
 
   const roots = value.map.roots.map((raw, ordinal) => {
     if (!isRecord(raw)) throw new Error(`Map root ${ordinal} must be an object`);
-    exactKeys(raw, ["space", "root_node_id", "sha"], `Map root ${ordinal}`);
+    exactKeys(raw, ["repo", "root_node_id", "sha"], `Map root ${ordinal}`);
     const rootNodeId = stringField(raw.root_node_id, `Map root ${ordinal} root_node_id`);
     const sha = stringField(raw.sha, `Map root ${ordinal} sha`);
     if (!rootNodeId || !NODE_ID.test(rootNodeId)) {
@@ -62,7 +62,7 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
     }
     if (!sha || !SHA1.test(sha)) throw new Error(`Map root ${ordinal} sha must be a full SHA-1`);
     return {
-      ...(raw.space === undefined ? {} : { space: stringField(raw.space, `Map root ${ordinal} space`)! }),
+      ...(raw.repo === undefined ? {} : { repo: stringField(raw.repo, `Map root ${ordinal} repo`)! }),
       root_node_id: rootNodeId,
       sha,
     };
@@ -74,7 +74,7 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
       raw,
       address
         ? ["address", "name", "summary", "depth", "disclosure"]
-        : ["space", "position", "name", "summary", "depth", "disclosure"],
+        : ["root", "position", "name", "summary", "depth", "disclosure"],
       `Map member ${ordinal}`,
     );
     if (!isRecord(raw.disclosure)) throw new Error(`Map member ${ordinal} disclosure must be an object`);
@@ -106,7 +106,7 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
       };
     }
     return {
-      space: raw.space as number,
+      root: raw.root as number,
       position: stringField(raw.position, `Map member ${ordinal} position`) ?? "",
       depth: stringField(raw.depth, `Map member ${ordinal} depth`) as MapPositionMember["depth"],
       ...annotations,
@@ -144,8 +144,8 @@ function disclosure(member: MapMember): string {
 
 export function memberReference(member: MapMember, roots: MapBlock["roots"]): string {
   if (isAddressMember(member)) return member.address;
-  const root = roots[member.space];
-  const coordinate = root?.root_node_id ?? root?.space ?? `root:${member.space}`;
+  const root = roots[member.root];
+  const coordinate = root?.root_node_id ?? root?.repo ?? `root:${member.root}`;
   return `${coordinate}@${root?.sha ?? "?"}:${member.position}`;
 }
 

@@ -99,13 +99,13 @@ const message = {
 
 const map = {
   roots: [{
-    space: "git.example.test/spaces/n_0123456789abcdef01234567",
+    repo: "https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
     root_node_id: "n_0123456789abcdef01234567",
     sha: "a".repeat(40),
   }],
   members: [
     {
-      space: 0,
+      root: 0,
       position: "notes/finding.md",
       depth: "surface" as const,
       name: "Why this Note",

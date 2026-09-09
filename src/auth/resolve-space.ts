@@ -10,7 +10,7 @@
  * So resolve rather than require, in the order that costs least:
  *
  *   1. the registry record — free
- *   2. the clone's own origin — free, when it is `/spaces/{root}.git`
+ *   2. the clone's own origin — free, when it is `/repos/{root}.git`
  *   3. the account's repo list — one call, matched on the origin
  *
  * Rungs 2 and 3 serve different people, which is why both exist. A Grant-only
@@ -34,7 +34,7 @@ import {
 } from "./spaces.js";
 import { normalizeRepoUrl, originUrl } from "../git.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
-import { repoKeys, spaceRecordForRepo } from "../space-locator.js";
+import { repoKeys, spaceRecordForRepo } from "../repo-locator.js";
 
 export interface SpaceBinding {
   rootNodeId: string;

@@ -126,7 +126,7 @@ describe("request() retry on timeout (cold start)", () => {
   });
 });
 
-describe("Space locator and copy API", () => {
+describe("repo locator and copy API", () => {
   it("gets a Space through stable root identity", async () => {
     let captured: { url: string; init?: RequestInit } | undefined;
     vi.stubGlobal(
@@ -155,7 +155,7 @@ describe("Space locator and copy API", () => {
     const source = await getSpace(config, "n_0123456789abcdef01234567");
 
     expect(source.copy_enabled).toBe(true);
-    expect(captured?.url).toBe("http://api.test/api/v1/spaces/n_0123456789abcdef01234567");
+    expect(captured?.url).toBe("http://api.test/api/v1/public/repos/n_0123456789abcdef01234567");
     expect(captured?.init?.method).toBe("GET");
   });
 
@@ -190,7 +190,7 @@ describe("Space locator and copy API", () => {
     expect(snapshot.files[0].path).toBe("_agent/guide.md");
     expect(snapshot.assets[0].path).toBe("_assets/picture.png");
     expect(captured?.url).toBe(
-      "http://api.test/api/v1/spaces/n_0123456789abcdef01234567/copy-snapshot",
+      "http://api.test/api/v1/public/repos/n_0123456789abcdef01234567/copy-snapshot",
     );
     expect(captured?.init?.method).toBe("GET");
     expect((captured?.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");

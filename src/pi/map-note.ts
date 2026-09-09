@@ -93,7 +93,7 @@ function optionalMemberFields(member: MapMember): string[] {
 function renderPositionMember(member: MapPositionMember): string {
   return [
     "kind=position",
-    `root=${member.space}`,
+    `root=${member.root}`,
     `position=${quoted(member.position)}`,
     `depth=${member.depth}`,
     ...optionalMemberFields(member),
@@ -128,7 +128,7 @@ export function renderMapNoteOrientation(note: LoadedMapNote): string {
   lines.push(`Roots (${note.map.roots.length}, ordered):`);
   for (const [index, root] of note.map.roots.entries()) {
     const fields = [
-      root.space ? `space=${quoted(root.space)}` : undefined,
+      root.repo ? `repo=${quoted(root.repo)}` : undefined,
       root.root_node_id ? `root_node_id=${quoted(root.root_node_id)}` : undefined,
       `sha=${root.sha}`,
     ].filter((value): value is string => value !== undefined);

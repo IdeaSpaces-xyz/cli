@@ -120,7 +120,7 @@ function setupBareRemote(namespace: string, slug: string): string {
 }
 
 function setupRootBareRemote(rootNodeId: string): string {
-  return setupBareRemote("spaces", rootNodeId);
+  return setupBareRemote("repos", rootNodeId);
 }
 
 describe("ideaspaces publish", () => {
@@ -363,7 +363,7 @@ describe("ideaspaces publish", () => {
                 route_kind: "person",
                 route_namespace: "ernests_s",
                 route_slug: "canonical",
-                canonical_path: `/spaces/${rootNodeId}`,
+                canonical_path: `/repos/${rootNodeId}`,
                 legacy_path: "/ernests_s/canonical",
                 route_reason_codes: [],
               },
@@ -398,7 +398,7 @@ describe("ideaspaces publish", () => {
     const origin = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], {
       encoding: "utf-8",
     }).stdout.trim();
-    expect(origin).toContain(`/spaces/${rootNodeId}.git`);
+    expect(origin).toContain(`/repos/${rootNodeId}.git`);
 
     const map = JSON.parse(readFileSync(join(tmp, ".ideaspaces", "spaces.json"), "utf-8"));
     const key = Object.keys(map).find((candidate) => candidate.endsWith("canonical"))!;
@@ -410,7 +410,7 @@ describe("ideaspaces publish", () => {
       route_status: "resolved",
       route_namespace: "ernests_s",
       route_slug: "canonical",
-      canonical_path: `/spaces/${rootNodeId}`,
+      canonical_path: `/repos/${rootNodeId}`,
     });
   });
 
@@ -437,7 +437,7 @@ describe("ideaspaces publish", () => {
       route_status: "resolved",
       route_namespace: "ernests_s",
       route_slug: "offline-created",
-      canonical_path: `/spaces/${rootNodeId}`,
+      canonical_path: `/repos/${rootNodeId}`,
     };
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -514,7 +514,7 @@ describe("ideaspaces publish", () => {
       route_status: "resolved",
       route_namespace: "ernests_s",
       route_slug: "local-guide",
-      canonical_path: `/spaces/${rootNodeId}`,
+      canonical_path: `/repos/${rootNodeId}`,
     };
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -572,7 +572,7 @@ describe("ideaspaces publish", () => {
     });
     expect(record.kind).toBeUndefined();
     expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf-8" }).stdout.trim())
-      .toContain(`/spaces/${rootNodeId}.git`);
+      .toContain(`/repos/${rootNodeId}.git`);
   });
 
   it("keeps an unpublished record when Keeper does not adopt its identity", async () => {

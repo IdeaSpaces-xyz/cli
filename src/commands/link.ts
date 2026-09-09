@@ -22,7 +22,7 @@ import {
   repoRouteNamespace,
   spaceRecordForRepo,
   repoKeys,
-} from "../space-locator.js";
+} from "../repo-locator.js";
 import type { CommandDef } from "../types.js";
 
 export const linkCommand: CommandDef = {

@@ -34,7 +34,7 @@ import { prepareForkSnapshot } from "../fork-snapshot.js";
 import { gitAvailability, sanitizedGitEnvironment } from "../git.js";
 import { createOutput } from "../output.js";
 import { mintDeclaredRootIdentity } from "../root-identity.js";
-import { canonicalSpaceUrl, parseSpaceLocator } from "../space-locator.js";
+import { canonicalRepoUrl, parseRepoLocator } from "../repo-locator.js";
 import { gitignoreWithDefaults } from "../templates/default.js";
 import type { CommandDef } from "../types.js";
 import { slugify } from "./publish.js";
@@ -257,9 +257,9 @@ export const forkCommand: CommandDef = {
   description: "Materialize an independent local Space without source history or an account",
   usage: "ideaspaces fork <space-url> [dir] [--name <local-name>]",
   examples: [
-    "ideaspaces fork https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567",
-    "ideaspaces fork https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567 ./manual",
-    "ideaspaces fork https://ideaspaces.xyz/spaces/n_0123456789abcdef01234567 ./manual --name \"My manual\"",
+    "ideaspaces fork https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
+    "ideaspaces fork https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 ./manual",
+    "ideaspaces fork https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 ./manual --name \"My manual\"",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -288,7 +288,7 @@ export const forkCommand: CommandDef = {
     const initialConfig = loadOptionalAuthConfig();
     let sourceRootNodeId: string;
     try {
-      sourceRootNodeId = parseSpaceLocator(target, initialConfig.apiUrl).rootNodeId;
+      sourceRootNodeId = parseRepoLocator(target, initialConfig.apiUrl).rootNodeId;
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
@@ -303,7 +303,7 @@ export const forkCommand: CommandDef = {
       }
     }
 
-    output.progress(`Reading ${canonicalSpaceUrl(initialConfig.apiUrl, sourceRootNodeId)}…`);
+    output.progress(`Reading ${canonicalRepoUrl(initialConfig.apiUrl, sourceRootNodeId)}…`);
     let source: PublicSpaceResult;
     let readConfig: PublicApiConfig;
     try {
@@ -388,7 +388,7 @@ export const forkCommand: CommandDef = {
       [
         `Forked current content without source history → ${destination}`,
         `Local Space identity: ${destinationIdentity.rootNodeId}`,
-        `Source: ${canonicalSpaceUrl(initialConfig.apiUrl, sourceRootNodeId)} @ ${prepared.sourceHead.slice(0, 12)}`,
+        `Source: ${canonicalRepoUrl(initialConfig.apiUrl, sourceRootNodeId)} @ ${prepared.sourceHead.slice(0, 12)}`,
         "This Space is local and unpublished. Sign in and run `ideaspaces publish` when you want to host it.",
       ].join("\n"),
     );

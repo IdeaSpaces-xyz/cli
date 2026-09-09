@@ -9,7 +9,6 @@
 
 import {
   assembleContentTree,
-  canonicalizeMapSpace,
   gitState,
   resolveRepoRoot,
   type ContentAwarenessTree,
@@ -19,7 +18,10 @@ import {
 } from "@ideaspaces/protocol";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { ignoredPaths, originUrl, statusEntries } from "../git.js";
+import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
+import { ignoredPaths, statusEntries } from "../git.js";
+import { canonicalRepoUrl } from "../repo-locator.js";
+import { inspectLocalRootIdentity } from "../root-identity.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
@@ -27,11 +29,14 @@ import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
 interface DerivedMapRoot {
   local_path: string;
   sha: string | null;
-  space?: string;
+  /** Canonical absolute repository URL, present only for a hosted origin. */
+  repo?: string;
+  /** Stable root identity, present as soon as the checkout declares one. */
+  root_node_id?: string;
 }
 
 interface DerivedMapMember {
-  space: 0;
+  root: 0;
   position: string;
   depth: MapDepth;
   kind: "directory" | "markdown";
@@ -64,7 +69,7 @@ function flatten(
   for (const entry of entries) {
     const position = parent ? `${parent}/${entry.name}` : entry.name;
     members.push({
-      space: 0,
+      root: 0,
       position,
       depth: representation(entry),
       kind: entry.kind,
@@ -155,12 +160,20 @@ export const mapCommand: CommandDef = {
     const [treeResult, state] = assembled;
     const tree = treeResult ?? emptyTree();
     const members = flatten(tree.entries);
-    const remote = originUrl(repoRoot);
-    const normalized = remote ? canonicalizeMapSpace(remote) : null;
+    // A Map root is addressed by stable identity. A declared checkout has one
+    // before it is ever published; only a hosted origin also earns the
+    // canonical repo URL, and only that makes the selection portable.
+    // A logged-in session's deployment decides which origins are hosted; the
+    // default only stands in when there is no session.
+    const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+    const identity = inspectLocalRootIdentity(repoRoot, apiUrl);
     const root: DerivedMapRoot = {
       local_path: repoRoot,
       sha: state.headSha,
-      ...(normalized?.status === "valid" ? { space: normalized.space } : {}),
+      ...(identity.root_node_id ? { root_node_id: identity.root_node_id } : {}),
+      ...(identity.canonical_origin
+        ? { repo: canonicalRepoUrl(apiUrl, identity.canonical_origin) }
+        : {}),
     };
     const markdownPositions = members
       .filter((member) => member.kind === "markdown")
@@ -174,7 +187,7 @@ export const mapCommand: CommandDef = {
       output.error(`Could not inspect Map root state: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
-    const portable = Boolean(root.space && root.sha && !dirty);
+    const portable = Boolean(root.repo && root.sha && !dirty);
     const complete = depth === "full" && tree.omittedEntries === undefined &&
       members.every((member) => member.omitted_children === undefined);
 
@@ -194,7 +207,7 @@ export const mapCommand: CommandDef = {
       },
     };
 
-    const rootLabel = root.space ?? root.local_path;
+    const rootLabel = root.repo ?? root.root_node_id ?? root.local_path;
     const lines = [
       `Derived Map (${depth}) — ${repoRoot}`,
       `Root: ${rootLabel}${root.sha ? ` @ ${root.sha}` : " (unborn HEAD)"}`,
