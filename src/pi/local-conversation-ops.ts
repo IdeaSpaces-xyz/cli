@@ -10,6 +10,7 @@ import type { LocalConversationOps } from "../commands/conversation.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapNoteOrientation } from "./map-note.js";
+import { localLaunchOrientation } from "./launch-orientation.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -91,6 +92,22 @@ async function send(flags: Flags, output: Output): Promise<number> {
     }
   }
 
+  // A selected agent launches at --context; its working material is independent.
+  // Keep host orientation out of the RPC prompt and therefore out of user history.
+  let launchOrientation: string | undefined;
+  if (flags["working-root"] !== undefined || flags.focus !== undefined) {
+    if (typeof flags["working-root"] !== "string" ||
+        (flags.focus !== undefined && typeof flags.focus !== "string")) {
+      output.error("Use --working-root <absolute-directory> with optional --focus <relative-path>");
+      return 1;
+    }
+    try {
+      launchOrientation = localLaunchOrientation(repoPath, flags["working-root"], flags.focus as string | undefined);
+    } catch (err) {
+      return reportLocalError(err, output);
+    }
+  }
+
   // Abort propagation: SIGINT/SIGTERM (or the desktop killing the sidecar) kills
   // the local pi turn. Guarded so repeats don't double-fire.
   const controller = new AbortController();
@@ -113,6 +130,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
       sessionDir,
       modelTier,
       mapOrientation,
+      launchOrientation,
       piModel,
       thinkingLevel: piThinking,
       piBin,
