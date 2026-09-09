@@ -783,6 +783,10 @@ export const shareCommand: CommandDef = {
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
     const [sub, ...rest] = args;
-    return run(sub ?? "", rest, flags, output, global.yes === true);
+    // `--repo` is parsed as a global flag, so it never reaches command flags.
+    // Fold it back in here rather than threading it through every subcommand.
+    const withRepo: Flags =
+      global.repo === undefined ? flags : { repo: global.repo, ...flags };
+    return run(sub ?? "", rest, withRepo, output, global.yes === true);
   },
 };
