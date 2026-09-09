@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createRepo,
   fetchAuthMe,
+  fetchTrailChanges,
+  fetchTrailLog,
   getSpace,
   getSpaceCopySnapshot,
   putFile,
@@ -194,6 +196,27 @@ describe("repo locator and copy API", () => {
     );
     expect(captured?.init?.method).toBe("GET");
     expect((captured?.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
+  });
+
+  it("reads both temporal views through the canonical repo path", async () => {
+    const captured: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL | Request) => {
+        captured.push(String(url));
+        return Promise.resolve(
+          new Response(JSON.stringify({ op: "log", entries: [], changes: [] }), { status: 200 }),
+        );
+      }),
+    );
+
+    await fetchTrailLog(config, "n_0123456789abcdef01234567", 5);
+    await fetchTrailChanges(config, "n_0123456789abcdef01234567", "a".repeat(40));
+
+    expect(captured).toEqual([
+      "http://api.test/api/v1/public/repos/n_0123456789abcdef01234567/git?op=log&limit=5",
+      `http://api.test/api/v1/public/repos/n_0123456789abcdef01234567/git?op=changes&since=${"a".repeat(40)}`,
+    ]);
   });
 
   it("omits Authorization entirely for credential-free public reads", async () => {
