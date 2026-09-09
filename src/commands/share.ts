@@ -67,6 +67,11 @@ function flagStr(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? (flags[key] as string) : undefined;
 }
 
+/** The repo to act on. `--space` is the pre-rename spelling, still accepted. */
+function repoFlag(flags: Flags): string | undefined {
+  return flagStr(flags, "repo") ?? flagStr(flags, "space");
+}
+
 function parseGrade(flags: Flags, output: Output): ShareGrade | null {
   const grade = (flagStr(flags, "grade")?.toLowerCase() ?? "explore") as ShareGrade;
   if (!GRADES.includes(grade)) {
@@ -171,13 +176,13 @@ function capabilitySummary(capabilities: ShareCapability[]): string {
  * clones made recently enough.
  */
 async function resolveTarget(
-  spaceUrl: string | undefined,
+  repoUrl: string | undefined,
   config: LoadedConfig,
   output: Output,
 ): Promise<string | null> {
-  if (spaceUrl) {
+  if (repoUrl) {
     try {
-      return parseRepoLocator(spaceUrl, config.apiUrl).rootNodeId;
+      return parseRepoLocator(repoUrl, config.apiUrl).rootNodeId;
     } catch (err) {
       output.error(err instanceof Error ? err.message : String(err));
       return null;
@@ -188,7 +193,7 @@ async function resolveTarget(
     root = repoRoot();
   } catch {
     output.error(
-      "Not inside a Space. Run this from a clone, or name one: --space <url>",
+      "Not inside a repository. Run this from a clone, or name one: --repo <url>",
     );
     return null;
   }
@@ -210,8 +215,8 @@ async function resolveTarget(
               : binding.failure === "unreachable"
                 ? "Could not reach your account to work out which Space this is. Retry when you're back online."
                 : binding.failure === "ambiguous"
-                  ? "This clone's origin matches more than one of your Spaces. Name one: --space <url>"
-                  : "Could not tell which Space this clone belongs to. Name one: --space <url>",
+                  ? "This clone's origin matches more than one of your repositories. Name one: --repo <url>"
+                  : "Could not tell which repository this clone belongs to. Name one: --repo <url>",
   );
   return null;
 }
@@ -290,7 +295,7 @@ async function shareWithPerson(
   const who = rest[0];
   if (!who || rest.length !== 1) {
     output.error(
-      "Usage: ideaspaces share person <email|@handle> [--grade explore|fork|collaborate] [--history] [--space <url>]",
+      "Usage: ideaspaces share person <email|@handle> [--grade explore|fork|collaborate] [--history] [--repo <url>]",
     );
     return 1;
   }
@@ -303,7 +308,7 @@ async function shareWithPerson(
   if (!grade) return 1;
   const config = requireConfig(output);
   if (!config) return 1;
-  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  const target = await resolveTarget(repoFlag(flags), config, output);
   if (!target) return 1;
   const result = await addPersonShare(config, target, {
     ...selector,
@@ -322,7 +327,7 @@ async function shareWithTeam(
   const hostname = rest[0]?.replace(/^team:/i, "").toLowerCase();
   if (!hostname || rest.length !== 1) {
     output.error(
-      "Usage: ideaspaces share team <hostname> [--grade explore|fork|collaborate] [--space <url>]",
+      "Usage: ideaspaces share team <hostname> [--grade explore|fork|collaborate] [--repo <url>]",
     );
     return 1;
   }
@@ -334,7 +339,7 @@ async function shareWithTeam(
   if (!grade) return 1;
   const config = requireConfig(output);
   if (!config) return 1;
-  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  const target = await resolveTarget(repoFlag(flags), config, output);
   if (!target) return 1;
 
   const audiences = await listEligibleTeamAudiences(config);
@@ -363,12 +368,12 @@ async function shareWithTeam(
 
 async function listProductAccess(rest: string[], flags: Flags, output: Output): Promise<number> {
   if (rest.length) {
-    output.error("Usage: ideaspaces share list [--space <url>]");
+    output.error("Usage: ideaspaces share list [--repo <url>]");
     return 1;
   }
   const config = requireConfig(output);
   if (!config) return 1;
-  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  const target = await resolveTarget(repoFlag(flags), config, output);
   if (!target) return 1;
 
   const [peopleResult, invitesResult, teamsResult, visibilityResult] = await Promise.allSettled([
@@ -475,12 +480,12 @@ async function removeProductAccess(
 ): Promise<number> {
   const who = rest[0];
   if (!who || rest.length !== 1) {
-    output.error("Usage: ideaspaces share remove <email|@handle|team:hostname> [--space <url>]");
+    output.error("Usage: ideaspaces share remove <email|@handle|team:hostname> [--repo <url>]");
     return 1;
   }
   const config = requireConfig(output);
   if (!config) return 1;
-  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  const target = await resolveTarget(repoFlag(flags), config, output);
   if (!target) return 1;
 
   if (who.toLowerCase().startsWith("team:")) {
@@ -575,12 +580,12 @@ async function resendInvitation(
   const email = rest[0];
   const selector = email ? personSelector(email) : null;
   if (!email || rest.length !== 1 || !selector || !("email" in selector)) {
-    output.error("Usage: ideaspaces share resend <email> [--space <url>]");
+    output.error("Usage: ideaspaces share resend <email> [--repo <url>]");
     return 1;
   }
   const config = requireConfig(output);
   if (!config) return 1;
-  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  const target = await resolveTarget(repoFlag(flags), config, output);
   if (!target) return 1;
   const collection = await listPersonShareInvites(config, target);
   const invite = collection.invites.find(
@@ -618,12 +623,12 @@ async function setHistory(
   const requested = rest[1]?.toLowerCase();
   const selector = who ? personSelector(who) : null;
   if (!who || !selector || (requested !== "on" && requested !== "off") || rest.length !== 2) {
-    output.error("Usage: ideaspaces share history <email|@handle> <on|off> [--space <url>]");
+    output.error("Usage: ideaspaces share history <email|@handle> <on|off> [--repo <url>]");
     return 1;
   }
   const config = requireConfig(output);
   if (!config) return 1;
-  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  const target = await resolveTarget(repoFlag(flags), config, output);
   if (!target) return 1;
   const people = await listPersonShares(config, target);
   const standing = standingForSelector(people.standings, selector);
@@ -659,12 +664,12 @@ async function setVisibility(
 ): Promise<number> {
   const requested = rest[0]?.toLowerCase();
   if ((requested !== "public" && requested !== "private") || rest.length !== 1) {
-    output.error("Usage: ideaspaces share visibility <public|private> [--yes] [--space <url>]");
+    output.error("Usage: ideaspaces share visibility <public|private> [--yes] [--repo <url>]");
     return 1;
   }
   const config = requireConfig(output);
   if (!config) return 1;
-  const target = await resolveTarget(flagStr(flags, "space"), config, output);
+  const target = await resolveTarget(repoFlag(flags), config, output);
   if (!target) return 1;
   const repoId = await repoIdForRoot(config, target);
   // Going public is an outward action: plan-first without --yes, applied only
@@ -773,7 +778,7 @@ export const shareCommand: CommandDef = {
     "ideaspaces share remove team:acme.com",
     "ideaspaces share visibility public        # plan only — shows what opens up",
     "ideaspaces share visibility public --yes  # apply",
-    "ideaspaces share visibility private --space https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
+    "ideaspaces share visibility private --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
