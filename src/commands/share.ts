@@ -168,7 +168,7 @@ function capabilitySummary(capabilities: ShareCapability[]): string {
 }
 
 /**
- * The Content target to share: an explicit Space URL, or the clone you are in.
+ * The Content target to share: an explicit repo URL, or the clone you are in.
  *
  * Resolution reuses the binding ladder, so a clone whose registry record
  * predates root node ids still resolves — from its own origin, or from the
