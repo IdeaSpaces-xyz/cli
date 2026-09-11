@@ -14,8 +14,15 @@ export function buildCliLoginUrl(apiUrl: string, port: number): string {
   return url.toString();
 }
 
-function openBrowser(url: string): void {
-  const cmd = platform() === "darwin" ? "open" : platform() === "win32" ? "start" : "xdg-open";
+export function openBrowser(url: string): void {
+  if (platform() === "win32") {
+    // `start`'s first quoted argument is the new console window's title, not the
+    // target — `start "<url>"` opens an empty console and never launches anything.
+    // The standard fix is an empty title placeholder: `start "" "<url>"`.
+    exec(`start "" "${url}"`);
+    return;
+  }
+  const cmd = platform() === "darwin" ? "open" : "xdg-open";
   exec(`${cmd} "${url}"`);
 }
 
