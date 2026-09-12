@@ -188,11 +188,12 @@ export function normalizeSnapshot(
       content = content.replaceAll(`node:${from}`, `node:${to}`);
       content = content.replaceAll(`/n/${from}`, `/n/${to}`);
     }
-    if (path === "_agent/foundation.md") {
+    if (path === "_agent/foundation.md" || path === "_agent/agreement.md") {
       const retainedRoot = rootIdentity(baseline[path]);
       const incomingRoot = rootIdentity(content);
       if (retainedRoot && incomingRoot && retainedRoot !== incomingRoot) {
-        throw new Error("Projected foundation conflicts with the fork root identity");
+        const entrypoint = path === "_agent/agreement.md" ? "Agreement" : "Foundation";
+        throw new Error(`Projected ${entrypoint} conflicts with the fork root identity`);
       }
       if (retainedRoot && !incomingRoot) content = declareRootIdentity(content, retainedRoot);
     }

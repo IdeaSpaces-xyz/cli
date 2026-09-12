@@ -4,7 +4,7 @@
  * Flow:
  *   1. Load credentials (require login).
  *   2. Fetch /auth/me for the OAuth-resolved username.
- *   3. Evaluate committed foundation, canonical origin, and local registry;
+ *   3. Evaluate the selected committed entrypoint, canonical origin, and local registry;
  *      refuse dirty, drifted, ambiguous, or incompatible identity evidence.
  *   4. POST /repos with the committed root_node_id for atomic adoption.
  *   5. Set local git user.email = person:<username>@ideaspaces in cwd so
@@ -160,14 +160,17 @@ function rootIdentityProblem(identity: LocalRootIdentityReport): string | null {
   if (identity.declaration.dirty) {
     return (
       "The root identity declaration differs between HEAD, the index, and the worktree. " +
-      "Publish sends HEAD; commit or restore _agent/foundation.md before publishing."
+      "Publish sends HEAD; commit or restore the selected _agent entrypoint before publishing."
     );
   }
+  if (identity.entrypoint_conflict) {
+    return "Agreement and Foundation declare different root identities. Align them before publishing.";
+  }
   if (identity.state === "invalid") {
-    return "Root identity evidence is invalid. Fix the foundation declaration before publishing.";
+    return "Root identity evidence is invalid. Fix the selected contract declaration before publishing.";
   }
   if (identity.state === "drift") {
-    return "Root identity drift: the committed foundation disagrees with the hosted origin or local registry. Refusing to rebind or rekey the Space.";
+    return "Root identity drift: the committed contract entrypoint disagrees with the hosted origin or local registry. Refusing to rebind or rekey the Space.";
   }
   if (identity.state === "ambiguous") {
     return "Root identity is ambiguous: the canonical origin and local registry name different Spaces. Refusing to choose one.";
@@ -371,7 +374,7 @@ export const publishCommand: CommandDef = {
     if (unpublished && rootIdentity.declaration.head !== unpublished.root_node_id) {
       output.error(
         `The unpublished registry identity (${unpublished.root_node_id}) requires the same committed ` +
-          "root _agent/foundation.md declaration before publishing.",
+          "root Agreement or Foundation declaration before publishing.",
       );
       return 1;
     }

@@ -100,8 +100,11 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8" }).trim();
 }
 
-function foundationMetadata(destination: string): Record<string, unknown> {
-  const content = readFileSync(join(destination, "_agent", "foundation.md"), "utf-8");
+function contractMetadata(
+  destination: string,
+  path = "_agent/foundation.md",
+): Record<string, unknown> {
+  const content = readFileSync(join(destination, path), "utf-8");
   const end = content.indexOf("\n---\n", 4);
   return parse(content.slice(4, end)) as Record<string, unknown>;
 }
@@ -172,7 +175,7 @@ describe("account-free local fork", () => {
     expect(git(destination, "remote")).toBe("");
     expect(git(destination, "log", "-1", "--format=%ae")).toBe("import@ideaspaces");
 
-    const metadata = foundationMetadata(destination);
+    const metadata = contractMetadata(destination);
     expect(metadata.root_node_id).toMatch(/^n_[0-9a-f]{24}$/);
     expect(metadata.root_node_id).not.toBe(SOURCE_ROOT);
     const record = findSpaceFor(destination);
@@ -345,6 +348,31 @@ describe("account-free local fork", () => {
     expect(readdirSync(work).some((name) => name.startsWith(".rollback.ideaspaces-fork-"))).toBe(false);
   });
 
+  it("forks an Agreement-only projection and carries fresh identity there", async () => {
+    const destination = join(work, "agreement-only");
+    const files = [
+      {
+        path: "_agent/agreement.md",
+        content: md("n_111111111111111111111111", "# Agreement"),
+      },
+      {
+        path: "README.md",
+        content: md("n_222222222222222222222222", "# Read"),
+      },
+    ];
+    getSpaceCopySnapshotMock.mockResolvedValueOnce(
+      snapshotResult({ files, markdown_file_count: files.length }),
+    );
+
+    const code = await forkCommand.run([SOURCE_URL, destination], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    const metadata = contractMetadata(destination, "_agent/agreement.md");
+    expect(metadata.root_node_id).toMatch(/^n_[0-9a-f]{24}$/);
+    expect(existsSync(join(destination, "_agent", "foundation.md"))).toBe(false);
+    expect(findSpaceFor(destination)?.root_node_id).toBe(metadata.root_node_id);
+  });
+
   it("fails closed with a specific contract error if a snapshot carries source identity", async () => {
     const destination = join(work, "source-identity");
     const files = [
@@ -368,7 +396,7 @@ describe("account-free local fork", () => {
     expect(existsSync(destination)).toBe(false);
   });
 
-  it("refuses a projection without an existing root foundation", async () => {
+  it("refuses a projection without a root contract entrypoint", async () => {
     const destination = join(work, "foundationless");
     const files = [{ path: "README.md", content: md("n_222222222222222222222222", "Read") }];
     getSpaceCopySnapshotMock.mockResolvedValueOnce(
@@ -378,7 +406,7 @@ describe("account-free local fork", () => {
     const code = await forkCommand.run([SOURCE_URL, destination], {}, JSON_GLOBAL);
 
     expect(code).toBe(1);
-    expect(stderr()).toContain("no root _agent/foundation.md");
+    expect(stderr()).toContain("no root Agreement or Foundation");
     expect(existsSync(destination)).toBe(false);
   });
 });

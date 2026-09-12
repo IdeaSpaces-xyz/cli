@@ -89,7 +89,7 @@ function humanMember(member: DerivedMapMember): string {
 }
 
 function emptyTree(): ContentAwarenessTree {
-  return { totalMarkdownFiles: 0, entries: [] };
+  return { placement: "head", totalMarkdownFiles: 0, entries: [] };
 }
 
 function localOnlyMarkdownPaths(paths: string[], root: string): string[] {

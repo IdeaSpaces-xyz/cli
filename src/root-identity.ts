@@ -10,11 +10,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, getDefaultApiUrl } from "./auth/credentials.js";
+import { preferredContractSource } from "./contract-source.js";
 import { findSpaceFor } from "./auth/spaces.js";
 import { originUrl } from "./git.js";
 import { rootNodeIdFromGitUrl } from "./repo-locator.js";
 
 const FOUNDATION_PATH = "_agent/foundation.md";
+const AGREEMENT_PATH = "_agent/agreement.md";
 const INVALID_DECLARATION = Object.freeze({ invalid_root_identity_declaration: true });
 
 export interface RootIdentityDeclarationState {
@@ -26,6 +28,9 @@ export interface RootIdentityDeclarationState {
 
 export interface LocalRootIdentityReport extends RootIdentityEvaluation {
   root_node_id: string | null;
+  contract_source: "foundation" | "agreement" | null;
+  identity_source: "foundation" | "agreement" | null;
+  entrypoint_conflict: boolean;
   declaration: RootIdentityDeclarationState;
   canonical_origin: string | null;
   local_registry: string | null;
@@ -53,18 +58,31 @@ function optionalGitBlob(cwd: string, object: string): string | null {
   return shown.ok ? shown.stdout : null;
 }
 
-function headFoundation(cwd: string): string | null {
-  return optionalGitBlob(cwd, `HEAD:${FOUNDATION_PATH}`);
+function headContract(cwd: string, path: string): string | null {
+  return optionalGitBlob(cwd, `HEAD:${path}`);
 }
 
-function indexFoundation(cwd: string): string | null {
-  return optionalGitBlob(cwd, `:${FOUNDATION_PATH}`);
+function indexContract(cwd: string, path: string): string | null {
+  return optionalGitBlob(cwd, `:${path}`);
 }
 
-function worktreeFoundation(cwd: string): string | null {
-  const path = join(cwd, FOUNDATION_PATH);
-  if (!existsSync(path)) return null;
-  return readFileSync(path, "utf-8");
+function worktreeContract(cwd: string, path: string): string | null {
+  const absolute = join(cwd, path);
+  if (!existsSync(absolute)) return null;
+  return readFileSync(absolute, "utf-8");
+}
+
+function pathPresentInAnyRevision(
+  cwd: string,
+  path: string,
+  worktree: string | null,
+): boolean {
+  if (worktree !== null) return true;
+  // A missing worktree file can still be a staged or unstaged deletion. One
+  // bounded status probe preserves that fact without reading all revisions for
+  // both candidate entrypoints.
+  const status = runGit(cwd, ["status", "--porcelain=v1", "--untracked-files=all", "--", path]);
+  return status.ok && status.stdout.trim().length > 0;
 }
 
 function sameDeclaration(left: unknown, right: unknown): boolean {
@@ -72,20 +90,20 @@ function sameDeclaration(left: unknown, right: unknown): boolean {
   return Object.is(left, right);
 }
 
-/** Add a new root identity to a known-valid foundation without reformatting its frontmatter. */
+/** Add root identity to a known-valid contract entrypoint without reformatting frontmatter. */
 export function declareRootIdentity(content: string, rootNodeId: string): string {
   if (!isValidRootNodeId(rootNodeId)) throw new Error("Refusing to write an invalid root_node_id");
   const syntax = inspectFrontmatterSyntax(content);
-  if (syntax.status !== "valid") throw new Error("Foundation must have valid frontmatter before identity can be declared");
+  if (syntax.status !== "valid") throw new Error("Contract entrypoint must have valid frontmatter before identity can be declared");
   const frontmatter = parseFrontmatter(content);
-  if (!frontmatter) throw new Error("Foundation frontmatter could not be read");
+  if (!frontmatter) throw new Error("Contract entrypoint frontmatter could not be read");
   if (frontmatter.root_node_id !== undefined) {
     throw new Error("Refusing to replace an existing root_node_id declaration");
   }
 
   const newline = content.startsWith("---\r\n") ? "\r\n" : "\n";
   const closing = content.indexOf(`${newline}---`, 3);
-  if (closing < 0) throw new Error("Foundation frontmatter has no closing delimiter");
+  if (closing < 0) throw new Error("Contract entrypoint frontmatter has no closing delimiter");
   return `${content.slice(0, closing)}${newline}root_node_id: ${rootNodeId}${content.slice(closing)}`;
 }
 
@@ -97,14 +115,76 @@ export function mintDeclaredRootIdentity(content: string): { content: string; ro
 /**
  * Read local identity evidence without network access or mutation.
  *
- * HEAD is publication authority. Index and worktree declarations are retained
- * separately so publish can refuse an uncommitted identity change even when a
- * staged value was edited back out of the worktree.
+ * HEAD is publication authority. Agreement is preferred when present in any
+ * local revision; otherwise Foundation remains the compatibility source. A
+ * cheap presence probe selects one path before its HEAD/index/worktree values
+ * are read, avoiding a full revision walk for both candidates.
  */
 export function inspectLocalRootIdentity(cwd: string, apiUrl?: string): LocalRootIdentityReport {
-  const head = declarationFromContent(headFoundation(cwd));
-  const index = declarationFromContent(indexFoundation(cwd));
-  const worktree = declarationFromContent(worktreeFoundation(cwd));
+  const agreementWorktree = worktreeContract(cwd, AGREEMENT_PATH);
+  const agreementPresent = pathPresentInAnyRevision(
+    cwd,
+    AGREEMENT_PATH,
+    agreementWorktree,
+  );
+  const foundationWorktree = agreementPresent
+    ? null
+    : worktreeContract(cwd, FOUNDATION_PATH);
+  const foundationPresent = agreementPresent
+    ? false
+    : pathPresentInAnyRevision(cwd, FOUNDATION_PATH, foundationWorktree);
+  const contractSource = preferredContractSource([
+    ...(agreementPresent ? (["agreement"] as const) : []),
+    ...(foundationPresent ? (["foundation"] as const) : []),
+  ]);
+  const selectedPath = contractSource === "agreement"
+    ? AGREEMENT_PATH
+    : contractSource === "foundation"
+      ? FOUNDATION_PATH
+      : null;
+  const selectedWorktree = contractSource === "agreement"
+    ? agreementWorktree
+    : contractSource === "foundation"
+      ? foundationWorktree
+      : null;
+  const selectedHead = selectedPath ? headContract(cwd, selectedPath) : null;
+  const selectedIndex = selectedPath ? indexContract(cwd, selectedPath) : null;
+  const selectedHeadDeclaration = declarationFromContent(selectedHead);
+  const selectedIndexDeclaration = declarationFromContent(selectedIndex);
+  const selectedWorktreeDeclaration = declarationFromContent(selectedWorktree);
+  const foundationHead = contractSource === "agreement"
+    ? declarationFromContent(headContract(cwd, FOUNDATION_PATH))
+    : selectedHeadDeclaration;
+  const agreementHead = contractSource === "agreement"
+    ? selectedHeadDeclaration
+    : undefined;
+  const entrypointConflict =
+    isValidRootNodeId(foundationHead) &&
+    isValidRootNodeId(agreementHead) &&
+    foundationHead !== agreementHead;
+  // Identity is one Space invariant, not frame content. During migration an
+  // Agreement with no declaration retains a valid Foundation identity; a
+  // declaration added to Agreement must still agree before it can replace the
+  // compatibility source.
+  const fallbackIdentity = contractSource === "agreement" && isValidRootNodeId(foundationHead)
+    ? foundationHead
+    : undefined;
+  const agreementEstablished = contractSource === "agreement" && selectedHead !== null;
+  const withFallback = (declaration: unknown, content: string | null): unknown => {
+    if (declaration !== undefined || fallbackIdentity === undefined) return declaration;
+    // A new Agreement inherits the compatibility identity at every revision.
+    // Once Agreement exists in HEAD, an absent later revision is a deletion
+    // and must remain absent so dirty-state detection cannot be masked.
+    return !agreementEstablished || content !== null ? fallbackIdentity : undefined;
+  };
+  const head = withFallback(selectedHeadDeclaration, selectedHead);
+  const index = withFallback(selectedIndexDeclaration, selectedIndex);
+  const worktree = withFallback(selectedWorktreeDeclaration, selectedWorktree);
+  const identitySource = isValidRootNodeId(agreementHead)
+    ? "agreement"
+    : isValidRootNodeId(foundationHead)
+      ? "foundation"
+      : null;
   const dirty = !sameDeclaration(head, index) || !sameDeclaration(head, worktree);
 
   const record = findSpaceFor(cwd);
@@ -115,7 +195,7 @@ export function inspectLocalRootIdentity(cwd: string, apiUrl?: string): LocalRoo
     ? rootNodeIdFromGitUrl(origin, configuredApiUrl) ?? undefined
     : undefined;
   const evaluation = evaluateRootIdentity({
-    declaration: head,
+    declaration: entrypointConflict ? INVALID_DECLARATION : head,
     canonicalOrigin,
     localRegistry,
   });
@@ -123,6 +203,9 @@ export function inspectLocalRootIdentity(cwd: string, apiUrl?: string): LocalRoo
   return {
     ...evaluation,
     root_node_id: evaluation.rootNodeId ?? null,
+    contract_source: contractSource,
+    identity_source: identitySource,
+    entrypoint_conflict: entrypointConflict,
     declaration: {
       head: head === undefined ? null : head,
       index: index === undefined ? null : index,

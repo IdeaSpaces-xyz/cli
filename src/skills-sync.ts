@@ -21,10 +21,14 @@ import { spawnSync } from "node:child_process";
 import { dirname, join, relative, sep } from "node:path";
 import { stringify } from "yaml";
 import {
+  composeAgreementAlongPath,
   composeContractAlongPath,
   discoverSkillEntries,
+  isValidRootNodeId,
   parseFrontmatter,
+  resolveRepoRoot,
 } from "@ideaspaces/protocol";
+import { preferredContractSource } from "./contract-source.js";
 
 export const GENERATED_MARKER = "ideaspaces:generated skill pointer";
 
@@ -50,9 +54,17 @@ export async function syncSkillPointers(
   position: string,
   opts: { check?: boolean } = {},
 ): Promise<SkillsSyncReport | null> {
-  const composed = await composeContractAlongPath(position);
-  if (!composed.spaceRoot) return null;
-  const root = composed.spaceRoot;
+  const repoRoot = await resolveRepoRoot(position);
+  const [foundation, agreement] = await Promise.all([
+    composeContractAlongPath(position),
+    composeAgreementAlongPath(position, repoRoot),
+  ]);
+  const source = preferredContractSource([
+    ...(agreement.agreements.length ? (["agreement"] as const) : []),
+    ...(foundation.spaceRoot ? (["foundation"] as const) : []),
+  ]);
+  const root = source === "agreement" ? agreement.spaceRoot : foundation.spaceRoot;
+  if (!root) return null;
   const check = opts.check === true;
 
   const report: SkillsSyncReport = {
@@ -130,13 +142,13 @@ export async function syncSkillPointers(
 
 /**
  * Skill-carrying levels of this space: the root plus every descendant with
- * `_agent/skills/`, excluding nested spaces (their own `foundation.md` marks
- * their own contract), dot-dirs, underscore infrastructure, and node_modules.
+ * `_agent/skills/`, excluding nested Spaces (Foundation, or Agreement carrying
+ * identity), dot-dirs, underscore infrastructure, and node_modules.
  */
 async function collectSkillLevels(root: string): Promise<string[]> {
   const levels: string[] = [];
   async function walk(dir: string, isRoot: boolean): Promise<void> {
-    if (!isRoot && existsSync(join(dir, "_agent", "foundation.md"))) return;
+    if (!isRoot && await startsNestedSpace(dir)) return;
     if (existsSync(join(dir, "_agent", "skills"))) levels.push(dir);
     let dirents: Array<{ name: string; isDirectory: () => boolean }>;
     try {
@@ -152,6 +164,17 @@ async function collectSkillLevels(root: string): Promise<string[]> {
   }
   await walk(root, true);
   return levels;
+}
+
+async function startsNestedSpace(dir: string): Promise<boolean> {
+  if (existsSync(join(dir, "_agent", "foundation.md"))) return true;
+  try {
+    const agreement = await fs.readFile(join(dir, "_agent", "agreement.md"), "utf-8");
+    const rootNodeId = parseFrontmatter(agreement)?.root_node_id;
+    return isValidRootNodeId(rootNodeId);
+  } catch {
+    return false;
+  }
 }
 
 async function renderPointer(name: string, canonicalPath: string, pointerDir: string): Promise<string> {

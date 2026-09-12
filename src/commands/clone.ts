@@ -129,7 +129,7 @@ export const cloneCommand: CommandDef = {
     }
     if (["invalid", "drift", "ambiguous"].includes(rootIdentity.state)) {
       output.error(
-        `Clone succeeded, but its root identity is ${rootIdentity.state}. The folder was not bound locally; inspect _agent/foundation.md and origin before using it.`,
+        `Clone succeeded, but its root identity is ${rootIdentity.state}. The folder was not bound locally; inspect the selected Agreement or Foundation and origin before using it.`,
       );
       return 1;
     }

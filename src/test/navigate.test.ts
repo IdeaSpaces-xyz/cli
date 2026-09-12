@@ -113,7 +113,10 @@ describe("ideaspaces navigate", () => {
     );
   });
 
-  it("distinguishes a non-directory path from a missing one", async () => {
+  it("distinguishes non-Content, non-directory, and missing paths", async () => {
+    const agentContext = await runNavigate(["_agent"]);
+    expect(agentContext.exit).toBe(1);
+    expect(agentContext.err).toContain("Not a Content position");
     const file = await runNavigate(["_agent/now.md"]);
     expect(file.exit).toBe(1);
     expect(file.err).toContain("Not a directory");
@@ -189,7 +192,7 @@ describe("ideaspaces navigate", () => {
       git(["commit", "-q", "-m", "seed", "--allow-empty"], child);
       // ws has no _agent and isn't itself a git repo → a bare workspace folder.
       const { data } = await runNavigate([ws], { workspace: ws });
-      expect(data.root).toBeNull(); // no contract resolves
+      expect(data.root).toBe(ws); // floor orientation is still rooted
       expect(data.text).toContain("Repos in scope (local):");
       expect(data.text).toContain("childrepo (local-only)");
       expect(data.text).toContain("Navigate into a repo below"); // the bare-folder hint
@@ -203,7 +206,7 @@ describe("ideaspaces navigate", () => {
     try {
       // A fresh workspace folder — no child repos, no _agent, not a git repo.
       const { data } = await runNavigate([ws], { workspace: ws });
-      expect(data.root).toBeNull();
+      expect(data.root).toBe(ws);
       expect(data.text).not.toContain("Repos in scope"); // nothing to list
       expect(data.text).toContain("no repos yet"); // the empty-folder hint, not "navigate into a repo below"
       expect(data.text).not.toContain("Navigate into a repo below");
@@ -242,14 +245,50 @@ describe("ideaspaces navigate", () => {
     const { data } = await runNavigate(["."]);
     expect(data.manifest).toMatchObject({ kind: "content", spaceRoot: tmp });
     expect(data.manifest.contract.map((e: { name: string }) => e.name)).toContain("foundation");
-    // Bare path carries an explicit null, not an absent field.
+    // Floor orientation carries an explicit null source and an empty contract.
     const ws = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-nav-mf-")));
     try {
       const bare = await runNavigate([ws]);
-      expect(bare.data.manifest).toBeNull();
+      expect(bare.data.manifest).toMatchObject({
+        status: "ok",
+        contractSource: null,
+        contract: [],
+      });
     } finally {
       await rm(ws, { recursive: true, force: true });
     }
+  });
+
+  it("prefers Agreement when both entrypoints exist and permits explicit Foundation", async () => {
+    await fs.writeFile(
+      join(tmp, "_agent", "agreement.md"),
+      "---\nsummary: Agreement summary.\n---\n# Agreement\n\nAGREEMENT BODY",
+      "utf-8",
+    );
+
+    const normal = await runNavigate(["."]);
+    expect(normal.exit).toBe(0);
+    expect(normal.data.manifest.contractSource).toBe("agreement");
+    expect(normal.data.text).toContain("AGREEMENT BODY");
+    expect(normal.data.manifest.contract.map((entry: { name: string }) => entry.name))
+      .not.toContain("foundation");
+
+    const comparison = await runNavigate(["."], { contract: "foundation" });
+    expect(comparison.exit).toBe(0);
+    expect(comparison.data.manifest.contractSource).toBe("foundation");
+    expect(comparison.data.text).not.toContain("AGREEMENT BODY");
+    expect(comparison.data.manifest.contract.map((entry: { name: string }) => entry.name))
+      .toContain("foundation");
+  });
+
+  it("rejects invalid or unavailable explicit contract choices", async () => {
+    const invalid = await runNavigate(["."], { contract: "other" });
+    expect(invalid.exit).toBe(1);
+    expect(invalid.err).toContain("--contract must be");
+
+    const unavailable = await runNavigate(["."], { contract: "agreement" });
+    expect(unavailable.exit).toBe(1);
+    expect(unavailable.err).toContain("Contract source unavailable: agreement");
   });
 
   it("shows the full contract stack and inherited skills at a branch", async () => {

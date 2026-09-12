@@ -46,11 +46,16 @@ function foundation(rootNodeId: string): string {
   return `---\nname: Test\nsummary: Test Space.\nroot_node_id: ${rootNodeId}\n---\n\n# Foundation\n`;
 }
 
-function commitFoundation(content: string): void {
+function commitContract(name: "foundation" | "agreement", content: string): void {
   mkdirSync(join(repo, "_agent"), { recursive: true });
-  writeFileSync(join(repo, "_agent", "foundation.md"), content);
-  spawnSync("git", ["-C", repo, "add", "_agent/foundation.md"]);
+  const path = `_agent/${name}.md`;
+  writeFileSync(join(repo, path), content);
+  spawnSync("git", ["-C", repo, "add", path]);
   spawnSync("git", ["-C", repo, "commit", "-q", "-m", "declare identity"]);
+}
+
+function commitFoundation(content: string): void {
+  commitContract("foundation", content);
 }
 
 describe("local root identity", () => {
@@ -68,9 +73,65 @@ describe("local root identity", () => {
     expect(report).toMatchObject({
       state: "local_only",
       root_node_id: ROOT_A,
+      contract_source: "foundation",
+      identity_source: "foundation",
       canonical_origin: null,
       local_registry: null,
       declaration: { head: ROOT_A, index: ROOT_A, worktree: ROOT_A, dirty: false },
+    });
+  });
+
+  it("prefers an Agreement declaration over Foundation", () => {
+    commitFoundation(foundation(ROOT_A));
+    commitContract("agreement", foundation(ROOT_A).replace("# Foundation", "# Agreement"));
+
+    expect(inspectLocalRootIdentity(repo)).toMatchObject({
+      state: "local_only",
+      root_node_id: ROOT_A,
+      contract_source: "agreement",
+      identity_source: "agreement",
+      declaration: { head: ROOT_A, index: ROOT_A, worktree: ROOT_A, dirty: false },
+    });
+  });
+
+  it("retains Foundation identity when a fresh Agreement has no declaration", () => {
+    commitFoundation(foundation(ROOT_A));
+    writeFileSync(
+      join(repo, "_agent", "agreement.md"),
+      "---\nname: Agreement\nsummary: Trying the convention.\n---\n# Agreement\n",
+    );
+
+    expect(inspectLocalRootIdentity(repo)).toMatchObject({
+      state: "local_only",
+      root_node_id: ROOT_A,
+      contract_source: "agreement",
+      identity_source: "foundation",
+      entrypoint_conflict: false,
+      declaration: { head: ROOT_A, index: ROOT_A, worktree: ROOT_A, dirty: false },
+    });
+  });
+
+  it("keeps Agreement selected through a staged deletion", () => {
+    commitFoundation(foundation(ROOT_A));
+    commitContract("agreement", foundation(ROOT_A).replace("# Foundation", "# Agreement"));
+    rmSync(join(repo, "_agent", "agreement.md"));
+    spawnSync("git", ["-C", repo, "add", "-A", "_agent/agreement.md"]);
+
+    expect(inspectLocalRootIdentity(repo)).toMatchObject({
+      contract_source: "agreement",
+      declaration: { head: ROOT_A, index: null, worktree: null, dirty: true },
+    });
+  });
+
+  it("fails closed when Agreement and Foundation declare different identities", () => {
+    commitFoundation(foundation(ROOT_A));
+    commitContract("agreement", foundation(ROOT_B).replace("# Foundation", "# Agreement"));
+
+    expect(inspectLocalRootIdentity(repo)).toMatchObject({
+      state: "invalid",
+      root_node_id: null,
+      contract_source: "agreement",
+      entrypoint_conflict: true,
     });
   });
 
@@ -129,6 +190,8 @@ describe("local root identity", () => {
     expect(inspectLocalRootIdentity(repo)).toMatchObject({
       state: "legacy_unstamped",
       root_node_id: ROOT_A,
+      contract_source: null,
+      identity_source: null,
       canonical_origin: ROOT_A,
       declaration: { head: null, index: null, worktree: null, dirty: false },
     });

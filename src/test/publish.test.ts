@@ -414,7 +414,7 @@ describe("ideaspaces publish", () => {
     });
   });
 
-  it("adopts the identity minted by offline create", async () => {
+  it("adopts the Foundation identity when a fresh Agreement has no declaration", async () => {
     const { createCommand } = await import("../commands/create.js");
     expect(
       await createCommand.run(["offline-created"], {}, { ...baseGlobal, yes: true }),
@@ -423,6 +423,13 @@ describe("ideaspaces publish", () => {
     const foundation = readFileSync(join(dir, "_agent", "foundation.md"), "utf-8");
     const rootNodeId = foundation.match(/^root_node_id: (n_[0-9a-f]{24})$/m)?.[1];
     expect(rootNodeId).toMatch(/^n_[0-9a-f]{24}$/);
+    // Manual Agreement adoption precedes create migration. Its missing identity
+    // must retain the Space's committed Foundation identity, never ask the
+    // server to mint a replacement.
+    writeFileSync(
+      join(dir, "_agent", "agreement.md"),
+      "---\nname: Agreement\nsummary: Trying the convention.\n---\n# Agreement\n",
+    );
     process.chdir(dir);
     await writeCredentials();
 
@@ -637,6 +644,32 @@ describe("ideaspaces publish", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(findSpaceFor(dir)).toMatchObject({ kind: "unpublished_fork", root_node_id: rootNodeId });
     expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"]).status).not.toBe(0);
+  });
+
+  it("names conflicting Agreement and Foundation identities before contacting Keeper", async () => {
+    const dir = initLocalRepo("entrypoint-conflict");
+    declareRootIdentity(dir, "n_111111111111111111111111");
+    writeFileSync(
+      join(dir, "_agent", "agreement.md"),
+      "---\nroot_node_id: n_222222222222222222222222\n---\n# Agreement\n",
+    );
+    spawnSync("git", ["-C", dir, "add", "_agent/agreement.md"]);
+    spawnSync("git", ["-C", dir, "commit", "-q", "-m", "add Agreement"]);
+    process.chdir(dir);
+    const error: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array) => {
+      error.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    }) as typeof process.stderr.write);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(1);
+    expect(error.join("")).toContain(
+      "Agreement and Foundation declare different root identities",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("checks the committed declaration rather than a matching uncommitted edit", async () => {

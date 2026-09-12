@@ -57,6 +57,7 @@ export type BindingFailure =
   | "unreachable"
   | "unpublished"
   | "local-only"
+  | "identity-entrypoint-conflict"
   | "identity-invalid"
   | "identity-drift"
   | "identity-ambiguous"
@@ -85,6 +86,9 @@ export async function resolveSpaceBinding(
     return { failure: "identity-invalid" };
   }
   if (localIdentity.declaration.dirty) return { failure: "identity-dirty" };
+  if (localIdentity.entrypoint_conflict) {
+    return { failure: "identity-entrypoint-conflict" };
+  }
   if (localIdentity.state === "invalid") return { failure: "identity-invalid" };
   if (localIdentity.state === "drift") return { failure: "identity-drift" };
   if (localIdentity.state === "ambiguous") return { failure: "identity-ambiguous" };

@@ -436,13 +436,15 @@ export const syncCommand: CommandDef = {
         // `link`: when the account could not be reached, `link` makes the same
         // call and fails the same way.
         incomingNote = failure === "identity-dirty"
-          ? "The root identity declaration has an uncommitted change. Commit or restore _agent/foundation.md before syncing."
+          ? "The root identity declaration has an uncommitted change. Commit or restore the selected _agent entrypoint before syncing."
           : failure === "identity-drift"
-            ? "The foundation, canonical origin, and local registry disagree on Space identity. Refusing to choose one."
+            ? "The contract entrypoint, canonical origin, and local registry disagree on Space identity. Refusing to choose one."
             : failure === "identity-ambiguous"
               ? "The canonical origin and local registry name different Spaces. Repair the binding before syncing."
-              : failure === "identity-invalid"
-                ? "Space identity evidence is invalid. Inspect _agent/foundation.md before syncing."
+              : failure === "identity-entrypoint-conflict"
+                ? "Agreement and Foundation declare different root identities. Align them before syncing."
+                : failure === "identity-invalid"
+                  ? "Space identity evidence is invalid. Inspect the selected Agreement or Foundation before syncing."
                 : !config
                   ? "Log in to see what changed on the other side: ideaspaces login"
                   : failure === "unreachable"

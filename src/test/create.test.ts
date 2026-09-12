@@ -207,6 +207,17 @@ describe("ideaspaces create", () => {
     expect((await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8")).trim()).toBe("# Foundation");
   });
 
+  it("does not scaffold Foundation beside a manually authored Agreement", async () => {
+    await fs.mkdir(join(tmp, "_agent"), { recursive: true });
+    await fs.writeFile(join(tmp, "_agent", "agreement.md"), "# Agreement", "utf-8");
+
+    const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
+
+    expect(exit).toBe(5);
+    expect(existsSync(join(tmp, "_agent", "foundation.md"))).toBe(false);
+    expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
+  });
+
   it("refuses without pointing at a slash command", async () => {
     await fs.mkdir(join(tmp, "_agent"), { recursive: true });
     await fs.writeFile(join(tmp, "_agent", "foundation.md"), "# Foundation", "utf-8");

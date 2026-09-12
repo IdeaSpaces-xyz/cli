@@ -310,6 +310,14 @@ describe("share person — a grade on a Space, not a seat in a repo", () => {
     expect(addPersonShareMock).not.toHaveBeenCalled();
   });
 
+  it("names conflicting Agreement and Foundation identities", async () => {
+    resolveSpaceBindingMock.mockResolvedValue({ failure: "identity-entrypoint-conflict" });
+
+    expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Agreement and Foundation declare different root identities");
+    expect(addPersonShareMock).not.toHaveBeenCalled();
+  });
+
   it("does not share an unpublished fork as though it were hosted", async () => {
     resolveSpaceBindingMock.mockResolvedValue({ failure: "unpublished" });
 
