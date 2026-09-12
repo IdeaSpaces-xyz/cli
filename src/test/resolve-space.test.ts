@@ -83,6 +83,32 @@ describe("resolveSpaceBinding", () => {
     expect(fetchAuthMeMock).not.toHaveBeenCalled();
   });
 
+  it("preserves entrypoint identity conflict as its own binding failure", async () => {
+    const { resolveSpaceBinding } = await import("../auth/resolve-space.js");
+    const dir = repoWithOrigin("entrypoint-conflict", "https://git.example.test/alice/notes.git");
+    mkdirSync(join(dir, "_agent"));
+    writeFileSync(
+      join(dir, "_agent", "foundation.md"),
+      `---\nroot_node_id: ${ROOT}\n---\n# Foundation\n`,
+    );
+    writeFileSync(
+      join(dir, "_agent", "agreement.md"),
+      "---\nroot_node_id: n_aaaaaaaaaaaaaaaaaaaaaaaa\n---\n# Agreement\n",
+    );
+    spawnSync("git", ["-C", dir, "add", "_agent"]);
+    spawnSync("git", [
+      "-C", dir,
+      "-c", "user.name=Test",
+      "-c", "user.email=test@example.com",
+      "commit", "-q", "-m", "declare conflicting identity",
+    ]);
+
+    expect(await resolveSpaceBinding(dir, CONFIG)).toEqual({
+      failure: "identity-entrypoint-conflict",
+    });
+    expect(fetchAuthMeMock).not.toHaveBeenCalled();
+  });
+
   it("fails closed when an unpublished fork registry conflicts with canonical origin", async () => {
     const { saveSpace } = await import("../auth/spaces.js");
     const { resolveSpaceBinding } = await import("../auth/resolve-space.js");

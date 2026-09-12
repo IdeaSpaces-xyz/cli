@@ -186,6 +186,11 @@ describe("ideaspaces map select", () => {
     result = await run();
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Publish it before");
+
+    resolveSpaceBindingMock.mockResolvedValue({ failure: "identity-entrypoint-conflict" });
+    result = await run();
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Agreement and Foundation declare different root identities");
   });
 
   it("refuses a clean commit that is absent from the remote branch", async () => {

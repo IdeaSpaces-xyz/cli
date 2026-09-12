@@ -113,7 +113,10 @@ describe("ideaspaces navigate", () => {
     );
   });
 
-  it("distinguishes a non-directory path from a missing one", async () => {
+  it("distinguishes non-Content, non-directory, and missing paths", async () => {
+    const agentContext = await runNavigate(["_agent"]);
+    expect(agentContext.exit).toBe(1);
+    expect(agentContext.err).toContain("Not a Content position");
     const file = await runNavigate(["_agent/now.md"]);
     expect(file.exit).toBe(1);
     expect(file.err).toContain("Not a directory");
@@ -242,7 +245,7 @@ describe("ideaspaces navigate", () => {
     const { data } = await runNavigate(["."]);
     expect(data.manifest).toMatchObject({ kind: "content", spaceRoot: tmp });
     expect(data.manifest.contract.map((e: { name: string }) => e.name)).toContain("foundation");
-    // Bare path carries an explicit null, not an absent field.
+    // Floor orientation carries an explicit null source and an empty contract.
     const ws = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-nav-mf-")));
     try {
       const bare = await runNavigate([ws]);

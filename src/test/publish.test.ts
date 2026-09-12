@@ -639,6 +639,32 @@ describe("ideaspaces publish", () => {
     expect(spawnSync("git", ["-C", dir, "remote", "get-url", "origin"]).status).not.toBe(0);
   });
 
+  it("names conflicting Agreement and Foundation identities before contacting Keeper", async () => {
+    const dir = initLocalRepo("entrypoint-conflict");
+    declareRootIdentity(dir, "n_111111111111111111111111");
+    writeFileSync(
+      join(dir, "_agent", "agreement.md"),
+      "---\nroot_node_id: n_222222222222222222222222\n---\n# Agreement\n",
+    );
+    spawnSync("git", ["-C", dir, "add", "_agent/agreement.md"]);
+    spawnSync("git", ["-C", dir, "commit", "-q", "-m", "add Agreement"]);
+    process.chdir(dir);
+    const error: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array) => {
+      error.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    }) as typeof process.stderr.write);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { publishCommand } = await import("../commands/publish.js");
+    expect(await publishCommand.run([], {}, baseGlobal)).toBe(1);
+    expect(error.join("")).toContain(
+      "Agreement and Foundation declare different root identities",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("checks the committed declaration rather than a matching uncommitted edit", async () => {
     const rootNodeId = "n_0123456789abcdef01234567";
     const dir = initLocalRepo("committed-declaration-drift");

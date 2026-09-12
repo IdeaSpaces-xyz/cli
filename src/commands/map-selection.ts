@@ -47,6 +47,8 @@ function bindingFailure(failure: BindingFailure): string {
     case "identity-drift":
     case "identity-ambiguous":
       return "The checkout identity and canonical origin disagree. Repair the Space binding before selecting context.";
+    case "identity-entrypoint-conflict":
+      return "Agreement and Foundation declare different root identities. Align them before selecting context.";
     case "identity-invalid":
       return "Space identity evidence is invalid. Inspect the selected Agreement or Foundation before selecting context.";
     case "unreachable":

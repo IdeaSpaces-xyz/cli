@@ -38,6 +38,7 @@ import {
   type ContentAwarenessSection,
   type ContractSource,
 } from "@ideaspaces/protocol";
+import { preferredContractSource } from "../contract-source.js";
 import { headSha } from "../git.js";
 import { formatWorkingSetSection, formatCatalogSection } from "../catalog.js";
 import { createOutput } from "../output.js";
@@ -183,29 +184,18 @@ export const navigateCommand: CommandDef = {
     // Protocol selection has no precedence. The CLI is the selecting habitat:
     // explicit flag first, then Agreement, Foundation, and floor.
     if (awareness?.status === "contract_choice_required" && !selected.source) {
-      awareness = await assembleContentAwareness({
-        ...awarenessOpts,
-        contractSource: "agreement",
-      });
+      const preferred = preferredContractSource(awareness.availableSources);
+      if (preferred) {
+        awareness = await assembleContentAwareness({
+          ...awarenessOpts,
+          contractSource: preferred,
+        });
+      }
     }
 
     if (!awareness) {
-      // No contract here (a bare workspace folder, or a plain repo). With a
-      // --workspace the catalog is the orientation — which repos are here — plus
-      // a nudge (into a repo if any are listed, else to clone) at a bare folder.
-      const position = relative(repoRoot ?? target, target) || ".";
-      const bare: string[] = [];
-      if (cat.kind === "warn") bare.push(cat.text);
-      else if (cat.kind === "ok") {
-        const catalog = await cat.catalog;
-        if (catalog) bare.push(catalog);
-        if (!repoRoot) bare.push(catalog ? BARE_FOLDER_HINT : EMPTY_FOLDER_HINT);
-      }
-      output.result(
-        { text: bare.length ? bare.join("\n\n") : null, position, root: null, repoRoot, manifest: null },
-        bare.length ? bare.join("\n\n") : "No _agent/ contract resolves at this position.",
-      );
-      return 0;
+      output.error(`Not a Content position: ${target}`);
+      return 1;
     }
     if (awareness.status !== "ok") {
       output.error(renderContentAwareness(awareness));

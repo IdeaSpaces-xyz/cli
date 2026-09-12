@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig, getDefaultApiUrl } from "./auth/credentials.js";
+import { preferredContractSource } from "./contract-source.js";
 import { findSpaceFor } from "./auth/spaces.js";
 import { originUrl } from "./git.js";
 import { rootNodeIdFromGitUrl } from "./repo-locator.js";
@@ -70,22 +71,17 @@ function worktreeContract(cwd: string, path: string): string | null {
   return readFileSync(absolute, "utf-8");
 }
 
-interface ContractRevisions {
-  head: string | null;
-  index: string | null;
-  worktree: string | null;
-}
-
-function contractRevisions(cwd: string, path: string): ContractRevisions {
-  return {
-    head: headContract(cwd, path),
-    index: indexContract(cwd, path),
-    worktree: worktreeContract(cwd, path),
-  };
-}
-
-function presentInAnyRevision(revisions: ContractRevisions): boolean {
-  return revisions.head !== null || revisions.index !== null || revisions.worktree !== null;
+function pathPresentInAnyRevision(
+  cwd: string,
+  path: string,
+  worktree: string | null,
+): boolean {
+  if (worktree !== null) return true;
+  // A missing worktree file can still be a staged or unstaged deletion. One
+  // bounded status probe preserves that fact without reading all revisions for
+  // both candidate entrypoints.
+  const status = runGit(cwd, ["status", "--porcelain=v1", "--untracked-files=all", "--", path]);
+  return status.ok && status.stdout.trim().length > 0;
 }
 
 function sameDeclaration(left: unknown, right: unknown): boolean {
@@ -119,24 +115,46 @@ export function mintDeclaredRootIdentity(content: string): { content: string; ro
  * Read local identity evidence without network access or mutation.
  *
  * HEAD is publication authority. Agreement is preferred when present in any
- * local revision; otherwise Foundation remains the compatibility source. Index
- * and worktree declarations stay separate so publish can refuse an uncommitted
- * identity change even when staged bytes were edited back out of the worktree.
+ * local revision; otherwise Foundation remains the compatibility source. A
+ * cheap presence probe selects one path before its HEAD/index/worktree values
+ * are read, avoiding a full revision walk for both candidates.
  */
 export function inspectLocalRootIdentity(cwd: string, apiUrl?: string): LocalRootIdentityReport {
-  const agreement = contractRevisions(cwd, AGREEMENT_PATH);
-  const foundation = contractRevisions(cwd, FOUNDATION_PATH);
-  const selected = presentInAnyRevision(agreement) ? agreement : foundation;
-  const contractSource = presentInAnyRevision(agreement)
-    ? "agreement"
-    : presentInAnyRevision(foundation)
-      ? "foundation"
+  const agreementWorktree = worktreeContract(cwd, AGREEMENT_PATH);
+  const agreementPresent = pathPresentInAnyRevision(
+    cwd,
+    AGREEMENT_PATH,
+    agreementWorktree,
+  );
+  const foundationWorktree = agreementPresent
+    ? null
+    : worktreeContract(cwd, FOUNDATION_PATH);
+  const foundationPresent = agreementPresent
+    ? false
+    : pathPresentInAnyRevision(cwd, FOUNDATION_PATH, foundationWorktree);
+  const contractSource = preferredContractSource([
+    ...(agreementPresent ? (["agreement"] as const) : []),
+    ...(foundationPresent ? (["foundation"] as const) : []),
+  ]);
+  const selectedPath = contractSource === "agreement"
+    ? AGREEMENT_PATH
+    : contractSource === "foundation"
+      ? FOUNDATION_PATH
       : null;
-  const head = declarationFromContent(selected.head);
-  const index = declarationFromContent(selected.index);
-  const worktree = declarationFromContent(selected.worktree);
-  const foundationHead = declarationFromContent(foundation.head);
-  const agreementHead = declarationFromContent(agreement.head);
+  const selectedWorktree = contractSource === "agreement"
+    ? agreementWorktree
+    : contractSource === "foundation"
+      ? foundationWorktree
+      : null;
+  const selectedHead = selectedPath ? headContract(cwd, selectedPath) : null;
+  const selectedIndex = selectedPath ? indexContract(cwd, selectedPath) : null;
+  const head = declarationFromContent(selectedHead);
+  const index = declarationFromContent(selectedIndex);
+  const worktree = declarationFromContent(selectedWorktree);
+  const foundationHead = contractSource === "agreement"
+    ? declarationFromContent(headContract(cwd, FOUNDATION_PATH))
+    : head;
+  const agreementHead = contractSource === "agreement" ? head : undefined;
   const entrypointConflict =
     isValidRootNodeId(foundationHead) &&
     isValidRootNodeId(agreementHead) &&

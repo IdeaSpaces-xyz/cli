@@ -92,6 +92,18 @@ describe("local root identity", () => {
     });
   });
 
+  it("keeps Agreement selected through a staged deletion", () => {
+    commitFoundation(foundation(ROOT_A));
+    commitContract("agreement", foundation(ROOT_A).replace("# Foundation", "# Agreement"));
+    rmSync(join(repo, "_agent", "agreement.md"));
+    spawnSync("git", ["-C", repo, "add", "-A", "_agent/agreement.md"]);
+
+    expect(inspectLocalRootIdentity(repo)).toMatchObject({
+      contract_source: "agreement",
+      declaration: { head: ROOT_A, index: null, worktree: null, dirty: true },
+    });
+  });
+
   it("fails closed when Agreement and Foundation declare different identities", () => {
     commitFoundation(foundation(ROOT_A));
     commitContract("agreement", foundation(ROOT_B).replace("# Foundation", "# Agreement"));

@@ -441,8 +441,10 @@ export const syncCommand: CommandDef = {
             ? "The contract entrypoint, canonical origin, and local registry disagree on Space identity. Refusing to choose one."
             : failure === "identity-ambiguous"
               ? "The canonical origin and local registry name different Spaces. Repair the binding before syncing."
-              : failure === "identity-invalid"
-                ? "Space identity evidence is invalid. Inspect the selected Agreement or Foundation before syncing."
+              : failure === "identity-entrypoint-conflict"
+                ? "Agreement and Foundation declare different root identities. Align them before syncing."
+                : failure === "identity-invalid"
+                  ? "Space identity evidence is invalid. Inspect the selected Agreement or Foundation before syncing."
                 : !config
                   ? "Log in to see what changed on the other side: ideaspaces login"
                   : failure === "unreachable"
