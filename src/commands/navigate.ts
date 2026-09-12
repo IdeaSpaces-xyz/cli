@@ -3,9 +3,9 @@
  * position without changing the working directory.
  *
  * One structured protocol assembly (`assembleContentAwareness`) supplies every
- * fact; the CLI owns placement. The output is the derived active-context index
- * rendered at handle depth — navigate builds handles and never loads content
- * (`read` is the loading tier) — in three tiers:
+ * fact and its prompt placement. The CLI selects Agreement before Foundation
+ * unless `--contract` overrides it, then renders the derived active-context
+ * index in three tiers:
  *
  *   1. stable block   — position, Now, tree, contract, skills, activity:
  *                       the vantage plus the focus position's local handles
@@ -16,11 +16,10 @@
  *   3. drift tail     — git state, stale docs, direction drift: the volatile
  *                       check-before-acting layer, rendered last
  *
- * Two selective renders around the CLI's forest handles are the protocol's
- * placement seam working as designed — wording stays protocol-owned, placement
- * stays harness-owned. The catalog renders even with **no `_agent/` contract**
- * (a bare workspace folder's repos are its orientation); the working set needs
- * a space root. `--no-git` suppresses the compact git-state line for callers
+ * Two selective renders around the CLI's forest handles follow the protocol's
+ * declared placements while preserving CLI-owned catalog rendering. A bare
+ * folder receives floor orientation plus its catalog; a working set requires a
+ * selected authority frame. `--no-git` suppresses the compact git-state line for callers
  * that render richer state. `--json` returns `{ text, position, root,
  * repoRoot, manifest }` — the manifest is the derived projection fragment the
  * text was rendered from, so tooling gets facts without parsing prose.
@@ -37,6 +36,7 @@ import {
   renderContentAwareness,
   resolveRepoRoot,
   type ContentAwarenessSection,
+  type ContractSource,
 } from "@ideaspaces/protocol";
 import { headSha } from "../git.js";
 import { formatWorkingSetSection, formatCatalogSection } from "../catalog.js";
@@ -82,14 +82,22 @@ function parsePullable(raw: string | boolean | undefined): Array<{ slug: string;
     .filter((x): x is { slug: string; namespace: string } => x !== null);
 }
 
-// Shown at a bare workspace folder (no `_agent/` contract, not a git repo) where
-// the catalog IS the orientation — a nudge to move into one of the listed repos.
+// Shown at a bare workspace folder (floor orientation, not a git repo) where
+// the catalog remains the useful next-step handle.
 // Two copies so the empty first-touch folder doesn't say "navigate into a repo
 // below" with nothing below.
 const BARE_FOLDER_HINT =
   "You're at a workspace folder (no `_agent/` contract here). Navigate into a repo below (`ideaspaces navigate <repo>`), or pull one that's behind.";
 const EMPTY_FOLDER_HINT =
   "You're at a workspace folder with no repos yet. Clone one to get started (`ideaspaces clone`).";
+
+function contractSourceFlag(
+  value: string | boolean | undefined,
+): { source?: ContractSource; error?: string } {
+  if (value === undefined) return {};
+  if (value === "foundation" || value === "agreement") return { source: value };
+  return { error: "--contract must be `foundation` or `agreement`" };
+}
 
 type CatalogPlan =
   | { kind: "none" }
@@ -118,17 +126,23 @@ function planCatalog(flags: Record<string, string | boolean>, povRepoRoot: strin
 
 export const navigateCommand: CommandDef = {
   name: "navigate",
-  description: "Re-derive orientation (fractal contract, tree, drift) at a position",
-  usage: "ideaspaces navigate [<path>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
+  description: "Re-derive selectable contract, tree, and drift orientation at a position",
+  usage: "ideaspaces navigate [<path>] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
   examples: [
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate docs --json       # orient at a branch",
+    "ideaspaces navigate --contract foundation --json  # explicit compatibility frame",
     "ideaspaces navigate --depth 2 --json  # probe the map: name-rung outline one level below",
     "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
     "ideaspaces navigate --workspace . --pullable team:acme.com,notes:alice --no-git --json  # + remote tier; caller renders its own state",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
+    const selected = contractSourceFlag(flags.contract);
+    if (selected.error) {
+      output.error(selected.error);
+      return 1;
+    }
 
     const raw = (args[0] ?? ".").trim();
     const target = resolve(raw === "" ? "." : raw);
@@ -160,12 +174,22 @@ export const navigateCommand: CommandDef = {
     // --depth is deliberate map-probing (the protocol soft-caps to 1..4);
     // ambient callers omit it and stay at the depth-1 orientation default.
     const depth = typeof flags.depth === "string" ? Number.parseInt(flags.depth, 10) : undefined;
-    const manifest = await assembleContentAwareness({
+    const awarenessOpts = {
       position: target,
+      ...(selected.source ? { contractSource: selected.source } : {}),
       ...(depth && Number.isFinite(depth) ? { treeDepth: depth } : {}),
-    });
+    };
+    let awareness = await assembleContentAwareness(awarenessOpts);
+    // Protocol selection has no precedence. The CLI is the selecting habitat:
+    // explicit flag first, then Agreement, Foundation, and floor.
+    if (awareness?.status === "contract_choice_required" && !selected.source) {
+      awareness = await assembleContentAwareness({
+        ...awarenessOpts,
+        contractSource: "agreement",
+      });
+    }
 
-    if (!manifest) {
+    if (!awareness) {
       // No contract here (a bare workspace folder, or a plain repo). With a
       // --workspace the catalog is the orientation — which repos are here — plus
       // a nudge (into a repo if any are listed, else to clone) at a bare folder.
@@ -183,12 +207,20 @@ export const navigateCommand: CommandDef = {
       );
       return 0;
     }
+    if (awareness.status !== "ok") {
+      output.error(renderContentAwareness(awareness));
+      return 1;
+    }
+    const manifest = awareness;
+    const isFloor = manifest.contractSource === null;
 
-    // The catalog and working set are independent IO started above; the working
-    // set needs the space root, so it renders only on this (contract) path.
+    // The catalog is independent IO. A working set requires selected agent
+    // terms; floor orientation has a root coordinate but no authority frame.
     const [catalog, workingSet] = await Promise.all([
       cat.kind === "ok" ? cat.catalog : Promise.resolve(null),
-      cat.kind === "ok" ? formatWorkingSetSection(manifest.spaceRoot, cat.mounts) : Promise.resolve(null),
+      cat.kind === "ok" && !isFloor
+        ? formatWorkingSetSection(manifest.spaceRoot, cat.mounts)
+        : Promise.resolve(null),
     ]);
 
     const sections: string[] = [];
@@ -202,6 +234,7 @@ export const navigateCommand: CommandDef = {
     else if (cat.kind === "ok") {
       if (workingSet) sections.push(workingSet);
       if (catalog) sections.push(catalog);
+      if (isFloor && !repoRoot) sections.push(catalog ? BARE_FOLDER_HINT : EMPTY_FOLDER_HINT);
     }
 
     // 3. Drift tail — volatile state last, closest to action. --no-git

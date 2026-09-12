@@ -48,7 +48,7 @@ function bindingFailure(failure: BindingFailure): string {
     case "identity-ambiguous":
       return "The checkout identity and canonical origin disagree. Repair the Space binding before selecting context.";
     case "identity-invalid":
-      return "Space identity evidence is invalid. Inspect _agent/foundation.md before selecting context.";
+      return "Space identity evidence is invalid. Inspect the selected Agreement or Foundation before selecting context.";
     case "unreachable":
       return "Could not reach the account needed to resolve this hosted Space. Retry when online.";
     case "ambiguous":

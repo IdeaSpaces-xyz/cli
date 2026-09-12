@@ -29,7 +29,7 @@ Per seat, billed yearly."
 ideaspaces commit -m "Capture the pricing decision" decisions/pricing.md
 ```
 
-`navigate` will say that `purpose.md` and `now.md` are not written yet. That is the folder asking for its direction. `create --agent` makes a folder that *is* an agent. Inside a code repo, `create --yes` keeps `_agent/` local to your machine; `--shared` commits it.
+`create` still writes the Foundation compatibility scaffold. To try the Agreement convention, add `_agent/agreement.md`; `navigate` then prefers Agreement when both exist and loads it in full. Use `navigate --contract foundation` for an explicit comparison. `create --agent` makes a folder that *is* an agent. Inside a code repo, `create --yes` keeps `_agent/` local to your machine; `--shared` commits it.
 
 ## Take one home, hand one over
 
@@ -72,7 +72,7 @@ administration.
 
 - **`write`** touches only the file you name and keeps frontmatter you did not set. Pass the returned `sha` as `--if-match` for a safe second write; `--force` overwrites.
 - **`commit`** commits only the paths you name. Other staged work, yours or a teammate's, is left alone. The author is git's `user.name` and `user.email`, never a hidden credential.
-- **A space has one id**, written by `create` into `_agent/foundation.md`. `publish` adopts it and refuses a mismatch. `clone` keeps it; `fork` mints a new one. Nothing rekeys a space silently.
+- **A space has one id**, read from the selected Agreement or Foundation entrypoint. Legacy `create` still writes it into `_agent/foundation.md`; `publish` adopts it and refuses a mismatch. `clone` keeps it; `fork` mints a new one. Nothing rekeys a space silently.
 - **`fork` and `update`** validate before touching your disk and never overwrite your work; conflicts are reported.
 - **`--json`** returns a `status`, the revision, and typed failure details. A partial write or commit exits non-zero.
 
