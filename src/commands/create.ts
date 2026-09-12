@@ -65,6 +65,7 @@ interface Inspection {
    */
   nestedInRepo: string | null;
   hasNewAgent: boolean;
+  hasAgreement: boolean;
   hasOldAgent: boolean;
   hasClaude: boolean;
   hasGitignore: boolean;
@@ -212,6 +213,7 @@ async function inspect(targetDir: string): Promise<Inspection> {
       isGitRepo: false,
       nestedInRepo,
       hasNewAgent: false,
+      hasAgreement: false,
       hasOldAgent: false,
       hasClaude: false,
       hasGitignore: false,
@@ -224,10 +226,12 @@ async function inspect(targetDir: string): Promise<Inspection> {
   const hasGitignore = existsSync(join(targetDir, ".gitignore"));
   const agentDir = join(targetDir, "_agent");
   const hasNewAgent = existsSync(join(agentDir, "foundation.md"));
+  const hasAgreement = existsSync(join(agentDir, "agreement.md"));
   const hasOldAgent =
     existsSync(agentDir) &&
     OLD_AGENT_FILES.some((f) => existsSync(join(agentDir, f))) &&
-    !hasNewAgent;
+    !hasNewAgent &&
+    !hasAgreement;
 
   let hasCodeSignal = false;
   for (const sig of CODE_SIGNALS) {
@@ -252,6 +256,7 @@ async function inspect(targetDir: string): Promise<Inspection> {
     isGitRepo,
     nestedInRepo,
     hasNewAgent,
+    hasAgreement,
     hasOldAgent,
     hasClaude,
     hasGitignore,
@@ -262,6 +267,9 @@ async function inspect(targetDir: string): Promise<Inspection> {
 
 function detectShape(inspection: Inspection): Shape {
   if (!inspection.exists) return "greenfield";
+  // Agreement is manually authored during this migration. Never respond by
+  // scaffolding Foundation beside it and minting a conflicting identity.
+  if (inspection.hasAgreement) return "complete";
   if (inspection.hasNewAgent && inspection.hasClaude) return "complete";
   if (inspection.hasOldAgent) return "old-shape";
   if (inspection.hasCodeSignal) return "code-repo";

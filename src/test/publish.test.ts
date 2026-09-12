@@ -414,7 +414,7 @@ describe("ideaspaces publish", () => {
     });
   });
 
-  it("adopts the identity minted by offline create", async () => {
+  it("adopts the Foundation identity when a fresh Agreement has no declaration", async () => {
     const { createCommand } = await import("../commands/create.js");
     expect(
       await createCommand.run(["offline-created"], {}, { ...baseGlobal, yes: true }),
@@ -423,6 +423,13 @@ describe("ideaspaces publish", () => {
     const foundation = readFileSync(join(dir, "_agent", "foundation.md"), "utf-8");
     const rootNodeId = foundation.match(/^root_node_id: (n_[0-9a-f]{24})$/m)?.[1];
     expect(rootNodeId).toMatch(/^n_[0-9a-f]{24}$/);
+    // Manual Agreement adoption precedes create migration. Its missing identity
+    // must retain the Space's committed Foundation identity, never ask the
+    // server to mint a replacement.
+    writeFileSync(
+      join(dir, "_agent", "agreement.md"),
+      "---\nname: Agreement\nsummary: Trying the convention.\n---\n# Agreement\n",
+    );
     process.chdir(dir);
     await writeCredentials();
 

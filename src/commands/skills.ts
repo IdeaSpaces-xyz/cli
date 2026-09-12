@@ -34,7 +34,7 @@ export const skillsCommand: CommandDef = {
       const report = await syncSkillPointers(process.cwd(), { check });
       if (!report) {
         output.error(
-          "Not inside an ideaspace — no `_agent/foundation.md` found walking up from here.",
+          "Not inside an ideaspace — no Agreement or Foundation frame found walking up from here.",
         );
         return 1;
       }

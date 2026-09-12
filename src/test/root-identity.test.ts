@@ -74,6 +74,7 @@ describe("local root identity", () => {
       state: "local_only",
       root_node_id: ROOT_A,
       contract_source: "foundation",
+      identity_source: "foundation",
       canonical_origin: null,
       local_registry: null,
       declaration: { head: ROOT_A, index: ROOT_A, worktree: ROOT_A, dirty: false },
@@ -88,6 +89,24 @@ describe("local root identity", () => {
       state: "local_only",
       root_node_id: ROOT_A,
       contract_source: "agreement",
+      identity_source: "agreement",
+      declaration: { head: ROOT_A, index: ROOT_A, worktree: ROOT_A, dirty: false },
+    });
+  });
+
+  it("retains Foundation identity when a fresh Agreement has no declaration", () => {
+    commitFoundation(foundation(ROOT_A));
+    writeFileSync(
+      join(repo, "_agent", "agreement.md"),
+      "---\nname: Agreement\nsummary: Trying the convention.\n---\n# Agreement\n",
+    );
+
+    expect(inspectLocalRootIdentity(repo)).toMatchObject({
+      state: "local_only",
+      root_node_id: ROOT_A,
+      contract_source: "agreement",
+      identity_source: "foundation",
+      entrypoint_conflict: false,
       declaration: { head: ROOT_A, index: ROOT_A, worktree: ROOT_A, dirty: false },
     });
   });
@@ -172,6 +191,7 @@ describe("local root identity", () => {
       state: "legacy_unstamped",
       root_node_id: ROOT_A,
       contract_source: null,
+      identity_source: null,
       canonical_origin: ROOT_A,
       declaration: { head: null, index: null, worktree: null, dirty: false },
     });

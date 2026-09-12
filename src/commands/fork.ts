@@ -32,14 +32,16 @@ import {
 } from "../fork-update.js";
 import { prepareForkSnapshot } from "../fork-snapshot.js";
 import { gitAvailability, sanitizedGitEnvironment } from "../git.js";
+import { preferredContractSource } from "../contract-source.js";
 import { createOutput } from "../output.js";
-import { mintDeclaredRootIdentity } from "../root-identity.js";
+import { declareRootIdentity, mintDeclaredRootIdentity } from "../root-identity.js";
 import { canonicalRepoUrl, parseRepoLocator } from "../repo-locator.js";
 import { gitignoreWithDefaults } from "../templates/default.js";
 import type { CommandDef } from "../types.js";
 import { slugify } from "./publish.js";
 
 const FOUNDATION_PATH = "_agent/foundation.md";
+const AGREEMENT_PATH = "_agent/agreement.md";
 const IMPORT_NAME = "IdeaSpaces Import";
 const IMPORT_EMAIL = "import@ideaspaces";
 const IMPORT_COMMIT = "Import Space fork";
@@ -107,14 +109,32 @@ function destinationRootIdentity(
   markdown: Record<string, string>,
   sourceRootNodeId: string,
 ): { markdown: Record<string, string>; rootNodeId: string } {
-  const foundation = markdown[FOUNDATION_PATH];
-  if (!foundation) {
-    throw new Error("The projected Space has no root _agent/foundation.md to carry identity");
+  const available = [
+    ...(markdown[AGREEMENT_PATH] ? (["agreement"] as const) : []),
+    ...(markdown[FOUNDATION_PATH] ? (["foundation"] as const) : []),
+  ];
+  const source = preferredContractSource(available);
+  const carrierPath = source === "agreement"
+    ? AGREEMENT_PATH
+    : source === "foundation"
+      ? FOUNDATION_PATH
+      : null;
+  if (!carrierPath) {
+    throw new Error("The projected Space has no root Agreement or Foundation to carry identity");
   }
+  const entrypointPaths = [AGREEMENT_PATH, FOUNDATION_PATH].filter(
+    (path) => markdown[path] !== undefined,
+  );
   for (let attempt = 0; attempt < 10; attempt++) {
-    let declared: ReturnType<typeof mintDeclaredRootIdentity>;
     try {
-      declared = mintDeclaredRootIdentity(foundation);
+      const declared = mintDeclaredRootIdentity(markdown[carrierPath]!);
+      if (declared.rootNodeId === sourceRootNodeId) continue;
+      const next = { ...markdown, [carrierPath]: declared.content };
+      for (const path of entrypointPaths) {
+        if (path === carrierPath) continue;
+        next[path] = declareRootIdentity(markdown[path]!, declared.rootNodeId);
+      }
+      return { markdown: next, rootNodeId: declared.rootNodeId };
     } catch (err) {
       if (err instanceof Error && err.message.includes("replace an existing root_node_id")) {
         throw new Error(
@@ -122,12 +142,6 @@ function destinationRootIdentity(
         );
       }
       throw err;
-    }
-    if (declared.rootNodeId !== sourceRootNodeId) {
-      return {
-        markdown: { ...markdown, [FOUNDATION_PATH]: declared.content },
-        rootNodeId: declared.rootNodeId,
-      };
     }
   }
   throw new Error("Could not mint a destination identity distinct from the source");

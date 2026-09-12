@@ -34,6 +34,22 @@ describe("skills sync", () => {
     }
   });
 
+  it("syncs skills from an Agreement-only Space", async () => {
+    await fs.rm(join(tmp, "_agent", "foundation.md"));
+    await fs.writeFile(join(tmp, "_agent", "agreement.md"), "# Agreement", "utf-8");
+    await writeSkill(
+      "_agent/skills/reach-agreement.md",
+      "name: reach-agreement\ndescription: Reach terms sufficient for the next move.",
+    );
+
+    const report = await syncSkillPointers(tmp);
+
+    expect(report?.spaceRoot).toBe(tmp);
+    expect(report?.created).toEqual([
+      join(".claude", "skills", "reach-agreement", "SKILL.md"),
+    ]);
+  });
+
   it("mirrors pointers at each level and copies the portable fields", async () => {
     await writeSkill(
       "_agent/skills/meeting-notes.md",
@@ -130,11 +146,23 @@ describe("skills sync", () => {
     expect(existsSync(join(tmp, ".claude"))).toBe(false);
   });
 
-  it("does not descend into nested spaces", async () => {
+  it("does not descend into nested Foundation or identified Agreement Spaces", async () => {
     await writeSkill("nested/_agent/skills/inner.md", "name: inner\ndescription: Not ours.");
     await fs.writeFile(join(tmp, "nested", "_agent", "foundation.md"), "# Own space", "utf-8");
+    await writeSkill(
+      "agreement-nested/_agent/skills/other.md",
+      "name: other\ndescription: Also not ours.",
+    );
+    await fs.writeFile(
+      join(tmp, "agreement-nested", "_agent", "agreement.md"),
+      "---\nroot_node_id: n_aaaaaaaaaaaaaaaaaaaaaaaa\n---\n# Own Agreement",
+      "utf-8",
+    );
+
     const report = await syncSkillPointers(tmp);
+
     expect(report?.created).toEqual([]);
     expect(existsSync(join(tmp, "nested", ".claude"))).toBe(false);
+    expect(existsSync(join(tmp, "agreement-nested", ".claude"))).toBe(false);
   });
 });

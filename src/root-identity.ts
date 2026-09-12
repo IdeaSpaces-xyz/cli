@@ -29,6 +29,7 @@ export interface RootIdentityDeclarationState {
 export interface LocalRootIdentityReport extends RootIdentityEvaluation {
   root_node_id: string | null;
   contract_source: "foundation" | "agreement" | null;
+  identity_source: "foundation" | "agreement" | null;
   entrypoint_conflict: boolean;
   declaration: RootIdentityDeclarationState;
   canonical_origin: string | null;
@@ -148,17 +149,42 @@ export function inspectLocalRootIdentity(cwd: string, apiUrl?: string): LocalRoo
       : null;
   const selectedHead = selectedPath ? headContract(cwd, selectedPath) : null;
   const selectedIndex = selectedPath ? indexContract(cwd, selectedPath) : null;
-  const head = declarationFromContent(selectedHead);
-  const index = declarationFromContent(selectedIndex);
-  const worktree = declarationFromContent(selectedWorktree);
+  const selectedHeadDeclaration = declarationFromContent(selectedHead);
+  const selectedIndexDeclaration = declarationFromContent(selectedIndex);
+  const selectedWorktreeDeclaration = declarationFromContent(selectedWorktree);
   const foundationHead = contractSource === "agreement"
     ? declarationFromContent(headContract(cwd, FOUNDATION_PATH))
-    : head;
-  const agreementHead = contractSource === "agreement" ? head : undefined;
+    : selectedHeadDeclaration;
+  const agreementHead = contractSource === "agreement"
+    ? selectedHeadDeclaration
+    : undefined;
   const entrypointConflict =
     isValidRootNodeId(foundationHead) &&
     isValidRootNodeId(agreementHead) &&
     foundationHead !== agreementHead;
+  // Identity is one Space invariant, not frame content. During migration an
+  // Agreement with no declaration retains a valid Foundation identity; a
+  // declaration added to Agreement must still agree before it can replace the
+  // compatibility source.
+  const fallbackIdentity = contractSource === "agreement" && isValidRootNodeId(foundationHead)
+    ? foundationHead
+    : undefined;
+  const agreementEstablished = contractSource === "agreement" && selectedHead !== null;
+  const withFallback = (declaration: unknown, content: string | null): unknown => {
+    if (declaration !== undefined || fallbackIdentity === undefined) return declaration;
+    // A new Agreement inherits the compatibility identity at every revision.
+    // Once Agreement exists in HEAD, an absent later revision is a deletion
+    // and must remain absent so dirty-state detection cannot be masked.
+    return !agreementEstablished || content !== null ? fallbackIdentity : undefined;
+  };
+  const head = withFallback(selectedHeadDeclaration, selectedHead);
+  const index = withFallback(selectedIndexDeclaration, selectedIndex);
+  const worktree = withFallback(selectedWorktreeDeclaration, selectedWorktree);
+  const identitySource = isValidRootNodeId(agreementHead)
+    ? "agreement"
+    : isValidRootNodeId(foundationHead)
+      ? "foundation"
+      : null;
   const dirty = !sameDeclaration(head, index) || !sameDeclaration(head, worktree);
 
   const record = findSpaceFor(cwd);
@@ -178,6 +204,7 @@ export function inspectLocalRootIdentity(cwd: string, apiUrl?: string): LocalRoo
     ...evaluation,
     root_node_id: evaluation.rootNodeId ?? null,
     contract_source: contractSource,
+    identity_source: identitySource,
     entrypoint_conflict: entrypointConflict,
     declaration: {
       head: head === undefined ? null : head,

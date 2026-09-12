@@ -72,7 +72,7 @@ administration.
 
 - **`write`** touches only the file you name and keeps frontmatter you did not set. Pass the returned `sha` as `--if-match` for a safe second write; `--force` overwrites.
 - **`commit`** commits only the paths you name. Other staged work, yours or a teammate's, is left alone. The author is git's `user.name` and `user.email`, never a hidden credential.
-- **A space has one id**, read from the selected Agreement or Foundation entrypoint. Legacy `create` still writes it into `_agent/foundation.md`; `publish` adopts it and refuses a mismatch. `clone` keeps it; `fork` mints a new one. Nothing rekeys a space silently.
+- **A space has one id.** Agreement is the preferred contract source; until it declares identity, a valid Foundation identity remains the compatibility evidence for that same Space. Legacy `create` still writes Foundation, `publish` adopts its identity, and conflicting declarations fail closed. `clone` keeps identity; `fork` remints it in every projected root entrypoint. Nothing rekeys a space silently.
 - **`fork` and `update`** validate before touching your disk and never overwrite your work; conflicts are reported.
 - **`--json`** returns a `status`, the revision, and typed failure details. A partial write or commit exits non-zero.
 
