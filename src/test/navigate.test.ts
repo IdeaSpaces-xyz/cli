@@ -5,6 +5,7 @@ import { realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { assembleContentFocus, renderContentFocus } from "@ideaspaces/protocol";
 import { navigateCommand } from "../commands/navigate.js";
 import type { GlobalFlags } from "../types.js";
 
@@ -92,6 +93,42 @@ describe("ideaspaces navigate", () => {
     const human = await runNavigate(["."], {}, { ...G, json: false });
     expect(human.stdout.startsWith(`${expectedPosition}\n\n`)).toBe(true);
     expect(human.stdout.endsWith("\n")).toBe(true);
+  });
+
+  it("renders the protocol focus block without ambient authority or drift", async () => {
+    await fs.writeFile(
+      join(tmp, "_agent", "agreement.md"),
+      "# Agreement\n\nAGREEMENT FULL SENTINEL\n",
+    );
+    await fs.writeFile(
+      join(tmp, "_agent", "purpose.md"),
+      "---\nsummary: Purpose handle.\n---\nPURPOSE BODY SENTINEL\n",
+    );
+
+    const expected = await assembleContentFocus({
+      position: tmp,
+      contractSource: "agreement",
+    });
+    expect(expected?.status).toBe("ok");
+    const { exit, data } = await runNavigate(["."], { focus: true });
+
+    expect(exit).toBe(0);
+    expect(data.manifest).toMatchObject({
+      kind: "content-focus",
+      contractRole: "reference",
+      contractSource: "agreement",
+      position: { placement: "history" },
+    });
+    expect(data.text).toBe(renderContentFocus(expected!));
+    expect(data.text).toContain("AGREEMENT FULL SENTINEL");
+    expect(data.text).not.toContain("PURPOSE BODY SENTINEL");
+    expect(data.text).not.toContain("Position:");
+    expect(data.text).not.toContain("Now:");
+    expect(data.text).not.toContain("Git:");
+
+    const incompatible = await runNavigate(["."], { focus: true, depth: "2" });
+    expect(incompatible.exit).toBe(1);
+    expect(incompatible.err).toContain("--focus cannot be combined with --depth");
   });
 
   it("tracks position when navigating into a subdir (fractal contract from root)", async () => {
