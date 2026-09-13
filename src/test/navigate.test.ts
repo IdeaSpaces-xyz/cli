@@ -126,9 +126,26 @@ describe("ideaspaces navigate", () => {
     expect(data.text).not.toContain("Now:");
     expect(data.text).not.toContain("Git:");
 
-    const incompatible = await runNavigate(["."], { focus: true, depth: "2" });
-    expect(incompatible.exit).toBe(1);
-    expect(incompatible.err).toContain("--focus cannot be combined with --depth");
+    for (const [flag, value] of [
+      ["depth", "2"],
+      ["mark-seen", true],
+      ["workspace", tmp],
+      ["mount", tmp],
+      ["pullable", "notes:alice"],
+      ["no-git", true],
+    ] as const) {
+      const incompatible = await runNavigate(["."], { focus: true, [flag]: value });
+      expect(incompatible.exit).toBe(1);
+      expect(incompatible.err).toContain(`--focus cannot be combined with --${flag}`);
+    }
+
+    await rm(join(tmp, "_agent", "agreement.md"));
+    const unavailable = await runNavigate(["."], {
+      focus: true,
+      contract: "agreement",
+    });
+    expect(unavailable.exit).toBe(1);
+    expect(unavailable.err).toContain("Contract source unavailable: agreement");
   });
 
   it("tracks position when navigating into a subdir (fractal contract from root)", async () => {

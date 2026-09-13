@@ -130,7 +130,7 @@ function planCatalog(flags: Record<string, string | boolean>, povRepoRoot: strin
 
 export const navigateCommand: CommandDef = {
   name: "navigate",
-  description: "Re-derive orientation, or read a position as bounded reference focus",
+  description: "Orient here, or read another position as bounded reference",
   usage: "ideaspaces navigate [<path>] [--focus] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
   examples: [
     "ideaspaces navigate --json            # orient at the current directory",
