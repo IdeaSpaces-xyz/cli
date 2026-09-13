@@ -1,6 +1,7 @@
 /**
  * `ideaspaces navigate [<path>] [--mark-seen]` — re-derive orientation at a
- * position without changing the working directory.
+ * position without changing the working directory. `--focus` instead emits
+ * one bounded history reference without changing caller authority.
  *
  * One structured protocol assembly (`assembleContentAwareness`) supplies every
  * fact and its prompt placement. The CLI selects Agreement before Foundation
@@ -33,7 +34,9 @@ import { statSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import {
   assembleContentAwareness,
+  assembleContentFocus,
   renderContentAwareness,
+  renderContentFocus,
   resolveRepoRoot,
   type ContentAwarenessSection,
   type ContractSource,
@@ -127,11 +130,12 @@ function planCatalog(flags: Record<string, string | boolean>, povRepoRoot: strin
 
 export const navigateCommand: CommandDef = {
   name: "navigate",
-  description: "Re-derive selectable contract, tree, and drift orientation at a position",
-  usage: "ideaspaces navigate [<path>] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
+  description: "Orient here, or read another position as bounded reference",
+  usage: "ideaspaces navigate [<path>] [--focus] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
   examples: [
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate docs --json       # orient at a branch",
+    "ideaspaces navigate docs --focus --json  # read a branch as history reference",
     "ideaspaces navigate --contract foundation --json  # explicit compatibility frame",
     "ideaspaces navigate --depth 2 --json  # probe the map: name-rung outline one level below",
     "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
@@ -157,6 +161,49 @@ export const navigateCommand: CommandDef = {
     if (!statSync(target).isDirectory()) {
       output.error(`Not a directory: ${target}`);
       return 1;
+    }
+
+    if (flags.focus) {
+      const incompatible = ["depth", "mark-seen", "workspace", "mount", "pullable", "no-git"]
+        .filter((name) => flags[name] !== undefined);
+      if (incompatible.length) {
+        output.error(`--focus cannot be combined with ${incompatible.map((name) => `--${name}`).join(", ")}`);
+        return 1;
+      }
+      const focusOpts = {
+        position: target,
+        ...(selected.source ? { contractSource: selected.source } : {}),
+      };
+      let focus = await assembleContentFocus(focusOpts);
+      // The protocol remains neutral; the CLI applies its established
+      // Agreement → Foundation → floor target-selection policy.
+      if (focus?.status === "contract_choice_required" && !selected.source) {
+        const preferred = preferredContractSource(focus.availableSources);
+        if (preferred) {
+          focus = await assembleContentFocus({ ...focusOpts, contractSource: preferred });
+        }
+      }
+      if (!focus) {
+        output.error(`Not a Content position: ${target}`);
+        return 1;
+      }
+      if (focus.status !== "ok") {
+        output.error(renderContentFocus(focus));
+        return 1;
+      }
+      const text = renderContentFocus(focus);
+      const position = relative(focus.position.base, focus.position.path) || ".";
+      output.result(
+        {
+          text,
+          position,
+          root: focus.spaceRoot,
+          repoRoot: focus.position.repoRoot,
+          manifest: focus,
+        },
+        text,
+      );
+      return 0;
     }
 
     // Canonical git root, or null outside a repo — the bare path needs it for
