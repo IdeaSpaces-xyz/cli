@@ -35,8 +35,6 @@ import { spawnSync } from "node:child_process";
 import {
   assembleContentAwareness,
   assembleContentFocus,
-  BARE_WORKSPACE_HINT,
-  EMPTY_WORKSPACE_HINT,
   renderContentAwareness,
   renderContentFocus,
   resolveRepoRoot,
@@ -87,6 +85,12 @@ function parsePullable(raw: string | boolean | undefined): Array<{ slug: string;
     })
     .filter((x): x is { slug: string; namespace: string } => x !== null);
 }
+
+// Harness copy, not protocol shape: these name the CLI's own navigation verbs.
+const BARE_WORKSPACE_HINT =
+  "You're at a workspace folder (no `_agent/` contract here). Navigate into a repo below (`ideaspaces navigate <repo>`), or pull one that's behind.";
+const EMPTY_WORKSPACE_HINT =
+  "You're at a workspace folder with no repos yet. Clone one to get started (`ideaspaces clone`).";
 
 function contractSourceFlag(
   value: string | boolean | undefined,

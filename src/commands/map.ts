@@ -4,7 +4,9 @@
  * This is deliberately separate from `navigate`: navigate is bounded ambient
  * orientation at a position, while map is explicit repository enumeration. The
  * protocol owns the one tree walker and its exclusion/summary semantics; this
- * command only projects those handles into the Map rung vocabulary.
+ * command projects those handles into the Map rung vocabulary. JSON always
+ * carries the local `projection`; it adds `map` only when strict portable
+ * construction succeeds and reports `map_issues` when validation refuses it.
  */
 
 import {
@@ -196,7 +198,9 @@ export const mapCommand: CommandDef = {
         ? "portable Map seed"
         : dirty
           ? "working tree differs from HEAD"
-          : "local root has no portable identity"}`,
+          : built?.status === "invalid"
+            ? "portable Map validation failed (run with --json for map_issues)"
+            : "local root has no portable identity"}`,
       `Members (${projection.members.length}; ${tree.totalMarkdownFiles} markdown files):`,
       ...projection.members.map(humanMember),
     ];

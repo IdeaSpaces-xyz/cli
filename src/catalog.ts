@@ -99,7 +99,7 @@ function catalogInput(
   const canonical = resolvePath(repository.git.repoRoot);
   const visible = resolvePath(repository.root);
   const details = [repoState(repository.git)];
-  if (pov && canonical === pov) details.push("POV");
+  if (pov && (visible === pov || canonical === pov)) details.push("POV");
   if (mounts.has(visible) || mounts.has(canonical)) details.push("mounted");
   return {
     root,
@@ -133,7 +133,7 @@ export async function formatCatalogSection(
   const isPriority = (repository: WorkspaceRepository): boolean => {
     const visible = resolvePath(repository.root);
     const canonical = resolvePath(repository.git.repoRoot);
-    return canonical === pov || mountSet.has(visible) || mountSet.has(canonical);
+    return visible === pov || canonical === pov || mountSet.has(visible) || mountSet.has(canonical);
   };
   const priority = repositories.filter(isPriority);
   const ordered = [
