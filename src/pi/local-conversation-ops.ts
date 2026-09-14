@@ -153,7 +153,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
 // `new --local` mints a local conversation id (= pi session id). The session
 // is created lazily on the first `send --local` (pi's --session-id creates it),
 // then named from the first message. Context-rooted; no repo, no server.
-function createNew(output: Output): number {
+function createNew(_flags: Flags, output: Output): number {
   const id = mintConversationId();
   output.result({ conversation_id: id }, `Created local conversation ${id}`);
   return 0;

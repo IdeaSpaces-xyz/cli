@@ -3,10 +3,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The lean-core invariant: the universal CLI (src/commands/**) MUST NOT import
-// the Pi connector (src/pi/**). Only the composition root (src/router.ts) wires
-// the two — it injects the local-conversation ops and registers the Pi-runtime
-// commands. This keeps @ideaspaces/cli's core Pi-free so the connector stays
-// sectionable/extractable. This test is the enforcement (the CLI has no ESLint).
+// a local-runtime connector — the Pi connector (src/pi/**) or the Claude Code
+// connector (src/claude/**). Only the composition root (src/router.ts) wires
+// them — it injects the local-conversation ops and registers the Pi-runtime
+// commands. This keeps @ideaspaces/cli's core runtime-free so each connector
+// stays sectionable/extractable. This test is the enforcement (the CLI has no ESLint).
 
 const commandsDir = join(process.cwd(), "src", "commands");
 
@@ -30,14 +31,16 @@ function importSpecifiers(src: string): string[] {
   return specs;
 }
 
-/** Does a relative specifier resolve into the `pi/` directory? (a path segment
- *  exactly `pi`, e.g. `../pi`, `../pi/index.js`, `./pi/local-agent.js`). */
+const CONNECTORS = ["pi", "claude"];
+
+/** Does a relative specifier resolve into a connector directory? (a path segment
+ *  exactly `pi` or `claude`, e.g. `../pi`, `../pi/index.js`, `./claude/local-agent.js`). */
 function pointsIntoPi(spec: string): boolean {
   if (!spec.startsWith(".")) return false; // package import, not our tree
-  return spec.split("/").some((seg) => seg === "pi");
+  return spec.split("/").some((seg) => CONNECTORS.includes(seg));
 }
 
-describe("Pi boundary — core commands never import src/pi", () => {
+describe("Runtime boundary — core commands never import src/pi or src/claude", () => {
   const files = walk(commandsDir);
 
   it("finds command files to check", () => {
@@ -46,9 +49,9 @@ describe("Pi boundary — core commands never import src/pi", () => {
 
   for (const file of files) {
     const rel = file.slice(file.indexOf("src/"));
-    it(`${rel} imports nothing from src/pi`, () => {
+    it(`${rel} imports nothing from src/pi or src/claude`, () => {
       const offending = importSpecifiers(readFileSync(file, "utf8")).filter(pointsIntoPi);
-      expect(offending, `${rel} imports the Pi connector: ${offending.join(", ")}`).toEqual([]);
+      expect(offending, `${rel} imports a runtime connector: ${offending.join(", ")}`).toEqual([]);
     });
   }
 });

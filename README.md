@@ -65,7 +65,7 @@ administration.
 | Start, clone, fork | `create`, `clone`, `fork`, `update`, `clones`, `link`, `forget` |
 | Share and sync | `login`, `whoami`, `publish`, `share`, `push`, `pull`, `sync`, `repos`, `catalog` |
 | Talk | `conversation`, `conversations`, `inbox`, `agents` |
-| Run a local agent | `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `conversation send --local` |
+| Run a local agent | `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code) |
 | Housekeeping | `doctor`, `credential`, `power logout` |
 
 ## What the CLI promises
@@ -75,6 +75,7 @@ administration.
 - **A space has one id.** Agreement is the preferred contract source; until it declares identity, a valid Foundation identity remains the compatibility evidence for that same Space. Legacy `create` still writes Foundation, `publish` adopts its identity, and conflicting declarations fail closed. `clone` keeps identity; `fork` remints it in every projected root entrypoint. Nothing rekeys a space silently.
 - **`fork` and `update`** validate before touching your disk and never overwrite your work; conflicts are reported.
 - **`--json`** returns a `status`, the revision, and typed failure details. A partial write or commit exits non-zero.
+- **`conversation send --local --runtime=claude`** runs Claude Code — the copy you installed and signed in to, unmodified. Usage bills to your own Claude plan (or to your API key with `--claude-auth=api-key`); the CLI never sees your credentials and reads only the session transcripts Claude Code writes under `~/.claude/projects/`. A turn streams the same events as a pi or hosted turn, so every client renders it the same way.
 
 ## Configuration
 
@@ -84,7 +85,7 @@ administration.
 | `~/.ideaspaces/spaces.json` | Known spaces and remotes |
 | `~/.pi/agent/auth.json` | Local-agent model credentials |
 
-`IS_API_KEY` overrides stored credentials. `IS_API_URL` points at another host. `IDEASPACES_PI_EXTENSIONS` lists extension paths for the local agent.
+`IS_API_KEY` overrides stored credentials. `IS_API_URL` points at another host. `IDEASPACES_PI_EXTENSIONS` lists extension paths for the local agent. `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.
 
 ## License
 
