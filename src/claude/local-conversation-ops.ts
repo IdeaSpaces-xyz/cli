@@ -46,14 +46,16 @@ async function send(flags: Flags, output: Output): Promise<number> {
   }
   const modelTier = typeof flags["model-tier"] === "string" ? flags["model-tier"] : undefined;
   const model = typeof flags["claude-model"] === "string" ? flags["claude-model"] : undefined;
-  const permissionMode = typeof flags["permission-mode"] === "string" ? flags["permission-mode"] : "acceptEdits";
-  if (!isValidClaudePermissionMode(permissionMode)) {
-    output.error(`Invalid permission mode "${permissionMode}". Valid values: ${CLAUDE_PERMISSION_MODES.join(", ")}`);
+  // Validated here (the public seam) so a bad or bare value fails fast with the
+  // valid list instead of spawning claude to have it reject. Absent → default.
+  const permissionMode = flags["permission-mode"] === undefined ? "acceptEdits" : flags["permission-mode"];
+  if (typeof permissionMode !== "string" || !isValidClaudePermissionMode(permissionMode)) {
+    output.error(`Invalid permission mode "${String(permissionMode)}". Valid values: ${CLAUDE_PERMISSION_MODES.join(", ")}`);
     return 1;
   }
-  const auth = typeof flags["claude-auth"] === "string" ? flags["claude-auth"] : "login";
-  if (!isValidClaudeAuthMode(auth)) {
-    output.error(`Invalid auth mode "${auth}". Valid values: ${CLAUDE_AUTH_MODES.join(", ")}`);
+  const auth = flags["claude-auth"] === undefined ? "login" : flags["claude-auth"];
+  if (typeof auth !== "string" || !isValidClaudeAuthMode(auth)) {
+    output.error(`Invalid auth mode "${String(auth)}". Valid values: ${CLAUDE_AUTH_MODES.join(", ")}`);
     return 1;
   }
   // The claude binary to spawn — the desktop passes the path from its settings.
@@ -140,6 +142,11 @@ function get(flags: Flags, output: Output): number {
   const convId = typeof flags.conversation === "string" ? flags.conversation : undefined;
   if (!convId) {
     output.error("A conversation id is required: --conversation <id>");
+    return 1;
+  }
+  // Same contract as send: a typo must not read as "minted but never sent to."
+  if (!isClaudeConversationId(convId)) {
+    output.error(`A Claude Code conversation id is a UUID; got "${convId}"`);
     return 1;
   }
   const contextRoot = typeof flags.context === "string" ? flags.context : process.cwd();
