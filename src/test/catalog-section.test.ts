@@ -85,18 +85,18 @@ describe("formatCatalogSection", () => {
     expect(missingWorkspace).toContain("Pullable (remote — not yet local):");
   });
 
-  it("caps at MAX_CATALOG_REPOS and summarises the overflow", async () => {
-    // The shared protocol reader admits only real repository roots; a fake
-    // `.git` directory must not masquerade as one in the catalog projection.
+  it("caps before expensive per-repository reads and summarises the overflow", async () => {
+    // Candidate discovery is deliberately cheap. Invalid markers may render
+    // `unknown`, but rows beyond the cap must never pay for Git/summary reads.
     for (let i = 0; i < MAX_CATALOG_REPOS + 1; i++) {
-      await makeRepo(ws, `r${String(i).padStart(2, "0")}`);
+      await mkdir(join(ws, `r${String(i).padStart(2, "0")}`, ".git"), { recursive: true });
     }
     const out = await formatCatalogSection(ws, { povRepoRoot: null, mounts: [] });
     const lines = out!.split("\n");
     expect(lines[0]).toBe("Repos in scope (local):");
     expect(lines.filter((l) => l.startsWith("  r")).length).toBe(MAX_CATALOG_REPOS);
     expect(lines[lines.length - 1]).toBe("  …and 1 more");
-  }, 30_000);
+  });
 });
 
 describe("formatWorkingSetSection", () => {

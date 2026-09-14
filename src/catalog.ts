@@ -1,28 +1,34 @@
 /**
  * Local working-set and repository-catalog orchestration.
  *
- * The protocol reads root handles/repositories, projects them through Map
- * members, and owns canonical row rendering. The CLI supplies only private
- * root ordinals plus harness presentation: home/mount/POV roles, sync state,
- * display paths, caps, and the already-fetched pullable tier.
+ * The protocol reads root handles, projects them through Map members, and owns
+ * canonical row rendering. The CLI supplies only a cheap capped workspace scan,
+ * private root ordinals, and harness presentation: home/mount/POV roles, sync
+ * state, display paths, and the already-fetched pullable tier.
  */
 
-import { basename, resolve as resolvePath } from "node:path";
+import { existsSync } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { basename, join, resolve as resolvePath } from "node:path";
 import {
   gitState,
   projectRootMapMembers,
   readRootHandle,
-  readWorkspaceRepositories,
   renderRootMapMembers,
   type GitState,
   type RootMapMemberInput,
-  type WorkspaceRepository,
 } from "@ideaspaces/protocol";
 
 // Generic protocol exclusions plus local harness caches/noise.
 export const AUTOCOMPLETE_EXCLUDES = [".git", "node_modules", "backups", ".pi", ".claude"];
 
 export const MAX_CATALOG_REPOS = 20;
+
+interface CatalogRepository {
+  root: string;
+  summary: string | null;
+  git: GitState | null;
+}
 
 function directoryDetails(count: number | null): string[] {
   return count == null ? [] : [`${count} dirs`];
@@ -65,16 +71,8 @@ export async function formatWorkingSetSection(
   });
 }
 
-/** One-line local sync state; presentation only, never Map data. */
-export async function readRepoState(repoRoot: string): Promise<string> {
-  try {
-    return repoState(await gitState(repoRoot));
-  } catch {
-    return "unknown";
-  }
-}
-
-function repoState(state: GitState): string {
+function repoState(state: GitState | null): string {
+  if (!state) return "unknown";
   let base: string;
   if (state.ahead == null || state.behind == null) {
     base = "local-only";
@@ -91,13 +89,13 @@ function repoState(state: GitState): string {
 }
 
 function catalogInput(
-  repository: WorkspaceRepository,
+  repository: CatalogRepository,
   root: number,
   pov: string | null,
   mounts: ReadonlySet<string>,
 ): RootMapMemberInput {
-  const canonical = resolvePath(repository.git.repoRoot);
   const visible = resolvePath(repository.root);
+  const canonical = repository.git ? resolvePath(repository.git.repoRoot) : visible;
   const details = [repoState(repository.git)];
   if (pov && (visible === pov || canonical === pov)) details.push("POV");
   if (mounts.has(visible) || mounts.has(canonical)) details.push("mounted");
@@ -112,10 +110,26 @@ function catalogInput(
   };
 }
 
+async function catalogCandidates(workspaceFolder: string): Promise<string[]> {
+  try {
+    const entries = await readdir(workspaceFolder, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name))
+      .map((entry) => join(workspaceFolder, entry.name))
+      // This is intentionally only the cheap pre-cap candidate test. Full Git
+      // facts and root handles are read for displayed rows below.
+      .filter((root) => existsSync(join(root, ".git")))
+      .sort((left, right) => basename(left).localeCompare(basename(right)));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Immediate local repositories plus a caller-supplied, already-fetched remote
  * tier. Producer order remains POV/mounts first, then lexical local order;
- * remote entries retain caller order.
+ * remote entries retain caller order. Expensive per-repository reads happen
+ * only after the local display cap is applied.
  */
 export async function formatCatalogSection(
   workspaceFolder: string,
@@ -125,28 +139,35 @@ export async function formatCatalogSection(
     pullable?: Array<{ slug: string; namespace: string }>;
   },
 ): Promise<string | null> {
-  const repositories = await readWorkspaceRepositories(workspaceFolder, {
-    excludeDirectories: AUTOCOMPLETE_EXCLUDES,
-  });
+  const candidates = await catalogCandidates(workspaceFolder);
   const pov = opts.povRepoRoot ? resolvePath(opts.povRepoRoot) : null;
   const mountSet = new Set(opts.mounts.map((mount) => resolvePath(mount)));
-  const isPriority = (repository: WorkspaceRepository): boolean => {
-    const visible = resolvePath(repository.root);
-    const canonical = resolvePath(repository.git.repoRoot);
-    return visible === pov || canonical === pov || mountSet.has(visible) || mountSet.has(canonical);
+  const isPriority = (root: string): boolean => {
+    const visible = resolvePath(root);
+    return visible === pov || mountSet.has(visible);
   };
-  const priority = repositories.filter(isPriority);
+  const priority = candidates.filter(isPriority);
   const ordered = [
     ...priority,
-    ...repositories.filter((repository) => !isPriority(repository)),
+    ...candidates.filter((root) => !isPriority(root)),
   ];
   const shown = ordered.slice(0, Math.max(MAX_CATALOG_REPOS, priority.length));
-  const overflow = repositories.length - shown.length;
+  const overflow = candidates.length - shown.length;
+  const options = { excludeDirectories: AUTOCOMPLETE_EXCLUDES };
+  const repositories = await Promise.all(
+    shown.map(async (root): Promise<CatalogRepository> => {
+      const [handle, state] = await Promise.all([
+        readRootHandle(root, options),
+        gitState(root).catch(() => null),
+      ]);
+      return { root, summary: handle.summary, git: state };
+    }),
+  );
 
   const blocks: string[] = [];
   const local = renderRootMapMembers(
     projectRootMapMembers(
-      shown.map((repository, index) =>
+      repositories.map((repository, index) =>
         catalogInput(repository, index, pov, mountSet),
       ),
     ),
