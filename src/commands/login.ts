@@ -4,7 +4,7 @@ import { saveCredentials, getDefaultApiUrl } from "../auth/credentials.js";
 import { startCallbackServer } from "../auth/callback-server.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
 import { createOutput } from "../output.js";
-import { deriveWebBase } from "../auth/api.js";
+import { deriveWebBase, fetchAuthMe } from "../auth/api.js";
 import type { CommandDef } from "../types.js";
 
 export function buildCliLoginUrl(apiUrl: string, port: number): string {
@@ -54,6 +54,17 @@ export const loginCommand: CommandDef = {
     }
 
     saveCredentials({ api_url: apiUrl, api_key: token });
+    // Cache the account handle so offline callers (e.g. `whoami`) can show who
+    // you are without a round-trip. Best-effort: a failed fetch never fails login
+    // — `whoami` backfills the handle on a later online call.
+    try {
+      const me = await fetchAuthMe({ apiUrl, apiKey: token });
+      if (me.username) {
+        saveCredentials({ api_url: apiUrl, api_key: token, username: me.username });
+      }
+    } catch {
+      // Offline or transient — leave the handle uncached.
+    }
     await registerGitCredentialHelper();
 
     const webUrl = deriveWebBase(apiUrl);

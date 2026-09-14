@@ -16,6 +16,8 @@ function credentialsFile(): string {
 export interface StoredCredentials {
   api_url: string;
   api_key: string;
+  /** Account handle, cached at login for offline display. Absent on pre-username creds. */
+  username?: string | null;
 }
 
 export function loadStoredCredentials(): StoredCredentials | null {
@@ -59,6 +61,8 @@ const DEFAULT_API_URL = "https://api.ideaspaces.xyz";
 export interface LoadedConfig {
   apiUrl: string;
   apiKey: string;
+  /** Cached account handle from login, when present. Env-key config carries none. */
+  username?: string | null;
 }
 
 /**
@@ -86,6 +90,7 @@ export function loadConfig(): LoadedConfig | null {
     return {
       apiUrl: (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, ""),
       apiKey: stored.api_key,
+      username: stored.username ?? null,
     };
   }
 
