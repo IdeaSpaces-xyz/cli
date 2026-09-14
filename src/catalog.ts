@@ -122,7 +122,7 @@ export async function formatCatalogSection(
   opts: {
     povRepoRoot: string | null;
     mounts: string[];
-    pullable?: Array<{ slug: string; namespace: string; address?: string }>;
+    pullable?: Array<{ slug: string; namespace: string }>;
   },
 ): Promise<string | null> {
   const repositories = await readWorkspaceRepositories(workspaceFolder, {
@@ -157,18 +157,10 @@ export async function formatCatalogSection(
   const pullable = opts.pullable ?? [];
   const remote = renderRootMapMembers(
     projectRootMapMembers(
-      pullable.map((entry): RootMapMemberInput =>
-        entry.address
-          ? {
-              address: entry.address,
-              name: entry.slug,
-              presentation: { details: [entry.namespace] },
-            }
-          : {
-              name: entry.slug,
-              presentation: { details: [entry.namespace] },
-            },
-      ),
+      pullable.map((entry): RootMapMemberInput => ({
+        name: entry.slug,
+        presentation: { details: [entry.namespace] },
+      })),
     ),
     { heading: "Pullable (remote — not yet local):" },
   );
