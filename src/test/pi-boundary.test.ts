@@ -35,7 +35,7 @@ const CONNECTORS = ["pi", "claude"];
 
 /** Does a relative specifier resolve into a connector directory? (a path segment
  *  exactly `pi` or `claude`, e.g. `../pi`, `../pi/index.js`, `./claude/local-agent.js`). */
-function pointsIntoPi(spec: string): boolean {
+function pointsIntoConnector(spec: string): boolean {
   if (!spec.startsWith(".")) return false; // package import, not our tree
   return spec.split("/").some((seg) => CONNECTORS.includes(seg));
 }
@@ -50,7 +50,7 @@ describe("Runtime boundary — core commands never import src/pi or src/claude",
   for (const file of files) {
     const rel = file.slice(file.indexOf("src/"));
     it(`${rel} imports nothing from src/pi or src/claude`, () => {
-      const offending = importSpecifiers(readFileSync(file, "utf8")).filter(pointsIntoPi);
+      const offending = importSpecifiers(readFileSync(file, "utf8")).filter(pointsIntoConnector);
       expect(offending, `${rel} imports a runtime connector: ${offending.join(", ")}`).toEqual([]);
     });
   }

@@ -14,7 +14,11 @@
  *
  * Auth is the user's Claude login unless the caller asks for `api-key`: an
  * ambient `ANTHROPIC_API_KEY` in the environment would silently switch billing
- * from their plan to pay-per-token, so the login path scrubs it from the child.
+ * from their plan to pay-per-token, so the login path scrubs the direct API-key
+ * variables from the child. Provider routing the user set up on purpose
+ * (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, and their cloud
+ * credentials) is their Claude Code's configuration and passes through — it is
+ * not ambient, and removing it would break the install they signed in to.
  *
  * Sessions live where Claude Code keeps them (`~/.claude/projects/<slug>/`),
  * outside the space; the readers in `./local-conversations.ts` find them there.
@@ -32,8 +36,10 @@ import { harvestLocalFiles } from "../pi/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
 
-/** Claude Code's `--permission-mode` choices (2.1.x). Headless runs never
- * prompt, so the mode is the whole approval policy for the turn. */
+/** Claude Code's `--permission-mode` choices (`claude --help`, 2.1.270). Headless
+ * runs never prompt — checked live: `manual` and `dontAsk` under `-p` run or deny
+ * a tool and close the turn, they do not wait — so the mode is the whole approval
+ * policy for the turn. */
 export const CLAUDE_PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const;
 export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
 
@@ -51,7 +57,7 @@ export function isValidClaudeAuthMode(mode: string): mode is ClaudeAuthMode {
   return (CLAUDE_AUTH_MODES as readonly string[]).includes(mode);
 }
 
-/** Environment variables that would route the child to API billing. */
+/** The direct API-key variables — the ambient ones that move billing off a plan. */
 const API_KEY_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
 export interface ClaudeTurnOptions {
@@ -103,7 +109,7 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
   return args;
 }
 
-/** The child environment: the caller's, minus API-key routing unless `api-key` was asked for. */
+/** The child environment: the caller's, minus the direct API-key variables unless `api-key` was asked for. */
 export function buildClaudeEnv(auth: ClaudeAuthMode, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env = { ...base };
   if (auth === "login") for (const key of API_KEY_ENV) delete env[key];

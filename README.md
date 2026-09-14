@@ -75,7 +75,7 @@ administration.
 - **A space has one id.** Agreement is the preferred contract source; until it declares identity, a valid Foundation identity remains the compatibility evidence for that same Space. Legacy `create` still writes Foundation, `publish` adopts its identity, and conflicting declarations fail closed. `clone` keeps identity; `fork` remints it in every projected root entrypoint. Nothing rekeys a space silently.
 - **`fork` and `update`** validate before touching your disk and never overwrite your work; conflicts are reported.
 - **`--json`** returns a `status`, the revision, and typed failure details. A partial write or commit exits non-zero.
-- **`conversation send --local --runtime=claude`** runs Claude Code — the copy you installed and signed in to, unmodified. Usage bills to your own Claude plan (or to your API key with `--claude-auth=api-key`); the CLI never sees your credentials and reads only the session transcripts Claude Code writes under `~/.claude/projects/`. A turn streams the same events as a pi or hosted turn, so every client renders it the same way.
+- **`conversation send --local --runtime=claude`** runs Claude Code — the copy you installed and signed in to, unmodified. Usage bills to your own Claude plan (or to your API key with `--claude-auth=api-key` — without it, a stray `ANTHROPIC_API_KEY` in your shell is kept away from the turn; provider routing you configured yourself, such as Bedrock or Vertex, stays in force); the CLI never sees your credentials and reads only the session transcripts Claude Code writes under `~/.claude/projects/`. A turn streams the same events as a pi or hosted turn, so every client renders it the same way.
 
 ## Configuration
 

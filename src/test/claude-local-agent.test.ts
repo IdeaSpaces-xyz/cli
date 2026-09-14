@@ -58,6 +58,11 @@ describe("buildClaudeEnv", () => {
   it("lets the key through when api-key auth is asked for", () => {
     expect(buildClaudeEnv("api-key", ambient)).toEqual(ambient);
   });
+
+  it("leaves the user's own provider routing alone — it is configuration, not an ambient key", () => {
+    const bedrock = { ...ambient, CLAUDE_CODE_USE_BEDROCK: "1", AWS_PROFILE: "work" };
+    expect(buildClaudeEnv("login", bedrock)).toEqual({ PATH: "/bin", HOME: "/h", CLAUDE_CODE_USE_BEDROCK: "1", AWS_PROFILE: "work" });
+  });
 });
 
 describe("validators", () => {
