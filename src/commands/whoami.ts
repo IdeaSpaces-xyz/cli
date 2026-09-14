@@ -21,18 +21,21 @@ export const whoamiCommand: CommandDef = {
     }
 
     // The handle is cached at login. Creds saved before that carry none — backfill
-    // it once, best-effort: an offline call still succeeds, just without the handle.
+    // it once, best-effort. Only when there's an on-disk credentials file to cache
+    // into: env-key auth (IS_API_KEY / CI) has none, so a fetch there would round-
+    // trip on every call for nothing — keep whoami instant for that audience.
     let username = config.username ?? null;
     if (!username) {
-      try {
-        const me = await fetchAuthMe(config);
-        username = me.username ?? null;
-        const stored = loadStoredCredentials();
-        if (username && stored) {
-          saveCredentials({ ...stored, username });
+      const stored = loadStoredCredentials();
+      if (stored) {
+        output.progress("Checking account handle…");
+        try {
+          const me = await fetchAuthMe(config);
+          username = me.username ?? null;
+          if (username) saveCredentials({ ...stored, username });
+        } catch {
+          // Offline or transient — report logged-in without the handle.
         }
-      } catch {
-        // Offline or transient — report logged-in without the handle.
       }
     }
 

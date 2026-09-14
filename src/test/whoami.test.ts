@@ -99,6 +99,20 @@ describe("whoami", () => {
     expect(saveCredentialsMock).toHaveBeenCalledWith({ api_url: "https://api.example.test", api_key: "secret-key", username: "ernests_s" });
   });
 
+  it("skips the backfill for env-key auth with no credentials file, staying instant", async () => {
+    // IS_API_KEY / CI auth: loadConfig has no cached handle and there's no
+    // on-disk file to cache one into — whoami must not round-trip on every call.
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "env-key" });
+    loadStoredCredentialsMock.mockReturnValue(null);
+
+    const code = await whoamiCommand.run([], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(JSON.parse(capturedStdout())).toEqual({ logged_in: true, api_url: "https://api.example.test", username: null });
+    expect(fetchAuthMeMock).not.toHaveBeenCalled();
+    expect(saveCredentialsMock).not.toHaveBeenCalled();
+  });
+
   it("stays logged in without a handle when the backfill is offline", async () => {
     loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "secret-key" });
     loadStoredCredentialsMock.mockReturnValue({ api_url: "https://api.example.test", api_key: "secret-key" });
