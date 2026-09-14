@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { afterEach, expect, it } from "vitest";
-import { harvestLocalFiles } from "../pi/workspace-files.js";
+import { harvestLocalFiles } from "../local/workspace-files.js";
 import type { ToolInvocation } from "@ideaspaces/sdk";
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });

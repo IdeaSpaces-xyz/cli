@@ -48,9 +48,14 @@ import {
   piModelsCommand,
   piLoginCommand,
   piLogoutCommand,
-  localConversationOps,
+  localConversationOps as piConversationOps,
 } from "./pi/index.js";
+// The Claude Code connector (src/claude/) — the second local runtime, picked
+// by `--runtime=claude`. Same wall: only this file wires it in.
+import { claudeConversationOps } from "./claude/index.js";
+import { composeLocalConversationOps } from "./local/runtime.js";
 
+const localConversationOps = composeLocalConversationOps({ pi: piConversationOps, claude: claudeConversationOps });
 const conversationCommand = makeConversationCommand(localConversationOps);
 const conversationsCommand = makeConversationsCommand(localConversationOps);
 

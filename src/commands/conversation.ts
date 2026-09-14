@@ -20,7 +20,7 @@ type Flags = Record<string, string | boolean>;
  */
 export interface LocalConversationOps {
   send(flags: Flags, output: Output): Promise<number>;
-  createNew(output: Output): number;
+  createNew(flags: Flags, output: Output): number;
   get(flags: Flags, output: Output): number;
   /** `conversations --local` (the plural list command shares this seam). */
   list(flags: Flags, output: Output): number;
@@ -186,7 +186,7 @@ async function cmdCancel(args: string[], output: Output): Promise<number> {
 // Bare usage — `main.ts` adds the "Usage:" label for `--help`; the error path
 // adds it explicitly. Matches the other commands' `usage:` fields.
 const USAGE =
-  "ideaspaces conversation <new|send|get|cancel> … (send --local for a local pi turn)";
+  "ideaspaces conversation <new|send|get|cancel> … (send --local for a local turn; --runtime=pi|claude)";
 
 /**
  * Build the `conversation` command. `local` supplies the `--local` handlers (the
@@ -203,6 +203,7 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
       "ideaspaces conversation send repo_abc c_123 --message 'Hi'  # streams JSON lines",
       "ideaspaces conversation send --local --context /ws --conversation c1 --message 'Hi' --map maps/research.md --ext a,b --skill a/skills,b/skills --pi-bin /path/pi --pi-model sonnet --pi-thinking high  # local pi turn over a map-note",
       "ideaspaces conversation send --local --context /agents/desktop --working-root /work --focus note.md --session-dir /work/.pi/sessions --conversation c1 --message 'Explain this' --ext a,b  # POV launch; orientation is separate from the user message",
+      "ideaspaces conversation send --local --runtime=claude --context /ws --conversation <uuid> --message 'Hi' --claude-bin /path/claude --claude-model sonnet --permission-mode acceptEdits  # the user's own Claude Code; session created or resumed",
       "ideaspaces conversation get repo_abc c_123        # detail + history",
       "ideaspaces conversation cancel repo_abc c_123     # stop the active turn",
     ],
@@ -214,7 +215,7 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
       }
       switch (sub) {
         case "new":
-          return flags.local ? local.createNew(output) : cmdNew(rest, flags, output);
+          return flags.local ? local.createNew(flags, output) : cmdNew(rest, flags, output);
         case "send":
           return flags.local ? local.send(flags, output) : cmdSend(rest, flags, output);
         case "get":

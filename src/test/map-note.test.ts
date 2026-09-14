@@ -7,7 +7,7 @@ import {
   loadMapNote,
   loadMapNoteOrientation,
   renderMapNoteOrientation,
-} from "../pi/map-note.js";
+} from "../local/map-note.js";
 
 const roots: string[] = [];
 

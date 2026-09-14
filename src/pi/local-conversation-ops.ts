@@ -9,8 +9,8 @@ import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
-import { loadMapNoteOrientation } from "./map-note.js";
-import { localLaunchOrientation } from "./launch-orientation.js";
+import { loadMapNoteOrientation } from "../local/map-note.js";
+import { localLaunchOrientation } from "../local/launch-orientation.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -153,7 +153,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
 // `new --local` mints a local conversation id (= pi session id). The session
 // is created lazily on the first `send --local` (pi's --session-id creates it),
 // then named from the first message. Context-rooted; no repo, no server.
-function createNew(output: Output): number {
+function createNew(_flags: Flags, output: Output): number {
   const id = mintConversationId();
   output.result({ conversation_id: id }, `Created local conversation ${id}`);
   return 0;

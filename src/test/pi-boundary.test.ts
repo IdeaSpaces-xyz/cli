@@ -3,12 +3,14 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The lean-core invariant: the universal CLI (src/commands/**) MUST NOT import
-// the Pi connector (src/pi/**). Only the composition root (src/router.ts) wires
-// the two — it injects the local-conversation ops and registers the Pi-runtime
-// commands. This keeps @ideaspaces/cli's core Pi-free so the connector stays
-// sectionable/extractable. This test is the enforcement (the CLI has no ESLint).
+// a local-runtime connector — the Pi connector (src/pi/**) or the Claude Code
+// connector (src/claude/**). Only the composition root (src/router.ts) wires
+// them — it injects the local-conversation ops and registers the Pi-runtime
+// commands. This keeps @ideaspaces/cli's core runtime-free so each connector
+// stays sectionable/extractable. This test is the enforcement (the CLI has no ESLint).
 
-const commandsDir = join(process.cwd(), "src", "commands");
+const srcDir = join(process.cwd(), "src");
+const commandsDir = join(srcDir, "commands");
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -30,14 +32,16 @@ function importSpecifiers(src: string): string[] {
   return specs;
 }
 
-/** Does a relative specifier resolve into the `pi/` directory? (a path segment
- *  exactly `pi`, e.g. `../pi`, `../pi/index.js`, `./pi/local-agent.js`). */
-function pointsIntoPi(spec: string): boolean {
+const CONNECTORS = ["pi", "claude"];
+
+/** Does a relative specifier resolve into a connector directory? (a path segment
+ *  exactly `pi` or `claude`, e.g. `../pi`, `../pi/index.js`, `./claude/local-agent.js`). */
+function pointsIntoConnector(spec: string): boolean {
   if (!spec.startsWith(".")) return false; // package import, not our tree
-  return spec.split("/").some((seg) => seg === "pi");
+  return spec.split("/").some((seg) => CONNECTORS.includes(seg));
 }
 
-describe("Pi boundary — core commands never import src/pi", () => {
+describe("Runtime boundary — core commands never import src/pi or src/claude", () => {
   const files = walk(commandsDir);
 
   it("finds command files to check", () => {
@@ -46,9 +50,26 @@ describe("Pi boundary — core commands never import src/pi", () => {
 
   for (const file of files) {
     const rel = file.slice(file.indexOf("src/"));
-    it(`${rel} imports nothing from src/pi`, () => {
-      const offending = importSpecifiers(readFileSync(file, "utf8")).filter(pointsIntoPi);
-      expect(offending, `${rel} imports the Pi connector: ${offending.join(", ")}`).toEqual([]);
+    it(`${rel} imports nothing from src/pi or src/claude`, () => {
+      const offending = importSpecifiers(readFileSync(file, "utf8")).filter(pointsIntoConnector);
+      expect(offending, `${rel} imports a runtime connector: ${offending.join(", ")}`).toEqual([]);
     });
+  }
+});
+
+// The connectors are peers, not a stack: neither reaches into the other. What
+// both need — JSONL framing, the workspace harvest, map and launch orientation,
+// the `--runtime` dispatcher — lives in src/local/, so either connector can be
+// sectioned or extracted without the other.
+describe("Connector independence — src/pi and src/claude never import each other", () => {
+  for (const [own, other] of [["pi", "claude"], ["claude", "pi"]] as const) {
+    for (const file of walk(join(srcDir, own))) {
+      const rel = file.slice(file.indexOf("src/"));
+      it(`${rel} imports nothing from src/${other}`, () => {
+        const offending = importSpecifiers(readFileSync(file, "utf8"))
+          .filter((spec) => spec.startsWith(".") && spec.split("/").some((seg) => seg === other));
+        expect(offending, `${rel} reaches into the ${other} connector: ${offending.join(", ")}`).toEqual([]);
+      });
+    }
   }
 });
