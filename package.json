@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#c8635e23b00189166439365b7e206ddfcf35d270",
-    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#edb4d0f8716a725b7ef4d08dad9501810973275f",
+    "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#16b5d679c1dc488523febc764c73a8a79b959823",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.0",
     "typescript": "^5.8.3",

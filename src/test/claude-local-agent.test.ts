@@ -6,6 +6,8 @@ import {
   isValidClaudePermissionMode,
   type ClaudeTurnOptions,
 } from "../claude/local-agent.js";
+import { claudeToolBaseName, normalizeClaudeInvocation } from "../claude/tool-names.js";
+import type { ToolInvocation } from "@ideaspaces/sdk";
 
 const base: ClaudeTurnOptions & { sessionExists: boolean } = {
   repoPath: "/ws",
@@ -66,5 +68,24 @@ describe("validators", () => {
     expect(isValidClaudeAuthMode("login")).toBe(true);
     expect(isValidClaudeAuthMode("api-key")).toBe(true);
     expect(isValidClaudeAuthMode("oauth")).toBe(false);
+  });
+});
+
+describe("Claude tool names for the workspace harvest", () => {
+  it("strips the MCP server prefix", () => {
+    expect(claudeToolBaseName("mcp__plugin_ideaspaces_core__is_write")).toBe("is_write");
+    expect(claudeToolBaseName("Write")).toBe("Write");
+  });
+
+  it("rewrites native file tools into the pi-shaped write/edit/read with `path`", () => {
+    const inv = (name: string, args: Record<string, unknown>): ToolInvocation => ({ name, args, result: null, isError: false });
+    expect(normalizeClaudeInvocation(inv("Write", { file_path: "/s/a.md", content: "x" }))).toMatchObject({ name: "write", args: { path: "/s/a.md" } });
+    expect(normalizeClaudeInvocation(inv("Edit", { file_path: "/s/a.md" }))).toMatchObject({ name: "edit", args: { path: "/s/a.md" } });
+    expect(normalizeClaudeInvocation(inv("MultiEdit", { file_path: "/s/a.md" }))).toMatchObject({ name: "edit" });
+    expect(normalizeClaudeInvocation(inv("NotebookEdit", { notebook_path: "/s/n.ipynb" }))).toMatchObject({ name: "edit", args: { path: "/s/n.ipynb" } });
+    expect(normalizeClaudeInvocation(inv("Read", { file_path: "/s/a.md" }))).toMatchObject({ name: "read", args: { path: "/s/a.md" } });
+    expect(normalizeClaudeInvocation(inv("mcp__plugin_ideaspaces_core__is_write", { path: "n.md" }))).toMatchObject({ name: "is_write", args: { path: "n.md" } });
+    const bash = inv("Bash", { command: "ls" });
+    expect(normalizeClaudeInvocation(bash)).toBe(bash);
   });
 });

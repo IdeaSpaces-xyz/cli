@@ -23,8 +23,6 @@
 import { spawn } from "node:child_process";
 import {
   ClaudeTranslator,
-  claudeToolBaseName,
-  normalizeClaudeInvocation,
   parseClaudeStreamLine,
   type KeeperStreamEvent,
   type ToolInvocation,
@@ -32,6 +30,7 @@ import {
 import { readRpcLines } from "../pi/local-agent.js";
 import { harvestLocalFiles } from "../pi/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
+import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
 
 /** Claude Code's `--permission-mode` choices (2.1.x). Headless runs never
  * prompt, so the mode is the whole approval policy for the turn. */
