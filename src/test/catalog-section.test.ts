@@ -79,17 +79,17 @@ describe("formatCatalogSection", () => {
   });
 
   it("caps at MAX_CATALOG_REPOS and summarises the overflow", async () => {
-    // Fake `.git` dirs are enough to be counted as repos (state resolves to
-    // "unknown"); real git per repo would only slow the cap check.
+    // The shared protocol reader admits only real repository roots; a fake
+    // `.git` directory must not masquerade as one in the catalog projection.
     for (let i = 0; i < MAX_CATALOG_REPOS + 1; i++) {
-      await mkdir(join(ws, `r${String(i).padStart(2, "0")}`, ".git"), { recursive: true });
+      await makeRepo(ws, `r${String(i).padStart(2, "0")}`);
     }
     const out = await formatCatalogSection(ws, { povRepoRoot: null, mounts: [] });
     const lines = out!.split("\n");
     expect(lines[0]).toBe("Repos in scope (local):");
     expect(lines.filter((l) => l.startsWith("  r")).length).toBe(MAX_CATALOG_REPOS);
     expect(lines[lines.length - 1]).toBe("  …and 1 more");
-  });
+  }, 30_000);
 });
 
 describe("formatWorkingSetSection", () => {

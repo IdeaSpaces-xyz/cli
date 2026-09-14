@@ -1,106 +1,80 @@
 /**
- * The repo catalog + working-set awareness sections — the LOCAL tier of a local
- * agent's orientation: which git repos sit beside it in a workspace folder, their
- * sync state, and a thin working-set of the home root plus mounts.
+ * Local working-set and repository-catalog orchestration.
  *
- * The CLI owns this harness-specific rendering — home/mount/POV roles and the
- * pullable tier are not portable knowledge-repo shape. Portable parsing and git
- * facts come directly from the protocol; filesystem orchestration stays local.
- * No git side effects.
+ * The protocol reads root handles/repositories, projects them through Map
+ * members, and owns canonical row rendering. The CLI supplies only private
+ * root ordinals plus harness presentation: home/mount/POV roles, sync state,
+ * display paths, caps, and the already-fetched pullable tier.
  */
 
-import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { basename, join, resolve as resolvePath } from "node:path";
-import { extractSummary, gitState } from "@ideaspaces/protocol";
+import { basename, resolve as resolvePath } from "node:path";
+import {
+  gitState,
+  projectRootMapMembers,
+  readRootHandle,
+  readWorkspaceRepositories,
+  renderRootMapMembers,
+  type GitState,
+  type RootMapMemberInput,
+  type WorkspaceRepository,
+} from "@ideaspaces/protocol";
 
-// Noise dirs skipped when scanning a folder for child repos / counting dirs.
+// Generic protocol exclusions plus local harness caches/noise.
 export const AUTOCOMPLETE_EXCLUDES = [".git", "node_modules", "backups", ".pi", ".claude"];
 
-// Cap on catalog rows so a folder with many repos can't bloat the awareness
-// block; the remainder is summarised as "…and N more".
 export const MAX_CATALOG_REPOS = 20;
 
-// A single working-set handle: a root, a one-line summary, and a top-level dir
-// count. Mounts surface as thin handles — orientation, not full trees.
-type RootHandle = { summary: string | null; dirCount: number | null };
-
-// First line of a file's content (frontmatter stripped via extractSummary), or
-// null. Kept to a single line so working-set handles stay terse.
-function firstContentLine(content: string): string | null {
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith("---")) return trimmed;
-  }
-  return null;
+function directoryDetails(count: number | null): string[] {
+  return count == null ? [] : [`${count} dirs`];
 }
 
-// Read a one-line summary for a root: prefer `_agent/now.md`, then `README.md`.
-// Use the Layer 1 frontmatter summary when present, else the first content line.
-async function readRootSummary(root: string): Promise<string | null> {
-  const candidates = [join(root, "_agent", "now.md"), join(root, "README.md")];
-  for (const candidate of candidates) {
-    try {
-      const content = await readFile(candidate, "utf-8");
-      const summary = extractSummary(content) ?? firstContentLine(content);
-      if (summary) return summary.replace(/\s+/g, " ").trim();
-    } catch {
-      // Missing or unreadable candidate — try the next.
-    }
-  }
-  return null;
-}
-
-// Count top-level directories under a root, excluding noise dirs. Best-effort.
-async function countTopLevelDirs(root: string): Promise<number | null> {
-  try {
-    const entries = await readdir(root, { withFileTypes: true });
-    return entries.filter(
-      (entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name),
-    ).length;
-  } catch {
-    return null;
-  }
-}
-
-async function readRootHandle(root: string): Promise<RootHandle> {
-  const [summary, dirCount] = await Promise.all([readRootSummary(root), countTopLevelDirs(root)]);
-  return { summary, dirCount };
-}
-
-function formatRootHandleLine(label: string, display: string, handle: RootHandle): string {
-  const parts = [`  ${label}: ${display}`];
-  if (handle.summary) parts.push(` — ${handle.summary}`);
-  if (handle.dirCount != null) parts.push(` (${handle.dirCount} dirs)`);
-  return parts.join("");
-}
-
-// The working-set section: the home root (authority frame) plus read-only
-// content mounts, each as a thin handle. Progressive disclosure — handles only,
-// never full trees; deepen a mount on demand via is_navigate({ root }).
-export async function formatWorkingSetSection(homeRoot: string, mounts: string[]): Promise<string | null> {
-  const lines = ["Working set:"];
-  const homeHandle = await readRootHandle(homeRoot);
-  lines.push(formatRootHandleLine("home", basename(homeRoot) || homeRoot, homeHandle));
-
-  const mountHandles = await Promise.all(mounts.map((mount) => readRootHandle(mount)));
-  mounts.forEach((mount, index) => {
-    lines.push(formatRootHandleLine("mount", mount, mountHandles[index]));
+/** Thin authority root followed by caller-ordered read-only mounts. */
+export async function formatWorkingSetSection(
+  homeRoot: string,
+  mounts: string[],
+): Promise<string | null> {
+  const options = { excludeDirectories: AUTOCOMPLETE_EXCLUDES };
+  const [home, ...mounted] = await Promise.all([
+    readRootHandle(homeRoot, options),
+    ...mounts.map((mount) => readRootHandle(mount, options)),
+  ]);
+  const inputs: RootMapMemberInput[] = [
+    {
+      root: 0,
+      name: basename(homeRoot) || homeRoot,
+      summary: home.summary,
+      presentation: {
+        label: "home",
+        display: basename(homeRoot) || homeRoot,
+        details: directoryDetails(home.directoryCount),
+      },
+    },
+    ...mounts.map((mount, index): RootMapMemberInput => ({
+      root: index + 1,
+      name: basename(mount) || mount,
+      summary: mounted[index]?.summary,
+      presentation: {
+        label: "mount",
+        display: mount,
+        details: directoryDetails(mounted[index]?.directoryCount ?? null),
+      },
+    })),
+  ];
+  return renderRootMapMembers(projectRootMapMembers(inputs), {
+    heading: "Working set:",
   });
-
-  return lines.join("\n");
 }
 
-// One-line sync state for a repo, from gitState: `local-only` (no upstream),
-// `synced`, `ahead N`, `behind N`, `diverged +A/-B`; suffixed ` · dirty` when
-// the tree is dirty. `unknown` when git state can't be read.
+/** One-line local sync state; presentation only, never Map data. */
 export async function readRepoState(repoRoot: string): Promise<string> {
-  let state: Awaited<ReturnType<typeof gitState>>;
   try {
-    state = await gitState(repoRoot);
+    return repoState(await gitState(repoRoot));
   } catch {
     return "unknown";
   }
+}
+
+function repoState(state: GitState): string {
   let base: string;
   if (state.ahead == null || state.behind == null) {
     base = "local-only";
@@ -116,78 +90,91 @@ export async function readRepoState(repoRoot: string): Promise<string> {
   return state.dirty ? `${base} · dirty` : base;
 }
 
-// The catalog: git repos that are immediate children of the workspace folder
-// (the session cwd / `--context` root), each a thin handle tagged with its sync
-// state, the POV, and whether it's mounted. This is the LOCAL tier — the repos
-// the agent can navigate into or pull; the remote/pullable tier is added when
-// IdeaSpace is connected. Repos only: plain dirs are ordinary files the agent
-// reads directly. Returns null when the folder holds no child repos. Immediate
-// children only (repos are siblings), not recursive; capped and rendered in
-// parallel across repos.
+function catalogInput(
+  repository: WorkspaceRepository,
+  root: number,
+  pov: string | null,
+  mounts: ReadonlySet<string>,
+): RootMapMemberInput {
+  const canonical = resolvePath(repository.git.repoRoot);
+  const visible = resolvePath(repository.root);
+  const details = [repoState(repository.git)];
+  if (pov && canonical === pov) details.push("POV");
+  if (mounts.has(visible) || mounts.has(canonical)) details.push("mounted");
+  return {
+    root,
+    name: basename(repository.root) || repository.root,
+    summary: repository.summary,
+    presentation: {
+      display: basename(repository.root) || repository.root,
+      details,
+    },
+  };
+}
+
+/**
+ * Immediate local repositories plus a caller-supplied, already-fetched remote
+ * tier. Producer order remains POV/mounts first, then lexical local order;
+ * remote entries retain caller order.
+ */
 export async function formatCatalogSection(
   workspaceFolder: string,
   opts: {
     povRepoRoot: string | null;
     mounts: string[];
-    pullable?: Array<{ slug: string; namespace: string }>;
+    pullable?: Array<{ slug: string; namespace: string; address?: string }>;
   },
 ): Promise<string | null> {
-  let repos: string[];
-  try {
-    const entries = await readdir(workspaceFolder, { withFileTypes: true });
-    repos = entries
-      .filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name))
-      .map((entry) => join(workspaceFolder, entry.name))
-      .filter((dir) => existsSync(join(dir, ".git")));
-  } catch {
-    // Unreadable folder: no local tier, but the pullable tier may still render.
-    repos = [];
-  }
-  repos.sort((a, b) => basename(a).localeCompare(basename(b)));
-
+  const repositories = await readWorkspaceRepositories(workspaceFolder, {
+    excludeDirectories: AUTOCOMPLETE_EXCLUDES,
+  });
   const pov = opts.povRepoRoot ? resolvePath(opts.povRepoRoot) : null;
   const mountSet = new Set(opts.mounts.map((mount) => resolvePath(mount)));
-  // Keep the POV and mounted repos in view even past the cap — the agent's own
-  // position must never be the row that gets truncated. Priority repos first,
-  // the rest alphabetically, then slice (never below the priority count).
-  const isPriority = (repo: string): boolean => {
-    const abs = resolvePath(repo);
-    return abs === pov || mountSet.has(abs);
+  const isPriority = (repository: WorkspaceRepository): boolean => {
+    const visible = resolvePath(repository.root);
+    const canonical = resolvePath(repository.git.repoRoot);
+    return canonical === pov || mountSet.has(visible) || mountSet.has(canonical);
   };
-  const priority = repos.filter(isPriority);
-  const ordered = [...priority, ...repos.filter((repo) => !isPriority(repo))];
+  const priority = repositories.filter(isPriority);
+  const ordered = [
+    ...priority,
+    ...repositories.filter((repository) => !isPriority(repository)),
+  ];
   const shown = ordered.slice(0, Math.max(MAX_CATALOG_REPOS, priority.length));
-  const overflow = repos.length - shown.length;
-
-  const rows = await Promise.all(
-    shown.map(async (repo) => {
-      const [summary, state] = await Promise.all([readRootSummary(repo), readRepoState(repo)]);
-      const tags = [state];
-      if (pov && resolvePath(repo) === pov) tags.push("POV");
-      if (mountSet.has(resolvePath(repo))) tags.push("mounted");
-      const parts = [`  ${basename(repo)}`];
-      if (summary) parts.push(` — ${summary}`);
-      parts.push(` (${tags.join(" · ")})`);
-      return parts.join("");
-    }),
-  );
+  const overflow = repositories.length - shown.length;
 
   const blocks: string[] = [];
-  if (rows.length) {
-    const lines = ["Repos in scope (local):", ...rows];
-    if (overflow > 0) lines.push(`  …and ${overflow} more`);
-    blocks.push(lines.join("\n"));
-  }
-  // The remote/pullable tier: account spaces not yet on disk (from the CLI
-  // `catalog` verb). Empty when logged out. Pull one to bring it local.
+  const local = renderRootMapMembers(
+    projectRootMapMembers(
+      shown.map((repository, index) =>
+        catalogInput(repository, index, pov, mountSet),
+      ),
+    ),
+    { heading: "Repos in scope (local):", omittedMembers: overflow },
+  );
+  if (local) blocks.push(local);
+
   const pullable = opts.pullable ?? [];
-  if (pullable.length) {
+  const remote = renderRootMapMembers(
+    projectRootMapMembers(
+      pullable.map((entry): RootMapMemberInput =>
+        entry.address
+          ? {
+              address: entry.address,
+              name: entry.slug,
+              presentation: { details: [entry.namespace] },
+            }
+          : {
+              name: entry.slug,
+              presentation: { details: [entry.namespace] },
+            },
+      ),
+    ),
+    { heading: "Pullable (remote — not yet local):" },
+  );
+  if (remote) {
     blocks.push(
-      [
-        "Pullable (remote — not yet local):",
-        ...pullable.map((p) => `  ${p.slug} (${p.namespace})`),
-        "  → to work on one, clone it into this folder with `ideaspaces clone` (via bash).",
-      ].join("\n"),
+      `${remote}\n  → to work on one, clone it into this folder with \`ideaspaces clone\` (via bash).`,
     );
   }
   return blocks.length ? blocks.join("\n\n") : null;

@@ -9,12 +9,14 @@
 
 import {
   assembleContentTree,
+  buildMap,
   gitState,
+  projectContentTreeMembers,
   resolveRepoRoot,
   type ContentAwarenessTree,
-  type ContentAwarenessTreeEntry,
   type ContentTreeDepth,
-  type MapDepth,
+  type MapRoot,
+  type ProjectedContentTreeMember,
 } from "@ideaspaces/protocol";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -26,24 +28,13 @@ import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
 
-interface DerivedMapRoot {
+interface LocalProjectionRoot {
   local_path: string;
   sha: string | null;
   /** Canonical absolute repository URL, present only for a hosted origin. */
   repo?: string;
-  /** Stable root identity, present as soon as the checkout declares one. */
+  /** Stable root identity, present as soon as the checkout can resolve one safely. */
   root_node_id?: string;
-}
-
-interface DerivedMapMember {
-  root: 0;
-  position: string;
-  depth: MapDepth;
-  kind: "directory" | "markdown";
-  name: string;
-  summary?: string;
-  markdown_files?: number;
-  omitted_children?: number;
 }
 
 function parseDepth(value: string | boolean | undefined): ContentTreeDepth | null {
@@ -54,38 +45,11 @@ function parseDepth(value: string | boolean | undefined): ContentTreeDepth | nul
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 4 ? parsed : null;
 }
 
-function representation(entry: ContentAwarenessTreeEntry): MapDepth {
-  if (entry.kind === "directory" && (entry.children?.length || entry.omittedChildren)) {
-    return "children";
-  }
-  return entry.summary ? "summary" : "name";
-}
-
-function flatten(
-  entries: readonly ContentAwarenessTreeEntry[],
-  parent = "",
-  members: DerivedMapMember[] = [],
-): DerivedMapMember[] {
-  for (const entry of entries) {
-    const position = parent ? `${parent}/${entry.name}` : entry.name;
-    members.push({
-      root: 0,
-      position,
-      depth: representation(entry),
-      kind: entry.kind,
-      name: entry.name,
-      ...(entry.summary ? { summary: entry.summary } : {}),
-      ...(entry.markdownFiles === undefined ? {} : { markdown_files: entry.markdownFiles }),
-      ...(entry.omittedChildren === undefined ? {} : { omitted_children: entry.omittedChildren }),
-    });
-    if (entry.children) flatten(entry.children, position, members);
-  }
-  return members;
-}
-
-function humanMember(member: DerivedMapMember): string {
-  const suffix = member.kind === "directory" ? "/" : "";
-  return `  ${member.depth.padEnd(8)} ${member.position}${suffix}${member.summary ? ` — ${member.summary}` : ""}`;
+function humanMember(projected: ProjectedContentTreeMember): string {
+  const { member, presentation } = projected;
+  const suffix = presentation.kind === "directory" ? "/" : "";
+  const summary = member.disclosure?.summary;
+  return `  ${member.depth.padEnd(8)} ${member.position}${suffix}${summary ? ` — ${summary}` : ""}`;
 }
 
 function emptyTree(): ContentAwarenessTree {
@@ -159,15 +123,16 @@ export const mapCommand: CommandDef = {
     if (!assembled) return 1;
     const [treeResult, state] = assembled;
     const tree = treeResult ?? emptyTree();
-    const members = flatten(tree.entries);
+    const projection = projectContentTreeMembers(tree);
     // A Map root is addressed by stable identity. A declared checkout has one
-    // before it is ever published; only a hosted origin also earns the
-    // canonical repo URL, and only that makes the selection portable.
+    // before it is ever published; a hosted origin additionally earns the
+    // canonical repo URL. Either stable identity form can anchor a portable
+    // pinned Map, while remote usability remains a later consumer check.
     // A logged-in session's deployment decides which origins are hosted; the
     // default only stands in when there is no session.
     const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
     const identity = inspectLocalRootIdentity(repoRoot, apiUrl);
-    const root: DerivedMapRoot = {
+    const root: LocalProjectionRoot = {
       local_path: repoRoot,
       sha: state.headSha,
       ...(identity.root_node_id ? { root_node_id: identity.root_node_id } : {}),
@@ -175,9 +140,9 @@ export const mapCommand: CommandDef = {
         ? { repo: canonicalRepoUrl(apiUrl, identity.canonical_origin) }
         : {}),
     };
-    const markdownPositions = members
-      .filter((member) => member.kind === "markdown")
-      .map((member) => member.position);
+    const markdownPositions = projection.members
+      .filter(({ presentation }) => presentation.kind === "markdown")
+      .map(({ member }) => member.position);
     let localOnlyPaths: string[];
     let dirty: boolean;
     try {
@@ -187,9 +152,23 @@ export const mapCommand: CommandDef = {
       output.error(`Could not inspect Map root state: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
-    const portable = Boolean(root.repo && root.sha && !dirty);
-    const complete = depth === "full" && tree.omittedEntries === undefined &&
-      members.every((member) => member.omitted_children === undefined);
+    const portableRoot: MapRoot | null = root.root_node_id && root.sha && !dirty
+      ? {
+          sha: root.sha,
+          root_node_id: root.root_node_id,
+          ...(root.repo ? { repo: root.repo } : {}),
+        }
+      : null;
+    const built = portableRoot
+      ? buildMap({
+          roots: [portableRoot],
+          members: projection.members.map(({ member }) => member),
+        })
+      : null;
+    const portableMap = built?.status === "valid" ? built.map : null;
+    const portable = portableMap !== null;
+    const complete = depth === "full" && projection.omittedEntries === undefined &&
+      projection.members.every(({ presentation }) => presentation.omittedChildren === undefined);
 
     const data = {
       kind: "derived-map",
@@ -200,11 +179,13 @@ export const mapCommand: CommandDef = {
       dirty,
       local_only_paths: localOnlyPaths,
       total_markdown_files: tree.totalMarkdownFiles,
-      omitted_entries: tree.omittedEntries ?? 0,
-      map: {
-        roots: [root],
-        members,
+      omitted_entries: projection.omittedEntries ?? 0,
+      projection: {
+        root,
+        members: projection.members,
       },
+      ...(portableMap ? { map: portableMap } : {}),
+      ...(built?.status === "invalid" ? { map_issues: built.issues } : {}),
     };
 
     const rootLabel = root.repo ?? root.root_node_id ?? root.local_path;
@@ -215,9 +196,9 @@ export const mapCommand: CommandDef = {
         ? "portable Map seed"
         : dirty
           ? "working tree differs from HEAD"
-          : "local root has no portable remote identity"}`,
-      `Members (${members.length}; ${tree.totalMarkdownFiles} markdown files):`,
-      ...members.map(humanMember),
+          : "local root has no portable identity"}`,
+      `Members (${projection.members.length}; ${tree.totalMarkdownFiles} markdown files):`,
+      ...projection.members.map(humanMember),
     ];
     output.result(data, lines.join("\n"));
     return 0;
