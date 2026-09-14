@@ -255,6 +255,35 @@ describe("ideaspaces map", () => {
   });
 
   it.skipIf(process.platform === "win32")(
+    "omits the portable block and surfaces strict member-validation issues",
+    async () => {
+      await fs.writeFile(join(root, "bad\\name.md"), "# Backslash name\n");
+      git(["add", "."]);
+      git(["commit", "-q", "-m", "seed"]);
+
+      const result = await runMap(["."], { depth: "full" });
+      expect(result.exit, result.stderr).toBe(0);
+      expect(result.data.portable).toBe(false);
+      expect(result.data).not.toHaveProperty("map");
+      expect(result.data.map_issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "invalid_position" }),
+        ]),
+      );
+
+      const human = await runMap(
+        ["."],
+        { depth: "full" },
+        { ...JSON_FLAGS, json: false, quiet: false },
+      );
+      expect(human.exit).toBe(0);
+      expect(human.stdout).toContain(
+        "portable Map validation failed (run with --json for map_issues)",
+      );
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
     "fails rather than calling unreadable territory complete",
     async () => {
       const locked = join(root, "locked");
