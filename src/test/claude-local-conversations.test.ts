@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   claudeConfigDir,
   claudeProjectDir,
@@ -37,15 +37,19 @@ const FIXTURE = [
 ].join("\n");
 
 describe("Claude Code session addressing", () => {
-  it("slugs the cwd the way Claude Code does — every non-alphanumeric becomes a dash", () => {
-    expect(claudeProjectSlug("/Users/me/github/space.v2")).toBe("-Users-me-github-space-v2");
-    expect(claudeProjectSlug("/private/tmp/a_b c")).toBe("-private-tmp-a-b-c");
+  it("slugs the resolved cwd the way Claude Code does — every non-alphanumeric becomes a dash", () => {
+    // On Windows the resolved path carries a drive letter (`C--Users-…`), as it does for Claude Code.
+    const slug = claudeProjectSlug("/Users/me/github/space.v2");
+    expect(slug).toMatch(/^[A-Za-z0-9-]+$/u);
+    expect(slug).toMatch(/-Users-me-github-space-v2$/u);
+    expect(claudeProjectSlug("/private/tmp/a_b c")).toMatch(/-private-tmp-a-b-c$/u);
+    expect(claudeProjectSlug("/x/../y")).toBe(claudeProjectSlug("/y"));
   });
 
   it("reads the config dir from CLAUDE_CONFIG_DIR, else ~/.claude", () => {
     expect(claudeConfigDir({ CLAUDE_CONFIG_DIR: "/cfg" })).toBe("/cfg");
-    expect(claudeConfigDir({})).toMatch(/\/\.claude$/);
-    expect(claudeProjectDir("/ws", { CLAUDE_CONFIG_DIR: "/cfg" })).toBe("/cfg/projects/-ws");
+    expect(claudeConfigDir({})).toMatch(/[\/\\]\.claude$/u);
+    expect(claudeProjectDir("/ws", { CLAUDE_CONFIG_DIR: "/cfg" })).toBe(join("/cfg", "projects", claudeProjectSlug(resolve("/ws"))));
   });
 
   it("mints UUIDs and accepts only UUIDs as conversation ids", () => {
