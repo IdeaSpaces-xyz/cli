@@ -76,11 +76,18 @@ describe("formatCatalogSection", () => {
 
     const noPull = await formatCatalogSection(ws, { povRepoRoot: null, mounts: [], pullable: [] });
     expect(noPull).not.toContain("Pullable"); // decision C porter check
+
+    const missingWorkspace = await formatCatalogSection(join(ws, "missing"), {
+      povRepoRoot: null,
+      mounts: [],
+      pullable: [{ slug: "team", namespace: "acme.com" }],
+    });
+    expect(missingWorkspace).toContain("Pullable (remote — not yet local):");
   });
 
-  it("caps at MAX_CATALOG_REPOS and summarises the overflow", async () => {
-    // Fake `.git` dirs are enough to be counted as repos (state resolves to
-    // "unknown"); real git per repo would only slow the cap check.
+  it("caps before expensive per-repository reads and summarises the overflow", async () => {
+    // Candidate discovery is deliberately cheap. Invalid markers may render
+    // `unknown`, but rows beyond the cap must never pay for Git/summary reads.
     for (let i = 0; i < MAX_CATALOG_REPOS + 1; i++) {
       await mkdir(join(ws, `r${String(i).padStart(2, "0")}`, ".git"), { recursive: true });
     }
@@ -119,6 +126,11 @@ describe("formatWorkingSetSection", () => {
         "  home: home — Home space (3 dirs)",
         `  mount: ${mount} — Mounted repo (1 dirs)`,
       ].join("\n"),
+    );
+
+    const missing = join(ws, "missing");
+    await expect(formatWorkingSetSection(home, [missing])).resolves.toContain(
+      `mount: ${missing}`,
     );
   });
 });

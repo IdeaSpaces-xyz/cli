@@ -119,11 +119,18 @@ describe("ideaspaces map", () => {
       dirty: false,
       total_markdown_files: 3,
       omitted_entries: 0,
+      projection: {
+        root: {
+          local_path: root,
+          repo: `https://ideaspaces.xyz/repos/${ROOT_NODE_ID}`,
+          sha: head,
+        },
+      },
       map: {
         roots: [
           {
-            local_path: root,
             repo: `https://ideaspaces.xyz/repos/${ROOT_NODE_ID}`,
+            root_node_id: ROOT_NODE_ID,
             sha: head,
           },
         ],
@@ -132,18 +139,23 @@ describe("ideaspaces map", () => {
     expect(parseMap(result.data.map).status).toBe("valid");
     expect(result.data.map.members).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ root: 0, position: "alpha", depth: "children" }),
+        expect.objectContaining({
+          root: 0,
+          position: "alpha",
+          depth: "summary",
+          disclosure: { name: "alpha", summary: "Alpha branch." },
+        }),
         expect.objectContaining({
           root: 0,
           position: "alpha/bravo/charlie/delta/echo/finding.md",
           depth: "summary",
-          summary: "Deep finding.",
+          disclosure: { name: "finding.md", summary: "Deep finding." },
         }),
         expect.objectContaining({
           root: 0,
           position: "README.md",
           depth: "summary",
-          summary: "Repository surface.",
+          disclosure: { name: "README.md", summary: "Repository surface." },
         }),
       ]),
     );
@@ -167,16 +179,36 @@ describe("ideaspaces map", () => {
 
     expect(result.exit, result.stderr).toBe(0);
     expect(result.data.portable).toBe(false);
-    expect(result.data.map.roots[0]).not.toHaveProperty("repo");
-    // A checkout with no hosted origin and no declaration has no stable
-    // identity, so the protocol declines it as a Map root rather than
-    // inventing a coordinate the Inbox could not resolve.
-    expect(result.data.map.roots[0]).not.toHaveProperty("root_node_id");
-    const parsed = parseMap(result.data.map);
-    expect(parsed.status).toBe("invalid");
-    expect(parsed.status === "invalid" && parsed.issues.map((issue) => issue.code)).toContain(
-      "missing_root_identity",
+    expect(result.data).not.toHaveProperty("map");
+    expect(result.data.projection.root).toMatchObject({
+      local_path: root,
+      sha: expect.stringMatching(/^[0-9a-f]{40}$/),
+    });
+    expect(result.data.projection.root).not.toHaveProperty("repo");
+    expect(result.data.projection.root).not.toHaveProperty("root_node_id");
+    // No stable identity means no portable block — never a malformed Map that
+    // another consumer could mistake for an exportable selection.
+    expect(result.data.projection.members.length).toBeGreaterThan(0);
+  });
+
+  it("emits a root-node-id-only Map for a clean identified local repository", async () => {
+    git(["remote", "set-url", "origin", "https://GitHub.com/Acme/Research.git"]);
+    await writeDeepTree();
+    await fs.mkdir(join(root, "_agent"), { recursive: true });
+    await fs.writeFile(
+      join(root, "_agent", "agreement.md"),
+      `---\nroot_node_id: ${ROOT_NODE_ID}\n---\n# Agreement\n`,
     );
+    git(["add", "."]);
+    git(["commit", "-q", "-m", "seed"]);
+
+    const result = await runMap(["."], { depth: "full" });
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect(result.data.portable).toBe(true);
+    expect(result.data.map.roots[0]).toMatchObject({ root_node_id: ROOT_NODE_ID });
+    expect(result.data.map.roots[0]).not.toHaveProperty("repo");
+    expect(parseMap(result.data.map).status).toBe("valid");
   });
 
   it("recognizes a hosted origin on the session's own deployment", async () => {
@@ -215,10 +247,41 @@ describe("ideaspaces map", () => {
       complete: true,
       local_only_paths: ["new.md"],
     });
-    expect(dirty.data.map.members).toEqual(
+    expect(dirty.data).not.toHaveProperty("map");
+    expect(dirty.data.projection.members.map((entry: { member: { position: string } }) => entry.member)).toEqual(
       expect.arrayContaining([expect.objectContaining({ position: "new.md", depth: "name" })]),
     );
+    expect(JSON.stringify(dirty.data.projection.members.map((entry: { member: unknown }) => entry.member))).not.toContain(root);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "omits the portable block and surfaces strict member-validation issues",
+    async () => {
+      await fs.writeFile(join(root, "bad\\name.md"), "# Backslash name\n");
+      git(["add", "."]);
+      git(["commit", "-q", "-m", "seed"]);
+
+      const result = await runMap(["."], { depth: "full" });
+      expect(result.exit, result.stderr).toBe(0);
+      expect(result.data.portable).toBe(false);
+      expect(result.data).not.toHaveProperty("map");
+      expect(result.data.map_issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: "invalid_position" }),
+        ]),
+      );
+
+      const human = await runMap(
+        ["."],
+        { depth: "full" },
+        { ...JSON_FLAGS, json: false, quiet: false },
+      );
+      expect(human.exit).toBe(0);
+      expect(human.stdout).toContain(
+        "portable Map validation failed (run with --json for map_issues)",
+      );
+    },
+  );
 
   it.skipIf(process.platform === "win32")(
     "fails rather than calling unreadable territory complete",
