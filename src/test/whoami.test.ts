@@ -2,12 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GlobalFlags } from "../types.js";
 
-const { loadConfigMock } = vi.hoisted(() => ({
+const { loadConfigMock, loadStoredCredentialsMock, saveCredentialsMock, fetchAuthMeMock } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
+  loadStoredCredentialsMock: vi.fn(),
+  saveCredentialsMock: vi.fn(),
+  fetchAuthMeMock: vi.fn(),
 }));
 
 vi.mock("../auth/credentials.js", () => ({
   loadConfig: loadConfigMock,
+  loadStoredCredentials: loadStoredCredentialsMock,
+  saveCredentials: saveCredentialsMock,
+}));
+
+vi.mock("../auth/api.js", () => ({
+  fetchAuthMe: fetchAuthMeMock,
 }));
 
 const { whoamiCommand } = await import("../commands/whoami.js");
@@ -20,6 +29,9 @@ let originalWrite: typeof process.stdout.write;
 
 beforeEach(() => {
   loadConfigMock.mockReset();
+  loadStoredCredentialsMock.mockReset();
+  saveCredentialsMock.mockReset();
+  fetchAuthMeMock.mockReset();
   stdoutChunks = [];
   originalWrite = process.stdout.write.bind(process.stdout);
   (process.stdout.write as unknown as (s: string) => boolean) = (chunk: string | Uint8Array) => {
@@ -37,15 +49,16 @@ function capturedStdout(): string {
 }
 
 describe("whoami", () => {
-  it("reports logged in with the API url, never the key, as JSON", async () => {
-    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "secret-key" });
+  it("reports logged in with the API url and cached handle, never the key, as JSON", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "secret-key", username: "ernests_s" });
 
     const code = await whoamiCommand.run([], {}, JSON_GLOBAL);
 
     expect(code).toBe(0);
     const out = JSON.parse(capturedStdout());
-    expect(out).toEqual({ logged_in: true, api_url: "https://api.example.test" });
+    expect(out).toEqual({ logged_in: true, api_url: "https://api.example.test", username: "ernests_s" });
     expect(capturedStdout()).not.toContain("secret-key");
+    expect(fetchAuthMeMock).not.toHaveBeenCalled();
   });
 
   it("reports not logged in when there are no credentials", async () => {
@@ -65,12 +78,36 @@ describe("whoami", () => {
     expect(capturedStdout()).toContain("Not logged in");
   });
 
-  it("prints the API url in human-readable text when logged in", async () => {
-    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "secret-key" });
+  it("names the account in human-readable text when logged in", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "secret-key", username: "ernests_s" });
 
     await whoamiCommand.run([], {}, HUMAN_GLOBAL);
 
-    expect(capturedStdout()).toContain("Logged in to https://api.example.test");
+    expect(capturedStdout()).toContain("Logged in to https://api.example.test as @ernests_s");
     expect(capturedStdout()).not.toContain("secret-key");
+  });
+
+  it("backfills and caches the handle when the credentials predate it", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "secret-key" });
+    loadStoredCredentialsMock.mockReturnValue({ api_url: "https://api.example.test", api_key: "secret-key" });
+    fetchAuthMeMock.mockResolvedValue({ username: "ernests_s", repos: [] });
+
+    const code = await whoamiCommand.run([], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(JSON.parse(capturedStdout())).toEqual({ logged_in: true, api_url: "https://api.example.test", username: "ernests_s" });
+    expect(saveCredentialsMock).toHaveBeenCalledWith({ api_url: "https://api.example.test", api_key: "secret-key", username: "ernests_s" });
+  });
+
+  it("stays logged in without a handle when the backfill is offline", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: "https://api.example.test", apiKey: "secret-key" });
+    loadStoredCredentialsMock.mockReturnValue({ api_url: "https://api.example.test", api_key: "secret-key" });
+    fetchAuthMeMock.mockRejectedValue(new Error("network down"));
+
+    const code = await whoamiCommand.run([], {}, JSON_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(JSON.parse(capturedStdout())).toEqual({ logged_in: true, api_url: "https://api.example.test", username: null });
+    expect(saveCredentialsMock).not.toHaveBeenCalled();
   });
 });
