@@ -23,11 +23,11 @@
  * pi-local-context's `context_conversation`.
  */
 
-import { harvestLocalFiles } from "./workspace-files.js";
+import { harvestLocalFiles } from "../local/workspace-files.js";
+import { readJsonLines } from "../local/jsonl.js";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { StringDecoder } from "node:string_decoder";
 import {
   KeeperTranslator,
   type KeeperStreamEvent,
@@ -38,7 +38,7 @@ import {
 /** Non-agent stdout kinds we skip (command acks + fire-and-forget UI chrome). */
 const NON_AGENT_TYPES = new Set(["response", "extension_ui_request"]);
 
-export { harvestLocalFiles as harvestWorkspace } from "./workspace-files.js";
+export { harvestLocalFiles as harvestWorkspace } from "../local/workspace-files.js";
 
 /** The last position an `is_navigate` moved to, for `turn_complete.position`. */
 function lastPosition(tools: ToolInvocation[]): string {
@@ -144,27 +144,9 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
   return args;
 }
 
-/** Strict LF-only JSONL framing required by Pi RPC. Unicode U+2028/U+2029 are
- * valid inside JSON strings and must not be treated as record separators. */
-export async function* readRpcLines(
-  input: AsyncIterable<Uint8Array | string>,
-): AsyncGenerator<string> {
-  const decoder = new StringDecoder("utf8");
-  let buffer = "";
-  for await (const chunk of input) {
-    buffer += decoder.write(Buffer.from(chunk));
-    while (true) {
-      const newline = buffer.indexOf("\n");
-      if (newline === -1) break;
-      let line = buffer.slice(0, newline);
-      buffer = buffer.slice(newline + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      yield line;
-    }
-  }
-  buffer += decoder.end();
-  if (buffer) yield buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer;
-}
+/** Strict LF-only JSONL framing required by Pi RPC — the shared reader in
+ * `src/local/jsonl.ts`, kept under its RPC name here. */
+export const readRpcLines = readJsonLines;
 
 /**
  * Run one local turn, yielding Keeper stream events as they arrive. Resumes the

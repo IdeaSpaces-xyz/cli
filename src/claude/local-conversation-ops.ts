@@ -4,8 +4,8 @@
 
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
-import { loadMapNoteOrientation } from "../pi/map-note.js";
-import { localLaunchOrientation } from "../pi/launch-orientation.js";
+import { loadMapNoteOrientation } from "../local/map-note.js";
+import { localLaunchOrientation } from "../local/launch-orientation.js";
 import {
   CLAUDE_AUTH_MODES,
   CLAUDE_PERMISSION_MODES,

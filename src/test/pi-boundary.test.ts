@@ -9,7 +9,8 @@ import { join } from "node:path";
 // commands. This keeps @ideaspaces/cli's core runtime-free so each connector
 // stays sectionable/extractable. This test is the enforcement (the CLI has no ESLint).
 
-const commandsDir = join(process.cwd(), "src", "commands");
+const srcDir = join(process.cwd(), "src");
+const commandsDir = join(srcDir, "commands");
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -53,5 +54,22 @@ describe("Runtime boundary — core commands never import src/pi or src/claude",
       const offending = importSpecifiers(readFileSync(file, "utf8")).filter(pointsIntoConnector);
       expect(offending, `${rel} imports a runtime connector: ${offending.join(", ")}`).toEqual([]);
     });
+  }
+});
+
+// The connectors are peers, not a stack: neither reaches into the other. What
+// both need — JSONL framing, the workspace harvest, map and launch orientation,
+// the `--runtime` dispatcher — lives in src/local/, so either connector can be
+// sectioned or extracted without the other.
+describe("Connector independence — src/pi and src/claude never import each other", () => {
+  for (const [own, other] of [["pi", "claude"], ["claude", "pi"]] as const) {
+    for (const file of walk(join(srcDir, own))) {
+      const rel = file.slice(file.indexOf("src/"));
+      it(`${rel} imports nothing from src/${other}`, () => {
+        const offending = importSpecifiers(readFileSync(file, "utf8"))
+          .filter((spec) => spec.startsWith(".") && spec.split("/").some((seg) => seg === other));
+        expect(offending, `${rel} reaches into the ${other} connector: ${offending.join(", ")}`).toEqual([]);
+      });
+    }
   }
 });

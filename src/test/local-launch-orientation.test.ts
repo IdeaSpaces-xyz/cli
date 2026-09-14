@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { localLaunchOrientation } from "../pi/launch-orientation.js";
+import { localLaunchOrientation } from "../local/launch-orientation.js";
 import { localConversationOps } from "../pi/local-conversation-ops.js";
 import type { Output } from "../output.js";
 const roots: string[] = [];

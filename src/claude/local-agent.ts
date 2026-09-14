@@ -31,8 +31,8 @@ import {
   type KeeperStreamEvent,
   type ToolInvocation,
 } from "@ideaspaces/sdk";
-import { readRpcLines } from "../pi/local-agent.js";
-import { harvestLocalFiles } from "../pi/workspace-files.js";
+import { readJsonLines } from "../local/jsonl.js";
+import { harvestLocalFiles } from "../local/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
 
@@ -181,7 +181,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
   }
 
   try {
-    for await (const line of readRpcLines(claude.stdout)) {
+    for await (const line of readJsonLines(claude.stdout)) {
       const record = parseClaudeStreamLine(line);
       if (!record) continue; // Claude Code prints some failures as prose before its result line
       for (const ke of translator.translate(record)) {

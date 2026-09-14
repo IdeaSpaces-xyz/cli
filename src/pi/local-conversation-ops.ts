@@ -9,8 +9,8 @@ import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
-import { loadMapNoteOrientation } from "./map-note.js";
-import { localLaunchOrientation } from "./launch-orientation.js";
+import { loadMapNoteOrientation } from "../local/map-note.js";
+import { localLaunchOrientation } from "../local/launch-orientation.js";
 
 type Flags = Record<string, string | boolean>;
 

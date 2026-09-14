@@ -53,7 +53,7 @@ import {
 // The Claude Code connector (src/claude/) — the second local runtime, picked
 // by `--runtime=claude`. Same wall: only this file wires it in.
 import { claudeConversationOps } from "./claude/index.js";
-import { composeLocalConversationOps } from "./local-runtime.js";
+import { composeLocalConversationOps } from "./local/runtime.js";
 
 const localConversationOps = composeLocalConversationOps({ pi: piConversationOps, claude: claudeConversationOps });
 const conversationCommand = makeConversationCommand(localConversationOps);

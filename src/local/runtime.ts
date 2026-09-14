@@ -3,8 +3,8 @@
 // pure over a table of ops so the router composes it and the core commands see
 // one `LocalConversationOps`, never a runtime.
 
-import type { LocalConversationOps } from "./commands/conversation.js";
-import type { Output } from "./output.js";
+import type { LocalConversationOps } from "../commands/conversation.js";
+import type { Output } from "../output.js";
 
 export const LOCAL_RUNTIMES = ["pi", "claude"] as const;
 export type LocalRuntime = (typeof LOCAL_RUNTIMES)[number];

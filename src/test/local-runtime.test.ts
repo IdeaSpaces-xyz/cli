@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { composeLocalConversationOps, selectLocalRuntime } from "../local-runtime.js";
+import { composeLocalConversationOps, selectLocalRuntime } from "../local/runtime.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import type { Output } from "../output.js";
 
