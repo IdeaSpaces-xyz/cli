@@ -188,6 +188,24 @@ describe("ideaspaces look", () => {
     expect(result.data.text).not.toContain("AGREEMENT SENTINEL");
   });
 
+  it("does not treat an ignored but nonexistent README as observed local Content", async () => {
+    await fs.writeFile(join(root, ".gitignore"), "README.md\n");
+    await fs.mkdir(join(root, "without-readme"));
+    await fs.writeFile(join(root, "without-readme", "child.md"), "# Child\n");
+    git(["add", ".gitignore", "without-readme/child.md"]);
+    git(["commit", "-q", "-m", "add directory without a surface"]);
+
+    const result = await runLook(["without-readme"], { depth: "children" });
+    expect(result.exit, result.stderr).toBe(0);
+    expect(result.data).toMatchObject({
+      portable: true,
+      dirty: false,
+      local_only_paths: [],
+    });
+    expect(result.data.target).not.toHaveProperty("surface");
+    expect(result.data.map).toBeDefined();
+  });
+
   it("fails closed to a local projection when the root is dirty or the target is ignored", async () => {
     await fs.writeFile(join(root, "notes", "decision.md"), "# Changed\n");
     const dirty = await runLook(["notes/decision.md"], { depth: "full" });

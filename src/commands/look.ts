@@ -7,7 +7,8 @@
  * portable Map only when the local root is clean, pinned, and identified.
  */
 
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   MAP_DEPTHS,
   assembleContentLook,
@@ -258,9 +259,12 @@ function observedPaths(looked: ContentLookManifest): string[] {
   const { target } = looked;
   const paths = [target.position];
   if (target.kind === "directory") {
-    // A missing README simply does not match check-ignore; naming the possible
-    // surface avoids another filesystem read and its race window.
-    paths.push(target.position === "." ? "README.md" : `${target.position}/README.md`);
+    // git check-ignore evaluates nonexistent paths too. Add the possible
+    // surface only when it exists, or an unrelated README ignore rule would
+    // suppress an otherwise portable directory projection.
+    if (existsSync(join(target.path, "README.md"))) {
+      paths.push(target.position === "." ? "README.md" : `${target.position}/README.md`);
+    }
     for (const child of target.children ?? []) {
       if (child.kind !== "section") paths.push(child.position);
     }
