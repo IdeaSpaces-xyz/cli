@@ -1199,7 +1199,7 @@ export async function getSpaceAccess(
   config: ApiConfig,
   repoId: string,
 ): Promise<SpaceAccessResponse> {
-  return request<SpaceAccessResponse>(config, "GET", `${repoBase(repoId)}/space-access`);
+  return request<SpaceAccessResponse>(config, "GET", `${repoBase(repoId)}/access`);
 }
 
 export async function setSpaceAccess(
@@ -1207,7 +1207,7 @@ export async function setSpaceAccess(
   repoId: string,
   update: SpaceAccessUpdate,
 ): Promise<SpaceAccessResponse> {
-  return request<SpaceAccessResponse>(config, "PATCH", `${repoBase(repoId)}/space-access`, update);
+  return request<SpaceAccessResponse>(config, "PATCH", `${repoBase(repoId)}/access`, update);
 }
 
 export interface ConversationHistoryMessage {
