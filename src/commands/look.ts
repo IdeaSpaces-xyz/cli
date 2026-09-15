@@ -18,28 +18,21 @@ import {
   type MapBlock,
   type MapDepth,
   type MapParseIssue,
-  type MapRoot,
+  type GitState,
 } from "@ideaspaces/protocol";
-import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
 import { contractSourceFlag, preferredContractSource } from "../contract-source.js";
-import { ignoredPaths, statusEntries } from "../git.js";
-import { canonicalRepoUrl } from "../repo-locator.js";
-import { inspectLocalRootIdentity } from "../root-identity.js";
+import {
+  inspectPortableLocalRoot,
+  type LocalProjectionRoot,
+} from "../local-map-root.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
 const USAGE =
   "ideaspaces look <path> [--depth <name|summary|surface|children|full>] [--contract <foundation|agreement>] [--limit <n>] [--json]";
 
-interface LocalLookRoot {
-  local_path: string;
-  sha: string | null;
-  repo?: string;
-  root_node_id?: string;
-}
-
 interface PortableProjection {
-  root: LocalLookRoot;
+  root: LocalProjectionRoot;
   portable: boolean;
   dirty: boolean;
   localOnlyPaths: string[];
@@ -176,12 +169,22 @@ export const lookCommand: CommandDef = {
       ...(projection.mapIssues ? { map_issues: projection.mapIssues } : {}),
       ...(projection.issue ? { portability_issue: projection.issue } : {}),
     };
-    output.result(data, text);
+    output.result(data, `${text}\n\n${portabilityLine(projection)}`);
     return 0;
   },
 };
 
-async function projectPortableMap(looked: ContentLookManifest): Promise<PortableProjection> {
+export interface PortableProjectionDependencies {
+  readGitState?: (repoRoot: string) => Promise<GitState>;
+  reread?: typeof assembleContentLook;
+}
+
+export async function projectPortableMap(
+  looked: ContentLookManifest,
+  dependencies: PortableProjectionDependencies = {},
+): Promise<PortableProjection> {
+  const readGitState = dependencies.readGitState ?? gitState;
+  const reread = dependencies.reread ?? assembleContentLook;
   const repoRoot = looked.reference.position.repoRoot;
   if (!repoRoot) {
     return {
@@ -192,27 +195,10 @@ async function projectPortableMap(looked: ContentLookManifest): Promise<Portable
     };
   }
 
-  const state = await gitState(repoRoot);
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
-  const identity = inspectLocalRootIdentity(repoRoot, apiUrl);
-  const root: LocalLookRoot = {
-    local_path: repoRoot,
-    sha: state.headSha,
-    ...(identity.root_node_id ? { root_node_id: identity.root_node_id } : {}),
-    ...(identity.canonical_origin
-      ? { repo: canonicalRepoUrl(apiUrl, identity.canonical_origin) }
-      : {}),
-  };
+  const state = await readGitState(repoRoot);
   const observed = observedPaths(looked);
-  const localOnlyPaths = ignoredInChunks(observed, repoRoot);
-  const dirty = statusEntries(repoRoot).length > 0 || localOnlyPaths.length > 0;
-  const portableRoot: MapRoot | null = root.root_node_id && root.sha && !dirty
-    ? {
-        sha: root.sha,
-        root_node_id: root.root_node_id,
-        ...(root.repo ? { repo: root.repo } : {}),
-      }
-    : null;
+  const inspected = inspectPortableLocalRoot(repoRoot, state.headSha, observed);
+  const { root, portableRoot, dirty, localOnlyPaths } = inspected;
   if (!portableRoot) {
     return { root, portable: false, dirty, localOnlyPaths };
   }
@@ -220,7 +206,7 @@ async function projectPortableMap(looked: ContentLookManifest): Promise<Portable
   // The target was read before the Git pin. Re-read the same representation
   // between two HEAD observations so a concurrent clean commit cannot pair
   // worktree disclosure with a different revision.
-  const rechecked = await assembleContentLook({
+  const rechecked = await reread({
     position: looked.target.path,
     depth: looked.target.depth,
     ...(looked.reference.contractSource
@@ -230,7 +216,7 @@ async function projectPortableMap(looked: ContentLookManifest): Promise<Portable
       ? { maxChildren: looked.target.children.length }
       : {}),
   });
-  const stateAfter = await gitState(repoRoot);
+  const stateAfter = await readGitState(repoRoot);
   if (
     !rechecked ||
     rechecked.status !== "ok" ||
@@ -282,10 +268,18 @@ function observedPaths(looked: ContentLookManifest): string[] {
   return [...new Set(paths)];
 }
 
-function ignoredInChunks(paths: string[], repoRoot: string): string[] {
-  const found: string[] = [];
-  for (let offset = 0; offset < paths.length; offset += 200) {
-    found.push(...ignoredPaths(paths.slice(offset, offset + 200), repoRoot));
+function portabilityLine(projection: PortableProjection): string {
+  if (projection.portable) return `Map: portable at ${projection.root.sha}`;
+  if (projection.issue) return `Map: local projection only — ${projection.issue}`;
+  if (projection.mapIssues?.length) {
+    return "Map: local projection only — portable Map validation failed (run with --json for map_issues)";
   }
-  return found;
+  if (projection.dirty) {
+    return projection.localOnlyPaths.length
+      ? "Map: local projection only — observed Content is local-only or the working tree differs from HEAD"
+      : "Map: local projection only — working tree differs from HEAD";
+  }
+  if (!projection.root.sha) return "Map: local projection only — the root has no committed pin";
+  if (!projection.root.root_node_id) return "Map: local projection only — the root has no portable identity";
+  return "Map: local projection only";
 }

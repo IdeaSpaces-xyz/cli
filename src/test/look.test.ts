@@ -5,9 +5,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAP_DEPTHS, parseMap } from "@ideaspaces/protocol";
+import { MAP_DEPTHS, assembleContentLook, gitState, parseMap } from "@ideaspaces/protocol";
 import { loadConfig } from "../auth/credentials.js";
-import { lookCommand } from "../commands/look.js";
+import { lookCommand, projectPortableMap } from "../commands/look.js";
 import type { GlobalFlags } from "../types.js";
 
 vi.mock("../auth/credentials.js", async (importOriginal) => ({
@@ -207,6 +207,45 @@ describe("ideaspaces look", () => {
       local_only_paths: ["ignored.md"],
     });
     expect(ignored.data).not.toHaveProperty("map");
+  });
+
+  it("surfaces portability state in human output", async () => {
+    await fs.writeFile(join(root, "notes", "decision.md"), "# Changed\n");
+    const result = await runLook(
+      ["notes/decision.md"],
+      { depth: "full" },
+      { ...JSON_FLAGS, json: false, quiet: false },
+    );
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Look:\n  position: notes/decision.md");
+    expect(result.stdout).toContain(
+      "Map: local projection only — working tree differs from HEAD",
+    );
+  });
+
+  it("fails portable projection closed when HEAD changes during verification", async () => {
+    const looked = await assembleContentLook({
+      position: join(root, "notes", "decision.md"),
+      depth: "summary",
+      contractSource: "agreement",
+    });
+    expect(looked?.status).toBe("ok");
+    if (!looked || looked.status !== "ok") return;
+    const actual = await gitState(root);
+    let reads = 0;
+    const projection = await projectPortableMap(looked, {
+      readGitState: async () => ({
+        ...actual,
+        headSha: reads++ === 0 ? actual.headSha : "f".repeat(40),
+      }),
+    });
+
+    expect(projection).toMatchObject({
+      portable: false,
+      issue: "The target or Git HEAD changed while verifying the portable Map",
+    });
+    expect(projection).not.toHaveProperty("map");
   });
 
   it("reports invalid, remote, missing, and non-Content targets through the error channel", async () => {

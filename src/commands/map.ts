@@ -17,27 +17,14 @@ import {
   resolveRepoRoot,
   type ContentAwarenessTree,
   type ContentTreeDepth,
-  type MapRoot,
   type ProjectedContentTreeMember,
 } from "@ideaspaces/protocol";
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
-import { ignoredPaths, statusEntries } from "../git.js";
-import { canonicalRepoUrl } from "../repo-locator.js";
-import { inspectLocalRootIdentity } from "../root-identity.js";
+import { inspectPortableLocalRoot } from "../local-map-root.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
-
-interface LocalProjectionRoot {
-  local_path: string;
-  sha: string | null;
-  /** Canonical absolute repository URL, present only for a hosted origin. */
-  repo?: string;
-  /** Stable root identity, present as soon as the checkout can resolve one safely. */
-  root_node_id?: string;
-}
 
 function parseDepth(value: string | boolean | undefined): ContentTreeDepth | null {
   if (value === undefined) return 1;
@@ -56,14 +43,6 @@ function humanMember(projected: ProjectedContentTreeMember): string {
 
 function emptyTree(): ContentAwarenessTree {
   return { placement: "head", totalMarkdownFiles: 0, entries: [] };
-}
-
-function localOnlyMarkdownPaths(paths: string[], root: string): string[] {
-  const found: string[] = [];
-  for (let offset = 0; offset < paths.length; offset += 200) {
-    found.push(...ignoredPaths(paths.slice(offset, offset + 200), root));
-  }
-  return found;
 }
 
 export const mapCommand: CommandDef = {
@@ -130,37 +109,17 @@ export const mapCommand: CommandDef = {
     // before it is ever published; a hosted origin additionally earns the
     // canonical repo URL. Either stable identity form can anchor a portable
     // pinned Map, while remote usability remains a later consumer check.
-    // A logged-in session's deployment decides which origins are hosted; the
-    // default only stands in when there is no session.
-    const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
-    const identity = inspectLocalRootIdentity(repoRoot, apiUrl);
-    const root: LocalProjectionRoot = {
-      local_path: repoRoot,
-      sha: state.headSha,
-      ...(identity.root_node_id ? { root_node_id: identity.root_node_id } : {}),
-      ...(identity.canonical_origin
-        ? { repo: canonicalRepoUrl(apiUrl, identity.canonical_origin) }
-        : {}),
-    };
     const markdownPositions = projection.members
       .filter(({ presentation }) => presentation.kind === "markdown")
       .map(({ member }) => member.position);
-    let localOnlyPaths: string[];
-    let dirty: boolean;
+    let inspectedRoot: ReturnType<typeof inspectPortableLocalRoot>;
     try {
-      localOnlyPaths = localOnlyMarkdownPaths(markdownPositions, repoRoot);
-      dirty = statusEntries(repoRoot).length > 0 || localOnlyPaths.length > 0;
+      inspectedRoot = inspectPortableLocalRoot(repoRoot, state.headSha, markdownPositions);
     } catch (error) {
       output.error(`Could not inspect Map root state: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
-    const portableRoot: MapRoot | null = root.root_node_id && root.sha && !dirty
-      ? {
-          sha: root.sha,
-          root_node_id: root.root_node_id,
-          ...(root.repo ? { repo: root.repo } : {}),
-        }
-      : null;
+    const { root, portableRoot, dirty, localOnlyPaths } = inspectedRoot;
     const built = portableRoot
       ? buildMap({
           roots: [portableRoot],
