@@ -78,6 +78,22 @@ administration.
 - **`--json`** returns a `status`, the revision, and typed failure details. A partial write or commit exits non-zero.
 - **`conversation send --local --runtime=claude`** runs Claude Code — the copy you installed and signed in to, unmodified. Usage bills to your own Claude plan (or to your API key with `--claude-auth=api-key` — without it, a stray `ANTHROPIC_API_KEY` in your shell is kept away from the turn; provider routing you configured yourself, such as Bedrock or Vertex, stays in force); the CLI never sees your credentials and reads only the session transcripts Claude Code writes under `~/.claude/projects/`. A turn streams the same events as a pi or hosted turn, so every client renders it the same way.
 
+## Which local runtime
+
+Both stream the same transcript; they differ in whose agent runs and how it is paid for.
+
+| | `--runtime=pi` (default) | `--runtime=claude` |
+|---|---|---|
+| What runs | pi, bundled with the desktop or `pi` on your PATH | the Claude Code you installed and signed in to |
+| Who pays | your API key for the provider you chose (`pi-login`) | your Claude plan, or your API key with `--claude-auth=api-key` |
+| Models | any provider pi supports | Anthropic |
+| Agent context | our extensions and skills, passed with `--ext` and `--skill` | whatever your Claude Code already carries — plugin, skills, `_agent/`, memory |
+| Where sessions live | `<context>/.pi/sessions/`, inside the space | `~/.claude/projects/`, outside the space |
+| Reasoning in the transcript | shown | not shown — Claude Code redacts it when run headless |
+| Needs a Claude account | no | yes |
+
+Pick `claude` to continue a session you started in Claude Code; the same session id resumes it. Close it there first — one session should have one writer at a time. Pick `pi` for another provider, an API-key setup, or a machine without Claude Code.
+
 ## Configuration
 
 | Path | What |
