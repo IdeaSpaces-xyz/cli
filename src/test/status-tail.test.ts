@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, realpath } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { statusCommand } from "../commands/status.js";
 import { navigateCommand } from "../commands/navigate.js";
 import { whoamiCommand } from "../commands/whoami.js";
@@ -107,7 +107,8 @@ describe("status is the tail", () => {
       captureJson(() => statusCommand.run([], {}, JSON_FLAGS)),
     );
     expect(exit).toBe(0);
-    expect(json.repoRoot).toBe(home);
+    // git reports the toplevel with forward slashes on every platform.
+    expect(resolve(json.repoRoot)).toBe(home);
     expect(json.branch).toBe("main");
     expect(json.dirty).toBe(true);
     expect(json.tracked_captures).toEqual(["note.md"]);
