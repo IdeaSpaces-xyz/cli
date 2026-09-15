@@ -7,7 +7,7 @@
  * state, display paths, and the already-fetched pullable tier.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join, resolve as resolvePath } from "node:path";
 import {
@@ -191,4 +191,57 @@ export async function formatCatalogSection(
     );
   }
   return blocks.length ? blocks.join("\n\n") : null;
+}
+
+// Harness copy, not protocol shape: these name the CLI's own navigation verbs.
+export const BARE_WORKSPACE_HINT =
+  "You're at a workspace folder (no `_agent/` contract here). Navigate into a repo below (`ideaspaces navigate <repo>`), or pull one that's behind.";
+export const EMPTY_WORKSPACE_HINT =
+  "You're at a workspace folder with no repos yet. Clone one to get started (`ideaspaces clone`).";
+
+// Parse --pullable: a comma-separated list of `slug:namespace` pairs — the
+// remote/pullable tier the caller already fetched via `catalog` (kept out of
+// orientation so it stays network-free). The flag parser has no arrays, hence
+// the string encoding; entries without a colon are dropped, not half-rendered.
+export function parsePullable(raw: string | boolean | undefined): Array<{ slug: string; namespace: string }> {
+  if (typeof raw !== "string") return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const i = p.indexOf(":");
+      return i > 0 ? { slug: p.slice(0, i), namespace: p.slice(i + 1) } : null;
+    })
+    .filter((x): x is { slug: string; namespace: string } => x !== null);
+}
+
+export type CatalogPlan =
+  | { kind: "none" }
+  | { kind: "warn"; text: string }
+  | { kind: "ok"; mounts: string[]; catalog: Promise<string | null> };
+
+// Resolve --workspace and **start** rendering the local-agent repo catalog
+// (local + pullable tiers). Synchronous — it returns the in-flight promise so the
+// caller can await it alongside the awareness assembly (independent IO, run
+// concurrently). Independent of the `_agent/` contract, so the catalog renders
+// at a bare folder too. Warning for an unreadable --workspace; none when the
+// flag is absent.
+export function planCatalog(flags: Record<string, string | boolean>, povRepoRoot: string | null): CatalogPlan {
+  const workspace = typeof flags.workspace === "string" ? resolvePath(flags.workspace) : null;
+  if (!workspace) return { kind: "none" };
+  if (!existsSync(workspace) || !statSync(workspace).isDirectory()) {
+    // A typo'd --workspace would otherwise look identical to "no repos here" —
+    // surface it as a drift line rather than silently rendering nothing.
+    return { kind: "warn", text: `⚠ --workspace is not a readable directory: ${workspace} (catalog skipped)` };
+  }
+  const mounts =
+    typeof flags.mount === "string" ? flags.mount.split(",").map((m) => m.trim()).filter(Boolean) : [];
+  const catalog = formatCatalogSection(workspace, { povRepoRoot, mounts, pullable: parsePullable(flags.pullable) });
+  return { kind: "ok", mounts, catalog };
+}
+
+/** The floor hint for a bare workspace folder: only when no repo and no contract resolve. */
+export function floorHint(catalog: string | null): string {
+  return catalog ? BARE_WORKSPACE_HINT : EMPTY_WORKSPACE_HINT;
 }

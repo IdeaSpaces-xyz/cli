@@ -5,11 +5,11 @@ import type { CommandDef } from "../types.js";
 
 export const whoamiCommand: CommandDef = {
   name: "whoami",
-  description: "Show login state — whether credentials are present, the API URL, and the account handle",
-  usage: "ideaspaces whoami [--json]",
+  description: "Show login state — legacy name for `status account`",
+  usage: "ideaspaces status account [--json]  (legacy: ideaspaces whoami)",
   examples: [
-    "ideaspaces whoami",
-    "ideaspaces whoami --json",
+    "ideaspaces status account",
+    "ideaspaces status account --json",
   ],
   async run(_args, _flags, global) {
     const output = createOutput(global);
