@@ -29,7 +29,7 @@ Per seat, billed yearly."
 ideaspaces commit -m "Capture the pricing decision" decisions/pricing.md
 ```
 
-`create` still writes the Foundation compatibility scaffold. To try the Agreement convention, add `_agent/agreement.md`; `navigate` then prefers Agreement when both exist and loads it in full. Use `navigate --contract foundation` for an explicit comparison. Use `navigate <path> --focus` to read another position as a bounded history reference without adopting its contract. `create --agent` makes a folder that *is* an agent. Inside a code repo, `create --yes` keeps `_agent/` local to your machine; `--shared` commits it.
+`create` still writes the Foundation compatibility scaffold. To try the Agreement convention, add `_agent/agreement.md`; `navigate` then prefers Agreement when both exist and loads it in full. Use `navigate --contract foundation` for an explicit comparison. Ambient navigation renders the protocol-owned stable `head`, then local working-set/catalog handles, then the volatile `tail`; activity belongs only to the tail. Use `navigate <path> --focus` to read another position as a bounded history reference without adopting its contract. `create --agent` makes a folder that *is* an agent. Inside a code repo, `create --yes` keeps `_agent/` local to your machine; `--shared` commits it.
 
 ## Take one home, hand one over
 

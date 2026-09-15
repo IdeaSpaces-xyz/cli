@@ -5,7 +5,12 @@ import { realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assembleContentFocus, renderContentFocus } from "@ideaspaces/protocol";
+import {
+  assembleContentAwareness,
+  assembleContentFocus,
+  renderContentAwareness,
+  renderContentFocus,
+} from "@ideaspaces/protocol";
 import { navigateCommand } from "../commands/navigate.js";
 import type { GlobalFlags } from "../types.js";
 
@@ -93,6 +98,26 @@ describe("ideaspaces navigate", () => {
     const human = await runNavigate(["."], {}, { ...G, json: false });
     expect(human.stdout.startsWith(`${expectedPosition}\n\n`)).toBe(true);
     expect(human.stdout.endsWith("\n")).toBe(true);
+  });
+
+  it("derives ambient head and tail from the protocol placement renderer", async () => {
+    const baseline = git(["rev-parse", "HEAD"]);
+    git(["update-ref", "refs/ideaspaces/seen", baseline]);
+    await fs.writeFile(join(tmp, "changed.md"), "# Changed\n");
+    git(["add", "."]);
+    git(["commit", "-q", "-m", "change"]);
+
+    const manifest = await assembleContentAwareness({ position: tmp });
+    expect(manifest?.status).toBe("ok");
+    const head = renderContentAwareness(manifest!, { placement: "head" });
+    const tail = renderContentAwareness(manifest!, { placement: "tail" });
+    const { exit, data } = await runNavigate(["."]);
+
+    expect(exit).toBe(0);
+    expect(data.text).toBe(`${head}\n\n${tail}`);
+    expect(head).not.toContain("Since last session");
+    expect(tail).toContain("Since last session (1 changes):");
+    expect(tail).not.toContain("Agent context:");
   });
 
   it("renders the protocol focus block without ambient authority or drift", async () => {
