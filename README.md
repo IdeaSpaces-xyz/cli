@@ -22,14 +22,14 @@ Node 20+ and git. `ideaspaces doctor` checks both.
 ideaspaces create my-space --yes       # a folder with _agent/ in it, committed
 cd my-space
 ideaspaces navigate .                  # what is here, what changed since last time
-ideaspaces inspect _agent/guide.md     # one document, summary first
+ideaspaces look . --depth children       # one target at a chosen rung
 ideaspaces write decisions/pricing.md --name "Pricing" --content "# Pricing
 
 Per seat, billed yearly."
 ideaspaces commit -m "Capture the pricing decision" decisions/pricing.md
 ```
 
-`create` still writes the Foundation compatibility scaffold. To try the Agreement convention, add `_agent/agreement.md`; `navigate` then prefers Agreement when both exist and loads it in full. Use `navigate --contract foundation` for an explicit comparison. Ambient navigation renders the protocol-owned stable `head`, then local working-set/catalog handles, then the volatile `tail`; activity belongs only to the tail. Use `navigate <path> --focus` to read another position as a bounded history reference without adopting its contract. `create --agent` makes a folder that *is* an agent. Inside a code repo, `create --yes` keeps `_agent/` local to your machine; `--shared` commits it.
+`create` still writes the Foundation compatibility scaffold. To try the Agreement convention, add `_agent/agreement.md`; `navigate` then prefers Agreement when both exist and loads it in full. Use `navigate --contract foundation` for an explicit comparison. Ambient navigation renders the protocol-owned stable `head`, then local working-set/catalog handles, then the volatile `tail`; activity belongs only to the tail. `look <path> --depth name|summary|surface|children|full` reads exactly one local Note or directory beneath a reference-only frame; the existing `navigate --focus` and `inspect` readers remain available during convergence. `create --agent` makes a folder that *is* an agent. Inside a code repo, `create --yes` keeps `_agent/` local to your machine; `--shared` commits it.
 
 ## Take one home, hand one over
 
@@ -60,7 +60,7 @@ administration.
 
 | Job | Commands |
 |---|---|
-| Look around | `navigate`, `inspect`, `ls`, `search`, `skills`, `status`, `map`, `times` |
+| Look around | `navigate`, `look`, `inspect`, `ls`, `search`, `skills`, `status`, `map`, `times` |
 | Write things down | `write`, `commit`, `change`, `node` |
 | Start, clone, fork | `create`, `clone`, `fork`, `update`, `clones`, `link`, `forget` |
 | Share and sync | `login`, `whoami`, `publish`, `share`, `push`, `pull`, `sync`, `repos`, `catalog` |
@@ -73,6 +73,7 @@ administration.
 - **`write`** touches only the file you name and keeps frontmatter you did not set. Pass the returned `sha` as `--if-match` for a safe second write; `--force` overwrites.
 - **`commit`** commits only the paths you name. Other staged work, yours or a teammate's, is left alone. The author is git's `user.name` and `user.email`, never a hidden credential.
 - **A space has one id.** Agreement is the preferred contract source; until it declares identity, a valid Foundation identity remains the compatibility evidence for that same Space. Legacy `create` still writes Foundation, `publish` adopts its identity, and conflicting declarations fail closed. `clone` keeps identity; `fork` remints it in every projected root entrypoint. Nothing rekeys a space silently.
+- **`look` deepens one target without adopting its terms.** The applicable Agreement or Foundation is reference context only. JSON adds a portable `map` only for a clean, pinned, identified root; dirty, unborn, ignored, local-only, or invalid roots remain honest local projections.
 - **`map` distinguishes local projection from portable selection.** Tree names and summaries use the protocol Map-member shape, but JSON includes a portable `map` block only for a clean, exactly pinned root with stable identity that passes strict protocol validation. Dirty, unborn, unidentified, or invalid trees remain inspectable under `projection` without leaking their checkout path into a Map.
 - **`fork` and `update`** validate before touching your disk and never overwrite your work; conflicts are reported.
 - **`--json`** returns a `status`, the revision, and typed failure details. A partial write or commit exits non-zero.

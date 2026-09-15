@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,8 +62,34 @@ try {
     throw new Error(result.stderr || `Installed CLI exited ${result.status}`);
   }
   // Human-readable CLI output goes to stderr so --json can reserve stdout.
-  if (!result.stderr.includes("Usage: ideaspaces <command> [options]")) {
+  if (!result.stderr.includes("Usage: ideaspaces <command> [options]") || !result.stderr.includes("look")) {
     throw new Error("Installed CLI did not render the expected help output.");
+  }
+
+  const lookRoot = join(temp, "look-fixture");
+  mkdirSync(join(lookRoot, "_agent"), { recursive: true });
+  writeFileSync(join(lookRoot, "_agent", "agreement.md"), "# Agreement\n\nREFERENCE TERMS\n");
+  writeFileSync(
+    join(lookRoot, "note.md"),
+    "---\nname: Installed Note\nsummary: Packed look proof.\n---\n# Installed Note\n\n## Evidence\n",
+  );
+  const looked = spawnSync(
+    executablePath,
+    ["look", "note.md", "--depth", "children", "--json"],
+    { cwd: lookRoot, encoding: "utf8", shell: process.platform === "win32" },
+  );
+  if (looked.error) throw looked.error;
+  if (looked.status !== 0) {
+    throw new Error(looked.stderr || `Installed look exited ${looked.status}`);
+  }
+  const lookData = JSON.parse(looked.stdout);
+  if (
+    lookData?.kind !== "content-look" ||
+    lookData?.reference?.contractRole !== "reference" ||
+    lookData?.target?.children?.[1]?.name !== "Evidence" ||
+    lookData?.map !== undefined
+  ) {
+    throw new Error("Installed CLI did not preserve Content-look semantics");
   }
 
   console.log(

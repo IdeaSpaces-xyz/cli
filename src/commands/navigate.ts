@@ -39,9 +39,8 @@ import {
   renderContentFocus,
   resolveRepoRoot,
   CONTENT_AWARENESS_SECTIONS,
-  type ContractSource,
 } from "@ideaspaces/protocol";
-import { preferredContractSource } from "../contract-source.js";
+import { contractSourceFlag, preferredContractSource } from "../contract-source.js";
 import { headSha } from "../git.js";
 import { formatWorkingSetSection, formatCatalogSection } from "../catalog.js";
 import { createOutput } from "../output.js";
@@ -80,14 +79,6 @@ const BARE_WORKSPACE_HINT =
   "You're at a workspace folder (no `_agent/` contract here). Navigate into a repo below (`ideaspaces navigate <repo>`), or pull one that's behind.";
 const EMPTY_WORKSPACE_HINT =
   "You're at a workspace folder with no repos yet. Clone one to get started (`ideaspaces clone`).";
-
-function contractSourceFlag(
-  value: string | boolean | undefined,
-): { source?: ContractSource; error?: string } {
-  if (value === undefined) return {};
-  if (value === "foundation" || value === "agreement") return { source: value };
-  return { error: "--contract must be `foundation` or `agreement`" };
-}
 
 type CatalogPlan =
   | { kind: "none" }

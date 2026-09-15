@@ -14,7 +14,11 @@ describe("router", () => {
     expect(findCommand_("fork")?.name).toBe("fork");
   });
 
-  it("exposes the derived local Map command", () => {
+  it("exposes the rung-selective local look command", () => {
+    expect(findCommand_("look")?.name).toBe("look");
+  });
+
+  it("keeps the derived local Map compatibility command", () => {
     expect(findCommand_("map")?.name).toBe("map");
   });
 

@@ -8,3 +8,12 @@ export function preferredContractSource(
   if (available.includes("foundation")) return "foundation";
   return null;
 }
+
+/** Parse the CLI's explicit frame override without assigning protocol precedence. */
+export function contractSourceFlag(
+  value: string | boolean | undefined,
+): { source?: ContractSource; error?: string } {
+  if (value === undefined) return {};
+  if (value === "foundation" || value === "agreement") return { source: value };
+  return { error: "--contract must be `foundation` or `agreement`" };
+}

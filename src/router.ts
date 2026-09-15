@@ -8,6 +8,7 @@ import { publishCommand } from "./commands/publish.js";
 import { writeCommand } from "./commands/write.js";
 import { commitCommand } from "./commands/commit.js";
 import { changeCommand } from "./commands/change.js";
+import { lookCommand } from "./commands/look.js";
 import { navigateCommand } from "./commands/navigate.js";
 import { mapCommand } from "./commands/map.js";
 import { inspectCommand } from "./commands/inspect.js";
@@ -86,6 +87,7 @@ const topLevel: CommandDef[] = [
   writeCommand,
   commitCommand,
   changeCommand,
+  lookCommand,
   navigateCommand,
   mapCommand,
   inspectCommand,
