@@ -35,7 +35,7 @@ const USAGE =
 interface PortableProjection {
   root: LocalProjectionRoot;
   portable: boolean;
-  dirty: boolean;
+  dirty: boolean | null;
   localOnlyPaths: string[];
   map?: MapBlock;
   mapIssues?: MapParseIssue[];
@@ -146,7 +146,7 @@ export const lookCommand: CommandDef = {
           sha: null,
         },
         portable: false,
-        dirty: true,
+        dirty: null,
         localOnlyPaths: [],
         issue: `Could not verify a portable Map root: ${error instanceof Error ? error.message : String(error)}`,
       };
