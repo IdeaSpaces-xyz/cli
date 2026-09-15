@@ -15,7 +15,9 @@
  * legacy names for one release.
  *
  * `--path FILE` is the single-file revision query (the `if_match` source);
- * `--json` returns the git/capture fields plus `root_identity` and `text`.
+ * `--json` returns the git/capture fields plus `root_identity`, `text` (the
+ * shared tail), and `hints` (CLI-owned next steps, appended after the tail
+ * in human output).
  */
 
 import {
@@ -26,7 +28,7 @@ import {
   renderContentTail,
 } from "@ideaspaces/protocol";
 import { planCatalog } from "../catalog.js";
-import { contractSourceFlag, preferredContractSource } from "../contract-source.js";
+import { contractSourceFlag, preferredContractSource, MAX_DRIFT } from "../contract-source.js";
 import { fetch as gitFetch } from "../git.js";
 import {
   canonicalRepoRoot,
@@ -37,7 +39,6 @@ import { createOutput } from "../output.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import type { CommandDef } from "../types.js";
 import { doctorCommand } from "./doctor.js";
-import { MAX_DRIFT } from "./navigate.js";
 import { whoamiCommand } from "./whoami.js";
 
 export const STATUS_SECTIONS: Record<string, CommandDef> = {
@@ -164,6 +165,9 @@ export const statusCommand: CommandDef = {
       output.error(renderContentAwareness(awareness));
       return 1;
     }
+    // A null manifest is a position that is not Content (inside an extension
+    // payload, say). Unlike navigate, status does not refuse: the repository
+    // State is real there, and the composer accepts a null manifest.
 
     let rootIdentity;
     try {
@@ -179,6 +183,17 @@ export const statusCommand: CommandDef = {
     const handles = cat.kind === "warn" ? [cat.text] : cat.kind === "ok" ? [catalog] : [];
     const text = renderContentTail(awareness, { state, handles, maxDrift: MAX_DRIFT });
 
+    // CLI-owned next-step hints, after the tail and only when there is a step
+    // to take. They name CLI verbs, so they are not the protocol's to render;
+    // `text` stays the shared tail so a runtime can compare bytes against it.
+    const hints: string[] = [];
+    if (rootIdentity.declaration.dirty) {
+      hints.push("identity declaration: uncommitted change (publish will refuse)");
+    }
+    if (state.captures.length) {
+      hints.push('Save captures: ideaspaces commit -m "<message>" --all');
+    }
+
     output.result(
       {
         repoRoot: state.git.repoRoot,
@@ -190,8 +205,9 @@ export const statusCommand: CommandDef = {
         tracked_captures: state.captures,
         root_identity: rootIdentity,
         text,
+        hints,
       },
-      text,
+      [text, ...hints].join("\n\n"),
     );
     return 0;
   },

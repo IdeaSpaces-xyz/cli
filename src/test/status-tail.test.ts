@@ -118,6 +118,29 @@ describe("status is the tail", () => {
     expect(json.text).not.toContain("Repos in scope");
   });
 
+  it("appends CLI-owned hints after the tail in human output, not in text", async () => {
+    const { out } = await inDir(home, () =>
+      captureStdout(() => statusCommand.run([], {}, TEXT_FLAGS)),
+    );
+    const { json } = await inDir(home, () => captureJson(() => statusCommand.run([], {}, JSON_FLAGS)));
+    expect(json.hints).toEqual(['Save captures: ideaspaces commit -m "<message>" --all']);
+    expect(json.text).not.toContain("Save captures");
+    expect(out.trimEnd()).toBe(`${json.text}\n\n${json.hints[0]}`);
+  });
+
+  it("still renders State at a position that is not Content", async () => {
+    // An extension payload directory is inside the repo but outside Content;
+    // the manifest is null there and the composer carries local State alone.
+    const payload = join(home, "_scratch", "deep");
+    await mkdir(payload, { recursive: true });
+    const { exit, json } = await inDir(payload, () =>
+      captureJson(() => statusCommand.run([], {}, JSON_FLAGS)),
+    );
+    expect(exit).toBe(0);
+    expect(json.text.startsWith("State:\n  branch: main")).toBe(true);
+    expect(json.text).not.toContain("Since last session");
+  });
+
   it("warns on an unreadable --workspace instead of rendering nothing", async () => {
     const { json } = await inDir(home, () =>
       captureJson<{ text: string }>(() =>

@@ -17,3 +17,6 @@ export function contractSourceFlag(
   if (value === "foundation" || value === "agreement") return { source: value };
   return { error: "--contract must be `foundation` or `agreement`" };
 }
+
+/** Habitat cap on stale-doc signals in a rendered tail; shared by navigate and status. */
+export const MAX_DRIFT = 10;

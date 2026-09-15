@@ -43,13 +43,12 @@ import {
   resolveRepoRoot,
   CONTENT_AWARENESS_SECTIONS,
 } from "@ideaspaces/protocol";
-import { contractSourceFlag, preferredContractSource } from "../contract-source.js";
+import { contractSourceFlag, preferredContractSource, MAX_DRIFT } from "../contract-source.js";
 import { headSha } from "../git.js";
 import { floorHint, formatWorkingSetSection, planCatalog } from "../catalog.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-export const MAX_DRIFT = 10;
 const SEEN_REF = "refs/ideaspaces/seen";
 
 // The since-last-session marker lives in a local git ref — no `git.ts` helper
