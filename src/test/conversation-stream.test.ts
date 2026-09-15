@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Exercises the real streamConversationMessage against a fabricated SSE response,
 // so the chunk-buffering / SSE-parsing (the tricky bit) is covered — not mocked.
-import { streamConversationMessage, UnauthorizedError } from "../auth/api.js";
+import { RetiredEndpointError, streamConversationMessage, UnauthorizedError } from "../auth/api.js";
 
 const CFG = { apiUrl: "https://api.example.test", apiKey: "k" };
 
@@ -80,5 +80,10 @@ describe("streamConversationMessage", () => {
   it("maps a 401 to UnauthorizedError", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => sseResponse(["no"], 401)));
     await expect(collect()).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+
+  it("maps a 410 to RetiredEndpointError", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse(["gone"], 410)));
+    await expect(collect()).rejects.toBeInstanceOf(RetiredEndpointError);
   });
 });

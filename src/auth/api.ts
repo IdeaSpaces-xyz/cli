@@ -156,6 +156,38 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/** Thrown on 410 — the server retired the route this CLI still calls, so the
+ * fix is a newer CLI, not a different argument. Carries the server's own
+ * message and says so plainly; a bare `410: {"detail":...}` reads as a
+ * missing repo, which is how a month-old bundle once cost a person an
+ * afternoon of "404 on every repo". */
+export class RetiredEndpointError extends Error {
+  constructor(method: string, path: string, body: string) {
+    super(
+      `${method} ${path} → 410: ${retiredEndpointMessage(body)}\n` +
+        "This CLI is out of date. Update the ideaspaces CLI, or the plugin that bundles it, and retry.",
+    );
+    this.name = "RetiredEndpointError";
+  }
+}
+
+/** Pull the human message out of a 410 body — FastAPI `detail` as a string or
+ * `{code, message}` object — falling back to the raw text. */
+function retiredEndpointMessage(body: string): string {
+  const fallback = body || "endpoint retired";
+  try {
+    const detail = (JSON.parse(body) as { detail?: unknown }).detail;
+    if (typeof detail === "string") return detail;
+    if (detail && typeof detail === "object" && "message" in detail) {
+      const message = (detail as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+    }
+  } catch {
+    // not JSON — show it as-is
+  }
+  return fallback;
+}
+
 /** Thrown when the API host can't be reached — distinct from HTTP/auth errors,
  * so callers (and the Cowork redirect) can tell "network unreachable" apart. */
 export class NetworkError extends Error {
@@ -248,6 +280,9 @@ async function request<T>(
         const text = await r.text();
         if (r.status === 401) {
           throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
+        }
+        if (r.status === 410) {
+          throw new RetiredEndpointError(method, path, text);
         }
         throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
       }
@@ -1296,6 +1331,7 @@ export async function* streamConversationMessage(
     if (r.status === 401) {
       throw new UnauthorizedError(`POST ${path} → 401: ${text || r.statusText}`);
     }
+    if (r.status === 410) throw new RetiredEndpointError("POST", path, text);
     throw new Error(`POST ${path} → ${r.status}: ${text || r.statusText}`);
   }
   if (!r.body) throw new Error("stream: server returned no response body");
