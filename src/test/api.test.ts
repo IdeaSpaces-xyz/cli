@@ -9,6 +9,7 @@ import {
   putFile,
   resendPersonShareInvite,
   setPersonShareHistory,
+  getSpaceAccess,
   setSpaceAccess,
   listEligibleTeamAudiences,
   listTeamShares,
@@ -365,7 +366,7 @@ describe("sharing relationships and visibility", () => {
     ]);
   });
 
-  it("sets access (PATCH /space-access)", async () => {
+  it("sets access on the canonical route (PATCH /access)", async () => {
     const calls = capture(200, {
       repo_id: "repo_abc",
       root_node_id: "n",
@@ -375,12 +376,26 @@ describe("sharing relationships and visibility", () => {
     });
     const a = await setSpaceAccess(config, "repo_abc", { read_public: true, copy_access: "public" });
     expect(calls[0].init?.method).toBe("PATCH");
-    expect(calls[0].url).toBe("http://api.test/api/v1/repos/repo_abc/space-access");
+    expect(calls[0].url).toBe("http://api.test/api/v1/repos/repo_abc/access");
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({
       read_public: true,
       copy_access: "public",
     });
     expect(a.read_public).toBe(true);
+  });
+
+  it("reads access on the canonical route, never the deprecated alias", async () => {
+    const calls = capture(200, {
+      repo_id: "repo_abc",
+      root_node_id: "n",
+      read_public: false,
+      copy_public: false,
+      copy_access: "owner",
+    });
+    const a = await getSpaceAccess(config, "repo_abc");
+    expect(calls[0].init?.method).toBe("GET");
+    expect(calls[0].url).toBe("http://api.test/api/v1/repos/repo_abc/access");
+    expect(a.copy_access).toBe("owner");
   });
 
   it("resolves a hostname through eligible team audiences", async () => {
