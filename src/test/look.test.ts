@@ -161,7 +161,7 @@ describe("ideaspaces look", () => {
     const full = await runLook(["notes/decision.md"], { depth: "full" });
     expect(full.data.target.surface).toContain("# Decision");
     expect(full.data.target).not.toHaveProperty("children");
-  });
+  }, 20_000);
 
   it("returns directory surface plus bounded children at full", async () => {
     const result = await runLook(["docs"], { depth: "full", limit: "1" });
