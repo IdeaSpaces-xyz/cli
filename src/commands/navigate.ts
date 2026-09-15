@@ -17,13 +17,15 @@
  *   3. volatile tail  — the protocol `tail`: activity, git state, stale docs,
  *                       and direction drift, rendered last
  *
- * Two selective renders around the CLI's forest handles follow the protocol's
- * declared placements while preserving CLI-owned catalog rendering. A bare
- * folder receives floor orientation plus its catalog; a working set requires a
- * selected authority frame. `--no-git` suppresses the compact git-state line for callers
- * that render richer state. `--json` returns `{ text, position, root,
- * repoRoot, manifest }` — the manifest is the derived projection fragment the
- * text was rendered from, so tooling gets facts without parsing prose.
+ * The head is the protocol's placement render; everything after it is the
+ * protocol's one Content-tail composition (`renderContentTail`) fed the CLI's
+ * forest handles — the same composition `status` renders with State, so the
+ * two verbs cannot order the tail differently. A bare folder receives floor
+ * orientation plus its catalog; a working set requires a selected authority
+ * frame. `--no-git` suppresses the compact git-state line for callers that
+ * render richer state. `--json` returns `{ text, position, root, repoRoot,
+ * manifest }` — the manifest is the derived projection fragment the text was
+ * rendered from, so tooling gets facts without parsing prose.
  *
  * `--mark-seen` persists HEAD as the "last seen" marker for lifecycle callers.
  * Ordinary `navigate` is read-only orientation and does not advance the baseline.
@@ -37,16 +39,16 @@ import {
   assembleContentFocus,
   renderContentAwareness,
   renderContentFocus,
+  renderContentTail,
   resolveRepoRoot,
   CONTENT_AWARENESS_SECTIONS,
 } from "@ideaspaces/protocol";
-import { contractSourceFlag, preferredContractSource } from "../contract-source.js";
+import { contractSourceFlag, preferredContractSource, MAX_DRIFT } from "../contract-source.js";
 import { headSha } from "../git.js";
-import { formatWorkingSetSection, formatCatalogSection } from "../catalog.js";
+import { floorHint, formatWorkingSetSection, planCatalog } from "../catalog.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-const MAX_DRIFT = 10;
 const SEEN_REF = "refs/ideaspaces/seen";
 
 // The since-last-session marker lives in a local git ref — no `git.ts` helper
@@ -55,54 +57,6 @@ const SEEN_REF = "refs/ideaspaces/seen";
 function gitRef(cwd: string, args: string[]): string | null {
   const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
   return r.status === 0 ? r.stdout.trim() || null : null;
-}
-
-// Parse --pullable: a comma-separated list of `slug:namespace` pairs — the
-// remote/pullable tier the caller already fetched via `catalog` (kept out of
-// navigate so it stays network-free). The flag parser has no arrays, hence the
-// string encoding; entries without a colon are dropped, not half-rendered.
-function parsePullable(raw: string | boolean | undefined): Array<{ slug: string; namespace: string }> {
-  if (typeof raw !== "string") return [];
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((p) => {
-      const i = p.indexOf(":");
-      return i > 0 ? { slug: p.slice(0, i), namespace: p.slice(i + 1) } : null;
-    })
-    .filter((x): x is { slug: string; namespace: string } => x !== null);
-}
-
-// Harness copy, not protocol shape: these name the CLI's own navigation verbs.
-const BARE_WORKSPACE_HINT =
-  "You're at a workspace folder (no `_agent/` contract here). Navigate into a repo below (`ideaspaces navigate <repo>`), or pull one that's behind.";
-const EMPTY_WORKSPACE_HINT =
-  "You're at a workspace folder with no repos yet. Clone one to get started (`ideaspaces clone`).";
-
-type CatalogPlan =
-  | { kind: "none" }
-  | { kind: "warn"; text: string }
-  | { kind: "ok"; mounts: string[]; catalog: Promise<string | null> };
-
-// Resolve --workspace and **start** rendering the local-agent repo catalog
-// (local + pullable tiers). Synchronous — it returns the in-flight promise so the
-// caller can await it alongside the awareness assembly (independent IO, run
-// concurrently). Independent of the `_agent/` contract, so the catalog renders
-// at a bare folder too. Warning for an unreadable --workspace; none when the
-// flag is absent.
-function planCatalog(flags: Record<string, string | boolean>, povRepoRoot: string | null): CatalogPlan {
-  const workspace = typeof flags.workspace === "string" ? resolve(flags.workspace) : null;
-  if (!workspace) return { kind: "none" };
-  if (!existsSync(workspace) || !statSync(workspace).isDirectory()) {
-    // A typo'd --workspace would otherwise look identical to "no repos here" —
-    // surface it as a drift line rather than silently rendering nothing.
-    return { kind: "warn", text: `⚠ --workspace is not a readable directory: ${workspace} (catalog skipped)` };
-  }
-  const mounts =
-    typeof flags.mount === "string" ? flags.mount.split(",").map((m) => m.trim()).filter(Boolean) : [];
-  const catalog = formatCatalogSection(workspace, { povRepoRoot, mounts, pullable: parsePullable(flags.pullable) });
-  return { kind: "ok", mounts, catalog };
 }
 
 export const navigateCommand: CommandDef = {
@@ -243,26 +197,24 @@ export const navigateCommand: CommandDef = {
     const stable = renderContentAwareness(manifest, { placement: "head" });
     if (stable.trim()) sections.push(stable);
 
-    // 2. Forest handles — other roots as handles (CLI-owned rendering and placement).
-    if (cat.kind === "warn") sections.push(cat.text);
+    // 2. Forest handles — other roots as handles (CLI-owned rendering), then
+    //    the protocol-owned tail, both ordered by the one tail composition.
+    //    --no-git remains one explicit omission for callers that render richer
+    //    state; it does not recreate a local head/tail classification.
+    const handles: Array<string | null> = [];
+    if (cat.kind === "warn") handles.push(cat.text);
     else if (cat.kind === "ok") {
-      if (workingSet) sections.push(workingSet);
-      if (catalog) sections.push(catalog);
-      if (isFloor && !repoRoot) sections.push(catalog ? BARE_WORKSPACE_HINT : EMPTY_WORKSPACE_HINT);
+      handles.push(workingSet, catalog);
+      if (isFloor && !repoRoot) handles.push(floorHint(catalog));
     }
-
-    // 3. Protocol-owned tail membership and ordering, closest to action.
-    // --no-git remains one explicit omission for callers that render richer
-    // state; it does not recreate a local head/tail classification.
-    const tailSections = flags["no-git"]
-      ? CONTENT_AWARENESS_SECTIONS.filter((section) => section !== "git")
-      : undefined;
-    const tail = renderContentAwareness(manifest, {
-      placement: "tail",
-      ...(tailSections ? { sections: tailSections } : {}),
+    const tail = renderContentTail(manifest, {
+      handles,
+      ...(flags["no-git"]
+        ? { sections: CONTENT_AWARENESS_SECTIONS.filter((section) => section !== "git") }
+        : {}),
       maxDrift: MAX_DRIFT,
     });
-    if (tail.trim()) sections.push(tail);
+    if (tail) sections.push(tail);
 
     // Persist the since-last-session baseline only when asked (SessionStart).
     // Best-effort: an unborn HEAD or ref-write failure must not fail navigate.

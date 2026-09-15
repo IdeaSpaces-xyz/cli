@@ -66,6 +66,16 @@ try {
     throw new Error("Installed CLI did not render the expected help output.");
   }
 
+  // `status <section>` is the canonical spelling; its --help must reach the section.
+  const sectionHelp = spawnSync(executablePath, ["status", "account", "--help"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  if (sectionHelp.error) throw sectionHelp.error;
+  if (sectionHelp.status !== 0 || !sectionHelp.stderr.includes("Usage: ideaspaces status account")) {
+    throw new Error("Installed CLI did not route `status account --help` to the section.");
+  }
+
   const lookRoot = join(temp, "look-fixture");
   mkdirSync(join(lookRoot, "_agent"), { recursive: true });
   writeFileSync(join(lookRoot, "_agent", "agreement.md"), "# Agreement\n\nREFERENCE TERMS\n");

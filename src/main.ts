@@ -2,6 +2,7 @@ import { writeSync } from "node:fs";
 import { findCommand_, printHelp, printPowerHelp } from "./router.js";
 import { handleError } from "./errors.js";
 import { createOutput } from "./output.js";
+import { STATUS_SECTIONS } from "./commands/status.js";
 import { parseArgs } from "./argv.js";
 
 // ─── Main ──────────────────────────────────────────────────────────
@@ -57,6 +58,13 @@ if (command === "power") {
     process.exit(0);
   }
   resolvedCommand = args[0];
+  resolvedArgs = args.slice(1);
+}
+
+// `status <section>` is the canonical spelling of a CLI-owned section whose
+// definition still lives under its legacy name; `--help` should reach it.
+if (command === "status" && args[0] !== undefined && Object.hasOwn(STATUS_SECTIONS, args[0])) {
+  resolvedCommand = STATUS_SECTIONS[args[0]].name;
   resolvedArgs = args.slice(1);
 }
 

@@ -265,9 +265,9 @@ const defaultRuntime: DoctorRuntime = {
 export function makeDoctorCommand(runtime: DoctorRuntime = defaultRuntime): CommandDef {
   return {
     name: "doctor",
-    description: "Check Node, Git, and remote-auth readiness",
-    usage: "ideaspaces doctor [--json]",
-    examples: ["ideaspaces doctor", "ideaspaces doctor --json"],
+    description: "Check Node, Git, and remote-auth readiness — legacy name for `status doctor`",
+    usage: "ideaspaces status doctor [--json]  (legacy: ideaspaces doctor)",
+    examples: ["ideaspaces status doctor", "ideaspaces status doctor --json"],
     async run(_args, _flags, global) {
       const report = buildDoctorReport({
         platform: runtime.platform,

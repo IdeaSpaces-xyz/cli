@@ -60,19 +60,20 @@ administration.
 
 | Job | Commands |
 |---|---|
-| Look around | `navigate`, `look`, `inspect`, `ls`, `search`, `skills`, `status`, `map`, `times` |
+| Look around | `navigate`, `look`, `status`, `inspect`, `ls`, `search`, `skills`, `map`, `times` |
 | Write things down | `write`, `commit`, `change`, `node` |
 | Start, clone, fork | `create`, `clone`, `fork`, `update`, `clones`, `link`, `forget` |
-| Share and sync | `login`, `whoami`, `publish`, `share`, `push`, `pull`, `sync`, `repos`, `catalog` |
+| Share and sync | `login`, `status account` (`whoami`), `publish`, `share`, `push`, `pull`, `sync`, `repos`, `catalog` |
 | Talk | `conversation`, `conversations`, `inbox`, `agents` |
 | Run a local agent | `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code) |
-| Housekeeping | `doctor`, `credential`, `power logout` |
+| Housekeeping | `status doctor` (`doctor`), `credential`, `power logout` |
 
 ## What the CLI promises
 
 - **`write`** touches only the file you name and keeps frontmatter you did not set. Pass the returned `sha` as `--if-match` for a safe second write; `--force` overwrites.
 - **`commit`** commits only the paths you name. Other staged work, yours or a teammate's, is left alone. The author is git's `user.name` and `user.email`, never a hidden credential.
 - **A space has one id.** Agreement is the preferred contract source; until it declares identity, a valid Foundation identity remains the compatibility evidence for that same Space. Legacy `create` still writes Foundation, `publish` adopts its identity, and conflicting declarations fail closed. `clone` keeps identity; `fork` remints it in every projected root entrypoint. Nothing rekeys a space silently.
+- **`status` is the tail, and only the tail.** It renders local State (branch, upstream, working tree, captures awaiting commit), the repo catalog when you pass `--workspace`, and what moved since last session — the same composition an agent runtime appends after its cached head, so the two never disagree. Nothing `navigate` already showed in the head. Login state and installation health are separate sections: `status account` and `status doctor` (`whoami` and `doctor` still work for one release).
 - **`look` deepens one target without adopting its terms.** The applicable Agreement or Foundation is reference context only. JSON adds a portable `map` only for a clean, pinned, identified root; dirty, unborn, ignored, local-only, or invalid roots remain honest local projections.
 - **`map` distinguishes local projection from portable selection.** Tree names and summaries use the protocol Map-member shape, but JSON includes a portable `map` block only for a clean, exactly pinned root with stable identity that passes strict protocol validation. Dirty, unborn, unidentified, or invalid trees remain inspectable under `projection` without leaking their checkout path into a Map.
 - **`fork` and `update`** validate before touching your disk and never overwrite your work; conflicts are reported.
