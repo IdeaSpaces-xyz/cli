@@ -8,14 +8,14 @@
  * unless `--contract` overrides it, then renders the derived active-context
  * index in three tiers:
  *
- *   1. stable block   — position, Now, tree, contract, skills, activity:
- *                       the vantage plus the focus position's local handles
+ *   1. stable block   — the protocol `head`: position, Now, tree, contract,
+ *                       and skills for the active coordinate
  *   2. forest handles — working set (home + `--mount`s) + repository catalog:
  *                       other roots as thin handles; `--pullable <s:ns,…>` adds
  *                       the re-fetchable remote tier the caller already
  *                       fetched, keeping navigate network-free
- *   3. drift tail     — git state, stale docs, direction drift: the volatile
- *                       check-before-acting layer, rendered last
+ *   3. volatile tail  — the protocol `tail`: activity, git state, stale docs,
+ *                       and direction drift, rendered last
  *
  * Two selective renders around the CLI's forest handles follow the protocol's
  * declared placements while preserving CLI-owned catalog rendering. A bare
@@ -38,7 +38,7 @@ import {
   renderContentAwareness,
   renderContentFocus,
   resolveRepoRoot,
-  type ContentAwarenessSection,
+  CONTENT_AWARENESS_SECTIONS,
   type ContractSource,
 } from "@ideaspaces/protocol";
 import { preferredContractSource } from "../contract-source.js";
@@ -49,17 +49,6 @@ import type { CommandDef } from "../types.js";
 
 const MAX_DRIFT = 10;
 const SEEN_REF = "refs/ideaspaces/seen";
-
-// The stable block ends at activity; the drift tail starts at git. The CLI's
-// map tier renders between them (see the header comment).
-const STABLE_SECTIONS: readonly ContentAwarenessSection[] = [
-  "position",
-  "now",
-  "tree",
-  "contract",
-  "skills",
-  "activity",
-];
 
 // The since-last-session marker lives in a local git ref — no `git.ts` helper
 // exists for writing a custom ref, so this thin wrapper is net-new. (Reading it
@@ -259,8 +248,8 @@ export const navigateCommand: CommandDef = {
 
     const sections: string[] = [];
 
-    // 1. Stable block — the vantage plus the focus position's local handles.
-    const stable = renderContentAwareness(manifest, { sections: STABLE_SECTIONS });
+    // 1. Stable block — protocol-owned head membership and ordering.
+    const stable = renderContentAwareness(manifest, { placement: "head" });
     if (stable.trim()) sections.push(stable);
 
     // 2. Forest handles — other roots as handles (CLI-owned rendering and placement).
@@ -271,15 +260,17 @@ export const navigateCommand: CommandDef = {
       if (isFloor && !repoRoot) sections.push(catalog ? BARE_WORKSPACE_HINT : EMPTY_WORKSPACE_HINT);
     }
 
-    // 3. Drift tail — volatile state last, closest to action. --no-git
-    // suppresses the compact Git line for callers that render their own richer
-    // state (e.g. pi's `State:` block from `cli status`).
-    const tailSections: ContentAwarenessSection[] = [
-      ...(flags["no-git"] ? [] : (["git"] as const)),
-      "stale-docs",
-      "direction-drift",
-    ];
-    const tail = renderContentAwareness(manifest, { sections: tailSections, maxDrift: MAX_DRIFT });
+    // 3. Protocol-owned tail membership and ordering, closest to action.
+    // --no-git remains one explicit omission for callers that render richer
+    // state; it does not recreate a local head/tail classification.
+    const tailSections = flags["no-git"]
+      ? CONTENT_AWARENESS_SECTIONS.filter((section) => section !== "git")
+      : undefined;
+    const tail = renderContentAwareness(manifest, {
+      placement: "tail",
+      ...(tailSections ? { sections: tailSections } : {}),
+      maxDrift: MAX_DRIFT,
+    });
     if (tail.trim()) sections.push(tail);
 
     // Persist the since-last-session baseline only when asked (SessionStart).
