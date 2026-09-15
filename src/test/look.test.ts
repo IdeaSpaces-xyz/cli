@@ -130,7 +130,7 @@ describe("ideaspaces look", () => {
         summary: "The selected boundary.",
       },
       projection: {
-        root: { local_path: root, root_node_id: ROOT_NODE_ID },
+        root: { root_node_id: ROOT_NODE_ID },
         member: { position: "notes/decision.md", depth: "summary" },
       },
       map: {
@@ -138,6 +138,7 @@ describe("ideaspaces look", () => {
         members: [{ root: 0, position: "notes/decision.md", depth: "summary" }],
       },
     });
+    expect(result.data.projection.root.local_path).toBe(result.data.reference.position.repoRoot);
     expect(parseMap(result.data.map).status).toBe("valid");
     expect(result.data.text).toContain("contract role: reference — read, never composed");
     expect(result.data.text).toContain("AGREEMENT SENTINEL");
