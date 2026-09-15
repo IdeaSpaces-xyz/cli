@@ -21,6 +21,7 @@ import {
   fetchEntity,
   sendInquiry,
   replyToExchange,
+  RetiredEndpointError,
   UnauthorizedError,
   NetworkError,
 } from "../auth/api.js";
@@ -125,6 +126,38 @@ describe("request() retry on timeout (cold start)", () => {
 
     await expect(fetchAuthMe(config)).rejects.toBeInstanceOf(UnauthorizedError);
     expect(calls).toBe(1);
+  });
+});
+
+describe("request() on a retired endpoint (410)", () => {
+  it("names the server message and tells the person to update the CLI", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              detail: { code: "repo_access_route_retired", message: "This endpoint was retired." },
+            }),
+            { status: 410 },
+          ),
+        ),
+      ),
+    );
+
+    const err = await fetchAuthMe(config, { retry: false }).catch((e) => e);
+    expect(err).toBeInstanceOf(RetiredEndpointError);
+    expect(err.message).toContain("GET /auth/me → 410: This endpoint was retired.");
+    expect(err.message).toContain("This CLI is out of date");
+    expect(err.message).not.toContain("{");
+  });
+
+  it("falls back to the raw body when the 410 carries no structured detail", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("gone", { status: 410 }))));
+
+    const err = await fetchAuthMe(config, { retry: false }).catch((e) => e);
+    expect(err).toBeInstanceOf(RetiredEndpointError);
+    expect(err.message).toContain("→ 410: gone");
   });
 });
 
