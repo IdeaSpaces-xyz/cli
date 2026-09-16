@@ -106,6 +106,10 @@ Pick `claude` to continue a session you started in Claude Code; the same session
 
 `IS_API_KEY` overrides stored credentials. `IS_API_URL` points at another host. `IDEASPACES_PI_EXTENSIONS` lists extension paths for the local agent. `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.
 
+## Contributing
+
+Every server operation the CLI performs is listed in [`contract/api-calls.json`](contract/api-calls.json), generated from `src/auth/api.ts` by `npm run api:inventory`; a test fails when the source changes without it. `npm run check:api -- <openapi.json>` holds that inventory against a server's OpenAPI document and fails on any operation the server does not serve or marks deprecated. The document is an input — set `IDEASPACES_OPENAPI=<path>` to run the same check inside `npm test`.
+
 ## License
 
 MIT

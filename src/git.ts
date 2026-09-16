@@ -14,6 +14,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import { isIdeaspacePath } from "@ideaspaces/protocol";
 
 export class GitError extends Error {}
 
@@ -312,10 +313,13 @@ export function stagedPaths(cwd?: string): string[] {
   return r.out.split("\n").filter(Boolean);
 }
 
-/** Knowledge path: a markdown file, or anything under an `_agent/` dir. */
-export function isIdeaspacePath(path: string): boolean {
-  return path.endsWith(".md") || path.split("/").includes("_agent");
-}
+/**
+ * Shared protocol path: Markdown, `_agent/` context, or an extension payload
+ * such as `_assets/`. The protocol's classifier, so `commit --all`, `push`,
+ * `pull`, and `status` agree with MCP and Pi on what a capture is; the CLI
+ * used to keep its own two-rule copy that left `_assets/` behind.
+ */
+export { isIdeaspacePath } from "@ideaspaces/protocol";
 
 /**
  * Repo-relative paths of tracked + untracked-but-not-ignored files. Uses

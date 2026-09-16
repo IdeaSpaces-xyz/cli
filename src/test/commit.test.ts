@@ -89,6 +89,22 @@ describe("ideaspaces commit", () => {
     expect(git(["diff", "--cached", "--name-only"])).toContain("app.ts");
   });
 
+  it("--all includes extension payload such as _assets, as MCP and Pi do", async () => {
+    // The protocol's classifier decides what a capture is: an `_assets/` file
+    // travels with the knowledge that references it; `.git`-reserved and
+    // ordinary code do not.
+    await fs.writeFile(join(tmp, "note.md"), "# Note\n![d](_assets/d.png)", "utf-8");
+    await fs.mkdir(join(tmp, "_assets"), { recursive: true });
+    await fs.writeFile(join(tmp, "_assets/d.png"), "png", "utf-8");
+    await fs.writeFile(join(tmp, "app.ts"), "code", "utf-8");
+    git(["add", "note.md", "_assets/d.png", "app.ts"]);
+
+    expect(await commitCommand.run([], { m: "note with picture", all: true }, G)).toBe(0);
+    const committed = git(["show", "--name-only", "--format=", "HEAD"]).split("\n").filter(Boolean).sort();
+    expect(committed).toEqual(["_assets/d.png", "note.md"]);
+    expect(git(["diff", "--cached", "--name-only"])).toContain("app.ts");
+  });
+
   it("--all refuses when only non-ideaspace files are staged", async () => {
     await fs.writeFile(join(tmp, "app.ts"), "code", "utf-8");
     git(["add", "app.ts"]);
