@@ -4,4 +4,5 @@
 // wires it in, through the `--runtime` dispatcher in `src/local/runtime.ts`.
 // Enforced by `src/test/pi-boundary.test.ts`.
 
+export { claudeStatusCommand } from "./claude-status.js";
 export { claudeConversationOps } from "./local-conversation-ops.js";
