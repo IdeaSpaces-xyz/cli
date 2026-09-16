@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { parseMap } from "@ideaspaces/protocol";
 import { loadConfig } from "../auth/credentials.js";
 import { searchCommand } from "../commands/search.js";
-import { projectSearchMap } from "../search-map.js";
-import { captureJson } from "./helpers.js";
+import { projectSearchMap, searchMapLine } from "../search-map.js";
+import { captureJson, captureStdout } from "./helpers.js";
 import type { GlobalFlags } from "../types.js";
 
 vi.mock("../auth/credentials.js", async (importOriginal) => ({
@@ -148,6 +148,42 @@ describe("search emits a portable Map", () => {
       map_status: "projection_pending",
       portability_issue: "Not tracked at HEAD: notes/decision.md",
     });
+  });
+
+  it("withholds the Map when a hit cannot be read for disclosure", () => {
+    const before = git(["rev-parse", "HEAD"]);
+    const projection = projectSearchMap(root, before, ["notes/decision.md"], {
+      readSource: () => {
+        throw new Error("EACCES");
+      },
+    });
+    expect(projection).toMatchObject({
+      map_status: "projection_pending",
+      map: null,
+      portability_issue: "Could not read a hit for disclosure: EACCES",
+    });
+  });
+
+  it("withholds the Map and reports issues when the built Map is invalid", () => {
+    const before = git(["rev-parse", "HEAD"]);
+    // A position that escapes the root is not a portable member.
+    const projection = projectSearchMap(root, before, ["../outside.md"], {
+      trackedAt: () => new Set(["../outside.md"]),
+      readSource: () => "# Outside\n",
+    });
+    expect(projection.map_status).toBe("projection_pending");
+    expect(projection.map).toBeNull();
+    expect(projection.map_issues?.length).toBeGreaterThan(0);
+  });
+
+  it("says where the Map stands in human output", async () => {
+    const clean = await captureStdout(() => searchCommand.run(["awareness"], {}, { ...G, json: false }));
+    expect(clean.out).toContain(`Map: portable at ${git(["rev-parse", "HEAD"])}`);
+    await fs.writeFile(join(root, "other.md"), "# Other\n\nchanged\n");
+    const dirty = await captureStdout(() => searchCommand.run(["awareness"], {}, { ...G, json: false }));
+    expect(dirty.out).toContain("Map: projection pending — working tree differs from HEAD");
+    expect(searchMapLine({ map_status: "projection_pending", map: null, root: { local_path: root, sha: null }, dirty: false, local_only_paths: [] }))
+      .toBe("Map: projection pending — the root has no committed pin");
   });
 
   it("emits an empty available Map when nothing matches at a clean pin", async () => {
