@@ -29,7 +29,7 @@ type Flags = Record<string, string | boolean>;
 
 const USAGE = "ideaspaces inbox <list|read|send|reply|expand> ...";
 const SEND_USAGE =
-  "ideaspaces inbox send <email|@handle> [--about <node_id>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces inbox send [<email|@handle>] --about <node_id> | --map <selection.json> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 const EXPAND_USAGE = "ideaspaces inbox expand <thread_id> <member_ordinal>";
 const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
@@ -184,8 +184,11 @@ async function read(rest: string[], output: Output): Promise<number> {
 }
 
 async function send(rest: string[], flags: Flags, output: Output): Promise<number> {
+  // The recipient is optional: a Thread is about a Node, and when no person is
+  // named the server addresses that Node's owner. A reporter rarely knows the
+  // maker's handle, and nothing the CLI can read exposes an owner.
   const [recipientValue] = rest;
-  const recipient = recipientValue ? recipientSelector(recipientValue) : null;
+  const recipient = recipientValue ? recipientSelector(recipientValue) : undefined;
   const selection = loadMapSelection(flags, output);
   if (selection === null) return 1;
   const requestedTarget = flagString(flags, "about")?.trim();
@@ -194,7 +197,7 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
     return 1;
   }
   const target = requestedTarget ?? selection?.target_node_id;
-  if (!recipientValue || rest.length !== 1 || !recipient || !target) {
+  if (rest.length > 1 || recipient === null || !target) {
     output.error(`Usage: ${SEND_USAGE}`);
     return 1;
   }
@@ -204,10 +207,13 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
     const result = await sendInquiry(config, {
       ...note,
       target_node_id: target,
-      recipient,
+      ...(recipient ? { recipient } : {}),
       ...(selection ? { map: selection.map } : {}),
     });
-    output.result(result, `Sent. Thread ${result.exchange_id} is about ${result.target_node_id}.`);
+    const addressed = recipient
+      ? `Sent. Thread ${result.exchange_id} is about ${result.target_node_id}.`
+      : `Sent to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
+    output.result(result, addressed);
     return 0;
   });
 }
@@ -291,6 +297,7 @@ export const inboxCommand: CommandDef = {
     "ideaspaces inbox expand x_example 0",
     "ideaspaces inbox send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces inbox send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
+    "ideaspaces inbox send --about n_0123456789abcdef01234567 --name 'Bug' --summary 'share invite 404s' --message '…'  # no recipient: goes to the Node's owner",
     "printf '# Reply\\n\\nKeep it narrow.' | ideaspaces inbox reply x_example --name 'Answer' --summary 'A bounded answer'",
   ],
   async run(args, flags, global: GlobalFlags) {

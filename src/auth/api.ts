@@ -629,8 +629,10 @@ export interface ExchangeNoteWrite {
 }
 
 export interface InquirySendBody extends ExchangeNoteWrite {
+  /** A Content Note, an Actor profile, or a Process the sender can read. */
   target_node_id: string;
-  recipient: { user_id: number } | { username: string } | { email: string };
+  /** Omit to address the target's owner. */
+  recipient?: { user_id: number } | { username: string } | { email: string };
   map?: MapBlock;
 }
 

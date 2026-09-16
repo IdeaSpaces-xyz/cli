@@ -330,6 +330,40 @@ describe("inbox", () => {
     expect(JSON.parse(stdout())).toMatchObject({ exchange_id: "x_one", target_node_id: TARGET });
   });
 
+  it("sends without a recipient and says it went to the owner", async () => {
+    sendInquiryMock.mockResolvedValue(writeResult);
+
+    const code = await inboxCommand.run(
+      ["send"],
+      {
+        about: TARGET,
+        name: "Bug",
+        summary: "share invite 404s",
+        message: "# Bug\n\nEvery repo.",
+        "send-id": "send-owner",
+      },
+      TEXT_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    const body = sendInquiryMock.mock.calls[0][1];
+    expect(body).not.toHaveProperty("recipient");
+    expect(body).toMatchObject({ target_node_id: TARGET, send_id: "send-owner" });
+    expect(stdout()).toContain(`Sent to the owner of ${TARGET}. Thread x_one.`);
+  });
+
+  it("refuses more than one recipient", async () => {
+    const code = await inboxCommand.run(
+      ["send", "@two", "@three"],
+      { about: TARGET, name: "Question", summary: "Summary", message: "Body" },
+      TEXT_GLOBAL,
+    );
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Usage");
+    expect(sendInquiryMock).not.toHaveBeenCalled();
+  });
+
   it("replies through an existing exchange", async () => {
     replyToExchangeMock.mockResolvedValue({ ...writeResult, action: "note.replied" });
 
