@@ -22,6 +22,8 @@ import { whoamiCommand } from "./commands/whoami.js";
 import { reposCommand } from "./commands/repos.js";
 import { catalogCommand } from "./commands/catalog.js";
 import { cloneCommand } from "./commands/clone.js";
+import { getCommand } from "./commands/get.js";
+import { integrateCommand } from "./commands/integrate.js";
 import { clonesCommand } from "./commands/clones.js";
 import { forkCommand } from "./commands/fork.js";
 import { updateCommand } from "./commands/update.js";
@@ -72,6 +74,8 @@ const topLevel: CommandDef[] = [
   piLoginCommand,
   piLogoutCommand,
   claudeStatusCommand,
+  getCommand,
+  integrateCommand,
   cloneCommand,
   forkCommand,
   updateCommand,

@@ -27,7 +27,7 @@ import type { CommandDef } from "../types.js";
 
 export const linkCommand: CommandDef = {
   name: "link",
-  description: "Bind an existing local clone to one of your spaces",
+  description: "Bind an existing local clone to one of your spaces — the explicit link mode of `get`",
   usage: "ideaspaces link <dir> [space]",
   examples: [
     "ideaspaces link ./theone                  # auto-detect from the git remote",

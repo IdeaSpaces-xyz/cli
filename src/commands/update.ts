@@ -45,7 +45,7 @@ function sourceUpdateError(err: unknown): string {
 
 export const updateCommand: CommandDef = {
   name: "update",
-  description: "Preview or apply account-optional three-way source updates without displacing local work",
+  description: "Preview or apply three-way source updates to a fork — what `integrate` runs for a fork",
   usage: "ideaspaces update [--yes]",
   examples: [
     "ideaspaces update       # preview source changes and conflicts",

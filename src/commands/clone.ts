@@ -20,7 +20,7 @@ import type { CommandDef } from "../types.js";
 
 export const cloneCommand: CommandDef = {
   name: "clone",
-  description: "Clone an authorized Space into a local folder",
+  description: "Clone an authorized Space into a local folder — the explicit clone mode of `get`",
   usage: "ideaspaces clone <space-url|legacy-space> [dir]",
   examples: [
     "ideaspaces clone https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
