@@ -268,7 +268,7 @@ function installLocalFork(opts: {
 
 export const forkCommand: CommandDef = {
   name: "fork",
-  description: "Materialize an independent local Space without source history or an account",
+  description: "Materialize an independent local Space without source history — the explicit fork mode of `get`",
   usage: "ideaspaces fork <space-url> [dir] [--name <local-name>]",
   examples: [
     "ideaspaces fork https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",

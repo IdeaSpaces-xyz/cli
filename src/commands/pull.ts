@@ -32,7 +32,7 @@ import type { CommandDef } from "../types.js";
 
 export const pullCommand: CommandDef = {
   name: "pull",
-  description: "Integrate remote changes into the local ideaspace",
+  description: "Integrate remote changes into the local ideaspace — what `integrate` runs for a clone",
   usage: "ideaspaces pull [--dry-run] [--rebase=false]",
   examples: ["ideaspaces pull", "ideaspaces pull --dry-run", "ideaspaces pull --rebase=false"],
   async run(_args, flags, global) {
