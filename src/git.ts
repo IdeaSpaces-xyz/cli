@@ -319,7 +319,7 @@ export function stagedPaths(cwd?: string): string[] {
  * `pull`, and `status` agree with MCP and Pi on what a capture is; the CLI
  * used to keep its own two-rule copy that left `_assets/` behind.
  */
-export { isIdeaspacePath } from "@ideaspaces/protocol";
+export { isIdeaspacePath };
 
 /**
  * Repo-relative paths of tracked + untracked-but-not-ignored files. Uses
@@ -332,7 +332,7 @@ export function listFiles(cwd?: string): string[] {
   return r.out.split("\n").filter(Boolean);
 }
 
-/** Staged paths that are ideaspace knowledge (markdown or `_agent/`). */
+/** Staged shared protocol paths: Markdown, `_agent/`, or extension payload such as `_assets/`. */
 export function stagedIdeaspacePaths(cwd?: string): string[] {
   return stagedPaths(cwd).filter(isIdeaspacePath);
 }

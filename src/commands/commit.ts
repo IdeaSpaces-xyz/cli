@@ -118,7 +118,7 @@ export const commitCommand: CommandDef = {
     'ideaspaces commit -m "<message>" <path>... | --all [--author-name <name> --author-email <email>] [--op <op>] [--change-id <chg_…>] [--conversation <id>] [--co-author <agent>]',
   examples: [
     'ideaspaces commit -m "Capture auth decision" notes/auth.md',
-    'ideaspaces commit -m "Save notes" --all   # all staged markdown / _agent/ paths',
+    'ideaspaces commit -m "Save notes" --all   # all staged Markdown / _agent/ / _assets/ paths',
     'ideaspaces commit -m "Capture" notes/auth.md --op capture --change-id chg_auth-1a2b --conversation sess_9 --co-author "agent:me-claude"',
   ],
   async run(args, flags, global) {
@@ -196,7 +196,7 @@ export const commitCommand: CommandDef = {
           "commit_paths",
           "nothing_to_commit",
           "commit",
-          "No staged ideaspace paths (Markdown or _agent/).",
+          "No staged ideaspace paths (Markdown, _agent/, or extension payload such as _assets/).",
           undefined,
           `Staged non-knowledge paths: ${other.join(", ")}`,
         );

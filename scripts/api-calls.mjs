@@ -236,7 +236,8 @@ function main() {
     } catch {
       // missing counts as stale
     }
-    if (current !== rendered) {
+    // A Windows checkout may carry CRLF; the inventory is compared by content.
+    if (current.replace(/\r\n/g, "\n") !== rendered) {
       process.stderr.write(`${INVENTORY} is stale — run: node scripts/api-calls.mjs\n`);
       process.exit(1);
     }

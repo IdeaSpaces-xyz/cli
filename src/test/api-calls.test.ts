@@ -14,7 +14,8 @@ describe("API call inventory", () => {
     // check reads, so it must never lag the source it describes.
     const calls = extractApiCalls(readFileSync(join(root, SOURCE), "utf8"));
     expect(calls.length).toBeGreaterThan(20);
-    expect(readFileSync(join(root, INVENTORY), "utf8")).toBe(renderInventory(calls));
+    // Compared by content: a Windows checkout may carry CRLF.
+    expect(readFileSync(join(root, INVENTORY), "utf8").replace(/\r\n/g, "\n")).toBe(renderInventory(calls));
   });
 
   it("reduces every path-building shape api.ts uses to one placeholder form", () => {
