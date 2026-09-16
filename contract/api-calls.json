@@ -1,0 +1,146 @@
+{
+  "source": "src/auth/api.ts",
+  "generated_by": "scripts/api-calls.mjs",
+  "calls": [
+    {
+      "method": "GET",
+      "path": "/api/v1/agents"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/content/{targetNodeId}/tree"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/content/{targetNodeId}/tree/{path}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/entities/{entityType}/{entityKey}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exchanges/{exchangeId}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/exchanges/{exchangeId}/map/members/{memberOrdinal}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/exchanges/{exchangeId}/replies"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/inbox"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/inquiries"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/nodes/{rootNodeId}/team-shares"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/nodes/{rootNodeId}/team-shares/{orgNodeId}"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/nodes/{rootNodeId}/team-shares/{orgNodeId}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/nodes/{targetNodeId}/person-share-invites"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/nodes/{targetNodeId}/person-share-invites/{inviteId}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/nodes/{targetNodeId}/person-share-invites/{inviteId}/resend"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/nodes/{targetNodeId}/person-shares"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/nodes/{targetNodeId}/person-shares"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/nodes/{targetNodeId}/person-shares/{userId}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/nodes/{targetNodeId}/person-shares/{userId}/history"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/nodes/{targetNodeId}/person-shares/{userId}/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/nodes/grant-audiences"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/public/repos/{rootNodeId}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/public/repos/{rootNodeId}/copy-snapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/public/repos/{rootNodeId}/git"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/repos"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repos/{repoId}/access"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/repos/{repoId}/access"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repos/{repoId}/conversations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/repos/{repoId}/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repos/{repoId}/conversations/{conversationId}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/repos/{repoId}/conversations/{conversationId}/current"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/repos/{repoId}/conversations/{conversationId}/messages/stream"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/repos/{repoId}/files/{path}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repos/{repoId}/nodes/{nodeId}"
+    },
+    {
+      "method": "GET",
+      "path": "/auth/me"
+    }
+  ]
+}
