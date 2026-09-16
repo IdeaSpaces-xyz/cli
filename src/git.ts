@@ -187,6 +187,13 @@ export function headSha(cwd?: string): string {
   return gitOrThrow(["rev-parse", "HEAD"], cwd);
 }
 
+/** Repo-relative paths tracked at `ref` (default HEAD); empty on an unborn HEAD. */
+export function trackedAt(ref = "HEAD", cwd?: string): Set<string> {
+  const r = git(["ls-tree", "-r", "--name-only", "-z", ref], cwd);
+  if (!r.ok || !r.out) return new Set();
+  return new Set(r.out.split("\0").filter(Boolean));
+}
+
 /** `git add` the given paths. No-op for an empty list. */
 export function stagePaths(paths: string[], cwd?: string): void {
   if (!paths.length) return;
