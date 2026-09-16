@@ -75,6 +75,14 @@ describe("deriveClaudeStatus — the three states the connector card distinguish
     expect(s.auth).toBe("api-key");
   });
 
+  it("the auth probe could not run at all: present, login unknown, detail says so", () => {
+    const s = deriveClaudeStatus({ binary: present, authStdout: null, auth: "login" });
+    expect(s.ready).toBe(false);
+    expect(s.login.loggedIn).toBeNull();
+    expect(s.login.detail).toContain("could not run");
+    expect(s.login.detail).not.toContain("newer Claude Code");
+  });
+
   it("an older Claude Code without `auth status`: present but login unknown, not ready", () => {
     // Pre-`auth` binaries print `error: unknown command 'auth'` on stderr; stdout is empty.
     const s = deriveClaudeStatus({ binary: present, authStdout: "", auth: "login" });

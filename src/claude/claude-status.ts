@@ -23,16 +23,12 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { probeBinary, type ProbedBinary } from "../local/probe-binary.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { CLAUDE_AUTH_MODES, buildClaudeEnv, isValidClaudeAuthMode, type ClaudeAuthMode } from "./local-agent.js";
 
-export interface ClaudeBinary {
-  present: boolean;
-  /** What was probed — the `--claude-bin` value, or `claude` for a PATH lookup. */
-  path: string;
-  version: string | null;
-}
+export type ClaudeBinary = ProbedBinary;
 
 export interface ClaudeLogin {
   /** Claude Code's answer, or null when the binary could not give one (see `detail`). */
@@ -79,7 +75,7 @@ export function parseClaudeAuthReport(stdout: string): ClaudeAuthReport | null {
  * results are passed in, so every state is unit-testable without a `claude`. */
 export function deriveClaudeStatus(input: {
   binary: ClaudeBinary;
-  /** stdout of `claude auth status --json`; null when the binary was not run. */
+  /** stdout of `claude auth status --json`, whatever its exit code; null when it could not be run. */
   authStdout: string | null;
   auth: ClaudeAuthMode;
 }): ClaudeStatus {
@@ -88,34 +84,27 @@ export function deriveClaudeStatus(input: {
   if (!binary.present) {
     login = { loggedIn: null, method: null, subscription: null, detail: `${binary.path} is not installed or not on PATH` };
   } else {
+    const named = `${binary.path}${binary.version ? ` ${binary.version}` : ""}`;
     const report = input.authStdout === null ? null : parseClaudeAuthReport(input.authStdout);
-    login = report
-      ? {
-          loggedIn: report.loggedIn === true,
-          method: typeof report.authMethod === "string" ? report.authMethod : null,
-          subscription: typeof report.subscriptionType === "string" ? report.subscriptionType : null,
-          detail: null,
-        }
-      : {
-          loggedIn: null,
-          method: null,
-          subscription: null,
-          detail: `${binary.path}${binary.version ? ` ${binary.version}` : ""} did not report its sign-in state; \`claude auth status\` needs a newer Claude Code`,
-        };
+    if (report) {
+      login = {
+        loggedIn: report.loggedIn === true,
+        method: typeof report.authMethod === "string" ? report.authMethod : null,
+        subscription: typeof report.subscriptionType === "string" ? report.subscriptionType : null,
+        detail: null,
+      };
+    } else {
+      // Two ways to have no report: the second spawn failed outright after
+      // `--version` ran (rare — a binary that vanished or hung), or it ran and
+      // printed no report (a Claude Code older than the `auth` subcommand).
+      const detail =
+        input.authStdout === null
+          ? `could not run \`${named} auth status\``
+          : `${named} did not report its sign-in state; \`claude auth status\` needs a newer Claude Code`;
+      login = { loggedIn: null, method: null, subscription: null, detail };
+    }
   }
   return { binary, login, auth, ready: binary.present && login.loggedIn === true };
-}
-
-/** Run the binary once. ENOENT/non-zero → absent. Same spawn resolution as a turn. */
-function probeBinary(claudeBin: string, env: NodeJS.ProcessEnv): ClaudeBinary {
-  try {
-    const res = spawnSync(claudeBin, ["--version"], { encoding: "utf8", timeout: 5000, env });
-    if (res.error || res.status !== 0) return { present: false, path: claudeBin, version: null };
-    const m = /\d+\.\d+\.\d+[\w.-]*/.exec(res.stdout ?? "");
-    return { present: true, path: claudeBin, version: m ? m[0] : null };
-  } catch {
-    return { present: false, path: claudeBin, version: null };
-  }
 }
 
 /** Ask the binary for its sign-in state. Returns stdout whatever the exit code. */
