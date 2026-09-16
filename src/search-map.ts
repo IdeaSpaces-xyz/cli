@@ -120,3 +120,20 @@ export function projectSearchMap(
     local_only_paths: inspected.localOnlyPaths,
   };
 }
+
+/** One human line beside the ranked list, in `look`'s words. */
+export function searchMapLine(projection: SearchMapProjection): string {
+  if (projection.map_status === "available") return `Map: portable at ${projection.root.sha}`;
+  if (projection.portability_issue) return `Map: projection pending — ${projection.portability_issue}`;
+  if (projection.map_issues?.length) {
+    return "Map: projection pending — portable Map validation failed (run with --json for map_issues)";
+  }
+  if (projection.dirty) {
+    return projection.local_only_paths.length
+      ? "Map: projection pending — a hit is local-only or the working tree differs from HEAD"
+      : "Map: projection pending — working tree differs from HEAD";
+  }
+  if (!projection.root.sha) return "Map: projection pending — the root has no committed pin";
+  if (!projection.root.root_node_id) return "Map: projection pending — the root has no portable identity";
+  return "Map: projection pending";
+}

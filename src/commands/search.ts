@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { repoRoot, listFiles, headSha, GitError } from "../git.js";
 import { searchDocs, type SearchDoc } from "../search.js";
-import { projectSearchMap, type SearchMapProjection } from "../search-map.js";
+import { projectSearchMap, searchMapLine, type SearchMapProjection } from "../search-map.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -109,7 +109,7 @@ export const searchCommand: CommandDef = {
       ...(projection.portability_issue ? { portability_issue: projection.portability_issue } : {}),
     };
     if (results.length === 0) {
-      output.result(data, `No matches for "${query}" (${markdown.length} files searched).`);
+      output.result(data, `No matches for "${query}" (${markdown.length} files searched).\n${searchMapLine(projection)}`);
       return 0;
     }
 
@@ -118,7 +118,7 @@ export const searchCommand: CommandDef = {
       const head = `${r.path}${where}`;
       return r.snippet ? `${head}\n    ${r.snippet}` : head;
     });
-    output.result(data, lines.join("\n"));
+    output.result(data, `${lines.join("\n")}\n\n${searchMapLine(projection)}`);
     return 0;
   },
 };
