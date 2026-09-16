@@ -51,7 +51,7 @@ export interface GetPlan {
   logged_in: boolean;
 }
 
-const USAGE = "ideaspaces get <space-url|dir> [dir] [--yes --as clone|fork|link] [--name <local-name>] [--json]";
+const USAGE = "ideaspaces get <space-url> [dest-dir] [--yes --as clone|fork] [--name <local-name>] | ideaspaces get <dir> [space] [--yes --as link] [--json]";
 
 function isUrl(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
@@ -216,7 +216,8 @@ export const getCommand: CommandDef = {
     "ideaspaces get https://ideaspaces.xyz/repos/n_0123456789abcdef01234567            # the plan: what each mode would do",
     "ideaspaces get https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 --yes --as clone",
     "ideaspaces get https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 ./mine --yes --as fork",
-    "ideaspaces get ./theone --yes --as link      # bind an existing clone to its Space",
+    "ideaspaces get ./theone --yes --as link                # bind an existing clone to the Space its origin names",
+    "ideaspaces get ./theone alice/theone --yes --as link   # …or to a named Space (link's second argument)",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);

@@ -19,7 +19,7 @@ import { updateCommand } from "./update.js";
 
 export type IntegrateFrom = "remote" | "source";
 
-const USAGE = "ideaspaces integrate [--yes] [--from remote|source] [--rebase=false] [--json]";
+const USAGE = "ideaspaces integrate [--yes] [--from remote|source] [--rebase=false  (remote only)] [--json]";
 
 export interface IntegratePlan {
   from: IntegrateFrom;
