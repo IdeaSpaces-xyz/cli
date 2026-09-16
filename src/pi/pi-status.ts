@@ -16,10 +16,10 @@
  * reads only the local pi install, never the IdeaSpaces account.
  */
 
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
+import { probeBinary, type ProbedBinary } from "../local/probe-binary.js";
 import { readAuthFile, resolvePiAuthPath } from "./pi-auth.js";
 import type { PiAuth } from "./pi-auth.js";
 import type { CommandDef } from "../types.js";
@@ -42,11 +42,7 @@ export interface PiExtensionCheck {
   resolvable: boolean;
 }
 
-export interface PiBinary {
-  present: boolean;
-  path: string;
-  version: string | null;
-}
+export type PiBinary = ProbedBinary;
 
 export interface PiStatus {
   binary: PiBinary;
@@ -118,18 +114,6 @@ export function resolveExtension(path: string): PiExtensionCheck {
     }
   }
   return check(existsSync(join(path, "index.ts")) || existsSync(join(path, "index.js")));
-}
-
-/** Probe the pi binary via `--version`; ENOENT/non-zero → not present. */
-function probeBinary(piBin: string): PiBinary {
-  try {
-    const res = spawnSync(piBin, ["--version"], { encoding: "utf8", timeout: 5000 });
-    if (res.error || res.status !== 0) return { present: false, path: piBin, version: null };
-    const m = /\d+\.\d+\.\d+[\w.-]*/.exec(res.stdout ?? "");
-    return { present: true, path: piBin, version: m ? m[0] : null };
-  } catch {
-    return { present: false, path: piBin, version: null };
-  }
 }
 
 function formatHuman(s: PiStatus): string {
