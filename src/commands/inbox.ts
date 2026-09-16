@@ -29,7 +29,7 @@ type Flags = Record<string, string | boolean>;
 
 const USAGE = "ideaspaces inbox <list|read|send|reply|expand> ...";
 const SEND_USAGE =
-  "ideaspaces inbox send [<email|@handle>] --about <node_id> | --map <selection.json> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces inbox send [<email|@handle>] [--about <node_id>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 const EXPAND_USAGE = "ideaspaces inbox expand <thread_id> <member_ordinal>";
 const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
