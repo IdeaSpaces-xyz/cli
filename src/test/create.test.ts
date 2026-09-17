@@ -5,9 +5,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { parseFrontmatter } from "@ideaspaces/protocol";
 import { createCommand } from "../commands/create.js";
+import { navigateCommand } from "../commands/navigate.js";
 import { captureStdout } from "./helpers.js";
 import type { GlobalFlags } from "../types.js";
+
+const KNOWLEDGE_REFERENCE = "knowledge:repo:n_f1511280efecd7fcff155152";
+const AGENT_REFERENCE = "agent:repo:n_0935a5df1f883eeb60bcdfbb";
 
 const baseGlobal: GlobalFlags = {
   json: true, // suppress human output during tests
@@ -50,6 +55,19 @@ async function expectNoNodeId(path: string): Promise<void> {
   expect(content).not.toMatch(/^node_id:/m);
 }
 
+/** The awareness manifest `navigate --json` reports from inside `dir`. */
+async function manifestIn(dir: string): Promise<any> {
+  const before = process.cwd();
+  process.chdir(dir);
+  try {
+    const captured = await captureStdout(() => navigateCommand.run([], {}, baseGlobal));
+    expect(captured.exit).toBe(0);
+    return JSON.parse(captured.out).manifest;
+  } finally {
+    process.chdir(before);
+  }
+}
+
 describe("ideaspaces create", () => {
   it("plans without applying when --yes is absent", async () => {
     const exit = await createCommand.run([], {}, baseGlobal);
@@ -70,8 +88,8 @@ describe("ideaspaces create", () => {
       expect(exit).toBe(0); // graceful, not the old exit-1 crash
       const dir = join(tmp, "nogit-space");
       // Files materialized despite no git...
-      expect(existsSync(join(dir, "_agent", "foundation.md"))).toBe(true);
-      expect(await fs.readFile(join(dir, "_agent", "foundation.md"), "utf-8")).toMatch(
+      expect(existsSync(join(dir, "_agent", "agreement.md"))).toBe(true);
+      expect(await fs.readFile(join(dir, "_agent", "agreement.md"), "utf-8")).toMatch(
         /^root_node_id: n_[0-9a-f]{24}$/m,
       );
       expect(existsSync(join(dir, "CLAUDE.md"))).toBe(true);
@@ -111,7 +129,7 @@ describe("ideaspaces create", () => {
       );
       expect(exit).toBe(0);
       const dir = join(tmp, "broken-git-space");
-      expect(existsSync(join(dir, "_agent", "foundation.md"))).toBe(true);
+      expect(existsSync(join(dir, "_agent", "agreement.md"))).toBe(true);
       expect(existsSync(join(dir, ".git"))).toBe(false);
       expect(out).toMatch(/no version history/i);
       expect(out).toMatch(/git is present but unusable/i);
@@ -123,14 +141,89 @@ describe("ideaspaces create", () => {
     }
   });
 
-  it("scaffolds greenfield with --yes", async () => {
+  it("scaffolds greenfield with --yes as an Agreement under the knowledge kind", async () => {
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     configureGitIdentity(tmp); // git-init happened; ensure identity for any subsequent ops
+    // One contract file. Nothing else in _agent/ until there is something real
+    // to put there — no guide, no direction files, no empty skills/.
+    expect(await fs.readdir(join(tmp, "_agent"))).toEqual(["agreement.md"]);
+    const agreement = await fs.readFile(join(tmp, "_agent", "agreement.md"), "utf-8");
+    expect(agreement).toContain("name: Agreement — " + basename(tmp));
+    expect(agreement).toMatch(new RegExp(`^agreement: ${KNOWLEDGE_REFERENCE}$`, "m"));
+    // Sections ship as prompts, not filler.
+    expect(agreement).toContain("## What this place is");
+    expect(agreement).toContain("## When to revisit");
+    expect(agreement).toContain("Every section below is a prompt");
+    expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(true);
+    const claude = await fs.readFile(join(tmp, "CLAUDE.md"), "utf-8");
+    expect(claude).toContain("_agent/agreement.md");
+    expect(claude).not.toContain("foundation");
+    await expectNoNodeId(join(tmp, "CLAUDE.md"));
+    await expectNoNodeId(join(tmp, "_agent", "agreement.md"));
+    const rootNodeId = agreement.match(/^root_node_id: (n_[0-9a-f]{24})$/m)?.[1];
+    expect(rootNodeId).toMatch(/^n_[0-9a-f]{24}$/);
+    const committed = spawnSync(
+      "git",
+      ["-C", tmp, "show", "HEAD:_agent/agreement.md"],
+      { encoding: "utf-8" },
+    ).stdout;
+    expect(committed).toContain(`root_node_id: ${rootNodeId}`);
+    expect(existsSync(join(tmp, ".gitignore"))).toBe(true);
+    expect(existsSync(join(tmp, ".gitattributes"))).toBe(true);
+    expect(existsSync(join(tmp, ".git"))).toBe(true);
+    // First publish needs no branch rename.
+    const branch = spawnSync("git", ["-C", tmp, "branch", "--show-current"], { encoding: "utf-8" });
+    expect(branch.stdout.trim()).toBe("main");
+    // The reader sees the Agreement and surfaces the kind it references.
+    const manifest = await manifestIn(tmp);
+    expect(manifest.contractSource).toBe("agreement");
+    expect(manifest.agreementReference).toBe(KNOWLEDGE_REFERENCE);
+  });
+
+  it("reports the contract shape and reference in the plan and the result", async () => {
+    const planned = await captureStdout(() => createCommand.run(["k"], {}, baseGlobal));
+    expect(planned.exit).toBe(0);
+    const plan = JSON.parse(planned.out);
+    expect(plan.contract).toBe("agreement");
+    expect(plan.agreement_reference).toBe(KNOWLEDGE_REFERENCE);
+    expect(plan.plan.some((s: { path?: string }) => s.path?.endsWith("agreement.md"))).toBe(true);
+    expect(plan.plan.some((s: { path?: string }) => s.path?.endsWith("foundation.md"))).toBe(false);
+    const applied = await captureStdout(() =>
+      createCommand.run(["k"], {}, { ...baseGlobal, yes: true }),
+    );
+    expect(applied.exit).toBe(0);
+    const result = JSON.parse(applied.out);
+    expect(result.contract).toBe("agreement");
+    expect(result.agreement_reference).toBe(KNOWLEDGE_REFERENCE);
+    expect(result.identity_state).toBe("local_only");
+  });
+
+  it("quotes a folder name that would not survive frontmatter, and the Agreement still parses", async () => {
+    // `#` starts a YAML comment in a plain scalar, and is a legal folder name
+    // on every platform (unlike `:`).
+    const dir = join(tmp, "notes #1");
+    await fs.mkdir(dir);
+    process.chdir(dir);
+    const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+    const agreement = await fs.readFile(join(dir, "_agent", "agreement.md"), "utf-8");
+    expect(agreement).toContain('name: "Agreement — notes #1"');
+    expect(parseFrontmatter(agreement)?.name).toBe("Agreement — notes #1");
+  });
+
+  it("keeps the older shape behind --foundation for one release", async () => {
+    const captured = await captureStdout(() =>
+      createCommand.run([], { foundation: true }, { ...baseGlobal, yes: true, json: false }),
+    );
+    expect(captured.exit).toBe(0);
+    expect(captured.out).toMatch(/--foundation.*older/);
+    configureGitIdentity(tmp);
     // Seed only — foundation + guide. purpose/now/next emerge in conversation.
     for (const file of ["foundation", "guide"]) {
       expect(existsSync(join(tmp, "_agent", `${file}.md`))).toBe(true);
     }
+    expect(existsSync(join(tmp, "_agent", "agreement.md"))).toBe(false);
     for (const file of ["purpose", "now", "next"]) {
       expect(existsSync(join(tmp, "_agent", `${file}.md`))).toBe(false);
     }
@@ -154,9 +247,9 @@ describe("ideaspaces create", () => {
       { encoding: "utf-8" },
     ).stdout;
     expect(committedFoundation).toContain(`root_node_id: ${rootNodeId}`);
-    expect(existsSync(join(tmp, ".gitignore"))).toBe(true);
-    expect(existsSync(join(tmp, ".gitattributes"))).toBe(true);
-    expect(existsSync(join(tmp, ".git"))).toBe(true);
+    const manifest = await manifestIn(tmp);
+    expect(manifest.contractSource).toBe("foundation");
+    expect(manifest.agreementReference).toBeUndefined();
   });
 
   it("flags nesting when creating inside an existing repo, but does not block", async () => {
@@ -192,7 +285,7 @@ describe("ideaspaces create", () => {
   it("creates `./<name>/` and scaffolds inside it", async () => {
     const exit = await createCommand.run(["my-space"], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
-    expect(existsSync(join(tmp, "my-space", "_agent", "foundation.md"))).toBe(true);
+    expect(existsSync(join(tmp, "my-space", "_agent", "agreement.md"))).toBe(true);
     expect(existsSync(join(tmp, "my-space", ".git"))).toBe(true);
     expect(existsSync(join(tmp, "my-space", "CLAUDE.md"))).toBe(true);
   });
@@ -207,15 +300,36 @@ describe("ideaspaces create", () => {
     expect((await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8")).trim()).toBe("# Foundation");
   });
 
-  it("does not scaffold Foundation beside a manually authored Agreement", async () => {
+  it("refuses beside a Foundation Space that has no CLAUDE.md — never two entrypoints", async () => {
+    // A private code-repo scaffold under --foundation writes CLAUDE.local.md,
+    // not CLAUDE.md; a default re-run must still see a complete Space.
+    await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
+    expect(await createCommand.run([], { foundation: true }, { ...baseGlobal, yes: true })).toBe(0);
+    expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
+    const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(5);
+    expect(existsSync(join(tmp, "_agent", "agreement.md"))).toBe(false);
+    expect(existsSync(join(tmp, "_agent", "foundation.md"))).toBe(true);
+  });
+
+  it("does not scaffold beside a hand-written Agreement", async () => {
     await fs.mkdir(join(tmp, "_agent"), { recursive: true });
     await fs.writeFile(join(tmp, "_agent", "agreement.md"), "# Agreement", "utf-8");
 
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
 
     expect(exit).toBe(5);
+    expect((await fs.readFile(join(tmp, "_agent", "agreement.md"), "utf-8")).trim()).toBe("# Agreement");
     expect(existsSync(join(tmp, "_agent", "foundation.md"))).toBe(false);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
+  });
+
+  it("does not scaffold Foundation beside a hand-written Agreement even with --foundation", async () => {
+    await fs.mkdir(join(tmp, "_agent"), { recursive: true });
+    await fs.writeFile(join(tmp, "_agent", "agreement.md"), "# Agreement", "utf-8");
+    const exit = await createCommand.run([], { foundation: true }, { ...baseGlobal, yes: true });
+    expect(exit).toBe(5);
+    expect(existsSync(join(tmp, "_agent", "foundation.md"))).toBe(false);
   });
 
   it("refuses without pointing at a slash command", async () => {
@@ -248,7 +362,7 @@ describe("ideaspaces create", () => {
     // CLAUDE.local.md instead of CLAUDE.md when private
     expect(existsSync(join(tmp, "CLAUDE.local.md"))).toBe(true);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
-    expect(await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8")).not.toContain(
+    expect(await fs.readFile(join(tmp, "_agent", "agreement.md"), "utf-8")).not.toContain(
       "root_node_id:",
     );
   });
@@ -272,8 +386,38 @@ describe("ideaspaces create", () => {
     expect(gitignore).toContain("# ideaspace defaults");
   });
 
-  it("scaffolds an agent with --agent", async () => {
+  it("scaffolds an agent with --agent as an Agreement under the agent kind", async () => {
     const exit = await createCommand.run(["scribe"], { agent: true }, { ...baseGlobal, yes: true });
+    expect(exit).toBe(0);
+    const dir = join(tmp, "scribe");
+    expect(await fs.readdir(join(dir, "_agent"))).toEqual(["agreement.md"]);
+    const agreement = await fs.readFile(join(dir, "_agent", "agreement.md"), "utf-8");
+    expect(agreement).toContain("name: Agreement — scribe");
+    expect(agreement).toMatch(new RegExp(`^agreement: ${AGENT_REFERENCE}$`, "m"));
+    expect(agreement).toMatch(/^root_node_id: n_[0-9a-f]{24}$/m);
+    // The opener declares point of view; the agent sections are prompts.
+    expect(agreement).toContain("This folder is scribe's **point of view**, not a subject to study.");
+    for (const section of ["## Character", "## Boundaries", "## What scribe is not", "## How a task goes"]) {
+      expect(agreement).toContain(section);
+    }
+    const claude = await fs.readFile(join(dir, "CLAUDE.md"), "utf-8");
+    expect(claude).toContain("being scribe");
+    for (const file of ["purpose", "now", "next"]) {
+      expect(existsSync(join(dir, "_agent", `${file}.md`))).toBe(false);
+    }
+    const manifest = await manifestIn(dir);
+    expect(manifest.contractSource).toBe("agreement");
+    expect(manifest.agreementReference).toBe(AGENT_REFERENCE);
+    const branch = spawnSync("git", ["-C", dir, "branch", "--show-current"], { encoding: "utf-8" });
+    expect(branch.stdout.trim()).toBe("main");
+  });
+
+  it("scaffolds an agent in the older shape with --agent --foundation", async () => {
+    const exit = await createCommand.run(
+      ["scribe"],
+      { agent: true, foundation: true },
+      { ...baseGlobal, yes: true },
+    );
     expect(exit).toBe(0);
     const dir = join(tmp, "scribe");
     const foundation = await fs.readFile(join(dir, "_agent", "foundation.md"), "utf-8");
@@ -297,9 +441,9 @@ describe("ideaspaces create", () => {
   it("uses the directory name when --agent scaffolds the current directory", async () => {
     const exit = await createCommand.run([], { agent: true }, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
-    const foundation = await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8");
+    const agreement = await fs.readFile(join(tmp, "_agent", "agreement.md"), "utf-8");
     const dirName = basename(tmp);
-    expect(foundation).toContain(`Foundation — ${dirName}`);
+    expect(agreement).toContain(`Agreement — ${dirName}`);
   });
 
   it("refuses an agent name that would not survive frontmatter", async () => {
@@ -348,8 +492,8 @@ describe("ideaspaces create", () => {
       ["-C", tmp, "show", "--name-only", "--format=", "HEAD"],
       { encoding: "utf-8" },
     ).stdout;
-    expect(shown).toContain("_agent/foundation.md");
-    expect(shown).toContain("_agent/skills/README.md");
+    expect(shown).toContain("_agent/agreement.md");
+    expect(shown).toContain("CLAUDE.md");
     expect(shown).not.toContain("secret-draft.md");
     expect(shown).not.toContain("untracked.md");
 
@@ -377,7 +521,7 @@ describe("ideaspaces create", () => {
     expect(shown).not.toContain("CLAUDE.local.md");
     expect(shown).not.toContain("package.json");
     // The private agent context still materialized on disk.
-    expect(existsSync(join(tmp, "_agent", "skills", "README.md"))).toBe(true);
+    expect(existsSync(join(tmp, "_agent", "agreement.md"))).toBe(true);
   });
 
   it("does not re-init git when target is already a repo", async () => {
@@ -569,7 +713,7 @@ describe("ideaspaces create — git author identity", () => {
     const exit = await cc.run(["space"], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     // Scaffold landed.
-    expect(existsSync(join(target, "_agent", "foundation.md"))).toBe(true);
+    expect(existsSync(join(target, "_agent", "agreement.md"))).toBe(true);
     // Identity not set (we never reached the runGit config call).
     const localEmail = spawnSync(
       "git",

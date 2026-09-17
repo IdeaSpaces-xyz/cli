@@ -1,6 +1,6 @@
 {
   "name": "@ideaspaces/cli",
-  "version": "0.1.40",
+  "version": "0.1.41",
   "type": "module",
   "description": "IdeaSpaces CLI — capture durable agent knowledge from the command line",
   "keywords": [
@@ -33,7 +33,7 @@
     "prepare": "npm run build"
   },
   "devDependencies": {
-    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#8213e631ffdd84f035c4ce743c7aae137560195f",
+    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#0476e436a81b67477a29ccb9fa1c3f31ee18385f",
     "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#bcc55b22b3a77a91bff0bde49e133f74e0ad468f",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.0",

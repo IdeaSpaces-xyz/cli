@@ -417,7 +417,7 @@ describe("ideaspaces publish", () => {
   it("adopts the Foundation identity when a fresh Agreement has no declaration", async () => {
     const { createCommand } = await import("../commands/create.js");
     expect(
-      await createCommand.run(["offline-created"], {}, { ...baseGlobal, yes: true }),
+      await createCommand.run(["offline-created"], { foundation: true }, { ...baseGlobal, yes: true }),
     ).toBe(0);
     const dir = join(tmp, "offline-created");
     const foundation = readFileSync(join(dir, "_agent", "foundation.md"), "utf-8");
