@@ -323,11 +323,10 @@ async function inspect(targetDir: string): Promise<Inspection> {
 
 function detectShape(inspection: Inspection): Shape {
   if (!inspection.exists) return "greenfield";
-  // An Agreement is the whole contract. Never scaffold beside one — that would
-  // mint a conflicting identity. A Foundation Space is complete in the older
-  // shape; it migrates by hand, not by re-running create.
-  if (inspection.hasAgreement) return "complete";
-  if (inspection.hasFoundation && inspection.hasClaude) return "complete";
+  // Any root entrypoint is the whole contract. Never scaffold beside one —
+  // that would mint a conflicting identity or leave two entrypoints in one
+  // `_agent/`. A Foundation Space migrates by hand, not by re-running create.
+  if (inspection.hasAgreement || inspection.hasFoundation) return "complete";
   if (inspection.hasOldAgent) return "old-shape";
   if (inspection.hasCodeSignal) return "code-repo";
   if (inspection.markdownCount > 0) return "content-existing";

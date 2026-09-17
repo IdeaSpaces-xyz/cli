@@ -200,14 +200,16 @@ describe("ideaspaces create", () => {
   });
 
   it("quotes a folder name that would not survive frontmatter, and the Agreement still parses", async () => {
-    const dir = join(tmp, "notes: q");
+    // `#` starts a YAML comment in a plain scalar, and is a legal folder name
+    // on every platform (unlike `:`).
+    const dir = join(tmp, "notes #1");
     await fs.mkdir(dir);
     process.chdir(dir);
     const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
     expect(exit).toBe(0);
     const agreement = await fs.readFile(join(dir, "_agent", "agreement.md"), "utf-8");
-    expect(agreement).toContain('name: "Agreement — notes: q"');
-    expect(parseFrontmatter(agreement)?.name).toBe("Agreement — notes: q");
+    expect(agreement).toContain('name: "Agreement — notes #1"');
+    expect(parseFrontmatter(agreement)?.name).toBe("Agreement — notes #1");
   });
 
   it("keeps the older shape behind --foundation for one release", async () => {
@@ -296,6 +298,18 @@ describe("ideaspaces create", () => {
     expect(exit).toBe(5);
     // foundation untouched
     expect((await fs.readFile(join(tmp, "_agent", "foundation.md"), "utf-8")).trim()).toBe("# Foundation");
+  });
+
+  it("refuses beside a Foundation Space that has no CLAUDE.md — never two entrypoints", async () => {
+    // A private code-repo scaffold under --foundation writes CLAUDE.local.md,
+    // not CLAUDE.md; a default re-run must still see a complete Space.
+    await fs.writeFile(join(tmp, "package.json"), '{"name":"t"}', "utf-8");
+    expect(await createCommand.run([], { foundation: true }, { ...baseGlobal, yes: true })).toBe(0);
+    expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
+    const exit = await createCommand.run([], {}, { ...baseGlobal, yes: true });
+    expect(exit).toBe(5);
+    expect(existsSync(join(tmp, "_agent", "agreement.md"))).toBe(false);
+    expect(existsSync(join(tmp, "_agent", "foundation.md"))).toBe(true);
   });
 
   it("does not scaffold beside a hand-written Agreement", async () => {
