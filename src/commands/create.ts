@@ -8,13 +8,15 @@
  * old-shape, complete) and applies the right scaffold. Never overwrites
  * user content or existing CLAUDE.md / .gitignore — appends only.
  *
- * Scaffolds the seed of the contract: foundation.md + guide.md + the
- * skills/ and perspectives/ convention READMEs + CLAUDE.md + .gitignore
- * + .gitattributes. Shared scaffolds mint portable root identity into the
- * foundation before login; a code repo's private gitignored contract remains
- * unstamped. purpose.md / now.md / next.md are emergent — the agent
- * on first session reads foundation+guide, sees those names without
- * matching files, and proposes capturing them in conversation.
+ * Scaffolds one contract file, `_agent/agreement.md`, under the knowledge
+ * kind (default) or the agent kind (`--agent`), referencing that kind's public
+ * Agreement Space; plus a short CLAUDE.md, .gitignore defaults, and
+ * .gitattributes. The Agreement's sections are prompts the agent replaces in
+ * conversation — create is the safe scaffold writer, not the conversation.
+ * Shared scaffolds mint portable root identity into the Agreement before
+ * login; a code repo's private gitignored contract remains unstamped.
+ * `--foundation` writes the older foundation.md + guide.md shape for one more
+ * release.
  *
  * Without `--yes`, prints the plan and exits 0 without applying. With
  * `--yes`, applies. Files are materialized first; git (init + initial commit)
@@ -38,19 +40,26 @@ import type { CommandDef } from "../types.js";
 import {
   agentClaudeMd,
   agentContractTemplates,
+  agreementClaudeMd,
+  agreementContractTemplates,
   isSafeAgentName,
   CLAUDE_MD,
   CONTRACT_TEMPLATES,
   GITATTRIBUTES,
+  KIND_REFERENCES,
   PERSPECTIVES_README_MD,
   SKILLS_README_MD,
   gitignoreWithDefaults,
+  type Kind,
 } from "../templates/default.js";
 
+/** Convention READMEs — written only by the Foundation scaffold. */
 const CONVENTION_READMES: Record<string, string> = {
   skills: SKILLS_README_MD,
   perspectives: PERSPECTIVES_README_MD,
 };
+
+type ContractShape = "agreement" | "foundation";
 
 type Shape = "greenfield" | "content-existing" | "code-repo" | "old-shape" | "complete";
 
@@ -64,7 +73,7 @@ interface Inspection {
    * an independent repo (the safe default), but says so instead of silently.
    */
   nestedInRepo: string | null;
-  hasNewAgent: boolean;
+  hasFoundation: boolean;
   hasAgreement: boolean;
   hasOldAgent: boolean;
   hasClaude: boolean;
@@ -87,14 +96,15 @@ const OLD_AGENT_FILES = ["always.md", "rules.md", "soul.md", "guidance.md"];
 
 export const createCommand: CommandDef = {
   name: "create",
-  description: "Scaffold an ideaspace (seed _agent/ contract + CLAUDE.md + .gitignore defaults)",
-  usage: "ideaspaces create [name] [--yes] [--shared] [--agent]",
+  description: "Scaffold an ideaspace (_agent/agreement.md + CLAUDE.md + .gitignore defaults)",
+  usage: "ideaspaces create [name] [--yes] [--shared] [--agent] [--foundation]",
   examples: [
     "ideaspaces create my-space             # plan in ./my-space/, exit without applying",
     "ideaspaces create my-space --yes       # scaffold and commit",
     "ideaspaces create --yes                # scaffold in current directory",
     "ideaspaces create --yes --shared       # in a code repo, opt into shared (committed) _agent/",
-    "ideaspaces create scribe --yes --agent # an agent: the space IS its character",
+    "ideaspaces create scribe --yes --agent # an agent: the folder IS the agent",
+    "ideaspaces create --yes --foundation   # the older foundation.md + guide.md shape (one more release)",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -114,7 +124,7 @@ export const createCommand: CommandDef = {
     }
     if (shape === "old-shape") {
       output.error(
-        `${describeTarget(targetDir, name)} has an \`_agent/\` in the legacy shape (always.md / rules.md / soul.md). Migration is not yet automated; move their content into the current \`_agent/\` contract (foundation.md / guide.md / purpose.md / now.md / next.md) by hand.`,
+        `${describeTarget(targetDir, name)} has an \`_agent/\` in the legacy shape (always.md / rules.md / soul.md). Migration is not yet automated; move their content into \`_agent/agreement.md\` by hand.`,
       );
       return 5;
     }
@@ -136,14 +146,48 @@ export const createCommand: CommandDef = {
       );
       return 5;
     }
-    const contract = agentMode ? agentContractTemplates(agentName) : CONTRACT_TEMPLATES;
-    const claudeMd = agentMode ? agentClaudeMd(agentName) : CLAUDE_MD;
-    const plan = buildPlan({ targetDir, name, shape, inspection, privateAgent, contract });
+    const contractShape: ContractShape = flags.foundation ? "foundation" : "agreement";
+    const kind: Kind = agentMode ? "agent" : "knowledge";
+    const contract =
+      contractShape === "agreement"
+        ? agreementContractTemplates(kind, agentName)
+        : agentMode
+          ? agentContractTemplates(agentName)
+          : CONTRACT_TEMPLATES;
+    const claudeMd =
+      contractShape === "agreement"
+        ? agreementClaudeMd(kind, agentName)
+        : agentMode
+          ? agentClaudeMd(agentName)
+          : CLAUDE_MD;
+    const plan = buildPlan({ targetDir, name, shape, inspection, privateAgent, contract, contractShape });
+    const foundationNote =
+      contractShape === "foundation"
+        ? "Note: `--foundation` writes the older foundation.md + guide.md shape. It goes away in a later release; new spaces are formed as `_agent/agreement.md`."
+        : undefined;
 
     if (!apply) {
       output.result(
-        { target: targetDir, shape, privateAgent, agent: agentMode, nestedInRepo: inspection.nestedInRepo, plan: plan.steps },
-        renderPlanText({ targetDir, name, shape, privateAgent, plan, nestedInRepo: inspection.nestedInRepo, agentName: agentMode ? agentName : undefined }),
+        {
+          target: targetDir,
+          shape,
+          privateAgent,
+          agent: agentMode,
+          contract: contractShape,
+          agreement_reference: contractShape === "agreement" ? KIND_REFERENCES[kind] : null,
+          nestedInRepo: inspection.nestedInRepo,
+          plan: plan.steps,
+        },
+        renderPlanText({
+          targetDir,
+          name,
+          shape,
+          privateAgent,
+          plan,
+          nestedInRepo: inspection.nestedInRepo,
+          agentName: agentMode ? agentName : undefined,
+          foundationNote,
+        }),
       );
       return 0;
     }
@@ -158,6 +202,7 @@ export const createCommand: CommandDef = {
         inspection,
         privateAgent,
         contract,
+        contractShape,
         claudeMd,
       }));
     } catch (err) {
@@ -173,6 +218,7 @@ export const createCommand: CommandDef = {
     if (inspection.nestedInRepo) {
       lines.push(nestingNotice(targetDir, inspection.nestedInRepo));
     }
+    if (foundationNote) lines.push(foundationNote);
     if (rootNodeId) lines.push(`Space identity: ${rootNodeId}`);
     if (!versioned) {
       lines.push(
@@ -180,11 +226,19 @@ export const createCommand: CommandDef = {
         `Once git is ready, from ${where}: \`git init -b main && git add ${committablePaths.join(" ")} && git commit -m "Initial ideaspace scaffold"\`.`,
       );
     }
-    lines.push(
-      agentMode
-        ? `Next: open Claude Code in ${where} — the agent will read who ${agentName} is and help you shape its character in conversation.`
-        : `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
-    );
+    if (contractShape === "agreement") {
+      lines.push(
+        agentMode
+          ? `Next: open a session in ${where} — the Agreement's sections are prompts. Draw out who ${agentName} is from real tasks and replace them.`
+          : `Next: open a session in ${where} — the Agreement's sections are prompts. Draw out what this place is and how work goes here, and replace them.`,
+      );
+    } else {
+      lines.push(
+        agentMode
+          ? `Next: open Claude Code in ${where} — the agent will read who ${agentName} is and help you shape its character in conversation.`
+          : `Next: open Claude Code in ${where} — the agent will read foundation+guide and propose capturing purpose / now / next in conversation.`,
+      );
+    }
     if (versioned && loadStoredCredentials()) {
       lines.push(`When ready to host this remotely, run \`ideaspaces publish\` from inside ${where}.`);
     }
@@ -194,6 +248,8 @@ export const createCommand: CommandDef = {
         shape,
         privateAgent,
         agent: agentMode,
+        contract: contractShape,
+        agreement_reference: contractShape === "agreement" ? KIND_REFERENCES[kind] : null,
         scaffolded: true,
         versioned,
         root_node_id: rootNodeId,
@@ -212,7 +268,7 @@ async function inspect(targetDir: string): Promise<Inspection> {
       exists: false,
       isGitRepo: false,
       nestedInRepo,
-      hasNewAgent: false,
+      hasFoundation: false,
       hasAgreement: false,
       hasOldAgent: false,
       hasClaude: false,
@@ -225,12 +281,12 @@ async function inspect(targetDir: string): Promise<Inspection> {
   const hasClaude = existsSync(join(targetDir, "CLAUDE.md"));
   const hasGitignore = existsSync(join(targetDir, ".gitignore"));
   const agentDir = join(targetDir, "_agent");
-  const hasNewAgent = existsSync(join(agentDir, "foundation.md"));
+  const hasFoundation = existsSync(join(agentDir, "foundation.md"));
   const hasAgreement = existsSync(join(agentDir, "agreement.md"));
   const hasOldAgent =
     existsSync(agentDir) &&
     OLD_AGENT_FILES.some((f) => existsSync(join(agentDir, f))) &&
-    !hasNewAgent &&
+    !hasFoundation &&
     !hasAgreement;
 
   let hasCodeSignal = false;
@@ -255,7 +311,7 @@ async function inspect(targetDir: string): Promise<Inspection> {
     exists: true,
     isGitRepo,
     nestedInRepo,
-    hasNewAgent,
+    hasFoundation,
     hasAgreement,
     hasOldAgent,
     hasClaude,
@@ -267,10 +323,11 @@ async function inspect(targetDir: string): Promise<Inspection> {
 
 function detectShape(inspection: Inspection): Shape {
   if (!inspection.exists) return "greenfield";
-  // Agreement is manually authored during this migration. Never respond by
-  // scaffolding Foundation beside it and minting a conflicting identity.
+  // An Agreement is the whole contract. Never scaffold beside one — that would
+  // mint a conflicting identity. A Foundation Space is complete in the older
+  // shape; it migrates by hand, not by re-running create.
   if (inspection.hasAgreement) return "complete";
-  if (inspection.hasNewAgent && inspection.hasClaude) return "complete";
+  if (inspection.hasFoundation && inspection.hasClaude) return "complete";
   if (inspection.hasOldAgent) return "old-shape";
   if (inspection.hasCodeSignal) return "code-repo";
   if (inspection.markdownCount > 0) return "content-existing";
@@ -294,8 +351,9 @@ function buildPlan(opts: {
   inspection: Inspection;
   privateAgent: boolean;
   contract: Record<string, string>;
+  contractShape: ContractShape;
 }): Plan {
-  const { targetDir, name, inspection, privateAgent, contract } = opts;
+  const { targetDir, name, inspection, privateAgent, contract, contractShape } = opts;
   const steps: PlanStep[] = [];
 
   if (name && !inspection.exists) {
@@ -309,12 +367,14 @@ function buildPlan(opts: {
     steps.push({ op: "write", path: join(targetDir, "_agent", `${fileName}.md`) });
   }
 
-  for (const dim of Object.keys(CONVENTION_READMES)) {
-    steps.push({
-      op: "write",
-      path: join(targetDir, "_agent", dim, "README.md"),
-      detail: "convention README",
-    });
+  if (contractShape === "foundation") {
+    for (const dim of Object.keys(CONVENTION_READMES)) {
+      steps.push({
+        op: "write",
+        path: join(targetDir, "_agent", dim, "README.md"),
+        detail: "convention README",
+      });
+    }
   }
 
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";
@@ -350,8 +410,10 @@ function renderPlanText(opts: {
   nestedInRepo: string | null;
   /** Present when scaffolding an agent — the plan must say so before --yes. */
   agentName?: string;
+  /** Present under --foundation — the plan must say the shape is the old one. */
+  foundationNote?: string;
 }): string {
-  const { targetDir, name, shape, privateAgent, plan, nestedInRepo, agentName } = opts;
+  const { targetDir, name, shape, privateAgent, plan, nestedInRepo, agentName, foundationNote } = opts;
   const lines: string[] = [];
   lines.push(
     `Plan for ${describeTarget(targetDir, name)} — ${agentName ? `agent: ${agentName} (the space IS its character)` : `shape: ${shape}`}${privateAgent ? " (private _agent/)" : ""}`,
@@ -359,6 +421,10 @@ function renderPlanText(opts: {
   if (nestedInRepo) {
     lines.push("");
     lines.push(nestingNotice(targetDir, nestedInRepo));
+  }
+  if (foundationNote) {
+    lines.push("");
+    lines.push(foundationNote);
   }
   lines.push("");
   for (const step of plan.steps) {
@@ -377,6 +443,7 @@ async function applyPlan(opts: {
   inspection: Inspection;
   privateAgent: boolean;
   contract: Record<string, string>;
+  contractShape: ContractShape;
   claudeMd: string;
 }): Promise<{
   versioned: boolean;
@@ -384,13 +451,15 @@ async function applyPlan(opts: {
   commitPaths: string[];
   rootNodeId: string | null;
 }> {
-  const { targetDir, inspection, privateAgent, contract, claudeMd } = opts;
+  const { targetDir, inspection, privateAgent, contract, contractShape, claudeMd } = opts;
   let rootNodeId: string | null = null;
   let materializedContract = contract;
   if (!privateAgent) {
-    const declared = mintDeclaredRootIdentity(contract.foundation);
+    // The root entrypoint carries identity: agreement.md, or foundation.md
+    // under --foundation.
+    const declared = mintDeclaredRootIdentity(contract[contractShape]);
     rootNodeId = declared.rootNodeId;
-    materializedContract = { ...contract, foundation: declared.content };
+    materializedContract = { ...contract, [contractShape]: declared.content };
   }
 
   // Relative paths this scaffold wrote that belong in the initial commit.
@@ -408,14 +477,16 @@ async function applyPlan(opts: {
     if (trackAgent) commitPaths.push(rel);
   }
 
-  for (const [dim, content] of Object.entries(CONVENTION_READMES)) {
-    const rel = join("_agent", dim, "README.md");
-    const abs = join(targetDir, rel);
-    if (!existsSync(abs)) {
-      await fs.mkdir(join(targetDir, "_agent", dim), { recursive: true });
-      await fs.writeFile(abs, content, "utf-8");
+  if (contractShape === "foundation") {
+    for (const [dim, content] of Object.entries(CONVENTION_READMES)) {
+      const rel = join("_agent", dim, "README.md");
+      const abs = join(targetDir, rel);
+      if (!existsSync(abs)) {
+        await fs.mkdir(join(targetDir, "_agent", dim), { recursive: true });
+        await fs.writeFile(abs, content, "utf-8");
+      }
+      if (trackAgent) commitPaths.push(rel);
     }
-    if (trackAgent) commitPaths.push(rel);
   }
 
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";

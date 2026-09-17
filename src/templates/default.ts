@@ -2,20 +2,19 @@
  * Default template — minimal scaffolding for `ideaspaces create`.
  *
  * Templates ship as inline string constants compiled into the CLI bundle.
- * Only `foundation.md` and `guide.md` are scaffolded as contract files —
- * they describe the five-file contract that names `purpose.md`, `now.md`,
- * and `next.md`. The agent reading these on first session sees those names
- * without matching files and the drift rule fires: propose creating them in
- * conversation. Real content from real exchange beats placeholder filler.
  *
- * The conduct section of the scaffolded foundation is not authored here: it
- * is the protocol's canonical FOUNDATION_CORE, composed in at bundle time and
- * stamped with core_version so drift against the canonical seed stays
- * detectable. This file owns only space structure and house style.
+ * The current scaffold is one contract file, `_agent/agreement.md`, written
+ * under one of the two kinds IdeaSpaces listens for — a knowledge space or
+ * an agent — and referencing that kind's public Agreement Space through the
+ * protocol's `agreement:` frontmatter field. Its sections ship as prompts:
+ * the agent draws them out in conversation and replaces them. Nothing else
+ * is scaffolded beside it; `purpose.md`, `now.md`, and `skills/` come when
+ * there is something real to put in them.
  *
- * `skills/` and `perspectives/` get convention READMEs only — no content.
- * The universal skills are catalog-served (`ideaspaces skills`); these
- * folders are the character layer, holding what is specific to the space.
+ * The Foundation scaffold below it (`foundation.md` + `guide.md` + the
+ * convention READMEs) is the older shape, kept behind `create --foundation`
+ * for one release. Its conduct section is the protocol's canonical
+ * FOUNDATION_CORE, composed in at bundle time and stamped with core_version.
  *
  * Two shapes for `_agent/` visibility (set by the create command per the
  * detected target shape):
@@ -158,6 +157,173 @@ The content tree is ${agentName}'s memory — what it has produced and learned.
 Nothing is saved there without agreement — the handshake below.
 
 ${FOUNDATION_CLOSING}`;
+}
+
+/**
+ * The two kinds IdeaSpaces listens for, as the protocol's
+ * `<kind>:repo:<root_node_id>` references to their public Agreement Spaces.
+ * The ids are the ones SPEC.md names as the standard public examples.
+ */
+export const KIND_REFERENCES = Object.freeze({
+  knowledge: "knowledge:repo:n_f1511280efecd7fcff155152",
+  agent: "agent:repo:n_0935a5df1f883eeb60bcdfbb",
+});
+
+export type Kind = keyof typeof KIND_REFERENCES;
+
+/** Public page of each kind — where the shape the prompts ask for is explained. */
+const KIND_PAGES: Record<Kind, string> = {
+  knowledge: "https://ideaspaces.xyz/repos/n_f1511280efecd7fcff155152",
+  agent: "https://ideaspaces.xyz/repos/n_0935a5df1f883eeb60bcdfbb",
+};
+
+/**
+ * The Agreement's `name:` for a user-supplied folder name. Plain when the
+ * name is frontmatter-safe; otherwise a JSON string, which YAML reads verbatim.
+ * `--agent` refuses unsafe names up front; the knowledge shape takes the
+ * folder as it is.
+ */
+function agreementTitle(name: string): string {
+  const title = `Agreement — ${name}`;
+  return isSafeAgentName(name) ? title : JSON.stringify(title);
+}
+
+const PROMPTS_NOTE = `> Every section below is a prompt, not content. Draw it out in conversation — cases, in the owner's
+> own words — and replace it. Thin is honest; invented is not.`;
+
+const AGREEMENT_TAIL = (page: string) => `## Alone, and brought back
+
+Alone: _what may be done without asking_. Brought back: _what must be shown first_, and any change to
+this file.
+
+## Words with local meaning
+
+- **_term_** — _what it means here_
+
+## Still open
+
+- _What is not decided yet, named so the work can start anyway._
+
+## When to revisit
+
+_What would say this is set up wrong — the signals that should reopen this file._
+
+---
+
+The shape of this file, and a complete example to compare against, are at ${page}.
+`;
+
+/**
+ * Knowledge-space Agreement: the default scaffold. References the Knowledge
+ * kind; every section is a prompt to be replaced in conversation.
+ */
+export function knowledgeAgreementMd(name: string): string {
+  return `---
+name: ${agreementTitle(name)}
+summary: What this place is and how work goes here, in two sentences. A prompt — replace it in
+  conversation before the first capture.
+agreement: ${KIND_REFERENCES.knowledge}
+---
+
+# Agreement — ${name}
+
+${PROMPTS_NOTE}
+
+## What this place is
+
+_The story. The last time this was needed — what was being done, what got in the way, what this
+place should make possible next week that it cannot today._
+
+## How work goes here
+
+_Three to six lines: what lands where, what a good result looks like. A Note is one file with a
+two-line summary at the top, in a folder named for what it is about. The agent proposes; the owner
+confirms. Nothing lands otherwise._
+
+${AGREEMENT_TAIL(KIND_PAGES.knowledge)}`;
+}
+
+/**
+ * Agent Agreement (`create --agent`): the folder IS the agent. References the
+ * Agent kind; the opener declares point of view, the rest are prompts.
+ */
+export function agentAgreementMd(agentName: string): string {
+  return `---
+name: Agreement — ${agentName}
+summary: ${agentName} is … (one sentence — what it does, for whom). Launching here means being
+  ${agentName} — … (one sentence — the core of how it works and its hardest boundary). A prompt;
+  replace it in conversation.
+agreement: ${KIND_REFERENCES.agent}
+---
+
+# Agreement — ${agentName}
+
+This folder is ${agentName}'s **point of view**, not a subject to study. An agent launched here is
+${agentName} for the session. Nothing in this folder is knowledge *about* ${agentName}; it is the
+place ${agentName} looks from and what it has produced.
+
+${PROMPTS_NOTE}
+
+## What this place is
+
+_What ${agentName} reads, what it produces, for whom — from a task the owner would hand it._
+
+## Character
+
+- **_Trait._** _One sentence of what it means in practice — something you could check in an output.
+  Three to five of these; "helpful and concise" is nothing, "cuts any line it cannot link to a
+  source" is a trait._
+
+## Boundaries
+
+- Never _…_.
+- Never claims _…_ without _…_.
+
+## What ${agentName} is not
+
+_The neighbouring role someone might confuse this with, where the line sits, and when to hand back._
+
+## How a task goes
+
+1. _…_
+2. _…_
+
+${AGREEMENT_TAIL(KIND_PAGES.agent)}`;
+}
+
+/** Contract files for an Agreement scaffold, keyed by entrypoint name. */
+export function agreementContractTemplates(kind: Kind, name: string): Record<string, string> {
+  return { agreement: kind === "agent" ? agentAgreementMd(name) : knowledgeAgreementMd(name) };
+}
+
+/** Claude Code orientation for an Agreement Space — it points, it does not repeat. */
+export function agreementClaudeMd(kind: Kind, name: string): string {
+  if (kind === "agent") {
+    return `---
+name: Claude Code orientation — ${name}
+summary: Launching here means being ${name}, not studying it. Read the Agreement first.
+---
+
+# CLAUDE.md — ${name}
+
+Launching here means **being ${name}**, not studying it. Read [\`_agent/agreement.md\`](_agent/agreement.md)
+first — it is who you are for the session. While its sections are still prompts, the first
+conversation is drawing out who ${name} is, from real tasks, and replacing them.
+`;
+  }
+  return `---
+name: Claude Code orientation
+summary: This folder is an ideaspace. Read the Agreement first — it says what this place is and how
+  work goes here.
+---
+
+# CLAUDE.md
+
+This folder is an ideaspace. Read [\`_agent/agreement.md\`](_agent/agreement.md) first — it says what
+this place is and how work goes here. While its sections are still prompts, the first conversation
+is drawing them out with the owner and replacing them. Knowledge lands as Notes: one file, a two-line
+summary at the top, proposed by the agent and confirmed by the owner.
+`;
 }
 
 /**
