@@ -28,12 +28,12 @@
       "note": "Shells the CLI's commit verb from src/index.ts — both the --all and explicit-path shapes — so a stale pin means the other agent surface behaves differently from Claude Code's."
     },
     {
-      "repo": "IdeaSpaces-xyz/is_desktop",
+      "repo": "IdeaSpaces-xyz/client",
       "owner": "desktop",
       "tracked": false,
       "consumes": "npm pin",
-      "pin": { "file": "package.json", "path": ["devDependencies", "@ideaspaces/cli"] },
-      "note": "Bumped on the desktop app's own flow, which runs its own checks. Listed so the set is complete, not to be driven from here. It also depends on pi-is-space, so it can resolve two CLI builds at once — worth knowing when a behaviour differs between its sidecars."
+      "pin": { "file": "apps/desktop/package.json", "path": ["devDependencies", "@ideaspaces/cli"] },
+      "note": "The desktop app in the client monorepo (apps/desktop), bumped on its own flow, which runs its own checks. Listed so the set is complete, not to be driven from here. It also depends on pi-is-space, so it can resolve two CLI builds at once — worth knowing when a behaviour differs between its sidecars. Until 2026-09-17 this row named is_desktop, which is archived — the report said 165 behind about a repo nobody ships."
     }
   ]
 }
