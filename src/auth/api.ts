@@ -595,7 +595,7 @@ export interface ExchangeMessage extends ExchangeMessageSummary {
   map?: MapBlock | null;
 }
 
-export interface InboxItem {
+export interface InquiryInboxItem {
   kind: "inquiry";
   mode: "direct";
   exchange_id: string;
@@ -604,10 +604,25 @@ export interface InboxItem {
   opening_note: ExchangeMessageSummary;
   latest_message: ExchangeMessageSummary;
   latest_position: number;
+  cursor: number | null;
   latest_received_position: number;
   message_count: number;
   received_message_count: number;
 }
+
+export interface AccessRequestInboxItem {
+  kind: "access_request";
+  request_id: string;
+  target_node_id: string;
+  requester: InboxParticipant;
+  requested_grade: "explore" | "fork" | "collaborate";
+  reason: string | null;
+  expires_at: string;
+  created_at: string;
+  latest_position: number;
+}
+
+export type InboxItem = InquiryInboxItem | AccessRequestInboxItem;
 
 export interface InboxResponse {
   items: InboxItem[];
@@ -619,6 +634,9 @@ export interface ExchangeReadResponse {
   target_node_id: string;
   participants: InboxParticipant[];
   messages: ExchangeMessage[];
+  subject: { opening_note_id: string; current_note_id: string };
+  latest_position: number;
+  cursor: number | null;
 }
 
 export interface ExchangeNoteWrite {
@@ -718,6 +736,102 @@ export async function replyToExchange(
     body,
     opts,
   );
+}
+
+export type FollowSourceKind = "exchange" | "node";
+export type FollowFilter = "follow" | "mute";
+
+export interface FollowSubscription {
+  id: string;
+  source_kind: FollowSourceKind;
+  source_id: string;
+  filter: FollowFilter;
+  cursor: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FollowEvent {
+  follow_ids: string[];
+  position: number;
+  event_id: string;
+  v: number;
+  ts: string;
+  actor_ref: string | null;
+  surface: "human" | "agent";
+  action: string;
+  target_node_id: string;
+  recipient_ref: string | null;
+  note_node_id: string | null;
+  exchange_id: string | null;
+  outcome: string | null;
+  retention_class: string | null;
+}
+
+export async function listSubscriptions(
+  config: ApiConfig,
+  opts?: RequestOptions,
+): Promise<FollowSubscription[]> {
+  const response = await request<{ subscriptions: FollowSubscription[] }>(
+    config,
+    "GET",
+    `${API_V1}/subscriptions`,
+    undefined,
+    opts,
+  );
+  return response.subscriptions;
+}
+
+export async function putSubscription(
+  config: ApiConfig,
+  source: { exchange_id: string } | { target_node_id: string },
+  opts?: RequestOptions,
+): Promise<FollowSubscription> {
+  return request<FollowSubscription>(config, "POST", `${API_V1}/subscriptions`, source, opts);
+}
+
+export async function deleteSubscription(
+  config: ApiConfig,
+  followId: string,
+  opts?: RequestOptions,
+): Promise<void> {
+  return request<void>(
+    config,
+    "DELETE",
+    `${API_V1}/subscriptions/${encodeURIComponent(followId)}`,
+    undefined,
+    opts,
+  );
+}
+
+export async function acknowledgeSubscription(
+  config: ApiConfig,
+  followId: string,
+  position: number,
+  opts?: RequestOptions,
+): Promise<FollowSubscription> {
+  return request<FollowSubscription>(
+    config,
+    "PATCH",
+    `${API_V1}/subscriptions/${encodeURIComponent(followId)}`,
+    { position },
+    opts,
+  );
+}
+
+export async function fetchSubscriptionEvents(
+  config: ApiConfig,
+  limit = 100,
+  opts?: RequestOptions,
+): Promise<FollowEvent[]> {
+  const response = await request<{ events: FollowEvent[] }>(
+    config,
+    "GET",
+    `${API_V1}/subscriptions/events?limit=${encodeURIComponent(String(limit))}`,
+    undefined,
+    opts,
+  );
+  return response.events;
 }
 
 export interface EntityDetail {

@@ -18,6 +18,11 @@ import {
   fetchInbox,
   fetchExchange,
   fetchExchangeMapMember,
+  listSubscriptions,
+  putSubscription,
+  deleteSubscription,
+  acknowledgeSubscription,
+  fetchSubscriptionEvents,
   fetchContentTree,
   fetchEntity,
   sendInquiry,
@@ -159,6 +164,64 @@ describe("request() on a retired endpoint (410)", () => {
     const err = await fetchAuthMe(config, { retry: false }).catch((e) => e);
     expect(err).toBeInstanceOf(RetiredEndpointError);
     expect(err.message).toContain("→ 410: gone");
+  });
+});
+
+describe("subscription API", () => {
+  it("writes, lists, acknowledges, reads, and removes follows through the shipped routes", async () => {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string | URL | Request, init?: RequestInit) => {
+        calls.push({
+          url: String(url),
+          method: init?.method ?? "GET",
+          ...(typeof init?.body === "string" ? { body: init.body } : {}),
+        });
+        const path = String(url);
+        if (init?.method === "DELETE") return Promise.resolve(new Response(null, { status: 204 }));
+        if (path.endsWith("/subscriptions/events?limit=25")) {
+          return Promise.resolve(new Response(JSON.stringify({ events: [] }), { status: 200 }));
+        }
+        if (path.endsWith("/subscriptions") && init?.method === "GET") {
+          return Promise.resolve(new Response(JSON.stringify({ subscriptions: [] }), { status: 200 }));
+        }
+        return Promise.resolve(new Response(JSON.stringify({
+          id: "fol_0123456789abcdef01234567",
+          source_kind: "exchange",
+          source_id: "x_example",
+          filter: "follow",
+          cursor: 4,
+          created_at: "2026-09-20T00:00:00Z",
+          updated_at: "2026-09-20T00:00:00Z",
+        }), { status: 200 }));
+      }),
+    );
+
+    await putSubscription(config, { exchange_id: "x_example" });
+    await listSubscriptions(config);
+    await acknowledgeSubscription(config, "fol_0123456789abcdef01234567", 4);
+    await fetchSubscriptionEvents(config, 25);
+    await deleteSubscription(config, "fol_0123456789abcdef01234567");
+
+    expect(calls).toEqual([
+      {
+        url: "http://api.test/api/v1/subscriptions",
+        method: "POST",
+        body: JSON.stringify({ exchange_id: "x_example" }),
+      },
+      { url: "http://api.test/api/v1/subscriptions", method: "GET" },
+      {
+        url: "http://api.test/api/v1/subscriptions/fol_0123456789abcdef01234567",
+        method: "PATCH",
+        body: JSON.stringify({ position: 4 }),
+      },
+      { url: "http://api.test/api/v1/subscriptions/events?limit=25", method: "GET" },
+      {
+        url: "http://api.test/api/v1/subscriptions/fol_0123456789abcdef01234567",
+        method: "DELETE",
+      },
+    ]);
   });
 });
 

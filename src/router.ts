@@ -38,6 +38,7 @@ import { lsCommand } from "./commands/ls.js";
 import { timesCommand } from "./commands/times.js";
 import { shareCommand } from "./commands/share.js";
 import { inboxCommand } from "./commands/inbox.js";
+import { followCommand, unfollowCommand } from "./commands/follow.js";
 
 // Power commands
 import { logoutCommand } from "./commands/power/logout.js";
@@ -100,6 +101,8 @@ const topLevel: CommandDef[] = [
   timesCommand,
   shareCommand,
   inboxCommand,
+  followCommand,
+  unfollowCommand,
   pullCommand,
   pushCommand,
   syncCommand,

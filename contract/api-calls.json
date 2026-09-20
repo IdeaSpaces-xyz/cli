@@ -140,6 +140,26 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/subscriptions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/subscriptions"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/subscriptions/{followId}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/subscriptions/{followId}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/subscriptions/events"
+    },
+    {
+      "method": "GET",
       "path": "/auth/me"
     }
   ]

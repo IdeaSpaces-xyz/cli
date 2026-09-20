@@ -29,4 +29,9 @@ describe("router", () => {
   it("exposes direct Inbox exchanges", () => {
     expect(findCommand_("inbox")?.name).toBe("inbox");
   });
+
+  it("exposes follow and unfollow as one subscription verb family", () => {
+    expect(findCommand_("follow")?.name).toBe("follow");
+    expect(findCommand_("unfollow")?.name).toBe("unfollow");
+  });
 });
