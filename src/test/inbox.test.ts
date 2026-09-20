@@ -252,6 +252,68 @@ describe("inbox", () => {
     expect(stdout()).not.toContain("x_seen");
   });
 
+  it("rejects --new for access requests because they have no followed cursor", async () => {
+    const code = await inboxCommand.run(
+      ["list"],
+      { new: true, kind: "request" },
+      TEXT_GLOBAL,
+    );
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("access requests have no followed cursor");
+    expect(fetchInboxMock).not.toHaveBeenCalled();
+  });
+
+  it("renders only reframe Notes at full depth", async () => {
+    fetchInboxMock.mockResolvedValue({
+      items: [{
+        kind: "inquiry",
+        mode: "direct",
+        exchange_id: "x_one",
+        target_node_id: TARGET,
+        participants: [participant(1, "One"), participant(2, "Two")],
+        opening_note: message,
+        latest_message: { ...message, note_node_id: "n_reply", name: "Later reply", position: 6 },
+        latest_position: 6,
+        cursor: 1,
+        latest_received_position: 6,
+        message_count: 3,
+        received_message_count: 2,
+      }],
+    });
+    fetchSubscriptionEventsMock.mockResolvedValue([{
+      action: "thread.reframed",
+      exchange_id: "x_one",
+      note_node_id: "n_reframe",
+      position: 5,
+    }]);
+    fetchExchangeMock.mockResolvedValue({
+      mode: "direct",
+      exchange_id: "x_one",
+      target_node_id: TARGET,
+      participants: [participant(1, "One"), participant(2, "Two")],
+      messages: [
+        { ...message, markdown: "# Original\n\nHidden by the kind filter." },
+        { ...message, note_node_id: "n_reframe", name: "New frame", position: 4, markdown: "# New frame" },
+        { ...message, note_node_id: "n_reply", name: "Later reply", position: 6, markdown: "# Later reply" },
+      ],
+      subject: { opening_note_id: "n_note", current_note_id: "n_reframe" },
+      latest_position: 6,
+      cursor: 1,
+    });
+
+    const code = await inboxCommand.run(
+      ["list"],
+      { kind: "reframe", depth: "full" },
+      TEXT_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(stdout()).toContain("# New frame");
+    expect(stdout()).not.toContain("Hidden by the kind filter");
+    expect(stdout()).not.toContain("# Later reply");
+  });
+
   it("reads only new Notes and explicitly advances the followed Thread cursor", async () => {
     const reply = {
       ...message,

@@ -259,11 +259,16 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
   if (since === null) return 1;
   const kind = parseKind(flags.kind, output);
   if (kind === null) return 1;
+  if (flags.new && kind === "request") {
+    output.error("--new cannot be combined with --kind request because access requests have no followed cursor. Use --kind request, optionally with --since <position>.");
+    return 1;
+  }
   const depth = parseDepth(flags.depth, output);
   if (!depth) return 1;
 
   return runAuthenticated(output, async (config) => {
     const inbox = await fetchInbox(config);
+    let reframeNoteIds: Map<string, Set<string>> | undefined;
     let items = inbox.items.filter((item) => since === undefined || item.latest_position > since);
     if (flags.new) {
       items = items.filter((item) => isInquiry(item) && item.cursor !== null && item.latest_position > item.cursor);
@@ -271,13 +276,14 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
     if (kind === "message") items = items.filter(isInquiry);
     if (kind === "request") items = items.filter((item) => !isInquiry(item));
     if (kind === "reframe") {
-      const reframed = new Set(
-        (await boundedSubscriptionEvents(config))
-          .filter((event) => event.action === "thread.reframed")
-          .map((event) => event.exchange_id)
-          .filter((id): id is string => Boolean(id)),
-      );
-      items = items.filter((item) => isInquiry(item) && reframed.has(item.exchange_id));
+      reframeNoteIds = new Map();
+      for (const event of await boundedSubscriptionEvents(config)) {
+        if (event.action !== "thread.reframed" || !event.exchange_id || !event.note_node_id) continue;
+        const noteIds = reframeNoteIds.get(event.exchange_id) ?? new Set<string>();
+        noteIds.add(event.note_node_id);
+        reframeNoteIds.set(event.exchange_id, noteIds);
+      }
+      items = items.filter((item) => isInquiry(item) && reframeNoteIds?.has(item.exchange_id));
     }
 
     let text: string;
@@ -289,7 +295,11 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
       const blocks = await Promise.all(items.map(async (item) => {
         if (!isInquiry(item)) return inboxItemText(item);
         const exchange = await fetchExchange(config, item.exchange_id);
-        return exchangeText(exchange, exchange.messages, "full");
+        const noteIds = reframeNoteIds?.get(item.exchange_id);
+        const messages = noteIds
+          ? exchange.messages.filter((message) => noteIds.has(message.note_node_id))
+          : exchange.messages;
+        return exchangeText(exchange, messages, "full");
       }));
       text = blocks.join("\n\n");
     } else {
