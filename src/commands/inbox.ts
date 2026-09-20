@@ -216,6 +216,18 @@ function validateTemporalFlags(flags: Flags, output: Output): boolean {
   return true;
 }
 
+async function boundedSubscriptionEvents(
+  config: NonNullable<ReturnType<typeof loadConfig>>,
+): Promise<FollowEvent[]> {
+  const events = await fetchSubscriptionEvents(config, 1_000);
+  if (events.length === 1_000) {
+    throw new Error(
+      "The new-event view reached its 1,000-event safety bound. Acknowledge a known position or narrow the followed sources before reading reframes.",
+    );
+  }
+  return events;
+}
+
 async function runAuthenticated(
   output: Output,
   operation: (config: NonNullable<ReturnType<typeof loadConfig>>) => Promise<number>,
@@ -260,7 +272,7 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
     if (kind === "request") items = items.filter((item) => !isInquiry(item));
     if (kind === "reframe") {
       const reframed = new Set(
-        (await fetchSubscriptionEvents(config, 1_000))
+        (await boundedSubscriptionEvents(config))
           .filter((event) => event.action === "thread.reframed")
           .map((event) => event.exchange_id)
           .filter((id): id is string => Boolean(id)),
@@ -299,12 +311,20 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
     output.error("--ack does not take a value here; use `ideaspaces follow thread <id> --ack <position>` to acknowledge an exact position.");
     return 1;
   }
+  if (flags.ack && flags.since !== undefined) {
+    output.error("--ack cannot be combined with --since because omitted events would be marked read. Use --new --ack, or acknowledge an exact position with `follow --ack`.");
+    return 1;
+  }
   const since = parsePosition(flags.since, output);
   if (since === null) return 1;
   const kind = parseKind(flags.kind, output);
   if (kind === null) return 1;
   if (kind === "request") {
     output.error("Access requests are Inbox items, not Thread messages; use `inbox list --kind request`.");
+    return 1;
+  }
+  if (kind === "reframe" && flags.ack) {
+    output.error("--ack cannot be combined with --kind reframe because hidden message events would be marked read. Read reframes without acknowledgement, or acknowledge an exact position with `follow --ack`.");
     return 1;
   }
   const depth = parseDepth(flags.depth ?? "full", output);
@@ -328,7 +348,7 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
         );
         return 1;
       }
-      events = (await fetchSubscriptionEvents(config, 1_000)).filter(
+      events = (await boundedSubscriptionEvents(config)).filter(
         (event) => event.exchange_id === exchangeId &&
           event.action === "thread.reframed" &&
           (after === undefined || event.position > after),

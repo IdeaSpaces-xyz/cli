@@ -353,6 +353,41 @@ describe("inbox", () => {
     });
   });
 
+  it("refuses acknowledgement when a filter would hide unread events", async () => {
+    expect(await inboxCommand.run(
+      ["read", "x_one"],
+      { new: true, kind: "reframe", ack: true },
+      TEXT_GLOBAL,
+    )).toBe(1);
+    expect(stderr()).toContain("hidden message events would be marked read");
+    expect(fetchExchangeMock).not.toHaveBeenCalled();
+    expect(acknowledgeSubscriptionMock).not.toHaveBeenCalled();
+
+    stderrChunks = [];
+    expect(await inboxCommand.run(
+      ["read", "x_one"],
+      { since: "20", ack: true },
+      TEXT_GLOBAL,
+    )).toBe(1);
+    expect(stderr()).toContain("omitted events would be marked read");
+  });
+
+  it("fails loudly when the bounded reframe feed may be truncated", async () => {
+    fetchInboxMock.mockResolvedValue({ items: [] });
+    fetchSubscriptionEventsMock.mockResolvedValue(
+      Array.from({ length: 1_000 }, (_, position) => ({
+        action: "thread.reframed",
+        exchange_id: `x_${position}`,
+        position,
+      })),
+    );
+
+    const code = await inboxCommand.run(["list"], { kind: "reframe" }, TEXT_GLOBAL);
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("1,000-event safety bound");
+  });
+
   it("sends only a reviewed Map selection and infers its target", async () => {
     sendInquiryMock.mockResolvedValue(writeResult);
     const file = join(tmpdir(), `is-cli-map-selection-${process.pid}.json`);
