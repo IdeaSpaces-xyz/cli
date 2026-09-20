@@ -10,14 +10,20 @@ const {
   loadConfigMock,
   fetchInboxMock,
   fetchExchangeMock,
+  acknowledgeSubscriptionMock,
   fetchExchangeMapMemberMock,
+  fetchSubscriptionEventsMock,
+  listSubscriptionsMock,
   sendInquiryMock,
   replyToExchangeMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   fetchInboxMock: vi.fn(),
   fetchExchangeMock: vi.fn(),
+  acknowledgeSubscriptionMock: vi.fn(),
   fetchExchangeMapMemberMock: vi.fn(),
+  fetchSubscriptionEventsMock: vi.fn(),
+  listSubscriptionsMock: vi.fn(),
   sendInquiryMock: vi.fn(),
   replyToExchangeMock: vi.fn(),
 }));
@@ -29,7 +35,10 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     ...actual,
     fetchInbox: fetchInboxMock,
     fetchExchange: fetchExchangeMock,
+    acknowledgeSubscription: acknowledgeSubscriptionMock,
     fetchExchangeMapMember: fetchExchangeMapMemberMock,
+    fetchSubscriptionEvents: fetchSubscriptionEventsMock,
+    listSubscriptions: listSubscriptionsMock,
     sendInquiry: sendInquiryMock,
     replyToExchange: replyToExchangeMock,
   };
@@ -51,7 +60,10 @@ beforeEach(() => {
   loadConfigMock.mockReset().mockReturnValue(CFG);
   fetchInboxMock.mockReset();
   fetchExchangeMock.mockReset();
+  acknowledgeSubscriptionMock.mockReset();
   fetchExchangeMapMemberMock.mockReset();
+  fetchSubscriptionEventsMock.mockReset().mockResolvedValue([]);
+  listSubscriptionsMock.mockReset();
   sendInquiryMock.mockReset();
   replyToExchangeMock.mockReset();
   stdoutChunks = [];
@@ -197,6 +209,148 @@ describe("inbox", () => {
     expect(stdout()).toContain("observed name=\"Finding\" summary=\"Observed at the pin.\"");
     expect(stdout()).toContain("curated name=\"Why this Note\"");
     expect(stdout()).toContain("# Question\n\nWhat next?");
+  });
+
+  it("lists only followed Threads newer than their cursor at name depth", async () => {
+    fetchInboxMock.mockResolvedValue({
+      items: [
+        {
+          kind: "inquiry",
+          mode: "direct",
+          exchange_id: "x_new",
+          target_node_id: TARGET,
+          participants: [participant(1, "One"), participant(2, "Two")],
+          opening_note: message,
+          latest_message: { ...message, name: "New answer", position: 4 },
+          latest_position: 4,
+          cursor: 2,
+          latest_received_position: 4,
+          message_count: 2,
+          received_message_count: 1,
+        },
+        {
+          kind: "inquiry",
+          mode: "direct",
+          exchange_id: "x_seen",
+          target_node_id: TARGET,
+          participants: [participant(1, "One"), participant(2, "Two")],
+          opening_note: message,
+          latest_message: message,
+          latest_position: 1,
+          cursor: 1,
+          latest_received_position: 1,
+          message_count: 1,
+          received_message_count: 1,
+        },
+      ],
+    });
+
+    const code = await inboxCommand.run(["list"], { new: true, depth: "name" }, TEXT_GLOBAL);
+
+    expect(code).toBe(0);
+    expect(stdout()).toContain("x_new  New answer");
+    expect(stdout()).not.toContain("x_seen");
+  });
+
+  it("reads only new Notes and explicitly advances the followed Thread cursor", async () => {
+    const reply = {
+      ...message,
+      note_node_id: "n_reply",
+      name: "Answer",
+      summary: "The new answer",
+      action: "note.replied" as const,
+      author_ref: "person:user_2",
+      recipient_ref: "person:user_1",
+      position: 3,
+      markdown: "# Answer\n\nShip it.",
+    };
+    fetchExchangeMock.mockResolvedValue({
+      mode: "direct",
+      exchange_id: "x_one",
+      target_node_id: TARGET,
+      participants: [participant(1, "One"), participant(2, "Two")],
+      messages: [{ ...message, markdown: "# Question" }, reply],
+      subject: { opening_note_id: "n_note", current_note_id: "n_note" },
+      latest_position: 3,
+      cursor: 1,
+    });
+    listSubscriptionsMock.mockResolvedValue([{
+      id: "fol_0123456789abcdef01234567",
+      source_kind: "exchange",
+      source_id: "x_one",
+      filter: "follow",
+      cursor: 1,
+      created_at: "2026-09-20T00:00:00Z",
+      updated_at: "2026-09-20T00:00:00Z",
+    }]);
+    acknowledgeSubscriptionMock.mockResolvedValue({ cursor: 3 });
+
+    const code = await inboxCommand.run(
+      ["read", "x_one"],
+      { new: true, depth: "full", ack: true },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(acknowledgeSubscriptionMock).toHaveBeenCalledWith(
+      CFG,
+      "fol_0123456789abcdef01234567",
+      3,
+    );
+    expect(JSON.parse(stdout())).toMatchObject({
+      messages: [{ note_node_id: "n_reply" }],
+      acknowledged_cursor: 3,
+    });
+  });
+
+  it("reads reframe events as their subject Notes", async () => {
+    const reframed = {
+      ...message,
+      note_node_id: "n_reframe",
+      name: "New frame",
+      action: "note.replied" as const,
+      position: 4,
+      markdown: "# New frame",
+    };
+    fetchExchangeMock.mockResolvedValue({
+      mode: "direct",
+      exchange_id: "x_one",
+      target_node_id: TARGET,
+      participants: [participant(1, "One"), participant(2, "Two")],
+      messages: [{ ...message, markdown: "# Question" }, reframed],
+      subject: { opening_note_id: "n_note", current_note_id: "n_reframe" },
+      latest_position: 5,
+      cursor: 1,
+    });
+    fetchSubscriptionEventsMock.mockResolvedValue([{
+      follow_ids: ["fol_0123456789abcdef01234567"],
+      position: 5,
+      event_id: "evt_reframe",
+      v: 1,
+      ts: "2026-09-20T00:00:00Z",
+      actor_ref: "person:user_1",
+      surface: "human",
+      action: "thread.reframed",
+      target_node_id: TARGET,
+      recipient_ref: null,
+      note_node_id: "n_reframe",
+      exchange_id: "x_one",
+      outcome: null,
+      retention_class: "coordination",
+    }]);
+
+    const code = await inboxCommand.run(
+      ["read", "x_one"],
+      { new: true, kind: "reframe", depth: "summary" },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(fetchSubscriptionEventsMock).toHaveBeenCalledWith(CFG, 1_000);
+    expect(JSON.parse(stdout())).toMatchObject({
+      messages: [{ note_node_id: "n_reframe" }],
+      events: [{ action: "thread.reframed" }],
+    });
   });
 
   it("sends only a reviewed Map selection and infers its target", async () => {
