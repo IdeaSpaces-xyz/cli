@@ -9,6 +9,28 @@ export interface LocalWorkspaceSurface extends KeeperWorkspaceSurface {
   file_coordinates: Record<string, LocalFileCoordinate>;
 }
 
+const MODIFIED_TOOLS = new Set(["write", "edit", "is_write", "is_commit"]);
+const READ_TOOLS = new Set([
+  "read",
+  "is_inspect",
+  "is_look",
+  "is_navigate",
+  "is_mount",
+  "is_unmount",
+  "is_status",
+  "is_release",
+  "is_explore",
+  "is_get",
+  "is_search",
+  "ls",
+  "LS",
+  "glob",
+  "Glob",
+  "grep",
+  "Grep",
+  "find",
+]);
+
 /** Resolve at the tool boundary, while cwd is still known. Navigation changes
  * awareness, not native tool cwd. Never interpret arbitrary shell commands. */
 export function harvestLocalFiles(
@@ -27,21 +49,44 @@ export function harvestLocalFiles(
   };
   for (const tool of tools) {
     if (tool.isError) continue;
-    const knowledgeTool = ["is_write", "is_commit", "is_inspect"].includes(tool.name);
-    const cwd = knowledgeTool && typeof tool.args.cwd === "string" ? resolve(launchCwd, tool.args.cwd) : launchCwd;
-    const kind = ["write", "edit", "is_write", "is_commit"].includes(tool.name) ? "modified"
-      : ["read", "is_inspect"].includes(tool.name) ? "read" : undefined;
+    const knowledgeTool = tool.name.startsWith("is_");
+    let cwd = launchCwd;
+    if (knowledgeTool && typeof tool.args.cwd === "string" && tool.args.cwd.trim() !== "") {
+      cwd = resolve(launchCwd, tool.args.cwd);
+    } else if (knowledgeTool && typeof tool.args.root === "string" && tool.args.root.trim() !== "" && tool.args.root !== "home") {
+      cwd = isAbsolute(tool.args.root) ? resolve(tool.args.root) : resolve(launchCwd, tool.args.root);
+    }
+    const kind = MODIFIED_TOOLS.has(tool.name) ? "modified"
+      : READ_TOOLS.has(tool.name) ? "read" : undefined;
     if (!kind) continue;
-    const paths = tool.name === "is_commit" && Array.isArray(tool.args.paths) ? tool.args.paths : [tool.args.path];
+    let paths: unknown[];
+    if (tool.name === "is_commit" && Array.isArray(tool.args.paths)) {
+      paths = tool.args.paths;
+    } else if (tool.name === "is_get") {
+      paths = [tool.args.dir, tool.args.path, tool.args.address];
+    } else if (tool.args.path !== undefined) {
+      paths = [tool.args.path];
+    } else if (tool.name === "is_navigate" || tool.name === "LS" || tool.name === "ls") {
+      paths = ["."];
+    } else {
+      paths = [];
+    }
     for (const input of paths) {
       if (typeof input !== "string" || !input || /[\x00-\x1f]/u.test(input)) continue;
       let absolute = isAbsolute(input) ? resolve(input) : resolve(cwd, input);
-      // A commit may stage removals. Classify the current file state rather than
-      // reporting a disappeared source path as an edited Note.
       let present = true;
-      try { if (!statSync(absolute).isFile()) continue; } catch (error) {
+      let isDir = false;
+      try {
+        const stat = statSync(absolute);
+        if (stat.isFile()) isDir = false;
+        else if (stat.isDirectory()) isDir = true;
+        else continue;
+      } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") present = false;
         else continue;
+      }
+      if (!present) {
+        if (kind === "read") continue;
       }
       let ancestor = present ? absolute : dirname(absolute);
       while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor);
@@ -49,7 +94,7 @@ export function harvestLocalFiles(
       catch { continue; }
       const bucket = present ? kind : "deleted";
       if (!ws[bucket].includes(absolute)) ws[bucket].push(absolute);
-      let directory = dirname(absolute);
+      let directory = isDir ? absolute : dirname(absolute);
       while (!existsSync(directory) && dirname(directory) !== directory) directory = dirname(directory);
       let scope = roots.get(directory);
       if (!scope) {

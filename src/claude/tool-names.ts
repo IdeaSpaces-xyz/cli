@@ -16,6 +16,9 @@ export const CLAUDE_FILE_TOOLS: Readonly<Record<string, { kind: "write" | "edit"
   MultiEdit: { kind: "edit", pathArg: "file_path" },
   NotebookEdit: { kind: "edit", pathArg: "notebook_path" },
   Read: { kind: "read", pathArg: "file_path" },
+  LS: { kind: "read", pathArg: "path" },
+  Glob: { kind: "read", pathArg: "path" },
+  Grep: { kind: "read", pathArg: "path" },
 };
 
 /** Strip an MCP server prefix: `mcp__<server>__<tool>` → `<tool>`; native names pass through. */
