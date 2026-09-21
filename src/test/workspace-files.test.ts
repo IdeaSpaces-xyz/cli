@@ -51,7 +51,7 @@ it("keeps POV and nested non-repo material in their selected folder roots", () =
   expect(ws.file_coordinates[pov]).toEqual({ root: pov, path: "", root_kind: "folder" });
 });
 
-it("harvests exploration tools including is_look, is_navigate, is_mount, and directory handles", () => {
+it("harvests exploration tools including is_look, is_navigate, is_mount, is_unmount, is_status, is_release, is_explore, is_search", () => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-explore-"))); dirs.push(dir);
   mkdirSync(join(dir, "notes/sub"), { recursive: true });
   mkdirSync(join(dir, "mounted/docs"), { recursive: true });
@@ -68,6 +68,10 @@ it("harvests exploration tools including is_look, is_navigate, is_mount, and dir
     tool("is_look", { path: "notes/one.md" }),
     tool("is_status", { path: "notes/sub/two.md" }),
     tool("is_mount", { path: "mounted" }),
+    tool("is_unmount", { path: "mounted" }),
+    tool("is_release", { path: "notes/one.md" }),
+    tool("is_explore", { path: "notes" }),
+    tool("is_search", { path: "notes/one.md" }),
   ], dir);
 
   expect(ws.read).toEqual([notesDir, subDir, noteOne, noteTwo, mountedDir]);
@@ -78,7 +82,48 @@ it("harvests exploration tools including is_look, is_navigate, is_mount, and dir
   expect(ws.file_coordinates[mountedDir]).toEqual({ root: dir, path: "mounted", root_kind: "repo" });
 });
 
-it("normalizes Claude exploration tools (LS, Glob, Grep) and MCP prefixes", () => {
+it("harvests is_get with dir, path, and local address coordinates", () => {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-get-"))); dirs.push(dir);
+  mkdirSync(join(dir, "cloned"), { recursive: true });
+  mkdirSync(join(dir, "linked"), { recursive: true });
+  execFileSync("git", ["init", "-q", dir]);
+  const clonedDir = join(dir, "cloned");
+  const linkedDir = join(dir, "linked");
+
+  const ws = harvestLocalFiles([
+    tool("is_get", { dir: "cloned", address: "https://ideaspaces.xyz/repos/n_123" }),
+    tool("is_get", { path: "linked" }),
+    tool("is_get", { address: linkedDir }),
+  ], dir);
+
+  expect(ws.read).toEqual([clonedDir, linkedDir]);
+  expect(ws.file_coordinates[clonedDir]).toEqual({ root: dir, path: "cloned", root_kind: "repo" });
+  expect(ws.file_coordinates[linkedDir]).toEqual({ root: dir, path: "linked", root_kind: "repo" });
+});
+
+it("resolves tool.args.root for mounted frame vs home authority", () => {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-root-arg-"))); dirs.push(dir);
+  const home = join(dir, "home"); const mount = join(dir, "mount");
+  mkdirSync(join(home, "notes"), { recursive: true }); mkdirSync(join(mount, "docs"), { recursive: true });
+  for (const root of [home, mount]) execFileSync("git", ["init", "-q", root]);
+  const homeNote = join(home, "notes/one.md"); writeFileSync(homeNote, "# Home");
+  const mountDoc = join(mount, "docs/ref.md"); writeFileSync(mountDoc, "# Mount");
+
+  const ws = harvestLocalFiles([
+    // "home" resolves against home authority launchCwd
+    tool("is_look", { root: "home", path: "notes/one.md" }),
+    // Mounted root path resolves against the mount
+    tool("is_look", { root: mount, path: "docs/ref.md" }),
+    tool("is_navigate", { root: mount, path: "docs" }),
+  ], home);
+
+  expect(ws.read).toEqual([homeNote, mountDoc, join(mount, "docs")]);
+  expect(ws.file_coordinates[homeNote]).toEqual({ root: home, path: "notes/one.md", root_kind: "repo" });
+  expect(ws.file_coordinates[mountDoc]).toEqual({ root: mount, path: "docs/ref.md", root_kind: "repo" });
+  expect(ws.file_coordinates[join(mount, "docs")]).toEqual({ root: mount, path: "docs", root_kind: "repo" });
+});
+
+it("normalizes Claude exploration tools (LS, Glob, Grep) with explicit and omitted path", () => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-claude-"))); dirs.push(dir);
   mkdirSync(join(dir, "src"), { recursive: true });
   execFileSync("git", ["init", "-q", dir]);
@@ -89,15 +134,36 @@ it("normalizes Claude exploration tools (LS, Glob, Grep) and MCP prefixes", () =
     { name: "LS", args: { path: "src" }, isError: false, result: "ok" },
     { name: "Glob", args: { path: "src" }, isError: false, result: "ok" },
     { name: "Grep", args: { path: "src/app.ts" }, isError: false, result: "ok" },
+    // Omitted path in Claude LS, Glob, Grep defaults to "."
+    { name: "LS", args: {}, isError: false, result: "ok" },
+    { name: "Glob", args: { pattern: "*.ts" }, isError: false, result: "ok" },
+    { name: "Grep", args: { pattern: "console" }, isError: false, result: "ok" },
     { name: "mcp__ideaspaces__is_look", args: { path: "src/app.ts" }, isError: false, result: "ok" },
   ];
 
   const normalized = claudeTools.map(normalizeClaudeInvocation);
   const ws = harvestLocalFiles(normalized, dir);
 
-  expect(ws.read).toEqual([srcDir, codeFile]);
+  expect(ws.read).toEqual([srcDir, codeFile, dir]);
   expect(ws.file_coordinates[srcDir]).toEqual({ root: dir, path: "src", root_kind: "repo" });
   expect(ws.file_coordinates[codeFile]).toEqual({ root: dir, path: "src/app.ts", root_kind: "repo" });
+  expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo" });
+});
+
+it("defaults Pi exploration tools (ls, glob, grep, find, is_navigate) with omitted path to .", () => {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-pi-explore-"))); dirs.push(dir);
+  execFileSync("git", ["init", "-q", dir]);
+
+  const ws = harvestLocalFiles([
+    tool("is_navigate", {}),
+    tool("ls", {}),
+    tool("glob", { pattern: "*.md" }),
+    tool("grep", { pattern: "text" }),
+    tool("find", {}),
+  ], dir);
+
+  expect(ws.read).toEqual([dir]);
+  expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo" });
 });
 
 it.skipIf(process.platform === "win32")("skips a path whose file state cannot be read", () => {

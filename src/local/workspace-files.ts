@@ -23,11 +23,16 @@ const READ_TOOLS = new Set([
   "is_get",
   "is_search",
   "ls",
-  "LS",
   "glob",
-  "Glob",
   "grep",
-  "Grep",
+  "find",
+]);
+
+const EXPLORATION_FALLBACK_TOOLS = new Set([
+  "is_navigate",
+  "ls",
+  "glob",
+  "grep",
   "find",
 ]);
 
@@ -54,6 +59,8 @@ export function harvestLocalFiles(
     if (knowledgeTool && typeof tool.args.cwd === "string" && tool.args.cwd.trim() !== "") {
       cwd = resolve(launchCwd, tool.args.cwd);
     } else if (knowledgeTool && typeof tool.args.root === "string" && tool.args.root.trim() !== "" && tool.args.root !== "home") {
+      // In pi is_look/is_navigate, `root` names the target mount frame. "home" means authority
+      // root (launchCwd); any other string is a mounted repo path or basename to resolve under.
       cwd = isAbsolute(tool.args.root) ? resolve(tool.args.root) : resolve(launchCwd, tool.args.root);
     }
     const kind = MODIFIED_TOOLS.has(tool.name) ? "modified"
@@ -66,7 +73,7 @@ export function harvestLocalFiles(
       paths = [tool.args.dir, tool.args.path, tool.args.address];
     } else if (tool.args.path !== undefined) {
       paths = [tool.args.path];
-    } else if (tool.name === "is_navigate" || tool.name === "LS" || tool.name === "ls") {
+    } else if (EXPLORATION_FALLBACK_TOOLS.has(tool.name)) {
       paths = ["."];
     } else {
       paths = [];
@@ -85,9 +92,10 @@ export function harvestLocalFiles(
         if ((error as NodeJS.ErrnoException).code === "ENOENT") present = false;
         else continue;
       }
-      if (!present) {
-        if (kind === "read") continue;
-      }
+      // A commit or file edit may stage removals. Classify the current file state
+      // rather than reporting a disappeared source path as an edited Note, while
+      // skipping non-existent read/exploration targets.
+      if (!present && kind === "read") continue;
       let ancestor = present ? absolute : dirname(absolute);
       while (!existsSync(ancestor) && dirname(ancestor) !== ancestor) ancestor = dirname(ancestor);
       try { absolute = resolve(realpathSync.native(ancestor), relative(ancestor, absolute)); }
