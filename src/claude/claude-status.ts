@@ -156,11 +156,11 @@ function formatHuman(s: ClaudeStatus): string {
   }
   out.push(`Ready: ${s.ready ? "yes" : "no"}`);
   if (s.models && s.models.length) {
-    const summary = s.models
-      .filter((m) => m.ref)
+    const named = s.models.filter((m) => m.ref);
+    const summary = named
       .map((m) => `${m.name} ${formatTokens(m.contextWindow)}`)
       .join(", ");
-    out.push(`Models: ${s.models.length} available (${summary})`);
+    out.push(`Models: ${named.length} available (${summary})`);
   }
   return out.join("\n");
 }
