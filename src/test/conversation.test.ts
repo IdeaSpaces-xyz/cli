@@ -88,7 +88,7 @@ describe("conversation — dispatch", () => {
 
   it("advertises only private conversation operations", () => {
     expect(conversationCommand.description).toBe("Create and run a private conversation");
-    expect(conversationCommand.usage).toContain("<new|send|get|cancel>");
+    expect(conversationCommand.usage).toContain("<new|send|get|cancel|compact>");
     expect(conversationCommand.usage).not.toMatch(/participants|members|add|remove/);
     expect(conversationCommand.examples?.join("\n")).not.toMatch(
       /conversation (participants|members|add|remove)/,
@@ -293,6 +293,25 @@ describe("conversation cancel", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("Usage");
     expect(cancelConversationTurnMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("conversation compact", () => {
+  it("errors when called without --local", async () => {
+    const code = await conversationCommand.run(["compact", "repo_abc", "c1"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Compaction is currently supported for local sessions");
+  });
+
+  it("dispatches to local ops when --local is passed", async () => {
+    const compactMock = vi.fn().mockResolvedValue(0);
+    const customCommand = makeConversationCommand({
+      ...stubLocalOps,
+      compact: compactMock,
+    });
+    const code = await customCommand.run(["compact"], { local: true, conversation: "c1" }, JSON_GLOBAL);
+    expect(code).toBe(0);
+    expect(compactMock).toHaveBeenCalledWith(expect.objectContaining({ local: true, conversation: "c1" }), expect.anything());
   });
 });
 

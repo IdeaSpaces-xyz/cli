@@ -5,4 +5,12 @@
 // Enforced by `src/test/pi-boundary.test.ts`.
 
 export { claudeStatusCommand } from "./claude-status.js";
+export {
+  claudeModelsCommand,
+  getClaudeRoster,
+  type ClaudeModel,
+  type ClaudeCapabilities,
+  type ClaudeRoster,
+  type ClaudeModelsResult,
+} from "./claude-models.js";
 export { claudeConversationOps } from "./local-conversation-ops.js";

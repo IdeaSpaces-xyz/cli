@@ -3,6 +3,7 @@ import {
   buildClaudeArgs,
   buildClaudeEnv,
   isValidClaudeAuthMode,
+  isValidClaudeAutocompact,
   isValidClaudePermissionMode,
   type ClaudeTurnOptions,
 } from "../claude/local-agent.js";
@@ -35,11 +36,19 @@ describe("buildClaudeArgs", () => {
     expect(buildClaudeArgs({ ...base, workingRoot: "/ws" })).not.toContain("--add-dir");
   });
 
-  it("passes model, permission mode, and orientation through", () => {
-    const args = buildClaudeArgs({ ...base, model: "sonnet", permissionMode: "plan", mapOrientation: "MAP", launchOrientation: "LAUNCH" });
+  it("passes model, permission mode, autocompact, and orientation through", () => {
+    const args = buildClaudeArgs({
+      ...base,
+      model: "sonnet",
+      permissionMode: "plan",
+      autocompact: "500k",
+      mapOrientation: "MAP",
+      launchOrientation: "LAUNCH",
+    });
     expect(args).toContain("--model");
     expect(args[args.indexOf("--model") + 1]).toBe("sonnet");
     expect(args[args.indexOf("--permission-mode") + 1]).toBe("plan");
+    expect(args[args.indexOf("--autocompact") + 1]).toBe("500k");
     expect(args[args.indexOf("--append-system-prompt") + 1]).toBe("MAP\n\nLAUNCH");
   });
 
@@ -73,6 +82,19 @@ describe("validators", () => {
     expect(isValidClaudeAuthMode("login")).toBe(true);
     expect(isValidClaudeAuthMode("api-key")).toBe(true);
     expect(isValidClaudeAuthMode("oauth")).toBe(false);
+  });
+
+  it("validates autocompact values (auto or 100k-1M)", () => {
+    expect(isValidClaudeAutocompact("auto")).toBe(true);
+    expect(isValidClaudeAutocompact("100k")).toBe(true);
+    expect(isValidClaudeAutocompact("500k")).toBe(true);
+    expect(isValidClaudeAutocompact("1M")).toBe(true);
+    expect(isValidClaudeAutocompact("100000")).toBe(true);
+    expect(isValidClaudeAutocompact("200")).toBe(true); // shorthand 200k
+    expect(isValidClaudeAutocompact("50k")).toBe(false); // under 100k
+    expect(isValidClaudeAutocompact("2M")).toBe(false); // over 1M
+    expect(isValidClaudeAutocompact("invalid")).toBe(false);
+    expect(isValidClaudeAutocompact(123)).toBe(false);
   });
 });
 

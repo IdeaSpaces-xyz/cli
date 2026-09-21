@@ -24,6 +24,7 @@ export interface LocalConversationOps {
   get(flags: Flags, output: Output): number;
   /** `conversations --local` (the plural list command shares this seam). */
   list(flags: Flags, output: Output): number;
+  compact?(flags: Flags, output: Output): Promise<number>;
 }
 
 // `conversations` (plural) lists a repo's conversations; `conversation`
@@ -186,7 +187,7 @@ async function cmdCancel(args: string[], output: Output): Promise<number> {
 // Bare usage — `main.ts` adds the "Usage:" label for `--help`; the error path
 // adds it explicitly. Matches the other commands' `usage:` fields.
 const USAGE =
-  "ideaspaces conversation <new|send|get|cancel> … (send --local for a local turn; --runtime=pi|claude)";
+  "ideaspaces conversation <new|send|get|cancel|compact> … (send/compact --local for a local turn; --runtime=pi|claude)";
 
 /**
  * Build the `conversation` command. `local` supplies the `--local` handlers (the
@@ -204,6 +205,8 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
       "ideaspaces conversation send --local --context /ws --conversation c1 --message 'Hi' --map maps/research.md --ext a,b --skill a/skills,b/skills --pi-bin /path/pi --pi-model sonnet --pi-thinking high  # local pi turn over a map-note",
       "ideaspaces conversation send --local --context /agents/desktop --working-root /work --focus note.md --session-dir /work/.pi/sessions --conversation c1 --message 'Explain this' --ext a,b  # POV launch; orientation is separate from the user message",
       "ideaspaces conversation send --local --runtime=claude --context /ws --conversation <uuid> --message 'Hi' --claude-bin /path/claude --claude-model sonnet --permission-mode acceptEdits  # the user's own Claude Code; session created or resumed",
+      "ideaspaces conversation send --local --runtime=claude --context /ws --conversation <uuid> --message 'Hi' --claude-model sonnet --autocompact 500k  # turn with custom auto-compact window",
+      "ideaspaces conversation compact --local --runtime=claude --context /ws --conversation <uuid>  # compacts the active Claude session in-place",
       "ideaspaces conversation get repo_abc c_123        # detail + history",
       "ideaspaces conversation cancel repo_abc c_123     # stop the active turn",
     ],
@@ -222,6 +225,16 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
           return flags.local ? local.get(flags, output) : cmdGet(rest, output);
         case "cancel":
           return cmdCancel(rest, output);
+        case "compact":
+          if (!flags.local) {
+            output.error("Compaction is currently supported for local sessions: `conversation compact --local`");
+            return 1;
+          }
+          if (!local.compact) {
+            output.error("Compaction is not supported by the selected runtime.");
+            return 1;
+          }
+          return local.compact(flags, output);
         default:
           output.error(`Usage: ${USAGE}`);
           return 1;

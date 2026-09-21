@@ -3,13 +3,17 @@ import { composeLocalConversationOps, selectLocalRuntime } from "../local/runtim
 import type { LocalConversationOps } from "../commands/conversation.js";
 import type { Output } from "../output.js";
 
-function ops(tag: string, calls: string[]): LocalConversationOps {
-  return {
+function ops(tag: string, calls: string[], supportsCompact = false): LocalConversationOps {
+  const o: LocalConversationOps = {
     send: async () => { calls.push(`${tag}:send`); return 0; },
     createNew: () => { calls.push(`${tag}:new`); return 0; },
     get: () => { calls.push(`${tag}:get`); return 0; },
     list: () => { calls.push(`${tag}:list`); return 0; },
   };
+  if (supportsCompact) {
+    o.compact = async () => { calls.push(`${tag}:compact`); return 0; };
+  }
+  return o;
 }
 
 function output(errors: string[]): Output {
@@ -32,13 +36,31 @@ describe("selectLocalRuntime", () => {
 describe("composeLocalConversationOps", () => {
   it("routes every verb to the runtime --runtime names", async () => {
     const calls: string[] = [];
-    const composed = composeLocalConversationOps({ pi: ops("pi", calls), claude: ops("claude", calls) });
+    const composed = composeLocalConversationOps({
+      pi: ops("pi", calls, false),
+      claude: ops("claude", calls, true),
+    });
     const out = output([]);
     await composed.send({ runtime: "claude" }, out);
     composed.createNew({ runtime: "claude" }, out);
     composed.get({}, out);
     composed.list({ runtime: "pi" }, out);
-    expect(calls).toEqual(["claude:send", "claude:new", "pi:get", "pi:list"]);
+    await composed.compact!({ runtime: "claude" }, out);
+    expect(calls).toEqual(["claude:send", "claude:new", "pi:get", "pi:list", "claude:compact"]);
+  });
+
+  it("reports an unsupported error when the runtime has no compact implementation", async () => {
+    const calls: string[] = [];
+    const errors: string[] = [];
+    const composed = composeLocalConversationOps({
+      pi: ops("pi", calls, false),
+      claude: ops("claude", calls, true),
+    });
+    const code = await composed.compact!({ runtime: "pi" }, output(errors));
+    expect(code).toBe(1);
+    expect(calls).toEqual([]);
+    expect(errors[0]).toContain('Compaction is not supported by local runtime "pi"');
+    expect(errors[0]).toContain("--runtime=claude");
   });
 
   it("reports an unknown runtime and exits 1 without touching any runtime", async () => {

@@ -10,6 +10,7 @@ import {
   CLAUDE_AUTH_MODES,
   CLAUDE_PERMISSION_MODES,
   isValidClaudeAuthMode,
+  isValidClaudeAutocompact,
   isValidClaudePermissionMode,
   runClaudeTurn,
 } from "./local-agent.js";
@@ -61,6 +62,12 @@ async function send(flags: Flags, output: Output): Promise<number> {
   // The claude binary to spawn — the desktop passes the path from its settings.
   // Absent → PATH `claude` (dev). Never bundled: it is the user's own install.
   const claudeBin = typeof flags["claude-bin"] === "string" ? flags["claude-bin"] : undefined;
+
+  const autocompact = typeof flags.autocompact === "string" ? flags.autocompact : undefined;
+  if (flags.autocompact !== undefined && (typeof flags.autocompact !== "string" || !isValidClaudeAutocompact(flags.autocompact))) {
+    output.error(`Invalid --autocompact "${String(flags.autocompact)}". Valid values: 'auto', or 100k–1M (e.g. 500k, 200000)`);
+    return 1;
+  }
 
   if (flags.map === true || (typeof flags.map === "string" && !flags.map.trim())) {
     output.error("A map-note path is required: --map <file.md>");
@@ -114,6 +121,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
       permissionMode,
       auth,
       claudeBin,
+      autocompact,
       signal: controller.signal,
     })) {
       process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -181,5 +189,56 @@ function list(flags: Flags, output: Output): number {
   return 0;
 }
 
+// `compact --local --runtime=claude --conversation <id>` runs in-place compaction
+// on the conversation's active Claude session using headless `/compact`.
+async function compact(flags: Flags, output: Output): Promise<number> {
+  const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
+  const conversationId = typeof flags.conversation === "string" ? flags.conversation : undefined;
+  if (!conversationId) {
+    output.error("A conversation id is required: --conversation <uuid>");
+    return 1;
+  }
+  if (!isClaudeConversationId(conversationId)) {
+    output.error(`A Claude Code conversation id is a UUID; got "${conversationId}"`);
+    return 1;
+  }
+  const auth = flags["claude-auth"] === undefined ? "login" : flags["claude-auth"];
+  if (typeof auth !== "string" || !isValidClaudeAuthMode(auth)) {
+    output.error(`Invalid auth mode "${String(auth)}". Valid values: ${CLAUDE_AUTH_MODES.join(", ")}`);
+    return 1;
+  }
+  const claudeBin = typeof flags["claude-bin"] === "string" ? flags["claude-bin"] : undefined;
+
+  const controller = new AbortController();
+  let signalled = false;
+  const onSignal = (): void => {
+    if (signalled) return;
+    signalled = true;
+    controller.abort();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
+  try {
+    for await (const event of runClaudeTurn({
+      repoPath,
+      message: "/compact",
+      conversationId,
+      sessionExists: true,
+      auth,
+      claudeBin,
+      signal: controller.signal,
+    })) {
+      process.stdout.write(`${JSON.stringify(event)}\n`);
+    }
+    return 0;
+  } catch (err) {
+    return reportLocalError(err, output);
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+  }
+}
+
 /** The Claude Code implementation of the local-conversation seam. */
-export const claudeConversationOps: LocalConversationOps = { send, createNew, get, list };
+export const claudeConversationOps: LocalConversationOps = { send, createNew, get, list, compact };

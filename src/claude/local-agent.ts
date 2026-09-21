@@ -57,6 +57,23 @@ export function isValidClaudeAuthMode(mode: string): mode is ClaudeAuthMode {
   return (CLAUDE_AUTH_MODES as readonly string[]).includes(mode);
 }
 
+/** Check if `--autocompact` argument is valid ('auto', or 100k–1M tokens).
+ * Verified against `claude --help` (2.1.278): "Auto-compact window size (auto, or 100k–1M tokens)".
+ * Claude Code accepts bare numbers between 100 and 1000 as shorthand for thousands of tokens (e.g. 200 = 200k). */
+export function isValidClaudeAutocompact(val: unknown): boolean {
+  if (typeof val !== "string") return false;
+  const trimmed = val.trim();
+  if (trimmed === "auto") return true;
+  const m = /^(\d+)(k|m)?$/i.exec(trimmed);
+  if (!m) return false;
+  let tokens = parseInt(m[1], 10);
+  const suffix = (m[2] ?? "").toLowerCase();
+  if (suffix === "k") tokens *= 1_000;
+  else if (suffix === "m") tokens *= 1_000_000;
+  else if (tokens >= 100 && tokens <= 1_000) tokens *= 1_000; // Claude Code CLI shorthand (100–1000 = k)
+  return tokens >= 100_000 && tokens <= 1_000_000;
+}
+
 /** The direct API-key variables — the ambient ones that move billing off a plan. */
 const API_KEY_ENV = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
@@ -86,6 +103,8 @@ export interface ClaudeTurnOptions {
   auth?: ClaudeAuthMode;
   /** Claude Code executable. Default "claude" (from PATH). */
   claudeBin?: string;
+  /** Auto-compact window size passed to Claude Code (`--autocompact <auto|tokens>`). */
+  autocompact?: string;
   /** Abort the turn (SIGINT/desktop kill) — kills claude and emits `cancelled`. */
   signal?: AbortSignal;
 }
@@ -104,6 +123,7 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
   ];
   if (opts.workingRoot && opts.workingRoot !== opts.repoPath) args.push("--add-dir", opts.workingRoot);
   if (opts.model) args.push("--model", opts.model);
+  if (opts.autocompact) args.push("--autocompact", opts.autocompact);
   const orientation = [opts.mapOrientation, opts.launchOrientation].filter(Boolean).join("\n\n");
   if (orientation) args.push("--append-system-prompt", orientation);
   return args;

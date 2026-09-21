@@ -65,7 +65,7 @@ administration.
 | Start, bring home | `create`, `get` (`clone`, `fork`, `link`), `clones`, `forget` |
 | Share and sync | `login`, `status account` (`whoami`), `publish`, `share`, `push`, `integrate` (`pull`, `update`), `sync`, `repos`, `catalog` |
 | Talk | `conversation`, `conversations`, `inbox`, `agents` |
-| Run a local agent | `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code) |
+| Run a local agent | `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
 | Housekeeping | `status doctor` (`doctor`), `credential`, `power logout` |
 
 ## What the CLI promises
@@ -97,6 +97,8 @@ Both stream the same transcript; they differ in whose agent runs and how it is p
 | Reasoning in the transcript | shown | not shown — Claude Code redacts it when run headless |
 | Needs a Claude account | no | yes |
 | Is it ready? | `pi-status` | `claude-status` — asks the binary (`claude --version`, `claude auth status`); never reads `~/.claude` |
+| Models | `pi-models` — any provider pi supports | `claude-models` — Anthropic (1M context for Opus/Sonnet/Fable, 200k for Haiku) |
+| Compaction | context skills (`context_cleanup`) | `conversation compact --local` and `--autocompact` (100k–1M tokens) |
 
 Pick `claude` to continue a session you started in Claude Code; the same session id resumes it. Close it there first — one session should have one writer at a time. Pick `pi` for another provider, an API-key setup, or a machine without Claude Code.
 

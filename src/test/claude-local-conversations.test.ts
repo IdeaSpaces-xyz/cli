@@ -14,6 +14,11 @@ import {
   parseClaudeSessionJsonl,
 } from "../claude/local-conversations.js";
 
+import {
+  claudeConversationOps,
+} from "../claude/local-conversation-ops.js";
+import type { Output } from "../output.js";
+
 const ID = "d0b2e296-c2b7-4fa4-8227-6390639ea756";
 
 // A fixture mirroring Claude Code 2.1's real session JSONL (from the recorded
@@ -140,5 +145,45 @@ describe("Claude conversations on disk", () => {
     expect(conversations.map((c) => c.conversation_id)).toEqual(["11111111-1111-4111-8111-111111111111", ID]);
     expect(conversations[1]).toMatchObject({ name: "notes/hello.md fixture", message_count: 3, status: "idle" });
     expect(listClaudeConversations("/never", env)).toEqual({ conversations: [], total: 0 });
+  });
+});
+
+describe("claudeConversationOps validations", () => {
+  function testOutput(errors: string[]): Output {
+    return { error: (m: string) => errors.push(m) } as unknown as Output;
+  }
+
+  it("send rejects invalid --autocompact", async () => {
+    const errors: string[] = [];
+    const code = await claudeConversationOps.send(
+      { message: "hi", conversation: ID, autocompact: "50k" },
+      testOutput(errors),
+    );
+    expect(code).toBe(1);
+    expect(errors[0]).toContain('Invalid --autocompact "50k"');
+  });
+
+  it("compact requires a conversation id", async () => {
+    const errors: string[] = [];
+    const code = await claudeConversationOps.compact!({}, testOutput(errors));
+    expect(code).toBe(1);
+    expect(errors[0]).toContain("A conversation id is required: --conversation <uuid>");
+  });
+
+  it("compact rejects non-UUID conversation id", async () => {
+    const errors: string[] = [];
+    const code = await claudeConversationOps.compact!({ conversation: "not-a-uuid" }, testOutput(errors));
+    expect(code).toBe(1);
+    expect(errors[0]).toContain('A Claude Code conversation id is a UUID; got "not-a-uuid"');
+  });
+
+  it("compact rejects invalid auth mode", async () => {
+    const errors: string[] = [];
+    const code = await claudeConversationOps.compact!(
+      { conversation: ID, "claude-auth": "invalid" },
+      testOutput(errors),
+    );
+    expect(code).toBe(1);
+    expect(errors[0]).toContain('Invalid auth mode "invalid"');
   });
 });
