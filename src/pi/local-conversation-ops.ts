@@ -11,6 +11,7 @@ import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./loca
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapNoteOrientation } from "../local/map-note.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { describeRefusals, piLaunchSet } from "../extensions/runtimes.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -77,6 +78,28 @@ async function send(flags: Flags, output: Output): Promise<number> {
   // never used, silently falling back to a globally-installed pi.
   const piBin = typeof flags["pi-bin"] === "string" ? flags["pi-bin"] : undefined;
 
+  // The launch set beyond the bundled pair: what the agent repo (`--context`)
+  // declares in `.pi/settings.json`, approved, plus/minus the conversation's own
+  // `--extensions "+src,-src"`. Nothing declared and nothing overridden → no
+  // spawn, today's turn. Refusals are reported, not fatal: the agent still
+  // answers, without the extension, and the line names the fix.
+  let extraExtensionPaths: string[] = [];
+  let extraSkillPaths: string[] = [];
+  try {
+    const launch = piLaunchSet({
+      spawn: { bin: piBin ?? "pi" },
+      agentRoot: repoPath,
+      bundledPaths: extensionPaths,
+      overrides: typeof flags.extensions === "string" ? flags.extensions : undefined,
+    });
+    extraExtensionPaths = launch.extensionPaths;
+    extraSkillPaths = launch.skillPaths;
+    for (const line of describeRefusals(launch.refused, "pi", repoPath)) output.log(line);
+    if (launch.loaded.length) output.log(`Extensions: ${launch.loaded.join(", ")}`);
+  } catch (err) {
+    return reportLocalError(err, output);
+  }
+
   // A Map is a local map-note path in the file-first lane. Parse it before pi is
   // spawned, append only the standard projection, and never resolve/fetch roots.
   if (flags.map === true || (typeof flags.map === "string" && !flags.map.trim())) {
@@ -127,8 +150,8 @@ async function send(flags: Flags, output: Output): Promise<number> {
       repoPath,
       workingRoot,
       message,
-      extensionPaths,
-      skillPaths,
+      extensionPaths: [...extensionPaths, ...extraExtensionPaths],
+      skillPaths: [...skillPaths, ...extraSkillPaths],
       conversationId,
       sessionDir,
       modelTier,

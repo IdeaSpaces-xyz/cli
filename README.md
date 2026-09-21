@@ -66,6 +66,7 @@ administration.
 | Share and sync | `login`, `status account` (`whoami`), `publish`, `share`, `push`, `integrate` (`pull`, `update`), `sync`, `repos`, `catalog` |
 | Talk | `conversation`, `conversations`, `inbox`, `agents` |
 | Run a local agent | `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
+| Extend a local agent | `extensions` — `list`, `install`, `remove`, `update`, `inspect`, `marketplaces`, `approve` over pi packages and Claude Code / Codex plugins; `conversation send --local --extensions "+id,-id"` |
 | Housekeeping | `status doctor` (`doctor`), `credential`, `power logout` |
 
 ## What the CLI promises
@@ -92,7 +93,7 @@ Both stream the same transcript; they differ in whose agent runs and how it is p
 | What runs | pi, bundled with the desktop or `pi` on your PATH | the Claude Code you installed and signed in to |
 | Who pays | your API key for the provider you chose (`pi-login`) | your Claude plan, or your API key with `--claude-auth=api-key` |
 | Models | any provider pi supports | Anthropic |
-| Agent context | our extensions and skills, passed with `--ext` and `--skill` | whatever your Claude Code already carries — plugin, skills, `_agent/`, memory |
+| Agent context | our extensions and skills, passed with `--ext` and `--skill`, plus what the agent declares (below) | whatever your Claude Code already carries — plugin, skills, `_agent/`, memory — or exactly what the agent declares (below) |
 | Where sessions live | `<context>/.pi/sessions/`, inside the space | `~/.claude/projects/`, outside the space |
 | Reasoning in the transcript | shown | not shown — Claude Code redacts it when run headless |
 | Needs a Claude account | no | yes |
@@ -102,12 +103,36 @@ Both stream the same transcript; they differ in whose agent runs and how it is p
 
 Pick `claude` to continue a session you started in Claude Code; the same session id resumes it. Close it there first — one session should have one writer at a time. Pick `pi` for another provider, an API-key setup, or a machine without Claude Code.
 
+### Extensions — installed is not loaded
+
+`ideaspaces extensions` is one verb over three runtimes' own package and plugin commands — pi packages (`pi install`), Claude Code plugins (`claude plugin`), and Codex plugins (`codex plugin`) — with one row shape, so a client shows one list with a runtime column. It never edits `~/.pi`, `~/.claude`, or `~/.codex` itself.
+
+```bash
+ideaspaces extensions list --json                              # the library, every runtime found on this machine
+ideaspaces extensions list --runtime claude --available --json # + the marketplace catalog
+ideaspaces extensions install npm:pi-web-access --runtime pi
+ideaspaces extensions install ralph-loop@claude-plugins-official --runtime claude
+ideaspaces extensions inspect ideaspaces@ideaspaces-xyz --runtime claude   # 14 skills, 2 hooks, 1 MCP server
+ideaspaces extensions marketplaces add IdeaSpaces-xyz/claude-code-plugin --runtime codex
+```
+
+What a local turn loads is decided in three tiers, and nothing else rides in:
+
+| Tier | Declared where | Who decides |
+|---|---|---|
+| Core | the bundled `--ext` pair for pi; the `ideaspaces` plugin for Claude Code | the app — it is the connector |
+| Agent | the runtime's own project config in the agent repo (`--context`): `.pi/settings.json` `packages`, `.claude/settings.json` `enabledPlugins` | travels with the agent repo; the terminal runtimes honor the same file |
+| Conversation | `conversation send --local --extensions "+id,-id"` | the person, per conversation, from the library |
+
+An agent repo syncs, and a pull can declare a source that would run with the agent's full access. So a declaration loads only after `ideaspaces extensions approve <source> --runtime <r> --agent <root>` recorded that exact source for that exact agent (a moved ref asks again); until then the turn runs without it and says so on stderr. Installing into an agent repo yourself (`install --scope agent --agent <root>`) is its own approval. Pi keeps `--no-extensions` and receives explicit paths; Claude Code receives `--settings` with every installed plugin named on or off. Codex has a library but no agent tier yet (a project-level `config.toml` did not change `plugin list` on 0.145.0).
+
 ## Configuration
 
 | Path | What |
 |---|---|
 | `~/.ideaspaces/credentials.json` | API credentials |
 | `~/.ideaspaces/spaces.json` | Known spaces and remotes |
+| `~/.ideaspaces/extension-approvals.json` | Which agent-declared extensions may load, per agent repo and exact source |
 | `~/.pi/agent/auth.json` | Local-agent model credentials |
 
 `IS_API_KEY` overrides stored credentials. `IS_API_URL` points at another host. `IDEASPACES_PI_EXTENSIONS` lists extension paths for the local agent. `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.

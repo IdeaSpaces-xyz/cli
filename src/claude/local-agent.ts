@@ -105,6 +105,10 @@ export interface ClaudeTurnOptions {
   claudeBin?: string;
   /** Auto-compact window size passed to Claude Code (`--autocompact <auto|tokens>`). */
   autocompact?: string;
+  /** The `--settings <json>` that fixes this turn's plugin set — an `enabledPlugins`
+   * map naming every installed plugin true or false (see extensions/claude-plugins.ts).
+   * Absent → nothing passed; Claude Code loads what the user's settings say. */
+  launchSettings?: string;
   /** Abort the turn (SIGINT/desktop kill) — kills claude and emits `cancelled`. */
   signal?: AbortSignal;
 }
@@ -124,6 +128,7 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
   if (opts.workingRoot && opts.workingRoot !== opts.repoPath) args.push("--add-dir", opts.workingRoot);
   if (opts.model) args.push("--model", opts.model);
   if (opts.autocompact) args.push("--autocompact", opts.autocompact);
+  if (opts.launchSettings) args.push("--settings", opts.launchSettings);
   const orientation = [opts.mapOrientation, opts.launchOrientation].filter(Boolean).join("\n\n");
   if (orientation) args.push("--append-system-prompt", orientation);
   return args;
