@@ -91,6 +91,19 @@ describe("deriveClaudeStatus — the three states the connector card distinguish
     expect(s.login.loggedIn).toBeNull();
     expect(s.login.detail).toContain("newer Claude Code");
   });
+
+  it("reports model roster and compaction capabilities derived from binary version", () => {
+    const s = deriveClaudeStatus({ binary: present, authStdout: SIGNED_IN, auth: "login" });
+    expect(s.models.length).toBeGreaterThanOrEqual(5);
+    const opus = s.models.find((m) => m.ref === "opus");
+    const haiku = s.models.find((m) => m.ref === "haiku");
+    expect(opus?.contextWindow).toBe(1_000_000);
+    expect(haiku?.contextWindow).toBe(200_000);
+    expect(s.capabilities.compact.supported).toBe(true);
+    expect(s.capabilities.compact.autocompact.supported).toBe(true);
+    expect(s.capabilities.compact.autocompact.minTokens).toBe(100_000);
+    expect(s.capabilities.compact.autocompact.maxTokens).toBe(1_000_000);
+  });
 });
 
 describe("parseClaudeAuthReport", () => {

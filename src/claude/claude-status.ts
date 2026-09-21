@@ -27,6 +27,11 @@ import { probeBinary, type ProbedBinary } from "../local/probe-binary.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { CLAUDE_AUTH_MODES, buildClaudeEnv, isValidClaudeAuthMode, type ClaudeAuthMode } from "./local-agent.js";
+import {
+  getClaudeRoster,
+  type ClaudeCapabilities,
+  type ClaudeModel,
+} from "./claude-models.js";
 
 export type ClaudeBinary = ProbedBinary;
 
@@ -48,6 +53,12 @@ export interface ClaudeStatus {
   auth: ClaudeAuthMode;
   /** The "Connect Claude Code" bar: a usable binary that reports itself signed in. */
   ready: boolean;
+  /** The model roster the installed binary accepts. */
+  models: ClaudeModel[];
+  /** Compaction and auto-compact bounds. */
+  capabilities: ClaudeCapabilities;
+  /** The binary version the roster and capabilities were verified against. */
+  verifiedVersion: string;
 }
 
 /** The fields of `claude auth status --json` this verb reads. */
@@ -104,7 +115,16 @@ export function deriveClaudeStatus(input: {
       login = { loggedIn: null, method: null, subscription: null, detail };
     }
   }
-  return { binary, login, auth, ready: binary.present && login.loggedIn === true };
+  const roster = getClaudeRoster(binary.version);
+  return {
+    binary,
+    login,
+    auth,
+    ready: binary.present && login.loggedIn === true,
+    models: roster.models,
+    capabilities: roster.capabilities,
+    verifiedVersion: roster.verifiedVersion,
+  };
 }
 
 /** Ask the binary for its sign-in state. Returns stdout whatever the exit code. */
@@ -134,6 +154,20 @@ function formatHuman(s: ClaudeStatus): string {
     out.push(`Signed in: unknown — ${s.login.detail}`);
   }
   out.push(`Ready: ${s.ready ? "yes" : "no"}`);
+  if (s.models && s.models.length) {
+    const summary = s.models
+      .filter((m) => m.ref)
+      .map(
+        (m) =>
+          `${m.name} ${
+            m.contextWindow >= 1_000_000
+              ? `${(m.contextWindow / 1_000_000).toFixed(m.contextWindow % 1_000_000 === 0 ? 0 : 1)}M`
+              : `${Math.round(m.contextWindow / 1000)}k`
+          }`,
+      )
+      .join(", ");
+    out.push(`Models: ${s.models.length} available (${summary})`);
+  }
   return out.join("\n");
 }
 
