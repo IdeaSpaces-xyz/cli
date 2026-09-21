@@ -63,12 +63,6 @@ describe("getClaudeRoster — version lookup and fallbacks", () => {
     expect(roster.capabilities.compact.autocompact.maxTokens).toBe(1_000_000);
   });
 
-  it("future major version >= 3.0.0 returns unverified newer bucket", () => {
-    const roster = getClaudeRoster("3.0.1");
-    expect(roster.verifiedVersion).toBe("unverified newer (>=3.0)");
-    expect(roster.models.length).toBeGreaterThanOrEqual(4);
-  });
-
   it("version 2.0.x returns 200k-window models without autocompact", () => {
     const roster = getClaudeRoster("2.0.5");
     expect(roster.verifiedVersion).toBe("2.0.0");

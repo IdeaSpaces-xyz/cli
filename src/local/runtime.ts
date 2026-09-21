@@ -46,7 +46,7 @@ export function composeLocalConversationOps(runtimes: Record<LocalRuntime, Local
       if (!ops) return 1;
       if (!ops.compact) {
         const runtime = selectLocalRuntime(flags);
-        output.error(`Compaction is not supported by local runtime "${runtime}".`);
+        output.error(`Compaction is not supported by local runtime "${runtime}". Use --runtime=claude for Claude Code compaction.`);
         return 1;
       }
       return ops.compact(flags, output);
