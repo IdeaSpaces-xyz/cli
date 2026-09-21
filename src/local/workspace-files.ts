@@ -31,9 +31,6 @@ const READ_TOOLS = new Set([
 const EXPLORATION_FALLBACK_TOOLS = new Set([
   "is_navigate",
   "ls",
-  "glob",
-  "grep",
-  "find",
 ]);
 
 /** Resolve at the tool boundary, while cwd is still known. Navigation changes
@@ -67,11 +64,13 @@ export function harvestLocalFiles(
       : READ_TOOLS.has(tool.name) ? "read" : undefined;
     if (!kind) continue;
     let paths: unknown[];
+    const hasExplicitPath = typeof tool.args.path === "string" && tool.args.path.trim() !== "";
     if (tool.name === "is_commit" && Array.isArray(tool.args.paths)) {
       paths = tool.args.paths;
     } else if (tool.name === "is_get") {
+      // is_get targets `dir`, `path`, or local `address` (remote URLs fail statSync and are skipped)
       paths = [tool.args.dir, tool.args.path, tool.args.address];
-    } else if (tool.args.path !== undefined) {
+    } else if (hasExplicitPath) {
       paths = [tool.args.path];
     } else if (EXPLORATION_FALLBACK_TOOLS.has(tool.name)) {
       paths = ["."];
@@ -85,9 +84,14 @@ export function harvestLocalFiles(
       let isDir = false;
       try {
         const stat = statSync(absolute);
-        if (stat.isFile()) isDir = false;
-        else if (stat.isDirectory()) isDir = true;
-        else continue;
+        if (stat.isFile()) {
+          isDir = false;
+        } else if (stat.isDirectory() && kind === "read") {
+          // Directories are allowed only for read/exploration tools; mutations track files.
+          isDir = true;
+        } else {
+          continue;
+        }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") present = false;
         else continue;

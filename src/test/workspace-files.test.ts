@@ -82,6 +82,24 @@ it("harvests exploration tools including is_look, is_navigate, is_mount, is_unmo
   expect(ws.file_coordinates[mountedDir]).toEqual({ root: dir, path: "mounted", root_kind: "repo" });
 });
 
+it("rejects directory paths for mutation tools (write, edit, is_write, is_commit)", () => {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-mutation-dir-"))); dirs.push(dir);
+  mkdirSync(join(dir, "notes"), { recursive: true });
+  execFileSync("git", ["init", "-q", dir]);
+  const noteFile = join(dir, "notes/one.md"); writeFileSync(noteFile, "# Note");
+
+  const ws = harvestLocalFiles([
+    tool("write", { path: "notes" }),
+    tool("edit", { path: "notes" }),
+    tool("is_write", { path: "notes" }),
+    tool("is_commit", { paths: ["notes", "notes/one.md"] }),
+  ], dir);
+
+  expect(ws.modified).toEqual([noteFile]);
+  expect(ws.file_coordinates[noteFile]).toEqual({ root: dir, path: "notes/one.md", root_kind: "repo" });
+  expect(ws.file_coordinates[join(dir, "notes")]).toBeUndefined();
+});
+
 it("harvests is_get with dir, path, and local address coordinates", () => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-get-"))); dirs.push(dir);
   mkdirSync(join(dir, "cloned"), { recursive: true });
@@ -134,8 +152,9 @@ it("normalizes Claude exploration tools (LS, Glob, Grep) with explicit and omitt
     { name: "LS", args: { path: "src" }, isError: false, result: "ok" },
     { name: "Glob", args: { path: "src" }, isError: false, result: "ok" },
     { name: "Grep", args: { path: "src/app.ts" }, isError: false, result: "ok" },
-    // Omitted path in Claude LS, Glob, Grep defaults to "."
+    // Omitted path in Claude LS defaults to "."
     { name: "LS", args: {}, isError: false, result: "ok" },
+    // Omitted path in Glob/Grep searches whole workspace without marking root as a read folder
     { name: "Glob", args: { pattern: "*.ts" }, isError: false, result: "ok" },
     { name: "Grep", args: { pattern: "console" }, isError: false, result: "ok" },
     { name: "mcp__ideaspaces__is_look", args: { path: "src/app.ts" }, isError: false, result: "ok" },
@@ -150,13 +169,15 @@ it("normalizes Claude exploration tools (LS, Glob, Grep) with explicit and omitt
   expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo" });
 });
 
-it("defaults Pi exploration tools (ls, glob, grep, find, is_navigate) with omitted path to .", () => {
+it("defaults navigation/ls with omitted path to . while unscoped search tools skip root", () => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-pi-explore-"))); dirs.push(dir);
   execFileSync("git", ["init", "-q", dir]);
 
   const ws = harvestLocalFiles([
     tool("is_navigate", {}),
+    tool("is_navigate", { path: "" }),
     tool("ls", {}),
+    // Unscoped search does not mark root
     tool("glob", { pattern: "*.md" }),
     tool("grep", { pattern: "text" }),
     tool("find", {}),
