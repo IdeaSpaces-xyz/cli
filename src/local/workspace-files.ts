@@ -113,7 +113,7 @@ export function harvestLocalFiles(
         try { scope = { root: repoRoot(directory), root_kind: "repo" }; }
         catch {
           let explicitRoot: string | undefined;
-          if (knowledgeTool && typeof tool.args.cwd === "string") {
+          if (knowledgeTool && (typeof tool.args.cwd === "string" || typeof tool.args.root === "string")) {
             try { explicitRoot = realpathSync.native(cwd); } catch { /* unavailable cwd */ }
           }
           const folderRoot = [...knownFolderRoots, ...(explicitRoot ? [explicitRoot] : [])]

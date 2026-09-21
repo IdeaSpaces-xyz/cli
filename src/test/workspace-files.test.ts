@@ -121,11 +121,13 @@ it("harvests is_get with dir, path, and local address coordinates", () => {
 
 it("resolves tool.args.root for mounted frame vs home authority", () => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-root-arg-"))); dirs.push(dir);
-  const home = join(dir, "home"); const mount = join(dir, "mount");
+  const home = join(dir, "home"); const mount = join(dir, "mount"); const nonGitMount = join(dir, "docs-folder");
   mkdirSync(join(home, "notes"), { recursive: true }); mkdirSync(join(mount, "docs"), { recursive: true });
+  mkdirSync(join(nonGitMount, "guide"), { recursive: true });
   for (const root of [home, mount]) execFileSync("git", ["init", "-q", root]);
   const homeNote = join(home, "notes/one.md"); writeFileSync(homeNote, "# Home");
   const mountDoc = join(mount, "docs/ref.md"); writeFileSync(mountDoc, "# Mount");
+  const nonGitDoc = join(nonGitMount, "guide/intro.md"); writeFileSync(nonGitDoc, "# Intro");
 
   const ws = harvestLocalFiles([
     // "home" resolves against home authority launchCwd
@@ -133,12 +135,15 @@ it("resolves tool.args.root for mounted frame vs home authority", () => {
     // Mounted root path resolves against the mount
     tool("is_look", { root: mount, path: "docs/ref.md" }),
     tool("is_navigate", { root: mount, path: "docs" }),
+    // Non-git mounted folder resolves with root_kind: "folder"
+    tool("is_look", { root: nonGitMount, path: "guide/intro.md" }),
   ], home);
 
-  expect(ws.read).toEqual([homeNote, mountDoc, join(mount, "docs")]);
+  expect(ws.read).toEqual([homeNote, mountDoc, join(mount, "docs"), nonGitDoc]);
   expect(ws.file_coordinates[homeNote]).toEqual({ root: home, path: "notes/one.md", root_kind: "repo" });
   expect(ws.file_coordinates[mountDoc]).toEqual({ root: mount, path: "docs/ref.md", root_kind: "repo" });
   expect(ws.file_coordinates[join(mount, "docs")]).toEqual({ root: mount, path: "docs", root_kind: "repo" });
+  expect(ws.file_coordinates[nonGitDoc]).toEqual({ root: nonGitMount, path: "guide/intro.md", root_kind: "folder" });
 });
 
 it("normalizes Claude exploration tools (LS, Glob, Grep) with explicit and omitted path", () => {
