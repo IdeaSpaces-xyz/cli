@@ -58,6 +58,9 @@ import {
 // by `--runtime=claude`. Same wall: only this file wires it in.
 import { claudeConversationOps, claudeStatusCommand, claudeModelsCommand } from "./claude/index.js";
 import { composeLocalConversationOps } from "./local/runtime.js";
+// Extensions span the runtimes (pi packages, Claude Code and Codex plugins) and
+// sit beside the connectors, wired only here like they are.
+import { extensionsCommand } from "./extensions/command.js";
 
 const localConversationOps = composeLocalConversationOps({ pi: piConversationOps, claude: claudeConversationOps });
 const conversationCommand = makeConversationCommand(localConversationOps);
@@ -76,6 +79,7 @@ const topLevel: CommandDef[] = [
   piLogoutCommand,
   claudeStatusCommand,
   claudeModelsCommand,
+  extensionsCommand,
   getCommand,
   integrateCommand,
   cloneCommand,

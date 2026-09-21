@@ -6,6 +6,7 @@ import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { loadMapNoteOrientation } from "../local/map-note.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { claudeLaunchSet, describeRefusals } from "../extensions/runtimes.js";
 import {
   CLAUDE_AUTH_MODES,
   CLAUDE_PERMISSION_MODES,
@@ -69,6 +70,24 @@ async function send(flags: Flags, output: Output): Promise<number> {
     return 1;
   }
 
+  // The plugin set for this turn: what the agent repo (`--context`) declares in
+  // `.claude/settings.json`, approved, plus/minus the conversation's own
+  // `--extensions "+id,-id"`, fixed with `--settings`. Nothing declared and
+  // nothing overridden → no spawn and no flag — Claude Code's own settings rule.
+  let launchSettings: string | undefined;
+  try {
+    const launch = claudeLaunchSet({
+      spawn: { bin: claudeBin ?? "claude" },
+      agentRoot: repoPath,
+      overrides: typeof flags.extensions === "string" ? flags.extensions : undefined,
+    });
+    launchSettings = launch.settings ?? undefined;
+    for (const line of describeRefusals(launch.refused, "claude", repoPath)) output.log(line);
+    if (launch.loaded.length) output.log(`Extensions: ${launch.loaded.join(", ")}`);
+  } catch (err) {
+    return reportLocalError(err, output);
+  }
+
   if (flags.map === true || (typeof flags.map === "string" && !flags.map.trim())) {
     output.error("A map-note path is required: --map <file.md>");
     return 1;
@@ -122,6 +141,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
       auth,
       claudeBin,
       autocompact,
+      launchSettings,
       signal: controller.signal,
     })) {
       process.stdout.write(`${JSON.stringify(event)}\n`);

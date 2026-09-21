@@ -204,6 +204,7 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
       "ideaspaces conversation send repo_abc c_123 --message 'Hi'  # streams JSON lines",
       "ideaspaces conversation send --local --context /ws --conversation c1 --message 'Hi' --map maps/research.md --ext a,b --skill a/skills,b/skills --pi-bin /path/pi --pi-model sonnet --pi-thinking high  # local pi turn over a map-note",
       "ideaspaces conversation send --local --context /agents/desktop --working-root /work --focus note.md --session-dir /work/.pi/sessions --conversation c1 --message 'Explain this' --ext a,b  # POV launch; orientation is separate from the user message",
+      "ideaspaces conversation send --local --context /agents/desktop --conversation c1 --message 'Hi' --ext a,b --extensions '+npm:pi-web-access,-git:github.com/u/r@v1'  # per conversation: load one more from the library, skip one the agent declares",
       "ideaspaces conversation send --local --runtime=claude --context /ws --conversation <uuid> --message 'Hi' --claude-bin /path/claude --claude-model sonnet --permission-mode acceptEdits  # the user's own Claude Code; session created or resumed",
       "ideaspaces conversation send --local --runtime=claude --context /ws --conversation <uuid> --message 'Hi' --claude-model sonnet --autocompact 500k  # turn with custom auto-compact window",
       "ideaspaces conversation compact --local --runtime=claude --context /ws --conversation <uuid>  # compacts the active Claude session in-place",
