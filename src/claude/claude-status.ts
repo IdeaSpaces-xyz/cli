@@ -28,6 +28,7 @@ import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { CLAUDE_AUTH_MODES, buildClaudeEnv, isValidClaudeAuthMode, type ClaudeAuthMode } from "./local-agent.js";
 import {
+  formatTokens,
   getClaudeRoster,
   type ClaudeCapabilities,
   type ClaudeModel,
@@ -157,14 +158,7 @@ function formatHuman(s: ClaudeStatus): string {
   if (s.models && s.models.length) {
     const summary = s.models
       .filter((m) => m.ref)
-      .map(
-        (m) =>
-          `${m.name} ${
-            m.contextWindow >= 1_000_000
-              ? `${(m.contextWindow / 1_000_000).toFixed(m.contextWindow % 1_000_000 === 0 ? 0 : 1)}M`
-              : `${Math.round(m.contextWindow / 1000)}k`
-          }`,
-      )
+      .map((m) => `${m.name} ${formatTokens(m.contextWindow)}`)
       .join(", ");
     out.push(`Models: ${s.models.length} available (${summary})`);
   }
