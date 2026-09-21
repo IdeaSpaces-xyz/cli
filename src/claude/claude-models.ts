@@ -68,12 +68,35 @@ export function compareSemver(a: [number, number, number], b: [number, number, n
 
 /**
  * Verified model roster and runtime capabilities for a given Claude Code version.
- * Tested live against Claude Code 2.1.278.
+ * Tested live against Claude Code 2.1.278 (`claude --help` and stream-json fixtures).
  */
 export function getClaudeRoster(version: string | null): ClaudeRoster {
   const semver = parseSemver(version);
 
-  // Claude Code >= 2.1.0 (verified 2.1.278)
+  // Claude Code >= 3.0.0 (unverified future major version)
+  if (semver && compareSemver(semver, [3, 0, 0]) >= 0) {
+    return {
+      models: [
+        { ref: "", id: "claude-default", name: "Claude Code default", contextWindow: 1_000_000, maxTokens: 64_000, isDefault: true },
+        { ref: "opus", id: "claude-opus", name: "Opus", contextWindow: 1_000_000, maxTokens: 64_000 },
+        { ref: "sonnet", id: "claude-sonnet", name: "Sonnet", contextWindow: 1_000_000, maxTokens: 64_000 },
+        { ref: "haiku", id: "claude-haiku", name: "Haiku", contextWindow: 200_000, maxTokens: 32_000 },
+      ],
+      capabilities: {
+        compact: {
+          supported: true,
+          autocompact: {
+            supported: true,
+            minTokens: 100_000,
+            maxTokens: 1_000_000,
+          },
+        },
+      },
+      verifiedVersion: "unverified newer (>=3.0)",
+    };
+  }
+
+  // Claude Code 2.1.x (verified 2.1.278)
   if (semver && compareSemver(semver, [2, 1, 0]) >= 0) {
     return {
       models: [

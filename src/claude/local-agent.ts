@@ -57,7 +57,9 @@ export function isValidClaudeAuthMode(mode: string): mode is ClaudeAuthMode {
   return (CLAUDE_AUTH_MODES as readonly string[]).includes(mode);
 }
 
-/** Check if `--autocompact` argument is valid ('auto', or 100k–1M tokens). */
+/** Check if `--autocompact` argument is valid ('auto', or 100k–1M tokens).
+ * Verified against `claude --help` (2.1.278): "Auto-compact window size (auto, or 100k–1M tokens)".
+ * Claude Code accepts bare numbers between 100 and 1000 as shorthand for thousands of tokens (e.g. 200 = 200k). */
 export function isValidClaudeAutocompact(val: unknown): boolean {
   if (typeof val !== "string") return false;
   const trimmed = val.trim();
@@ -68,7 +70,7 @@ export function isValidClaudeAutocompact(val: unknown): boolean {
   const suffix = (m[2] ?? "").toLowerCase();
   if (suffix === "k") tokens *= 1_000;
   else if (suffix === "m") tokens *= 1_000_000;
-  else if (tokens >= 100 && tokens <= 1_000) tokens *= 1_000;
+  else if (tokens >= 100 && tokens <= 1_000) tokens *= 1_000; // Claude Code CLI shorthand (100–1000 = k)
   return tokens >= 100_000 && tokens <= 1_000_000;
 }
 
