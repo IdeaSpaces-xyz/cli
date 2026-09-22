@@ -1329,7 +1329,7 @@ export async function setSpaceAccess(
 export interface ConversationHistoryMessage {
   role: "user" | "assistant" | "tool";
   content: string;
-  kind?: "command" | "command-output" | "message";
+  kind?: "command" | "command-output";
   command?: string;
   args?: string;
   created_at?: string;

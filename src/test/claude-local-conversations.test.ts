@@ -114,13 +114,20 @@ describe("parseClaudeSessionJsonl", () => {
     ].join("\n");
     const parsed = parseClaudeSessionJsonl(jsonl, "t");
     expect(parsed.messages).toMatchObject([
-      { role: "user", kind: "command", command: "/compact" },
-      { role: "user", kind: "command-output", content: "<local-command-stdout>Compacted</local-command-stdout>" },
-      { role: "user", kind: "command", command: "/review", args: "src/app.ts" },
+      { role: "user", kind: "command", command: "/compact", content: "/compact" },
+      { role: "user", kind: "command-output", content: "Compacted" },
+      { role: "user", kind: "command", command: "/review", args: "src/app.ts", content: "/review src/app.ts" },
       { role: "user", content: "hello world" },
     ]);
     expect(parsed.messages[3].kind).toBeUndefined();
     expect(parsed.preview).toBe("hello world");
+  });
+
+  it("falls back to Untitled when a session has only command records and no preview", () => {
+    const jsonl = `{"type":"user","message":{"role":"user","content":"<command-name>/compact</command-name>"},"timestamp":"2026-09-22T10:00:00.000Z","sessionId":"${ID}"}`;
+    const parsed = parseClaudeSessionJsonl(jsonl, "t");
+    expect(parsed.name).toBeNull();
+    expect(parsed.preview).toBe("");
   });
 });
 
