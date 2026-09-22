@@ -104,6 +104,31 @@ describe("parseClaudeSessionJsonl", () => {
     const old = parseClaudeSessionJsonl(`{"type":"summary","summary":"Older session","leafUuid":"x"}\n{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-01-01T00:00:00.000Z","sessionId":"${ID}"}`, "t");
     expect(old.name).toBe("Older session");
   });
+
+  it("tags Claude Code command and command-output records with kind, name, and args", () => {
+    const jsonl = [
+      `{"type":"user","message":{"role":"user","content":"<command-name>/compact</command-name>\\n<command-message>compact</command-message>\\n<command-args></command-args>"},"timestamp":"2026-09-22T10:00:00.000Z","sessionId":"${ID}"}`,
+      `{"type":"user","message":{"role":"user","content":"<local-command-stdout>Compacted</local-command-stdout>"},"timestamp":"2026-09-22T10:00:05.000Z","sessionId":"${ID}"}`,
+      `{"type":"user","message":{"role":"user","content":"<command-name>/review</command-name><command-args>src/app.ts</command-args>"},"timestamp":"2026-09-22T10:01:00.000Z","sessionId":"${ID}"}`,
+      `{"type":"user","message":{"role":"user","content":"hello world"},"timestamp":"2026-09-22T10:02:00.000Z","sessionId":"${ID}"}`,
+    ].join("\n");
+    const parsed = parseClaudeSessionJsonl(jsonl, "t");
+    expect(parsed.messages).toMatchObject([
+      { role: "user", kind: "command", command: "/compact", content: "/compact" },
+      { role: "user", kind: "command-output", content: "Compacted" },
+      { role: "user", kind: "command", command: "/review", args: "src/app.ts", content: "/review src/app.ts" },
+      { role: "user", content: "hello world" },
+    ]);
+    expect(parsed.messages[3].kind).toBeUndefined();
+    expect(parsed.preview).toBe("hello world");
+  });
+
+  it("falls back to Untitled when a session has only command records and no preview", () => {
+    const jsonl = `{"type":"user","message":{"role":"user","content":"<command-name>/compact</command-name>"},"timestamp":"2026-09-22T10:00:00.000Z","sessionId":"${ID}"}`;
+    const parsed = parseClaudeSessionJsonl(jsonl, "t");
+    expect(parsed.name).toBeNull();
+    expect(parsed.preview).toBe("");
+  });
 });
 
 describe("Claude conversations on disk", () => {

@@ -26,9 +26,9 @@ it("preserves sibling repo coordinates, native edits, explicit cwd, and removed 
     tool("is_navigate", { path: findings }),
   ], source);
   expect(ws.modified).toEqual([moved]); expect(ws.deleted).toEqual([original]); expect(ws.read).toEqual([findings]);
-  expect(ws.file_coordinates[moved]).toMatchObject({ root_kind: "repo", path: "notes/one.md" });
+  expect(ws.file_coordinates[moved]).toMatchObject({ root_kind: "repo", path: "notes/one.md", kind: "file" });
   expect(basename(ws.file_coordinates[moved].root)).toBe("findings");
-  expect(ws.file_coordinates[findings]).toMatchObject({ root_kind: "repo", path: "" });
+  expect(ws.file_coordinates[findings]).toMatchObject({ root_kind: "repo", path: "", kind: "directory" });
 });
 
 it("keeps POV and nested non-repo material in their selected folder roots", () => {
@@ -46,9 +46,9 @@ it("keeps POV and nested non-repo material in their selected folder roots", () =
     tool("bash", { command: "cat secret.md" }),
   ], pov, root);
   expect(ws.read).toEqual([launchFile, materialFile, pov]);
-  expect(ws.file_coordinates[launchFile]).toEqual({ root: pov, path: "launch.md", root_kind: "folder" });
-  expect(ws.file_coordinates[materialFile]).toEqual({ root, path: "docs/one.md", root_kind: "folder" });
-  expect(ws.file_coordinates[pov]).toEqual({ root: pov, path: "", root_kind: "folder" });
+  expect(ws.file_coordinates[launchFile]).toEqual({ root: pov, path: "launch.md", root_kind: "folder", kind: "file" });
+  expect(ws.file_coordinates[materialFile]).toEqual({ root, path: "docs/one.md", root_kind: "folder", kind: "file" });
+  expect(ws.file_coordinates[pov]).toEqual({ root: pov, path: "", root_kind: "folder", kind: "directory" });
 });
 
 it("harvests exploration tools including is_look, is_navigate, is_mount, is_unmount, is_status, is_release, is_explore, is_search", () => {
@@ -75,11 +75,11 @@ it("harvests exploration tools including is_look, is_navigate, is_mount, is_unmo
   ], dir);
 
   expect(ws.read).toEqual([notesDir, subDir, noteOne, noteTwo, mountedDir]);
-  expect(ws.file_coordinates[notesDir]).toEqual({ root: dir, path: "notes", root_kind: "repo" });
-  expect(ws.file_coordinates[subDir]).toEqual({ root: dir, path: "notes/sub", root_kind: "repo" });
-  expect(ws.file_coordinates[noteOne]).toEqual({ root: dir, path: "notes/one.md", root_kind: "repo" });
-  expect(ws.file_coordinates[noteTwo]).toEqual({ root: dir, path: "notes/sub/two.md", root_kind: "repo" });
-  expect(ws.file_coordinates[mountedDir]).toEqual({ root: dir, path: "mounted", root_kind: "repo" });
+  expect(ws.file_coordinates[notesDir]).toEqual({ root: dir, path: "notes", root_kind: "repo", kind: "directory" });
+  expect(ws.file_coordinates[subDir]).toEqual({ root: dir, path: "notes/sub", root_kind: "repo", kind: "directory" });
+  expect(ws.file_coordinates[noteOne]).toEqual({ root: dir, path: "notes/one.md", root_kind: "repo", kind: "file" });
+  expect(ws.file_coordinates[noteTwo]).toEqual({ root: dir, path: "notes/sub/two.md", root_kind: "repo", kind: "file" });
+  expect(ws.file_coordinates[mountedDir]).toEqual({ root: dir, path: "mounted", root_kind: "repo", kind: "directory" });
 });
 
 it("rejects directory paths for mutation tools (write, edit, is_write, is_commit)", () => {
@@ -96,7 +96,7 @@ it("rejects directory paths for mutation tools (write, edit, is_write, is_commit
   ], dir);
 
   expect(ws.modified).toEqual([noteFile]);
-  expect(ws.file_coordinates[noteFile]).toEqual({ root: dir, path: "notes/one.md", root_kind: "repo" });
+  expect(ws.file_coordinates[noteFile]).toEqual({ root: dir, path: "notes/one.md", root_kind: "repo", kind: "file" });
   expect(ws.file_coordinates[join(dir, "notes")]).toBeUndefined();
 });
 
@@ -115,8 +115,8 @@ it("harvests is_get with dir, path, and local address coordinates", () => {
   ], dir);
 
   expect(ws.read).toEqual([clonedDir, linkedDir]);
-  expect(ws.file_coordinates[clonedDir]).toEqual({ root: dir, path: "cloned", root_kind: "repo" });
-  expect(ws.file_coordinates[linkedDir]).toEqual({ root: dir, path: "linked", root_kind: "repo" });
+  expect(ws.file_coordinates[clonedDir]).toEqual({ root: dir, path: "cloned", root_kind: "repo", kind: "directory" });
+  expect(ws.file_coordinates[linkedDir]).toEqual({ root: dir, path: "linked", root_kind: "repo", kind: "directory" });
 });
 
 it("resolves tool.args.root for mounted frame vs home authority", () => {
@@ -140,10 +140,10 @@ it("resolves tool.args.root for mounted frame vs home authority", () => {
   ], home);
 
   expect(ws.read).toEqual([homeNote, mountDoc, join(mount, "docs"), nonGitDoc]);
-  expect(ws.file_coordinates[homeNote]).toEqual({ root: home, path: "notes/one.md", root_kind: "repo" });
-  expect(ws.file_coordinates[mountDoc]).toEqual({ root: mount, path: "docs/ref.md", root_kind: "repo" });
-  expect(ws.file_coordinates[join(mount, "docs")]).toEqual({ root: mount, path: "docs", root_kind: "repo" });
-  expect(ws.file_coordinates[nonGitDoc]).toEqual({ root: nonGitMount, path: "guide/intro.md", root_kind: "folder" });
+  expect(ws.file_coordinates[homeNote]).toEqual({ root: home, path: "notes/one.md", root_kind: "repo", kind: "file" });
+  expect(ws.file_coordinates[mountDoc]).toEqual({ root: mount, path: "docs/ref.md", root_kind: "repo", kind: "file" });
+  expect(ws.file_coordinates[join(mount, "docs")]).toEqual({ root: mount, path: "docs", root_kind: "repo", kind: "directory" });
+  expect(ws.file_coordinates[nonGitDoc]).toEqual({ root: nonGitMount, path: "guide/intro.md", root_kind: "folder", kind: "file" });
 });
 
 it("normalizes Claude exploration tools (LS, Glob, Grep) with explicit and omitted path", () => {
@@ -169,9 +169,9 @@ it("normalizes Claude exploration tools (LS, Glob, Grep) with explicit and omitt
   const ws = harvestLocalFiles(normalized, dir);
 
   expect(ws.read).toEqual([srcDir, codeFile, dir]);
-  expect(ws.file_coordinates[srcDir]).toEqual({ root: dir, path: "src", root_kind: "repo" });
-  expect(ws.file_coordinates[codeFile]).toEqual({ root: dir, path: "src/app.ts", root_kind: "repo" });
-  expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo" });
+  expect(ws.file_coordinates[srcDir]).toEqual({ root: dir, path: "src", root_kind: "repo", kind: "directory" });
+  expect(ws.file_coordinates[codeFile]).toEqual({ root: dir, path: "src/app.ts", root_kind: "repo", kind: "file" });
+  expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo", kind: "directory" });
 });
 
 it("defaults navigation/ls with omitted path to . while unscoped search tools skip root", () => {
@@ -189,7 +189,7 @@ it("defaults navigation/ls with omitted path to . while unscoped search tools sk
   ], dir);
 
   expect(ws.read).toEqual([dir]);
-  expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo" });
+  expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo", kind: "directory" });
 });
 
 it.skipIf(process.platform === "win32")("skips a path whose file state cannot be read", () => {

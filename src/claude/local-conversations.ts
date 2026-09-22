@@ -57,6 +57,11 @@ export function mintClaudeConversationId(): string {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
+// Claude Code records slash commands and local output in XML-like wrapper tags.
+const CMD_NAME = /<command-name>([\s\S]*?)<\/command-name>/u;
+const CMD_ARGS = /<command-args>([\s\S]*?)<\/command-args>/u;
+const CMD_OUTPUT = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/u;
+
 export function isClaudeConversationId(id: string): boolean {
   return UUID.test(id);
 }
@@ -135,6 +140,37 @@ export function parseClaudeSessionJsonl(text: string, fallbackTs: string): Parse
       if (typeof m.content === "string" || (Array.isArray(m.content) && m.content.every((c) => (c as { type?: string })?.type === "text"))) {
         openAssistant = null; // a new prompt; the next assistant record starts a new message
         const content = textOf(m.content);
+        if (content.includes("<command-name>")) {
+          const nameMatch = CMD_NAME.exec(content);
+          if (nameMatch) {
+            const cmdName = nameMatch[1]?.trim() ?? "";
+            const cmdArgs = CMD_ARGS.exec(content)?.[1]?.trim() ?? "";
+            messages.push({
+              role: "user",
+              content: cmdName + (cmdArgs ? ` ${cmdArgs}` : ""),
+              kind: "command",
+              command: cmdName,
+              ...(cmdArgs ? { args: cmdArgs } : {}),
+              created_at: created,
+            });
+            count += 1;
+            continue;
+          }
+        }
+        if (content.includes("<local-command-stdout>")) {
+          const outMatch = CMD_OUTPUT.exec(content);
+          if (outMatch) {
+            const outText = outMatch[1]?.trim() ?? "";
+            messages.push({
+              role: "user",
+              content: outText,
+              kind: "command-output",
+              created_at: created,
+            });
+            count += 1;
+            continue;
+          }
+        }
         messages.push({ role: "user", content, created_at: created });
         if (!preview) preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
         count += 1;
@@ -194,7 +230,7 @@ export function getClaudeConversation(contextRoot: string, convId: string, env: 
   return {
     conversation_id: convId,
     repo_id: contextRoot,
-    name: s.name ?? s.preview ?? "Untitled",
+    name: (s.name && s.name.trim()) || (s.preview && s.preview.trim()) || "Untitled",
     history: s.messages,
     active_turn: null,
     turn_count: s.messageCount,
@@ -222,7 +258,7 @@ export function listClaudeConversations(contextRoot: string, env: NodeJS.Process
     if (!s.messageCount) continue; // a session file with no visible turn is not a conversation yet
     summaries.push({
       conversation_id: conversationId,
-      name: s.name ?? s.preview ?? "Untitled",
+      name: (s.name && s.name.trim()) || (s.preview && s.preview.trim()) || "Untitled",
       summary: s.preview,
       message_count: s.messageCount,
       status: "idle",

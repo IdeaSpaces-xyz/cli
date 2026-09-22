@@ -3,7 +3,12 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { repoRoot } from "../git.js";
 import { emptyWorkspaceSurface, type KeeperWorkspaceSurface, type ToolInvocation } from "@ideaspaces/sdk";
 
-export interface LocalFileCoordinate { root: string; path: string; root_kind: "repo" | "folder" }
+export interface LocalFileCoordinate {
+  root: string;
+  path: string;
+  root_kind: "repo" | "folder";
+  kind?: "file" | "directory";
+}
 export interface LocalWorkspaceSurface extends KeeperWorkspaceSurface {
   /** Absolute identity → portable path inside its owning local repo/folder. */
   file_coordinates: Record<string, LocalFileCoordinate>;
@@ -122,7 +127,11 @@ export function harvestLocalFiles(
         }
         roots.set(directory, scope);
       }
-      ws.file_coordinates[absolute] = { ...scope, path: relative(scope.root, absolute).split("\\").join("/") };
+      ws.file_coordinates[absolute] = {
+        ...scope,
+        path: relative(scope.root, absolute).split("\\").join("/"),
+        kind: isDir ? "directory" : "file",
+      };
     }
   }
   // Last on-disk state wins when a turn touched a file before removing it.
