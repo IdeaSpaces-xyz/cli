@@ -57,6 +57,9 @@ export function mintClaudeConversationId(): string {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
+const COMMAND = /^\s*<command-name>([\s\S]*?)<\/command-name>\s*(?:<command-message>[\s\S]*?<\/command-message>)?\s*(?:<command-args>([\s\S]*?)<\/command-args>)?\s*$/u;
+const COMMAND_OUTPUT = /^\s*<local-command-stdout>([\s\S]*?)<\/local-command-stdout>\s*$/u;
+
 export function isClaudeConversationId(id: string): boolean {
   return UUID.test(id);
 }
@@ -135,6 +138,32 @@ export function parseClaudeSessionJsonl(text: string, fallbackTs: string): Parse
       if (typeof m.content === "string" || (Array.isArray(m.content) && m.content.every((c) => (c as { type?: string })?.type === "text"))) {
         openAssistant = null; // a new prompt; the next assistant record starts a new message
         const content = textOf(m.content);
+        const cmdMatch = COMMAND.exec(content);
+        const outMatch = COMMAND_OUTPUT.exec(content);
+        if (cmdMatch) {
+          const cmdName = cmdMatch[1]?.trim() ?? "";
+          const cmdArgs = cmdMatch[2]?.trim() ?? "";
+          messages.push({
+            role: "user",
+            content,
+            kind: "command",
+            command: cmdName,
+            ...(cmdArgs ? { args: cmdArgs } : {}),
+            created_at: created,
+          });
+          count += 1;
+          continue;
+        }
+        if (outMatch) {
+          messages.push({
+            role: "user",
+            content,
+            kind: "command-output",
+            created_at: created,
+          });
+          count += 1;
+          continue;
+        }
         messages.push({ role: "user", content, created_at: created });
         if (!preview) preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
         count += 1;
