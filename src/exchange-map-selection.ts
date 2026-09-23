@@ -1,5 +1,6 @@
 import {
   buildMap,
+  REVISION_PATTERN,
   type MapAddressMember,
   type MapBlock,
   type MapMember,
@@ -9,6 +10,7 @@ import {
 const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 const SHA1 = /^[0-9a-f]{40}$/;
 const HOSTNAME_ADDRESS = /^hostname:(?:\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::[0-9]+)?$/;
+const THREAD_ADDRESS = /^thread:x_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
 export interface ExchangeMapSelection {
   kind: "exchange-map-selection";
@@ -73,7 +75,7 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
     exactKeys(
       raw,
       address
-        ? ["address", "name", "summary", "depth", "disclosure"]
+        ? ["address", "name", "summary", "depth", "revision", "disclosure"]
         : ["root", "position", "name", "summary", "depth", "disclosure"],
       `Map member ${ordinal}`,
     );
@@ -95,12 +97,25 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
     };
     if (address) {
       const addressValue = stringField(raw.address, `Map member ${ordinal} address`) ?? "";
-      if (!HOSTNAME_ADDRESS.test(addressValue)) {
-        throw new Error(`Map member ${ordinal} address must be a canonical hostname:`);
+      const isHostname = HOSTNAME_ADDRESS.test(addressValue);
+      const isThread = THREAD_ADDRESS.test(addressValue);
+      if (!isHostname && !isThread) {
+        throw new Error(
+          `Map member ${ordinal} address must be a canonical hostname: or thread:x_<24hex>`,
+        );
+      }
+      const revision = stringField(raw.revision, `Map member ${ordinal} revision`);
+      if (revision !== undefined && !REVISION_PATTERN.test(revision)) {
+        throw new Error(
+          `Map member ${ordinal} revision must be a valid note ID (n_<24hex> or n_<12hex>)`,
+        );
       }
       return {
         address: addressValue,
-        ...(raw.depth === undefined ? {} : { depth: stringField(raw.depth, `Map member ${ordinal} depth`) as "name" | "summary" }),
+        ...(raw.depth === undefined
+          ? {}
+          : { depth: stringField(raw.depth, `Map member ${ordinal} depth`) as "name" | "summary" }),
+        ...(revision === undefined ? {} : { revision }),
         ...annotations,
         disclosure,
       };
@@ -143,7 +158,9 @@ function disclosure(member: MapMember): string {
 }
 
 export function memberReference(member: MapMember, roots: MapBlock["roots"]): string {
-  if (isAddressMember(member)) return member.address;
+  if (isAddressMember(member)) {
+    return member.revision ? `${member.address}@${member.revision}` : member.address;
+  }
   const root = roots[member.root];
   const coordinate = root?.root_node_id ?? root?.repo ?? `root:${member.root}`;
   return `${coordinate}@${root?.sha ?? "?"}:${member.position}`;
