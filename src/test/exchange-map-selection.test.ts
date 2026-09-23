@@ -104,6 +104,12 @@ describe("exchange Map selections", () => {
             disclosure: {},
           },
           {
+            address: "thread:x_0123456789ab",
+            depth: "name",
+            revision: "n_0123456789ab",
+            disclosure: {},
+          },
+          {
             address: "hostname:example.org",
             depth: "name",
             name: "Hostname entity",
@@ -116,10 +122,13 @@ describe("exchange Map selections", () => {
     const parsed = parseExchangeMapSelection(threadNoRev);
     expect(parsed.map.members[0]?.address).toBe("thread:x_0123456789abcdef01234567");
     expect(parsed.map.members[0]).not.toHaveProperty("revision");
-    expect(parsed.map.members[1]?.address).toBe("hostname:example.org");
+    expect(parsed.map.members[1]?.address).toBe("thread:x_0123456789ab");
+    expect(parsed.map.members[1]?.revision).toBe("n_0123456789ab");
+    expect(parsed.map.members[2]?.address).toBe("hostname:example.org");
     const formatted = formatPortableMap(parsed.map).join("\n");
     expect(formatted).toContain("[0] thread:x_0123456789abcdef01234567 · ceiling=summary");
-    expect(formatted).toContain("[1] hostname:example.org · ceiling=name");
+    expect(formatted).toContain("[1] thread:x_0123456789ab@n_0123456789ab · ceiling=name");
+    expect(formatted).toContain("[2] hostname:example.org · ceiling=name");
   });
 
   it("refuses invalid thread addresses and malformed revisions", () => {
@@ -128,7 +137,7 @@ describe("exchange Map selections", () => {
       target_node_id: "n_abcdefabcdefabcdefabcdef",
       map: {
         roots: [],
-        members: [{ address: "thread:not_24_hex", disclosure: {} }],
+        members: [{ address: "thread:not_hex", disclosure: {} }],
       },
     };
     expect(() => parseExchangeMapSelection(invalidAddress)).toThrow(
@@ -150,7 +159,7 @@ describe("exchange Map selections", () => {
       },
     };
     expect(() => parseExchangeMapSelection(invalidRevision)).toThrow(
-      "Map member 0 revision must be a valid note ID (n_<24hex>)",
+      "Map member 0 revision must be a valid note ID (n_<24hex> or n_<12hex>)",
     );
   });
 });

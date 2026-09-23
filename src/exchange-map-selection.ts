@@ -10,7 +10,7 @@ import {
 const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 const SHA1 = /^[0-9a-f]{40}$/;
 const HOSTNAME_ADDRESS = /^hostname:(?:\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::[0-9]+)?$/;
-const THREAD_ADDRESS = /^thread:x_[0-9a-f]{24}$/;
+const THREAD_ADDRESS = /^thread:x_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
 export interface ExchangeMapSelection {
   kind: "exchange-map-selection";
@@ -107,7 +107,7 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
       const revision = stringField(raw.revision, `Map member ${ordinal} revision`);
       if (revision !== undefined && !REVISION_PATTERN.test(revision)) {
         throw new Error(
-          `Map member ${ordinal} revision must be a valid note ID (n_<24hex>)`,
+          `Map member ${ordinal} revision must be a valid note ID (n_<24hex> or n_<12hex>)`,
         );
       }
       return {
