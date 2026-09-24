@@ -718,12 +718,68 @@ describe("inbox", () => {
     expect(codeName).toBe(0);
     expect(stdout()).toBe("x_readable  Readable Thread\nx_discover_only  Discover Only Thread\n");
 
+    // Full depth (fetches readable, names refusal for unreadable)
+    stdoutChunks = [];
+    fetchExchangeMock.mockResolvedValue({
+      mode: "direct",
+      exchange_id: "x_readable",
+      target_node_id: TARGET,
+      participants: [participant(1, "One"), participant(2, "Two")],
+      messages: [message],
+      subject: { opening_note_id: "n_note", current_note_id: "n_note" },
+      latest_position: 1,
+      cursor: null,
+    });
+    const codeFull = await inboxCommand.run(["list"], { space: spaceId, depth: "full" }, TEXT_GLOBAL);
+    expect(codeFull).toBe(0);
+    expect(fetchExchangeMock).toHaveBeenCalledWith(CFG, "x_readable");
+    expect(stdout()).toContain("Thread x_readable");
+    expect(stdout()).toContain("A focused question");
+    expect(stdout()).toContain("x_discover_only  Discover Only Thread");
+    expect(stdout()).toContain("[Not open to you]");
+
     // Empty space threads
     stdoutChunks = [];
     fetchSpaceThreadsMock.mockResolvedValue({ threads: [] });
     const codeEmpty = await inboxCommand.run(["list"], { space: spaceId }, TEXT_GLOBAL);
     expect(codeEmpty).toBe(0);
     expect(stdout()).toContain(`No threads in Space ${spaceId}.`);
+  });
+
+  it("propagates session expiry during --depth full space thread reading", async () => {
+    const spaceId = "n_0123456789abcdef01234567";
+    fetchSpaceThreadsMock.mockResolvedValue({
+      threads: [
+        {
+          exchange_id: "x_readable",
+          name: "Readable Thread",
+          summary: "Summary",
+          revision: "n_111111111111111111111111",
+          can_read: true,
+          created_at: "2026-09-24T00:00:00Z",
+          latest_activity_at: "2026-09-24T01:00:00Z",
+        },
+      ],
+    });
+    fetchExchangeMock.mockRejectedValue(new UnauthorizedError("401"));
+
+    const code = await inboxCommand.run(["list"], { space: spaceId, depth: "full" }, TEXT_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Session expired. Run `ideaspaces login`.");
+  });
+
+  it("refuses --space combined with --new, --since, or --kind", async () => {
+    const spaceId = "n_0123456789abcdef01234567";
+    expect(await inboxCommand.run(["list"], { space: spaceId, new: true }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("--space lists coordination Space threads and cannot be combined with --new, --since, or --kind.");
+
+    stderrChunks = [];
+    expect(await inboxCommand.run(["list"], { space: spaceId, since: "5" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("--space lists coordination Space threads and cannot be combined with --new, --since, or --kind.");
+
+    stderrChunks = [];
+    expect(await inboxCommand.run(["list"], { space: spaceId, kind: "message" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("--space lists coordination Space threads and cannot be combined with --new, --since, or --kind.");
   });
 
   it("refuses an invalid --space node id", async () => {

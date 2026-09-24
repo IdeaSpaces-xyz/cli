@@ -1,4 +1,4 @@
-import { fetchCoordinationSpaces, UnauthorizedError } from "../auth/api.js";
+import { apiErrorDetail, fetchCoordinationSpaces, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
@@ -61,7 +61,7 @@ export const spacesCommand: CommandDef = {
         output.error("Session expired. Run `ideaspaces login`.");
         return 1;
       }
-      output.error(err instanceof Error ? err.message : String(err));
+      output.error(apiErrorDetail(err));
       return 1;
     }
   },

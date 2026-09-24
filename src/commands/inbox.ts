@@ -264,6 +264,10 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
     output.error("Invalid --space: must be a Space node_id (n_…).");
     return 1;
   }
+  if (space && (flags.new || flags.since !== undefined || flags.kind !== undefined)) {
+    output.error("--space lists coordination Space threads and cannot be combined with --new, --since, or --kind.");
+    return 1;
+  }
   if (!validateTemporalFlags(flags, output)) return 1;
   const since = parsePosition(flags.since, output);
   if (since === null) return 1;
@@ -294,8 +298,9 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
             try {
               const exchange = await fetchExchange(config, t.exchange_id);
               return exchangeText(exchange, exchange.messages, "full");
-            } catch {
-              return `${t.exchange_id}  ${t.name}\n  ${t.summary}\n  revision ${t.revision} · readable`;
+            } catch (err) {
+              if (err instanceof UnauthorizedError) throw err;
+              return `${t.exchange_id}  ${t.name}\n  ${t.summary}\n  revision ${t.revision} · ${apiErrorDetail(err)}`;
             }
           }),
         );
@@ -560,8 +565,10 @@ export const inboxCommand: CommandDef = {
   usage: USAGE,
   examples: [
     "ideaspaces inbox list --new --depth name",
+    "ideaspaces inbox list --space n_0123456789abcdef01234567",
     "ideaspaces inbox read x_example --new --depth full --ack",
     "ideaspaces inbox expand x_example 0",
+    "ideaspaces inbox send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces inbox send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces inbox send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces inbox send --about n_0123456789abcdef01234567 --name 'Bug' --summary 'share invite 404s' --message '…'  # no recipient: goes to the Node's owner",
