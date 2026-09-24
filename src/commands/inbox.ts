@@ -3,9 +3,11 @@ import { readFileSync, statSync } from "node:fs";
 
 import {
   acknowledgeSubscription,
+  apiErrorDetail,
   fetchExchange,
   fetchExchangeMapMember,
   fetchInbox,
+  fetchSpaceThreads,
   fetchSubscriptionEvents,
   listSubscriptions,
   replyToExchange,
@@ -20,6 +22,7 @@ import {
   type InboxParticipant,
   type InquiryInboxItem,
   type InquirySendBody,
+  type SpaceThreadSummary,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import {
@@ -33,13 +36,15 @@ import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
 
+const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
+
 const USAGE = "ideaspaces inbox <list|read|send|reply|expand> ...";
 const LIST_USAGE =
-  "ideaspaces inbox list [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
+  "ideaspaces inbox list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
 const READ_USAGE =
   "ideaspaces inbox read <thread_id> [--new|--since <position>] [--kind <message|reframe>] [--depth <name|summary|full>] [--ack]";
 const SEND_USAGE =
-  "ideaspaces inbox send [<email|@handle>] [--about <node_id>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces inbox send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 const EXPAND_USAGE = "ideaspaces inbox expand <thread_id> <member_ordinal>";
 const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
@@ -244,7 +249,7 @@ async function runAuthenticated(
       output.error("Session expired. Run `ideaspaces login`.");
       return 1;
     }
-    output.error(err instanceof Error ? err.message : String(err));
+    output.error(apiErrorDetail(err));
     return 1;
   }
 }
@@ -252,6 +257,11 @@ async function runAuthenticated(
 async function list(rest: string[], flags: Flags, output: Output): Promise<number> {
   if (rest.length) {
     output.error(`Usage: ${LIST_USAGE}`);
+    return 1;
+  }
+  const space = flagString(flags, "space")?.trim();
+  if (space !== undefined && !NODE_ID.test(space)) {
+    output.error("Invalid --space: must be a Space node_id (n_…).");
     return 1;
   }
   if (!validateTemporalFlags(flags, output)) return 1;
@@ -267,6 +277,41 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
   if (!depth) return 1;
 
   return runAuthenticated(output, async (config) => {
+    if (space) {
+      const response = await fetchSpaceThreads(config, space);
+      const threads = response.threads;
+      let text: string;
+      if (!threads.length) {
+        text = `No threads in Space ${space}.`;
+      } else if (depth === "name") {
+        text = threads.map((t) => `${t.exchange_id}  ${t.name}`).join("\n");
+      } else if (depth === "full") {
+        const blocks = await Promise.all(
+          threads.map(async (t) => {
+            if (!t.can_read) {
+              return `${t.exchange_id}  ${t.name}\n  ${t.summary}\n  revision ${t.revision} · not open to you\n  [Not open to you]`;
+            }
+            try {
+              const exchange = await fetchExchange(config, t.exchange_id);
+              return exchangeText(exchange, exchange.messages, "full");
+            } catch {
+              return `${t.exchange_id}  ${t.name}\n  ${t.summary}\n  revision ${t.revision} · readable`;
+            }
+          }),
+        );
+        text = blocks.join("\n\n");
+      } else {
+        text = threads
+          .map(
+            (t) =>
+              `${t.exchange_id}  ${t.name}\n  ${t.summary}\n  revision ${t.revision} · ${t.can_read ? "readable" : "not open to you"}`,
+          )
+          .join("\n\n");
+      }
+      output.result({ threads }, text);
+      return 0;
+    }
+
     const inbox = await fetchInbox(config);
     let reframeNoteIds: Map<string, Set<string>> | undefined;
     let items = inbox.items.filter((item) => since === undefined || item.latest_position > since);
@@ -406,6 +451,11 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
     return 1;
   }
   const target = requestedTarget ?? selection?.target_node_id;
+  const spaceId = flagString(flags, "space")?.trim();
+  if (spaceId !== undefined && !NODE_ID.test(spaceId)) {
+    output.error("Invalid --space: must be a Space node_id (n_…).");
+    return 1;
+  }
   if (rest.length > 1 || recipient === null || !target) {
     output.error(`Usage: ${SEND_USAGE}`);
     return 1;
@@ -417,11 +467,19 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
       ...note,
       target_node_id: target,
       ...(recipient ? { recipient } : {}),
+      ...(spaceId ? { space_id: spaceId } : {}),
       ...(selection ? { map: selection.map } : {}),
     });
-    const addressed = recipient
-      ? `Sent. Thread ${result.exchange_id} is about ${result.target_node_id}.`
-      : `Sent to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
+    let addressed: string;
+    if (result.space_id) {
+      addressed = recipient
+        ? `Sent in Space ${result.space_id}. Thread ${result.exchange_id} is about ${result.target_node_id}.`
+        : `Sent in Space ${result.space_id} to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
+    } else {
+      addressed = recipient
+        ? `Sent. Thread ${result.exchange_id} is about ${result.target_node_id}.`
+        : `Sent to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
+    }
     output.result(result, addressed);
     return 0;
   });
