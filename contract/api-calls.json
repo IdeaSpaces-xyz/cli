@@ -16,6 +16,14 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/coordination-spaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/coordination-spaces/{spaceNodeId}/threads"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/entities/{entityType}/{entityKey}"
     },
     {

@@ -651,6 +651,8 @@ export interface InquirySendBody extends ExchangeNoteWrite {
   target_node_id: string;
   /** Omit to address the target's owner. */
   recipient?: { user_id: number } | { username: string } | { email: string };
+  /** Optional coordination Space node_id to bind this exchange to at creation. */
+  space_id?: string;
   map?: MapBlock;
 }
 
@@ -666,6 +668,102 @@ export interface ExchangeWriteResponse {
   actor_ref: string;
   surface: "human" | "agent";
   action: "inquiry.opened" | "note.replied";
+  space_id?: string | null;
+}
+
+/** Pull the clean message or detail string out of an API error. */
+export function apiErrorDetail(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const match = err.message.match(/→ \d+:\s*(.+)$/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]!) as { detail?: unknown; message?: unknown };
+      if (typeof parsed.detail === "string") return parsed.detail;
+      if (
+        parsed.detail &&
+        typeof parsed.detail === "object" &&
+        "message" in parsed.detail &&
+        typeof (parsed.detail as { message: unknown }).message === "string"
+      ) {
+        return (parsed.detail as { message: string }).message;
+      }
+      if (typeof parsed.message === "string") return parsed.message;
+    } catch {
+      return match[1]!;
+    }
+  }
+  return err.message;
+}
+
+export interface CoordinationSpaceResponse {
+  kind: "coordination_space";
+  node_id: string;
+  node_type?: "space";
+  name: string;
+  summary: string;
+  attached_to?: string[];
+  status: "active" | "dormant";
+  lifecycle: "active" | "dormant";
+  owner: string;
+  relationship?: string | null;
+  actions?: string[];
+  canonical_url: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CoordinationSpaceListResponse {
+  spaces: CoordinationSpaceResponse[];
+  default_space_node_id?: string | null;
+}
+
+export interface ListCoordinationSpacesOptions extends RequestOptions {
+  attached_to?: string;
+  include_dormant?: boolean;
+  limit?: number;
+}
+
+/** Fetch authorized coordination Spaces catalog. */
+export async function fetchCoordinationSpaces(
+  config: ApiConfig,
+  opts?: ListCoordinationSpacesOptions,
+): Promise<CoordinationSpaceListResponse> {
+  const query = new URLSearchParams();
+  if (opts?.attached_to) query.set("attached_to", opts.attached_to);
+  if (opts?.include_dormant !== undefined) query.set("include_dormant", String(opts.include_dormant));
+  if (opts?.limit !== undefined) query.set("limit", String(opts.limit));
+  const queryString = query.toString();
+  const path = `${API_V1}/coordination-spaces${queryString ? `?${queryString}` : ""}`;
+  return request<CoordinationSpaceListResponse>(config, "GET", path, undefined, opts);
+}
+
+export interface SpaceThreadSummary {
+  exchange_id: string;
+  name: string;
+  summary: string;
+  revision: string;
+  can_read: boolean;
+  created_at: string;
+  latest_activity_at: string;
+}
+
+export interface SpaceThreadsResponse {
+  threads: SpaceThreadSummary[];
+}
+
+/** List threads bound to an explicit coordination Space at a summary disclosure ceiling. */
+export async function fetchSpaceThreads(
+  config: ApiConfig,
+  spaceNodeId: string,
+  opts?: RequestOptions,
+): Promise<SpaceThreadsResponse> {
+  return request<SpaceThreadsResponse>(
+    config,
+    "GET",
+    `${API_V1}/coordination-spaces/${encodeURIComponent(spaceNodeId)}/threads`,
+    undefined,
+    opts,
+  );
 }
 
 /** Direct exchanges received by the logged-in person, newest activity first. */
