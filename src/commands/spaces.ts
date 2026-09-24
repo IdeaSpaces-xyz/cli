@@ -1,3 +1,4 @@
+import { parseBool } from "../argv.js";
 import { apiErrorDetail, fetchCoordinationSpaces, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
@@ -35,7 +36,7 @@ export const spacesCommand: CommandDef = {
     }
 
     const attachedTo = flagString(flags, "attached-to");
-    const includeDormant = flags["include-dormant"] === true ? true : undefined;
+    const includeDormant = flags["include-dormant"] !== undefined ? parseBool(flags["include-dormant"]) : undefined;
 
     try {
       const result = await fetchCoordinationSpaces(config, {

@@ -109,7 +109,7 @@ describe("ideaspaces spaces command", () => {
 
     const code = await spacesCommand.run(
       ["list"],
-      { "attached-to": "repo:n_0123456789abcdef01234567", "include-dormant": true },
+      { "attached-to": "repo:n_0123456789abcdef01234567", "include-dormant": "true" },
       TEXT_GLOBAL,
     );
 
@@ -119,6 +119,17 @@ describe("ideaspaces spaces command", () => {
       include_dormant: true,
     });
     expect(stdout()).toContain("No coordination spaces found.");
+
+    fetchCoordinationSpacesMock.mockClear();
+    await spacesCommand.run(
+      ["list"],
+      { "include-dormant": "false" },
+      TEXT_GLOBAL,
+    );
+    expect(fetchCoordinationSpacesMock).toHaveBeenCalledWith(CFG, {
+      attached_to: undefined,
+      include_dormant: false,
+    });
   });
 
   it("refuses unexpected positional arguments", async () => {
