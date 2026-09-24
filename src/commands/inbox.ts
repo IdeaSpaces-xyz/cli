@@ -474,16 +474,10 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
       ...(spaceId ? { space_id: spaceId } : {}),
       ...(selection ? { map: selection.map } : {}),
     });
-    let addressed: string;
-    if (result.space_id) {
-      addressed = recipient
-        ? `Sent in Space ${result.space_id}. Thread ${result.exchange_id} is about ${result.target_node_id}.`
-        : `Sent in Space ${result.space_id} to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
-    } else {
-      addressed = recipient
-        ? `Sent. Thread ${result.exchange_id} is about ${result.target_node_id}.`
-        : `Sent to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
-    }
+    const inSpace = result.space_id ? ` in Space ${result.space_id}` : "";
+    const addressed = recipient
+      ? `Sent${inSpace}. Thread ${result.exchange_id} is about ${result.target_node_id}.`
+      : `Sent${inSpace} to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
     output.result(result, addressed);
     return 0;
   });

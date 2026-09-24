@@ -136,5 +136,19 @@ describe("ideaspaces spaces command", () => {
     const code = await spacesCommand.run(["unknown_subcommand"], {}, TEXT_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("Usage: ideaspaces spaces");
+
+    stderrChunks = [];
+    const codeMulti = await spacesCommand.run(["list", "extra"], {}, TEXT_GLOBAL);
+    expect(codeMulti).toBe(1);
+    expect(stderr()).toContain("Usage: ideaspaces spaces");
+  });
+
+  it("reports server error with apiErrorDetail", async () => {
+    fetchCoordinationSpacesMock.mockRejectedValue(
+      new Error('GET /api/v1/coordination-spaces → 403: {"detail":"Forbidden"}'),
+    );
+    const code = await spacesCommand.run([], {}, TEXT_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Forbidden");
   });
 });

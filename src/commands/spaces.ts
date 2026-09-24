@@ -30,7 +30,7 @@ export const spacesCommand: CommandDef = {
     }
 
     const [sub] = args;
-    if (sub !== undefined && sub !== "list") {
+    if (args.length > 1 || (sub !== undefined && sub !== "list")) {
       output.error("Usage: ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]");
       return 1;
     }
