@@ -22,7 +22,6 @@ import {
   type InboxParticipant,
   type InquiryInboxItem,
   type InquirySendBody,
-  type SpaceThreadSummary,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import {
