@@ -1,12 +1,12 @@
 /**
- * `ideaspaces map [<repo>]` — derive a local Content Map without a contract or network.
+ * `ideaspaces map [<repo>]` — derive a local Content Map without a contract or network,
+ * or display a curated Space Map (*.map.md) at the position.
  *
- * This is deliberately separate from `navigate`: navigate is bounded ambient
- * orientation at a position, while map is explicit repository enumeration. The
- * protocol owns the one tree walker and its exclusion/summary semantics; this
- * command projects those handles into the Map rung vocabulary. JSON always
- * carries the local `projection`; it adds `map` only when strict portable
- * construction succeeds and reports `map_issues` when validation refuses it.
+ * When a curated `*.map.md` (e.g. `home.map.md`) is present at the position,
+ * `map` recognises it as the Space's curated Map, loads it through `local/map-note.ts`,
+ * and reports drift between each root's pin and the checkout's HEAD.
+ *
+ * Without a `.map.md`, `map` derives a local Content Map from the working tree.
  */
 
 import {
@@ -22,6 +22,7 @@ import {
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { inspectPortableLocalRoot } from "../local-map-root.js";
+import { inspectSpaceMap } from "../local/space-map.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
@@ -47,7 +48,7 @@ function emptyTree(): ContentAwarenessTree {
 
 export const mapCommand: CommandDef = {
   name: "map",
-  description: "Derive a local Map or select exact portable context for Inbox",
+  description: "Display a curated Space Map (*.map.md) or derive a local Content Map",
   usage: `ideaspaces map [<repo>] [--depth <1..4|full>] [--json]\n       ${MAP_SELECT_USAGE}`,
   examples: [
     "ideaspaces map . --json",
@@ -83,6 +84,90 @@ export const mapCommand: CommandDef = {
       );
       return 1;
     }
+
+    // 1. Check for a curated Space Map (*.map.md) at the target position
+    let spaceMap: ReturnType<typeof inspectSpaceMap>;
+    try {
+      spaceMap = inspectSpaceMap(target);
+    } catch (error) {
+      output.error(`Could not open Space Map: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
+    if (spaceMap) {
+      const data = {
+        kind: "space-map",
+        source: "curated-map-note",
+        file: spaceMap.file,
+        ...(spaceMap.otherFiles.length ? { other_files: spaceMap.otherFiles } : {}),
+        path: spaceMap.note.path,
+        name: spaceMap.note.name ?? null,
+        summary: spaceMap.note.summary ?? null,
+        roots: spaceMap.roots.map((r) => ({
+          root_index: r.rootIndex,
+          root_node_id: r.rootNodeId,
+          repo: r.repo,
+          sha: r.pinnedSha,
+          status: r.status,
+          drift: r.drift,
+          head_sha: r.headSha,
+          checkout_path: r.checkoutPath,
+        })),
+        members: spaceMap.members,
+        map: spaceMap.note.map,
+      };
+
+      const lines: string[] = [`Space Map (${spaceMap.file}) — ${target}`];
+      if (spaceMap.otherFiles.length > 0) {
+        lines.push(
+          `Note: Multiple Space Maps found (${[spaceMap.file, ...spaceMap.otherFiles].join(", ")}). Using ${spaceMap.file}.`,
+        );
+      }
+      if (spaceMap.note.name) lines.push(`Name: ${spaceMap.note.name}`);
+      if (spaceMap.note.summary) lines.push(`Summary: ${spaceMap.note.summary}`);
+
+      lines.push(`Roots (${spaceMap.roots.length}${spaceMap.roots.length > 0 ? ", ordered" : ""}):`);
+      if (spaceMap.roots.length === 0) {
+        lines.push("  (empty Map)");
+      } else {
+        for (const r of spaceMap.roots) {
+          const label = r.repo ?? r.rootNodeId ?? `root_${r.rootIndex}`;
+          const mark = `[${r.status}]`;
+          const pin = `@ ${r.pinnedSha}`;
+          const detail = r.status === "moved" && r.headSha ? ` (head: ${r.headSha})` : "";
+          lines.push(`  [${r.rootIndex}] ${mark} ${label} ${pin}${detail}`);
+        }
+      }
+
+      lines.push(`Members (${spaceMap.members.length}${spaceMap.members.length > 0 ? ", ordered" : ""}):`);
+      if (spaceMap.members.length === 0) {
+        lines.push("  (no members)");
+      } else {
+        for (const [index, member] of spaceMap.members.entries()) {
+          const summary = member.summary ? ` — ${member.summary}` : "";
+          if ("address" in member && typeof member.address === "string") {
+            lines.push(
+              `  [${index}] address="${member.address}" depth=${member.depth ?? "unspecified"}${summary}`,
+            );
+          } else if ("position" in member) {
+            lines.push(
+              `  [${index}] position="${member.position}" root=${member.root} depth=${member.depth}${summary}`,
+            );
+          }
+        }
+      }
+
+      if (spaceMap.note.legend) {
+        lines.push("Legend (user-authored prose):");
+        for (const line of spaceMap.note.legend.split("\n")) {
+          lines.push(`  | ${line}`);
+        }
+      }
+
+      output.result(data, lines.join("\n"));
+      return 0;
+    }
+
+    // 2. No *.map.md — derive a local Content tree
     const resolvedRepoRoot = await resolveRepoRoot(target);
     if (!resolvedRepoRoot) {
       output.error(`Not a Git repository: ${target}`);

@@ -757,4 +757,113 @@ describe("ideaspaces create — git author identity", () => {
     expect(exit).toBe(0);
     expect(elapsed).toBeLessThan(4500);
   }, 8_000);
+
+  describe("ideaspaces create --home", () => {
+    it("plans a Home scaffold with an Agreement and empty home.map.md when --yes is absent", async () => {
+      const target = join(tmp, "my-home");
+      const captured = await captureStdout(() =>
+        createCommand.run([], { home: target }, baseGlobal),
+      );
+      expect(captured.exit).toBe(0);
+      const data = JSON.parse(captured.out);
+      expect(data).toMatchObject({
+        target,
+        home: true,
+        contract: "agreement",
+      });
+      expect(data.plan.some((step: any) => step.path && step.path.endsWith("home.map.md"))).toBe(true);
+      expect(existsSync(join(target, "home.map.md"))).toBe(false);
+    });
+
+    it("scaffolds Home with Agreement and empty home.map.md with --yes, and map prints empty Map", async () => {
+      const target = join(tmp, "my-home");
+      const { createCommand: cc } = await import("../commands/create.js");
+      const exit = await cc.run([], { home: target }, { ...baseGlobal, yes: true });
+      expect(exit).toBe(0);
+
+      // Files materialized
+      expect(existsSync(join(target, "_agent", "agreement.md"))).toBe(true);
+      expect(existsSync(join(target, "home.map.md"))).toBe(true);
+      expect(existsSync(join(target, "CLAUDE.md"))).toBe(true);
+      expect(existsSync(join(target, ".gitignore"))).toBe(true);
+      expect(existsSync(join(target, ".gitattributes"))).toBe(true);
+
+      const agreement = await fs.readFile(join(target, "_agent", "agreement.md"), "utf-8");
+      expect(agreement).toContain("name: Agreement — Home");
+      expect(agreement).toContain(`agreement: ${KNOWLEDGE_REFERENCE}`);
+
+      const homeMap = await fs.readFile(join(target, "home.map.md"), "utf-8");
+      expect(homeMap).toContain("name: Home");
+      expect(homeMap).toContain("roots: []");
+      expect(homeMap).toContain("members: []");
+
+      // Running ideaspaces map on that folder prints empty Map, not derived tree
+      const { mapCommand: mc } = await import("../commands/map.js");
+      const mapResult = await captureStdout(() =>
+        mc.run([target], {}, { ...baseGlobal, json: false, quiet: false }),
+      );
+      expect(mapResult.exit).toBe(0);
+      expect(mapResult.out).toContain("Space Map (home.map.md)");
+      expect(mapResult.out).toContain("Roots (0):");
+      expect(mapResult.out).toContain("(empty Map)");
+      expect(mapResult.out).toContain("Members (0):");
+      expect(mapResult.out).toContain("(no members)");
+      expect(mapResult.out).not.toContain("Derived Map");
+
+      // Running navigate names the Space by home.map.md
+      const navResult = await captureStdout(() =>
+        navigateCommand.run([target], {}, baseGlobal),
+      );
+      expect(navResult.exit).toBe(0);
+      const navData = JSON.parse(navResult.out);
+      expect(navData.space).toBe("home.map.md");
+      expect(navData.text).toContain("space: home.map.md");
+    });
+
+    it("refuses to scaffold Home in a code repo", async () => {
+      const target = join(tmp, "repo");
+      await fs.mkdir(target);
+      await fs.writeFile(join(target, "package.json"), "{}");
+      const { createCommand: cc } = await import("../commands/create.js");
+      const captured = await captureStdout(() =>
+        cc.run([], { home: target }, { ...baseGlobal, yes: true }),
+      );
+      expect(captured.exit).toBe(5);
+      expect(existsSync(join(target, "_agent"))).toBe(false);
+      expect(existsSync(join(target, "home.map.md"))).toBe(false);
+    });
+
+    it("does not overwrite an existing home.map.md on create --home", async () => {
+      const target = join(tmp, "existing-home");
+      await fs.mkdir(target);
+      const existingMapContent = "---\nname: Existing Home\nsummary: Custom.\nmap:\n  roots: []\n  members: []\n---\n# Existing\n";
+      await fs.writeFile(join(target, "home.map.md"), existingMapContent);
+
+      const plan = await captureStdout(() => createCommand.run([], { home: target }, baseGlobal));
+      expect(plan.exit).toBe(0);
+      expect(JSON.parse(plan.out).plan.some((step: { path?: string }) => step.path?.endsWith("home.map.md"))).toBe(false);
+
+      const { createCommand: cc } = await import("../commands/create.js");
+      const exit = await cc.run([], { home: target }, { ...baseGlobal, yes: true });
+      expect(exit).toBe(0);
+
+      const mapAfter = await fs.readFile(join(target, "home.map.md"), "utf-8");
+      expect(mapAfter).toBe(existingMapContent);
+    });
+
+    it("refuses --home with --foundation before writing an inconsistent contract", async () => {
+      const target = join(tmp, "invalid-home");
+      const captured = await captureStdout(() =>
+        createCommand.run([], { home: target, foundation: true }, { ...baseGlobal, yes: true }),
+      );
+      expect(captured.exit).toBe(5);
+      expect(existsSync(target)).toBe(false);
+    });
+
+    it("refuses when both positional target and --home <dir> are provided", async () => {
+      const { createCommand: cc } = await import("../commands/create.js");
+      const exit = await cc.run(["dir1"], { home: "dir2" }, { ...baseGlobal, yes: true });
+      expect(exit).toBe(5);
+    });
+  });
 });

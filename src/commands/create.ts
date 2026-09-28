@@ -42,6 +42,9 @@ import {
   agentContractTemplates,
   agreementClaudeMd,
   agreementContractTemplates,
+  HOME_AGREEMENT_MD,
+  HOME_CLAUDE_MD,
+  HOME_MAP_MD,
   isSafeAgentName,
   CLAUDE_MD,
   CONTRACT_TEMPLATES,
@@ -97,18 +100,24 @@ const OLD_AGENT_FILES = ["always.md", "rules.md", "soul.md", "guidance.md"];
 export const createCommand: CommandDef = {
   name: "create",
   description: "Scaffold an ideaspace (_agent/agreement.md + CLAUDE.md + .gitignore defaults)",
-  usage: "ideaspaces create [name] [--yes] [--shared] [--agent] [--foundation]",
+  usage: "ideaspaces create [name] [--yes] [--shared] [--agent] [--foundation] [--home [dir]]",
   examples: [
     "ideaspaces create my-space             # plan in ./my-space/, exit without applying",
     "ideaspaces create my-space --yes       # scaffold and commit",
     "ideaspaces create --yes                # scaffold in current directory",
     "ideaspaces create --yes --shared       # in a code repo, opt into shared (committed) _agent/",
     "ideaspaces create scribe --yes --agent # an agent: the folder IS the agent",
+    "ideaspaces create --home ~/IdeaSpaces --yes  # scaffold Home with Agreement + empty home.map.md",
     "ideaspaces create --yes --foundation   # the older foundation.md + guide.md shape (one more release)",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
-    const name = args[0];
+    const homeMode = flags.home !== undefined;
+    if (args[0] && typeof flags.home === "string" && flags.home.trim()) {
+      output.error("Provide a target directory either as an argument or via --home <dir>, not both.");
+      return 5;
+    }
+    const name = typeof flags.home === "string" && flags.home.trim() ? flags.home.trim() : args[0];
     const targetDir = name ? resolve(process.cwd(), name) : process.cwd();
     const apply = global.yes === true;
     const sharedFlag = Boolean(flags.shared);
@@ -130,6 +139,20 @@ export const createCommand: CommandDef = {
     }
 
     const agentMode = Boolean(flags.agent);
+    if (agentMode && homeMode) {
+      output.error("--home and --agent cannot be used together.");
+      return 5;
+    }
+    if (homeMode && flags.foundation) {
+      output.error("--home always uses an Agreement; --foundation cannot be combined with --home.");
+      return 5;
+    }
+    if (homeMode && shape === "code-repo") {
+      output.error(
+        `${describeTarget(targetDir, name)} looks like a code repo. Home is a container space for your ideaspaces, not a codebase. Create it in a dedicated directory: \`ideaspaces create --home <dir>\`.`,
+      );
+      return 5;
+    }
     if (agentMode && shape === "code-repo") {
       output.error(
         `${describeTarget(targetDir, name)} looks like a code repo. An agent is its own space — the tree is the agent's memory, not a codebase. Create it in a fresh folder: \`ideaspaces create <name> --agent\`.`,
@@ -137,7 +160,7 @@ export const createCommand: CommandDef = {
       return 5;
     }
 
-    const privateAgent = shape === "code-repo" && !sharedFlag;
+    const privateAgent = !homeMode && shape === "code-repo" && !sharedFlag;
     const agentName = name ?? basename(targetDir);
     if (agentMode && !isSafeAgentName(agentName)) {
       // The name lands verbatim in YAML frontmatter — refuse rather than escape.
@@ -149,18 +172,32 @@ export const createCommand: CommandDef = {
     const contractShape: ContractShape = flags.foundation ? "foundation" : "agreement";
     const kind: Kind = agentMode ? "agent" : "knowledge";
     const contract =
-      contractShape === "agreement"
-        ? agreementContractTemplates(kind, agentName)
-        : agentMode
-          ? agentContractTemplates(agentName)
-          : CONTRACT_TEMPLATES;
+      homeMode
+        ? { agreement: HOME_AGREEMENT_MD }
+        : contractShape === "agreement"
+          ? agreementContractTemplates(kind, agentName)
+          : agentMode
+            ? agentContractTemplates(agentName)
+            : CONTRACT_TEMPLATES;
     const claudeMd =
-      contractShape === "agreement"
-        ? agreementClaudeMd(kind, agentName)
-        : agentMode
-          ? agentClaudeMd(agentName)
-          : CLAUDE_MD;
-    const plan = buildPlan({ targetDir, name, shape, inspection, privateAgent, contract, contractShape });
+      homeMode
+        ? HOME_CLAUDE_MD
+        : contractShape === "agreement"
+          ? agreementClaudeMd(kind, agentName)
+          : agentMode
+            ? agentClaudeMd(agentName)
+            : CLAUDE_MD;
+    const existingHomeMap = homeMode && existsSync(join(targetDir, "home.map.md"));
+    const plan = buildPlan({
+      targetDir,
+      name,
+      shape,
+      inspection,
+      privateAgent,
+      contract,
+      contractShape,
+      homeMode,
+    });
     const foundationNote =
       contractShape === "foundation"
         ? "Note: `--foundation` writes the older foundation.md + guide.md shape. It goes away in a later release; new spaces are formed as `_agent/agreement.md`."
@@ -171,6 +208,7 @@ export const createCommand: CommandDef = {
         {
           target: targetDir,
           shape,
+          home: homeMode,
           privateAgent,
           agent: agentMode,
           contract: contractShape,
@@ -186,6 +224,8 @@ export const createCommand: CommandDef = {
           plan,
           nestedInRepo: inspection.nestedInRepo,
           agentName: agentMode ? agentName : undefined,
+          homeMode,
+          existingHomeMap,
           foundationNote,
         }),
       );
@@ -204,6 +244,7 @@ export const createCommand: CommandDef = {
         contract,
         contractShape,
         claudeMd,
+        homeMapMd: homeMode ? HOME_MAP_MD : undefined,
       }));
     } catch (err) {
       // A genuine filesystem failure — the files themselves couldn't be written.
@@ -213,7 +254,7 @@ export const createCommand: CommandDef = {
 
     const where = name ? `./${name}` : "this directory";
     const lines = [
-      `Scaffolded ${describeTarget(targetDir, name)} (${agentMode ? `agent: ${agentName}` : shape}${privateAgent ? ", private _agent/" : ""}).`,
+      `Scaffolded ${homeMode ? "Home ideaspace" : describeTarget(targetDir, name)} (${homeMode ? existingHomeMap ? "existing home.map.md preserved" : "home with empty home.map.md" : agentMode ? `agent: ${agentName}` : shape}${privateAgent ? ", private _agent/" : ""}).`,
     ];
     if (inspection.nestedInRepo) {
       lines.push(nestingNotice(targetDir, inspection.nestedInRepo));
@@ -226,7 +267,11 @@ export const createCommand: CommandDef = {
         `Once git is ready, from ${where}: \`git init -b main && git add ${committablePaths.join(" ")} && git commit -m "Initial ideaspace scaffold"\`.`,
       );
     }
-    if (contractShape === "agreement") {
+    if (homeMode) {
+      lines.push(
+        `Next: open a session in ${where} — Home is scaffolded with an Agreement and ${existingHomeMap ? "your existing" : "an empty"} home.map.md as the curated Space Map.`,
+      );
+    } else if (contractShape === "agreement") {
       lines.push(
         agentMode
           ? `Next: open a session in ${where} — the Agreement's sections are prompts. Draw out who ${agentName} is from real tasks and replace them.`
@@ -246,6 +291,7 @@ export const createCommand: CommandDef = {
       {
         target: targetDir,
         shape,
+        home: homeMode,
         privateAgent,
         agent: agentMode,
         contract: contractShape,
@@ -351,8 +397,9 @@ function buildPlan(opts: {
   privateAgent: boolean;
   contract: Record<string, string>;
   contractShape: ContractShape;
+  homeMode?: boolean;
 }): Plan {
-  const { targetDir, name, inspection, privateAgent, contract, contractShape } = opts;
+  const { targetDir, name, inspection, privateAgent, contract, contractShape, homeMode } = opts;
   const steps: PlanStep[] = [];
 
   if (name && !inspection.exists) {
@@ -364,6 +411,10 @@ function buildPlan(opts: {
 
   for (const fileName of Object.keys(contract)) {
     steps.push({ op: "write", path: join(targetDir, "_agent", `${fileName}.md`) });
+  }
+
+  if (homeMode && !existsSync(join(targetDir, "home.map.md"))) {
+    steps.push({ op: "write", path: join(targetDir, "home.map.md"), detail: "empty Space Map" });
   }
 
   if (contractShape === "foundation") {
@@ -409,13 +460,15 @@ function renderPlanText(opts: {
   nestedInRepo: string | null;
   /** Present when scaffolding an agent — the plan must say so before --yes. */
   agentName?: string;
+  homeMode?: boolean;
+  existingHomeMap?: boolean;
   /** Present under --foundation — the plan must say the shape is the old one. */
   foundationNote?: string;
 }): string {
-  const { targetDir, name, shape, privateAgent, plan, nestedInRepo, agentName, foundationNote } = opts;
+  const { targetDir, name, shape, privateAgent, plan, nestedInRepo, agentName, homeMode, existingHomeMap, foundationNote } = opts;
   const lines: string[] = [];
   lines.push(
-    `Plan for ${describeTarget(targetDir, name)} — ${agentName ? `agent: ${agentName} (the space IS its character)` : `shape: ${shape}`}${privateAgent ? " (private _agent/)" : ""}`,
+    `Plan for ${describeTarget(targetDir, name)} — ${homeMode ? existingHomeMap ? "home (existing home.map.md preserved)" : "home (with empty home.map.md)" : agentName ? `agent: ${agentName} (the space IS its character)` : `shape: ${shape}`}${privateAgent ? " (private _agent/)" : ""}`,
   );
   if (nestedInRepo) {
     lines.push("");
@@ -444,13 +497,14 @@ async function applyPlan(opts: {
   contract: Record<string, string>;
   contractShape: ContractShape;
   claudeMd: string;
+  homeMapMd?: string;
 }): Promise<{
   versioned: boolean;
   gitNote?: string;
   commitPaths: string[];
   rootNodeId: string | null;
 }> {
-  const { targetDir, inspection, privateAgent, contract, contractShape, claudeMd } = opts;
+  const { targetDir, inspection, privateAgent, contract, contractShape, claudeMd, homeMapMd } = opts;
   let rootNodeId: string | null = null;
   let materializedContract = contract;
   if (!privateAgent) {
@@ -474,6 +528,15 @@ async function applyPlan(opts: {
     const rel = join("_agent", `${name}.md`);
     await fs.writeFile(join(targetDir, rel), content, "utf-8");
     if (trackAgent) commitPaths.push(rel);
+  }
+
+  if (homeMapMd) {
+    const mapRel = "home.map.md";
+    const mapAbs = join(targetDir, mapRel);
+    if (!existsSync(mapAbs)) {
+      await fs.writeFile(mapAbs, homeMapMd, "utf-8");
+      commitPaths.push(mapRel);
+    }
   }
 
   if (contractShape === "foundation") {
