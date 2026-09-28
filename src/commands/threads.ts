@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { parseFrontmatter, parseMap, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { parse as parseYaml } from "yaml";
-import { fetchExchange, fetchInbox, fetchSpaceThreads } from "../auth/api.js";
+import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -141,8 +141,13 @@ export const threadsCommand: CommandDef = {
         }
         if (rung === "full" && config) {
           hosted = await Promise.all(hosted.map(async (row) => {
-            const exchange = await fetchExchange(config, row.id);
-            return { ...row, messages: exchange.messages, text: exchangeText(exchange, exchange.messages, "full") };
+            try {
+              const exchange = await fetchExchange(config, row.id);
+              return { ...row, messages: exchange.messages, text: exchangeText(exchange, exchange.messages, "full") };
+            } catch (error) {
+              if (error instanceof UnauthorizedError) throw error;
+              return { ...row, text: `${row.id}  ${row.name}\n  ${apiErrorDetail(error)}` };
+            }
           }));
         }
         const rows = [...local, ...hosted].map((row) => rung === "name"
@@ -189,6 +194,7 @@ export const threadsCommand: CommandDef = {
           pin = selectedRoot.sha;
           position = member.position;
         }
+        if (flags.pin === true || flags.position === true) throw new Error("--pin and --position require values.");
         if (!!pin !== !!position) throw new Error("Pinned open requires both --pin <authored SHA> and --position <_threads/...md>.");
         const pinned = pin && position ? readPinnedThreadMember(threadBase(), pin, position) : undefined;
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
@@ -204,6 +210,10 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || HOSTED.test(rest[0])) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
+        for (const flag of ["map", "reply-to", "kind", "author", "name", "summary", "supersedes", "message"]) {
+          if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
+        }
+        if (sub === "close" && flags.kind !== undefined && flags.kind !== "closure") throw new Error("threads close always appends a closure post; omit --kind.");
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
         if (!KINDS.has(kind)) throw new Error("--kind must be post, snapshot, reframe, correction or closure.");
         const body = str(flags, "message") ?? await stdin();
