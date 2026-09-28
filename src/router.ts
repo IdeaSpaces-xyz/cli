@@ -32,6 +32,7 @@ import { forgetCommand } from "./commands/forget.js";
 import { makeConversationsCommand } from "./commands/conversations.js";
 import { makeConversationCommand } from "./commands/conversation.js";
 import { agentsCommand } from "./commands/agents.js";
+import { agentCommand } from "./commands/agent.js";
 import { nodeCommand } from "./commands/node.js";
 import { searchCommand } from "./commands/search.js";
 import { lsCommand } from "./commands/ls.js";
@@ -88,6 +89,7 @@ const topLevel: CommandDef[] = [
   conversationsCommand,
   conversationCommand,
   agentsCommand,
+  agentCommand,
   nodeCommand,
   searchCommand,
   lsCommand,
