@@ -46,6 +46,7 @@ import {
 import { contractSourceFlag, preferredContractSource, MAX_DRIFT } from "../contract-source.js";
 import { headSha } from "../git.js";
 import { floorHint, formatWorkingSetSection, planCatalog } from "../catalog.js";
+import { findSpaceMapFile } from "../local/space-map.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -122,12 +123,20 @@ export const navigateCommand: CommandDef = {
         output.error(renderContentFocus(focus));
         return 1;
       }
-      const text = renderContentFocus(focus);
+      const focusSpaceMap = findSpaceMapFile(target);
+      let text = renderContentFocus(focus);
+      if (focusSpaceMap && text.includes("Focus:\n")) {
+        text = text.replace(
+          /(Focus:\n(?:  repo: [^\n]+\n)?  target: [^\n]+\n)/,
+          `$1  space: ${focusSpaceMap}\n`,
+        );
+      }
       const position = relative(focus.position.base, focus.position.path) || ".";
       output.result(
         {
           text,
           position,
+          ...(focusSpaceMap ? { space: focusSpaceMap } : {}),
           root: focus.spaceRoot,
           repoRoot: focus.position.repoRoot,
           manifest: focus,
@@ -194,7 +203,14 @@ export const navigateCommand: CommandDef = {
     const sections: string[] = [];
 
     // 1. Stable block — protocol-owned head membership and ordering.
-    const stable = renderContentAwareness(manifest, { placement: "head" });
+    let stable = renderContentAwareness(manifest, { placement: "head" });
+    const spaceMapFile = findSpaceMapFile(target);
+    if (spaceMapFile && stable.includes("Position:\n")) {
+      stable = stable.replace(
+        /(Position:\n(?:  repo: [^\n]+\n)?  cwd: [^\n]+\n)/,
+        `$1  space: ${spaceMapFile}\n`,
+      );
+    }
     if (stable.trim()) sections.push(stable);
 
     // 2. Forest handles — other roots as handles (CLI-owned rendering), then
@@ -230,7 +246,14 @@ export const navigateCommand: CommandDef = {
     const position = relative(manifest.position.base, manifest.position.path) || ".";
     const text = sections.join("\n\n");
     output.result(
-      { text: text || null, position, root: manifest.spaceRoot, repoRoot: canonicalRepoRoot, manifest },
+      {
+        text: text || null,
+        position,
+        ...(spaceMapFile ? { space: spaceMapFile } : {}),
+        root: manifest.spaceRoot,
+        repoRoot: canonicalRepoRoot,
+        manifest,
+      },
       text || "(no orientation)",
     );
     return 0;

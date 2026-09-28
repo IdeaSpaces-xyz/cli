@@ -323,4 +323,135 @@ describe("ideaspaces map", () => {
       await rm(outside, { recursive: true, force: true });
     }
   });
+
+  describe("curated Space Map (*.map.md)", () => {
+    it("recognises a *.map.md at the position, loads it, and reports drift per root", async () => {
+      // Create child repos
+      const child1 = join(root, "child-pinned");
+      await fs.mkdir(child1);
+      const r1 = spawnSync("git", ["init", "-q", "-b", "main"], { cwd: child1 });
+      spawnSync("git", ["config", "user.email", "c1@e.com"], { cwd: child1 });
+      spawnSync("git", ["config", "user.name", "C1"], { cwd: child1 });
+      await fs.mkdir(join(child1, "_agent"), { recursive: true });
+      await fs.writeFile(
+        join(child1, "_agent", "agreement.md"),
+        "---\nroot_node_id: n_111111111111111111111111\n---\n# Agreement\n",
+      );
+      spawnSync("git", ["add", "."], { cwd: child1 });
+      spawnSync("git", ["commit", "-q", "-m", "child1 seed"], { cwd: child1 });
+      const child1Head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: child1, encoding: "utf8" }).stdout.trim();
+
+      const child2 = join(root, "child-moved");
+      await fs.mkdir(child2);
+      spawnSync("git", ["init", "-q", "-b", "main"], { cwd: child2 });
+      spawnSync("git", ["config", "user.email", "c2@e.com"], { cwd: child2 });
+      spawnSync("git", ["config", "user.name", "C2"], { cwd: child2 });
+      await fs.mkdir(join(child2, "_agent"), { recursive: true });
+      await fs.writeFile(
+        join(child2, "_agent", "agreement.md"),
+        "---\nroot_node_id: n_222222222222222222222222\n---\n# Agreement\n",
+      );
+      spawnSync("git", ["add", "."], { cwd: child2 });
+      spawnSync("git", ["commit", "-q", "-m", "child2 seed"], { cwd: child2 });
+      const oldSha = spawnSync("git", ["rev-parse", "HEAD"], { cwd: child2, encoding: "utf8" }).stdout.trim();
+      await fs.writeFile(join(child2, "note.md"), "# Updated\n");
+      spawnSync("git", ["add", "."], { cwd: child2 });
+      spawnSync("git", ["commit", "-q", "-m", "child2 advance"], { cwd: child2 });
+      const child2Head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: child2, encoding: "utf8" }).stdout.trim();
+
+      const homeMapContent = `---
+name: Home
+summary: The Space.
+map:
+  roots:
+    - root_node_id: n_111111111111111111111111
+      sha: "${child1Head}"
+    - root_node_id: n_222222222222222222222222
+      sha: "${oldSha}"
+    - root_node_id: n_333333333333333333333333
+      sha: "3333333333333333333333333333333333333333"
+  members:
+    - root: 0
+      position: README.md
+      depth: summary
+      summary: Child 1
+---
+
+# Home Map
+`;
+      await fs.writeFile(join(root, "home.map.md"), homeMapContent);
+
+      const jsonRes = await runMap(["."]);
+      expect(jsonRes.exit).toBe(0);
+      expect(jsonRes.data).toMatchObject({
+        kind: "space-map",
+        file: "home.map.md",
+        name: "Home",
+        summary: "The Space.",
+        roots: [
+          {
+            root_index: 0,
+            root_node_id: "n_111111111111111111111111",
+            status: "pinned",
+            drift: false,
+            sha: child1Head,
+            head_sha: child1Head,
+          },
+          {
+            root_index: 1,
+            root_node_id: "n_222222222222222222222222",
+            status: "moved",
+            drift: true,
+            sha: oldSha,
+            head_sha: child2Head,
+          },
+          {
+            root_index: 2,
+            root_node_id: "n_333333333333333333333333",
+            status: "unresolved",
+            drift: false,
+          },
+        ],
+      });
+
+      const humanRes = await runMap(["."], {}, { ...JSON_FLAGS, json: false, quiet: false });
+      expect(humanRes.exit).toBe(0);
+      expect(humanRes.stdout).toContain("Space Map (home.map.md)");
+      expect(humanRes.stdout).toContain("[pinned] n_111111111111111111111111");
+      expect(humanRes.stdout).toContain(`[moved] n_222222222222222222222222 @ ${oldSha} (head: ${child2Head})`);
+      expect(humanRes.stdout).toContain("[unresolved] n_333333333333333333333333");
+    });
+
+    it("prints an empty Map when home.map.md has no roots or members, not a derived tree", async () => {
+      const emptyHomeMap = `---
+name: Home
+summary: The Space.
+map:
+  roots: []
+  members: []
+---
+
+# Home
+`;
+      await fs.writeFile(join(root, "home.map.md"), emptyHomeMap);
+
+      const jsonRes = await runMap(["."]);
+      expect(jsonRes.exit).toBe(0);
+      expect(jsonRes.data).toMatchObject({
+        kind: "space-map",
+        file: "home.map.md",
+        roots: [],
+        members: [],
+      });
+
+      const humanRes = await runMap(["."], {}, { ...JSON_FLAGS, json: false, quiet: false });
+      expect(humanRes.exit).toBe(0);
+      expect(humanRes.stdout).toContain("Space Map (home.map.md)");
+      expect(humanRes.stdout).toContain("Roots (0):");
+      expect(humanRes.stdout).toContain("(empty Map)");
+      expect(humanRes.stdout).toContain("Members (0):");
+      expect(humanRes.stdout).toContain("(no members)");
+      expect(humanRes.stdout).not.toContain("Derived Map");
+    });
+  });
 });

@@ -17,7 +17,7 @@
  * (`ideaspaces commit`).
  */
 
-import { promises as fs } from "node:fs";
+import { promises as fs, readFileSync } from "node:fs";
 import { existsSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import {
@@ -25,8 +25,12 @@ import {
   stripFrontmatter,
   inspectFrontmatterSyntax,
   extractSummary,
+  parseFrontmatter,
+  parseMap,
+  type MapBlock,
   type LocalEffectValue,
 } from "@ideaspaces/protocol";
+import { parse as parseYaml } from "yaml";
 import { writeMarkdown } from "@ideaspaces/protocol/local-effects";
 import { stagePaths, GitError } from "../git.js";
 import {
@@ -53,10 +57,11 @@ export const writeCommand: CommandDef = {
   name: "write",
   description: "Create or update a Note (local file with Layer 1 frontmatter)",
   usage:
-    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to entity] [--content TEXT] [--if-match SHA] [--force] [--stage=false]",
+    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to entity] [--map JSON|FILE] [--content TEXT] [--if-match SHA] [--force] [--stage=false]",
   examples: [
     'echo "# My Note\\nContent here" | ideaspaces write notes/my-note.md --name "My Note"',
     'ideaspaces write notes/test.md --name "Test" --content "# Test\\nHello"',
+    'ideaspaces write notes/space.map.md --name "Space" --content "Legend" --map \'{"roots": [], "members": []}\'',
     'ideaspaces write notes/test.md --content "# update" --if-match <sha>  # safe update',
     'ideaspaces write notes/test.md --content "# overwrite" --force',
     'ideaspaces write notes/test.md --content "..." --stage=false  # write without staging',
@@ -188,6 +193,22 @@ export const writeCommand: CommandDef = {
     const attachedTo = parseOptionalString(flags["attached-to"]);
     if (attachedTo) set.attached_to = attachedTo;
 
+    if (flags.map !== undefined) {
+      const mapInput = parseMapInput(flags.map, root);
+      if (mapInput.error) {
+        const failure = localEffectError(
+          "write_markdown",
+          "invalid_frontmatter_patch",
+          "preflight",
+          `The supplied Map block is invalid: ${mapInput.error}`,
+          portablePath,
+        );
+        emitEffectFailure(output, global, failure);
+        return 1;
+      }
+      set.map = mapInput.map as unknown as LocalEffectValue;
+    }
+
     const result = await writeMarkdown(
       {
         operation: "write_markdown",
@@ -230,6 +251,61 @@ function parseList(value: unknown): string[] | undefined {
 function parseOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   return value.trim() || undefined;
+}
+
+function parseMapInput(raw: unknown, root: string): { map?: MapBlock; error?: string } {
+  if (raw === null || raw === undefined || raw === false) {
+    return { error: "A map value is required: --map <json|yaml|file>" };
+  }
+  if (raw === true || (typeof raw === "string" && !raw.trim())) {
+    return { error: "A map value is required: --map <json|yaml|file>" };
+  }
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    const candidatePath = resolve(root, trimmed);
+    if (existsSync(candidatePath) && statSync(candidatePath).isFile()) {
+      try {
+        const fileContent = readFileSync(candidatePath, "utf-8");
+        const fm = parseFrontmatter(fileContent);
+        if (fm && fm.map !== undefined) {
+          parsed = fm.map;
+        } else {
+          try {
+            parsed = JSON.parse(fileContent);
+          } catch {
+            parsed = parseYaml(fileContent);
+          }
+        }
+      } catch (err) {
+        return { error: `Could not read map file ${trimmed}: ${err instanceof Error ? err.message : String(err)}` };
+      }
+    } else {
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        try {
+          parsed = parseYaml(trimmed);
+        } catch {
+          return { error: "Map input must be valid JSON, YAML, or an existing file path." };
+        }
+      }
+    }
+  }
+
+  if (typeof parsed === "object" && parsed !== null && "map" in parsed && typeof (parsed as Record<string, unknown>).map === "object") {
+    parsed = (parsed as Record<string, unknown>).map;
+  }
+
+  const result = parseMap(parsed);
+  if (result.status === "invalid") {
+    const issues = result.issues.map(({ path, code }) => `${path} (${code})`).join(", ");
+    return { error: issues };
+  }
+  if (result.status === "absent") {
+    return { error: "The supplied value has no map block." };
+  }
+  return { map: result.map };
 }
 
 /** Batch mode triggers on a directory target or 2+ targets; a lone file authors. */

@@ -296,6 +296,73 @@ export function agreementContractTemplates(kind: Kind, name: string): Record<str
   return { agreement: kind === "agent" ? agentAgreementMd(name) : knowledgeAgreementMd(name) };
 }
 
+export const HOME_MAP_MD = `---
+name: Home
+summary: The Space. Every child repo pinned by identity and commit, in the order they matter today. Open this file and it is the lens; read it and it is a list of pointers.
+map:
+  roots: []
+  members: []
+---
+
+# Home
+
+Every other space is part of this one folder, pinned by identity and commit.
+`;
+
+export const HOME_AGREEMENT_MD = `---
+name: Agreement — Home
+summary: Home. Every other space is a child of this folder, pinned by a Map, never copied. We explore how to explore these Spaces from the Desktop and make that the best one. Threads are how work moves here, local first, one file per post.
+agreement: ${KIND_REFERENCES.knowledge}
+---
+
+# Agreement — Home
+
+> Home. The place we explore from, and the place we explore how to explore.
+
+## What this place is
+
+Every other space is part of this one folder: knowledge repos, agents, and in time the code repos. None of them is copied here. Each is its own repo, pinned in \`home.map.md\` by identity and commit, and opened from here.
+
+## How work goes here
+
+A Thread is how we work on something. Start one for yourself or for your agents. Local first: a Thread lives in \`_threads/\`, one Markdown file per post, threaded by mail headers, synced by git, picked up again from its last post and its Map.
+
+Everything is a Map that captures state, including the state of the agents involved. A Space's Map points at things; a Thread's Map points into them.
+
+## Alone, and brought back
+
+Alone: start a local Thread, append to one, read any child space, write or update a Map, rebuild an index. Brought back: erasing or moving a child space, publishing anything, sharing a Thread beyond this machine, and any change to this file.
+
+## Words with local meaning
+
+- **Space** — a \`.map.md\` file, opened. In the folder it is a Note with pointers.
+- **Thread** — a folder in \`_threads/\`: an Agreement for the terms, a README that is the curated story of what it has become with pointers into the timeline, and dated posts, one file each, never changed.
+- **Post** — a Note with \`id\`, \`in_reply_to\`, \`kind\`, and a \`map\` block when it snapshots.
+- **Home** — this folder, the largest Space here.
+- **Child** — a repo pinned by \`home.map.md\`, never tracked by Home's git.
+- **Cursor** — where a reader stopped, kept per reader in the local cache, never in the repo.
+- **Tier** — team: \`_threads/\` committed, or on the \`threads\` branch; public: a projection without them; beyond the repo: a hosted Thread with grants.
+
+## Still open
+
+- Root identities for the code repos, so they can be Map roots rather than addresses.
+- What ports out of the old shell first, and in what order.
+
+## When to revisit
+
+When a Thread cannot be picked up again from its last post. When a child space cannot be explored from the Desktop. When something is copied here instead of pinned.
+`;
+
+export const HOME_CLAUDE_MD = `---
+name: Claude Code orientation — Home
+summary: This folder is Home. Read the Agreement first, then open home.map.md, which is the Space.
+---
+
+# CLAUDE.md
+
+This folder is Home. Read [\`_agent/agreement.md\`](_agent/agreement.md) first, then open \`home.map.md\`, which is the Space.
+`;
+
 /** Claude Code orientation for an Agreement Space — it points, it does not repeat. */
 export function agreementClaudeMd(kind: Kind, name: string): string {
   if (kind === "agent") {

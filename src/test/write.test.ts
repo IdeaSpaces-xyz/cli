@@ -174,4 +174,83 @@ describe("ideaspaces write", () => {
       if (original) Object.defineProperty(process.stdin, "isTTY", original);
     }
   });
+
+  describe("writing a map-note (--map)", () => {
+    it("writes a map-note with frontmatter map block from inline JSON", async () => {
+      const exit = await writeCommand.run(
+        ["notes/space.map.md"],
+        {
+          name: "Space",
+          summary: "The Space Map",
+          content: "# Space Map\nLegend.",
+          map: JSON.stringify({
+            roots: [
+              {
+                root_node_id: "n_111111111111111111111111",
+                sha: "408c2a26e2452a4de8ee371de40013a007ca32a2",
+              },
+            ],
+            members: [
+              {
+                root: 0,
+                position: "doc.md",
+                depth: "summary",
+                summary: "One doc",
+              },
+            ],
+          }),
+        },
+        baseGlobal,
+      );
+      expect(exit).toBe(0);
+      const written = await fs.readFile(join(tmp, "notes/space.map.md"), "utf-8");
+      expect(written).toContain("name: Space");
+      expect(written).toContain("summary: The Space Map");
+      expect(written).toContain("map:\n");
+      expect(written).toContain("root_node_id: n_111111111111111111111111");
+      expect(written).toContain("sha: 408c2a26e2452a4de8ee371de40013a007ca32a2");
+      expect(written).toContain("# Space Map\nLegend.");
+    });
+
+    it("writes a map-note reading --map from an existing file", async () => {
+      const sourceMapPath = join(tmp, "source.json");
+      await fs.writeFile(
+        sourceMapPath,
+        JSON.stringify({
+          roots: [],
+          members: [],
+        }),
+      );
+
+      const exit = await writeCommand.run(
+        ["home.map.md"],
+        {
+          name: "Home",
+          content: "# Home\nEmpty map.",
+          map: "source.json",
+        },
+        baseGlobal,
+      );
+      expect(exit).toBe(0);
+      const written = await fs.readFile(join(tmp, "home.map.md"), "utf-8");
+      expect(written).toContain("name: Home");
+      expect(written).toContain("map:\n  roots: []\n  members: []");
+    });
+
+    it("refuses an invalid --map value with a preflight error", async () => {
+      const exit = await writeCommand.run(
+        ["notes/bad-map.md"],
+        {
+          name: "Bad",
+          content: "# Bad",
+          map: JSON.stringify({
+            roots: [{ sha: "not-a-valid-sha" }],
+          }),
+        },
+        baseGlobal,
+      );
+      expect(exit).toBe(1);
+      expect(existsSync(join(tmp, "notes/bad-map.md"))).toBe(false);
+    });
+  });
 });

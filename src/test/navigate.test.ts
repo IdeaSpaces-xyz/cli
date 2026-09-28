@@ -441,4 +441,25 @@ describe("ideaspaces navigate", () => {
     await runNavigate(["."], { "mark-seen": true });
     expect(ref()).toBe(git(["rev-parse", "HEAD"]));
   });
+
+  it("names the Space by *.map.md when a curated Map exists at the position", async () => {
+    await fs.writeFile(
+      join(tmp, "home.map.md"),
+      "---\nname: Home\nsummary: The Space.\nmap:\n  roots: []\n  members: []\n---\n# Home\n",
+    );
+
+    const normal = await runNavigate(["."]);
+    expect(normal.exit).toBe(0);
+    expect(normal.data.space).toBe("home.map.md");
+    expect(normal.data.text).toContain("  space: home.map.md\n");
+
+    const human = await runNavigate(["."], {}, { ...G, json: false });
+    expect(human.exit).toBe(0);
+    expect(human.stdout).toContain("  space: home.map.md\n");
+
+    const focus = await runNavigate(["."], { focus: true });
+    expect(focus.exit).toBe(0);
+    expect(focus.data.space).toBe("home.map.md");
+    expect(focus.data.text).toContain("  space: home.map.md\n");
+  });
 });
