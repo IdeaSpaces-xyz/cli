@@ -217,7 +217,14 @@ export function initWorktree(cwd = process.cwd()): string {
   const dir = join(root, "_threads");
   if (existsSync(dir)) throw new Error("_threads/ already exists; refusing to replace it.");
   const origin = git(root, ["rev-parse", "--show-toplevel"]);
-  if (realpathSync(origin) !== realpathSync(root)) throw new Error("Run threads init at the repository root Agreement.");
+  // Git prints forward slashes on Windows; the filesystem's realpath uses
+  // native separators and may differ in drive-letter case. Canonicalize both
+  // sides before deciding whether this Agreement is at the repo root.
+  const canonical = (path: string) => {
+    const value = realpathSync.native(path);
+    return process.platform === "win32" ? value.toLowerCase() : value;
+  };
+  if (canonical(origin) !== canonical(root)) throw new Error("Run threads init at the repository root Agreement.");
   if (git(root, ["branch", "--list", "threads"])) throw new Error("Local threads branch already exists; refusing to replace it.");
   const ignore = join(root, ".gitignore");
   if (existsSync(ignore) && lstatSync(ignore).isSymbolicLink()) throw new Error("Refusing symlink .gitignore.");
