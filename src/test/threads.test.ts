@@ -47,6 +47,16 @@ describe("local Threads", () => {
     expect(listLocal(root)).toHaveLength(1);
   });
 
+  it("closure joins all unmerged branch tips unless explicit parents are supplied", () => {
+    const root = fixture();
+    const t = createThread("decision", "Decision", root);
+    const first = appendPost(t.path, { body: "Root" });
+    const left = appendPost(t.path, { body: "Left", replyTo: [first.post.id] });
+    const right = appendPost(t.path, { body: "Right", replyTo: [first.post.id] });
+    const end = appendPost(t.path, { body: "Closed", kind: "closure" });
+    expect(new Set(end.post.inReplyTo)).toEqual(new Set([left.post.id, right.post.id]));
+  });
+
   it("rejects traversal, symlinks, malformed posts, duplicate ids, and invalid Maps before write", () => {
     const root = fixture(); const t = createThread("decision", "Decision", root);
     expect(() => createThread("../outside", "Bad", root)).toThrow(/slug/);
@@ -161,6 +171,9 @@ describe("local Threads", () => {
     try {
       const flags = { json: true, quiet: true, yes: false, help: false };
       expect(await threadsCommand.run(["open", "decision"], { map, member: "0", depth: "full" }, flags)).toBe(0);
+      expect(JSON.parse(output).pinned).toContain("At pin");
+      output = "";
+      expect(await threadsCommand.run(["open", "decision"], { pin, position: `_threads/decision/${one.post.path}`, depth: "full" }, flags)).toBe(0);
       expect(JSON.parse(output).pinned).toContain("At pin");
       createThread("other", "Other", root);
       expect(await threadsCommand.run(["open", "other"], { map, member: "0" }, flags)).toBe(1);

@@ -135,7 +135,11 @@ export function appendPost(dir: string, options: {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
   }
   const byId = new Map(thread.posts.map((post) => [post.id, post]));
-  const parentIds = options.replyTo ?? (thread.posts.length ? [thread.posts.at(-1)!.id] : []);
+  const referenced = new Set(thread.posts.flatMap((post) => post.inReplyTo));
+  const tips = thread.posts.filter((post) => !referenced.has(post.id)).map((post) => post.id);
+  // A closure joins all live tips by default; other posts follow the last post.
+  // Callers can always choose explicit parents for a deliberate partial join.
+  const parentIds = options.replyTo ?? (options.kind === "closure" ? tips : thread.posts.length ? [thread.posts.at(-1)!.id] : []);
   if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error("--reply-to must name distinct existing post ids in this Thread.");
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");

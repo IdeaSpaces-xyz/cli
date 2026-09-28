@@ -38,9 +38,12 @@ async function stdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 function localRows(threads: LocalThread[], newOnly: boolean) {
-  return threads.filter((thread) => !newOnly || thread.posts.some((p) => !readCursor(thread).has(p.id)))
-    .map((thread) => ({ source: "local" as const, id: thread.path, slug: thread.slug, name: thread.name,
-      summary: thread.summary, count: thread.posts.length, closed: thread.closed }));
+  return threads.filter((thread) => {
+    if (!newOnly) return true;
+    const seen = readCursor(thread);
+    return thread.posts.some((post) => !seen.has(post.id));
+  }).map((thread) => ({ source: "local" as const, id: thread.path, slug: thread.slug, name: thread.name,
+    summary: thread.summary, count: thread.posts.length, closed: thread.closed }));
 }
 function localText(thread: LocalThread, posts: LocalThread["posts"], rung: string): string {
   if (rung === "name") return `${thread.slug}  ${thread.name}`;
@@ -94,6 +97,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads new <slug> --about 'What we are deciding'",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2] [--kind snapshot] [--map selection.json]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # pin belongs to that Thread",
+    "ideaspaces threads open <slug|path> --pin <40-hex-sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads close <slug|path> --message 'Closing rationale'",
     "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
