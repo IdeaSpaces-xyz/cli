@@ -16,7 +16,7 @@ export const AGENT_USAGE =
 
 export const agentCommand: CommandDef = {
   name: "agent",
-  description: "List or run agents in a Space",
+  description: "List agent-kind roots in a Space Map",
   usage: AGENT_USAGE,
   examples: [
     "ideaspaces agent list --map home.map.md",

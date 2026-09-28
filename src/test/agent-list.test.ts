@@ -525,6 +525,40 @@ map:
     expect(result.unresolved).toHaveLength(0);
   });
 
+  it("reports a git error for corrupted or non-git registered checkouts as unresolved", () => {
+    const nonGitDir = join(tempBase, "not-a-git-repo");
+    mkdirSync(nonGitDir, { recursive: true });
+    const idE = "n_eeeeeeeeeeeeeeeeeeeeeeee";
+    saveSpace(nonGitDir, { repo_id: "repo_e", slug: "not-a-git-repo", namespace: "test", root_node_id: idE });
+
+    const mapPath = join(tempBase, "giterror.map.md");
+    writeFileSync(
+      mapPath,
+      `---
+name: Git Error Map
+map:
+  roots:
+    - root_node_id: ${idE}
+      sha: 0123456789abcdef0123456789abcdef01234567
+  members:
+    - root: 0
+      position: .
+      depth: summary
+---
+`,
+      "utf-8",
+    );
+
+    const loaded = loadMapNote(mapPath, tempBase);
+    const result = projectMapAgents(loaded, { cwd: tempBase });
+
+    expect(result.agents).toHaveLength(0);
+    expect(result.unresolved).toHaveLength(1);
+    expect(result.unresolved[0].root_node_id).toBe(idE);
+    expect(result.unresolved[0].reason).toBe("git_error");
+    expect(formatMapAgentsText(result)).toContain("git error:");
+  });
+
   it("preserves the existing hosted ideaspaces agents command definition and usage", () => {
     expect(agentsCommand.name).toBe("agents");
     expect(agentsCommand.usage).toContain("ideaspaces agents");
