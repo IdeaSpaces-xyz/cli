@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseFrontmatter, parseMap, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { parse as parseYaml } from "yaml";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError } from "../auth/api.js";
@@ -52,10 +52,17 @@ function localText(thread: LocalThread, posts: LocalThread["posts"], rung: strin
 }
 function writerName(explicit?: string): string {
   if (explicit) return explicit;
-  const agreement = resolve(process.cwd(), "_agent", "agreement.md");
-  if (existsSync(agreement)) {
-    const fm = parseFrontmatter(readFileSync(agreement, "utf8"));
-    if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
+  let at = resolve(process.cwd());
+  while (true) {
+    const agreement = join(at, "_agent", "agreement.md");
+    if (existsSync(agreement)) {
+      const fm = parseFrontmatter(readFileSync(agreement, "utf8"));
+      if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
+        return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
+      }
+    }
+    if (dirname(at) === at) break;
+    at = dirname(at);
   }
   const result = spawnSync("git", ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
@@ -85,7 +92,8 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
     "ideaspaces threads new <slug> --about 'What we are deciding'",
-    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to <id>] [--kind snapshot] [--map selection.json]",
+    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2] [--kind snapshot] [--map selection.json]",
+    "ideaspaces threads open <slug|path> --map home.map.md --member 0  # pin belongs to that Thread",
     "ideaspaces threads close <slug|path> --message 'Closing rationale'",
     "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
@@ -150,18 +158,24 @@ export const threadsCommand: CommandDef = {
             }
           }));
         }
-        const rows = [...local, ...hosted].map((row) => rung === "name"
-          ? { source: row.source, id: row.id, name: row.name }
-          : rung === "full" && row.source === "local"
-            ? { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] }
-            : row);
+        const rows = [...local, ...hosted].map((row) => {
+          if (rung === "name") return { source: row.source, id: row.id, name: row.name };
+          if (rung === "full" && row.source === "local") {
+            return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
+          }
+          return row;
+        });
+        const text = rows.map((row) => {
+          if (rung === "name") return `${row.id}  ${row.name}`;
+          if (rung === "full" && "posts" in row && Array.isArray(row.posts)) {
+            const thread = localThreads.find((candidate) => candidate.path === row.id)!;
+            return localText(thread, row.posts, "full");
+          }
+          if (rung === "full" && "text" in row && typeof row.text === "string") return row.text;
+          return `${row.id}  ${row.name}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
+        }).join("\n\n");
         const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ threads: rows, hosted_checked: Boolean(config) }, (rows.length ? rows.map((r) => rung === "name"
-          ? `${r.id}  ${r.name}` : rung === "full" && "posts" in r && Array.isArray(r.posts)
-            ? localText(localThreads.find((thread) => thread.path === r.id)!, r.posts, "full")
-            : rung === "full" && "text" in r && typeof r.text === "string"
-              ? r.text
-              : `${r.id}  ${r.name}\n  ${"summary" in r ? r.summary : ""} · ${r.source}`).join("\n\n") : "No local Threads here.") + hint);
+        output.result({ threads: rows, hosted_checked: Boolean(config) }, (text || "No local Threads here.") + hint);
         return 0;
       }
       if (sub === "new") {
@@ -196,6 +210,9 @@ export const threadsCommand: CommandDef = {
         }
         if (flags.pin === true || flags.position === true) throw new Error("--pin and --position require values.");
         if (!!pin !== !!position) throw new Error("Pinned open requires both --pin <authored SHA> and --position <_threads/...md>.");
+        if (position && !position.startsWith(`_threads/${thread.slug}/`)) {
+          throw new Error(`Pinned member ${position} belongs to another Thread; open its own local path instead.`);
+        }
         const pinned = pin && position ? readPinnedThreadMember(threadBase(), pin, position) : undefined;
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
         if (ack) acknowledge(thread, posts);

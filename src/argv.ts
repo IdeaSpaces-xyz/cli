@@ -45,7 +45,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
 
-        flags[key] = key === "reply-to" && typeof flags[key] === "string" ? `${flags[key]},${value}` : value;
+        flags[key] = value;
         continue;
       }
 
@@ -62,8 +62,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
       // Command-specific flag with value
       if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-        const value = argv[++i];
-        flags[key] = key === "reply-to" && typeof flags[key] === "string" ? `${flags[key]},${value}` : value;
+        flags[key] = argv[++i];
       } else {
         flags[key] = true;
       }

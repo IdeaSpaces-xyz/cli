@@ -596,7 +596,7 @@ export const inboxCommand: CommandDef = {
   usage: USAGE.replace("ideaspaces threads", "ideaspaces inbox"),
   examples: hostedThreadsCommand.examples?.map((example) => example.replace("ideaspaces threads", "ideaspaces inbox")),
   async run(args, flags, global) {
-    process.stderr.write("`ideaspaces inbox` is deprecated; use `ideaspaces threads` (legacy alias for this release).\n");
+    createOutput(global).log("`ideaspaces inbox` is deprecated; use `ideaspaces threads` (legacy alias for this release).");
     return hostedThreadsCommand.run(args, flags, global);
   },
 };

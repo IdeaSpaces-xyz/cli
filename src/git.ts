@@ -13,7 +13,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { isIdeaspacePath } from "@ideaspaces/protocol";
 
 export class GitError extends Error {}
@@ -481,7 +481,10 @@ export function push(cwd?: string): void {
   // The independent, private `_threads/` branch must never escape through the
   // generic push path, even if someone configured an upstream after init.
   // Its only outbound path is `threads push --remote <team-remote>`.
-  if (git(["branch", "--show-current"], cwd).out === "threads") {
+  const root = repoRoot(cwd);
+  if (basename(root) === "_threads" &&
+      git(["branch", "--show-current"], root).out === "threads" &&
+      git(["rev-parse", "--show-toplevel"], dirname(root)).out === dirname(root)) {
     throw new GitError("Private threads branch: use `ideaspaces threads push --remote <team-remote>`; generic push is refused.");
   }
   gitOrThrow(["push"], cwd);

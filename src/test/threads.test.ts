@@ -7,6 +7,7 @@ import { parseThreadPost } from "@ideaspaces/protocol";
 import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread } from "../local/threads.js";
 import { threadsCommand } from "../commands/threads.js";
 import { inboxCommand } from "../commands/inbox.js";
+import { searchCommand } from "../commands/search.js";
 import { push as genericPush } from "../git.js";
 
 const temp: string[] = [];
@@ -79,12 +80,64 @@ describe("local Threads", () => {
     } finally { process.stdout.write = original; process.chdir(old); }
   });
 
+  it("dispatches local new/post/list/render/close and aware search without a login", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const old = process.stdout.write;
+    let text = "";
+    process.stdout.write = ((s: string) => { text += s; return true; }) as typeof process.stdout.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (command: typeof threadsCommand | typeof searchCommand, args: string[], options: Record<string, string | boolean> = {}) => {
+      text = ""; expect(await command.run(args, options, flags)).toBe(0); return JSON.parse(text);
+    };
+    try {
+      await run(threadsCommand, ["new", "decision"], { about: "Decision" });
+      const first = await run(threadsCommand, ["post", "decision"], { message: "Cold keyword", author: "Agent A" });
+      const second = await run(threadsCommand, ["post", "decision"], { message: "Other", author: "Agent B", "reply-to": first.id });
+      const joined = await run(threadsCommand, ["post", "decision"], { message: "Join", "reply-to": `${first.id},${second.id}` });
+      expect(loadThread(join(root, "_threads", "decision")).posts.at(-1)?.inReplyTo).toEqual([first.id, second.id]);
+      expect(joined.kind).toBe("post");
+      expect((await run(threadsCommand, ["list"])).threads[0].source).toBe("local");
+      expect((await run(threadsCommand, ["render", "decision"])).timeline).toHaveLength(3);
+      expect((await run(searchCommand, ["Cold"], { threads: true })).results[0].path).toContain("_threads/decision/");
+      expect((await run(searchCommand, ["Cold"])).results).toHaveLength(0);
+      await run(threadsCommand, ["close", "decision"], { message: "Closing" });
+      expect(loadThread(join(root, "_threads", "decision")).closed).toBe(true);
+    } finally { process.chdir(previous); process.stdout.write = old; }
+  });
+
   it("keeps the old inbox name as a noisy one-release alias", () => {
     expect(inboxCommand.description).toContain("Legacy");
     expect(threadsCommand.examples?.some((x) => x.includes("read x_"))).toBe(true);
   });
 
-  it("resolves a separate orphan worktree at the authored commit, not HEAD", () => {
+  it("dispatches init and push only to an explicit team remote", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    git(root, "add", "_agent/agreement.md"); git(root, "commit", "-m", "init");
+    const previous = process.cwd(); process.chdir(root);
+    const old = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    try {
+      expect(await threadsCommand.run(["init"], {}, flags)).toBe(0);
+      expect(git(join(root, "_threads"), "branch", "--show-current")).toBe("threads");
+      const t = createThread("decision", "Decision", root);
+      appendPost(t.path, { body: "Team", author: "Agent" });
+      git(join(root, "_threads"), "add", "decision");
+      git(join(root, "_threads"), "commit", "-m", "post");
+      expect(await threadsCommand.run(["push"], {}, flags)).toBe(1);
+      const bare = join(root, "team.git"); git(root, "init", "--bare", bare);
+      git(root, "remote", "add", "team", bare);
+      expect(await threadsCommand.run(["push"], { remote: "team" }, flags)).toBe(0);
+      expect(git(root, "ls-remote", "team", "refs/heads/threads")).toContain("refs/heads/threads");
+    } finally { process.stdout.write = old; process.chdir(previous); }
+  });
+
+  it("resolves a separate orphan worktree at the authored commit, not HEAD", async () => {
     const root = fixture();
     git(root, "init", "-b", "main");
     git(root, "config", "user.name", "Test"); git(root, "config", "user.email", "test@example.test");
@@ -96,6 +149,22 @@ describe("local Threads", () => {
     git(worktree, "add", "decision"); git(worktree, "commit", "-m", "first post");
     const pin = git(worktree, "rev-parse", "HEAD");
     const two = appendPost(t.path, { body: "After pin", author: "Agent B" });
+    const map = join(root, "selection.json");
+    writeFileSync(map, JSON.stringify({ map: {
+      roots: [{ repo: "https://ideaspaces.xyz/repos/n_0123456789abcdef01234567", sha: pin }],
+      members: [{ root: 0, position: `_threads/decision/${one.post.path}`, depth: "full" }],
+    } }));
+    const before = process.cwd(); process.chdir(root);
+    const original = process.stdout.write;
+    let output = "";
+    process.stdout.write = ((s: string) => { output += s; return true; }) as typeof process.stdout.write;
+    try {
+      const flags = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["open", "decision"], { map, member: "0", depth: "full" }, flags)).toBe(0);
+      expect(JSON.parse(output).pinned).toContain("At pin");
+      createThread("other", "Other", root);
+      expect(await threadsCommand.run(["open", "other"], { map, member: "0" }, flags)).toBe(1);
+    } finally { process.stdout.write = original; process.chdir(before); }
     git(worktree, "add", "decision"); git(worktree, "commit", "-m", "second post");
     expect(readPinnedThreadMember(root, pin, `_threads/decision/${one.post.path}`)).toContain("At pin");
     expect(() => readPinnedThreadMember(root, pin, `_threads/decision/${two.post.path}`)).toThrow(/refusing working-tree HEAD fallback/);
