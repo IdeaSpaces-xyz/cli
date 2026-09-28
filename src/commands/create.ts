@@ -139,6 +139,12 @@ export const createCommand: CommandDef = {
       output.error("--home and --agent cannot be used together.");
       return 5;
     }
+    if (homeMode && shape === "code-repo") {
+      output.error(
+        `${describeTarget(targetDir, name)} looks like a code repo. Home is a container space for your ideaspaces, not a codebase. Create it in a dedicated directory: \`ideaspaces create --home <dir>\`.`,
+      );
+      return 5;
+    }
     if (agentMode && shape === "code-repo") {
       output.error(
         `${describeTarget(targetDir, name)} looks like a code repo. An agent is its own space — the tree is the agent's memory, not a codebase. Create it in a fresh folder: \`ideaspaces create <name> --agent\`.`,
@@ -146,7 +152,7 @@ export const createCommand: CommandDef = {
       return 5;
     }
 
-    const privateAgent = shape === "code-repo" && !sharedFlag;
+    const privateAgent = !homeMode && shape === "code-repo" && !sharedFlag;
     const agentName = name ?? basename(targetDir);
     if (agentMode && !isSafeAgentName(agentName)) {
       // The name lands verbatim in YAML frontmatter — refuse rather than escape.

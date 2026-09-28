@@ -92,6 +92,7 @@ export const mapCommand: CommandDef = {
         kind: "space-map",
         source: "curated-map-note",
         file: spaceMap.file,
+        ...(spaceMap.otherFiles.length ? { other_files: spaceMap.otherFiles } : {}),
         path: spaceMap.note.path,
         name: spaceMap.note.name ?? null,
         summary: spaceMap.note.summary ?? null,
@@ -110,6 +111,11 @@ export const mapCommand: CommandDef = {
       };
 
       const lines: string[] = [`Space Map (${spaceMap.file}) — ${target}`];
+      if (spaceMap.otherFiles.length > 0) {
+        lines.push(
+          `Note: Multiple Space Maps found (${[spaceMap.file, ...spaceMap.otherFiles].join(", ")}). Using ${spaceMap.file}.`,
+        );
+      }
       if (spaceMap.note.name) lines.push(`Name: ${spaceMap.note.name}`);
       if (spaceMap.note.summary) lines.push(`Summary: ${spaceMap.note.summary}`);
 

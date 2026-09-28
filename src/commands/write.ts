@@ -206,7 +206,7 @@ export const writeCommand: CommandDef = {
         emitEffectFailure(output, global, failure);
         return 1;
       }
-      set.map = mapInput.map as unknown as LocalEffectValue;
+      set.map = mapInput.map as LocalEffectValue;
     }
 
     const result = await writeMarkdown(

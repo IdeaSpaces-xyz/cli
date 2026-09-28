@@ -819,5 +819,18 @@ describe("ideaspaces create — git author identity", () => {
       expect(navData.space).toBe("home.map.md");
       expect(navData.text).toContain("space: home.map.md");
     });
+
+    it("refuses to scaffold Home in a code repo", async () => {
+      const target = join(tmp, "repo");
+      await fs.mkdir(target);
+      await fs.writeFile(join(target, "package.json"), "{}");
+      const { createCommand: cc } = await import("../commands/create.js");
+      const captured = await captureStdout(() =>
+        cc.run([], { home: target }, { ...baseGlobal, yes: true }),
+      );
+      expect(captured.exit).toBe(5);
+      expect(existsSync(join(target, "_agent"))).toBe(false);
+      expect(existsSync(join(target, "home.map.md"))).toBe(false);
+    });
   });
 });

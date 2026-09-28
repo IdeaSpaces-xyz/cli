@@ -52,6 +52,25 @@ import type { CommandDef } from "../types.js";
 
 const SEEN_REF = "refs/ideaspaces/seen";
 
+function formatSpacePosition(renderedBlock: string, spaceMapFile: string, header: "Position:" | "Focus:"): string {
+  if (!spaceMapFile) return renderedBlock;
+  const lines = renderedBlock.split("\n");
+  const headerIdx = lines.findIndex((line) => line.trim() === header);
+  if (headerIdx !== -1) {
+    const targetKey = header === "Focus:" ? "target:" : "cwd:";
+    const insertIdx = lines.findIndex(
+      (line, idx) => idx > headerIdx && line.trim().startsWith(targetKey),
+    );
+    if (insertIdx !== -1) {
+      lines.splice(insertIdx + 1, 0, `  space: ${spaceMapFile}`);
+      return lines.join("\n");
+    }
+    lines.splice(headerIdx + 1, 0, `  space: ${spaceMapFile}`);
+    return lines.join("\n");
+  }
+  return `Space: ${spaceMapFile}\n\n${renderedBlock}`;
+}
+
 // The since-last-session marker lives in a local git ref — no `git.ts` helper
 // exists for writing a custom ref, so this thin wrapper is net-new. (Reading it
 // is the protocol's job now: `assembleContentAwareness` consumes the seen ref.)
@@ -125,11 +144,8 @@ export const navigateCommand: CommandDef = {
       }
       const focusSpaceMap = findSpaceMapFile(target);
       let text = renderContentFocus(focus);
-      if (focusSpaceMap && text.includes("Focus:\n")) {
-        text = text.replace(
-          /(Focus:\n(?:  repo: [^\n]+\n)?  target: [^\n]+\n)/,
-          `$1  space: ${focusSpaceMap}\n`,
-        );
+      if (focusSpaceMap) {
+        text = formatSpacePosition(text, focusSpaceMap, "Focus:");
       }
       const position = relative(focus.position.base, focus.position.path) || ".";
       output.result(
@@ -205,11 +221,8 @@ export const navigateCommand: CommandDef = {
     // 1. Stable block — protocol-owned head membership and ordering.
     let stable = renderContentAwareness(manifest, { placement: "head" });
     const spaceMapFile = findSpaceMapFile(target);
-    if (spaceMapFile && stable.includes("Position:\n")) {
-      stable = stable.replace(
-        /(Position:\n(?:  repo: [^\n]+\n)?  cwd: [^\n]+\n)/,
-        `$1  space: ${spaceMapFile}\n`,
-      );
+    if (spaceMapFile) {
+      stable = formatSpacePosition(stable, spaceMapFile, "Position:");
     }
     if (stable.trim()) sections.push(stable);
 

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseFrontmatter, type MapMember, type MapRoot } from "@ideaspaces/protocol";
-import { loadSpaces } from "../auth/spaces.js";
+import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
 import { headSha } from "../git.js";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 
@@ -19,8 +19,14 @@ export interface SpaceMapRootDrift {
   checkoutPath: string | null;
 }
 
+export interface SpaceMapDiscovery {
+  file: string;
+  otherFiles: string[];
+}
+
 export interface SpaceMapInspection {
   file: string;
+  otherFiles: string[];
   absolutePath: string;
   note: LoadedMapNote;
   roots: SpaceMapRootDrift[];
@@ -33,6 +39,21 @@ function extractRootNodeIdFromRepoUrl(url?: string): string | null {
   if (!url) return null;
   const match = url.match(ROOT_NODE_ID_RE);
   return match ? match[1] : null;
+}
+
+function parseNamespaceAndSlugFromRepoUrl(url?: string): { namespace: string; slug: string } | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length >= 2 && parts[0] !== "repos" && parts[0] !== "spaces") {
+      const slug = parts[1].replace(/\.git$/, "");
+      return { namespace: parts[0], slug };
+    }
+  } catch {
+    // ignore invalid URL
+  }
+  return null;
 }
 
 function readContractRootNodeId(dir: string): string | null {
@@ -60,8 +81,8 @@ function readContractRootNodeId(dir: string): string | null {
   return null;
 }
 
-/** Find a curated `*.map.md` in the target directory (prefers `home.map.md` if present). */
-export function findSpaceMapFile(dir: string): string | null {
+/** Discover all `*.map.md` files in the directory and pick the curated primary. */
+export function discoverSpaceMapFiles(dir: string): SpaceMapDiscovery | null {
   try {
     if (!existsSync(dir) || !statSync(dir).isDirectory()) return null;
     const entries = readdirSync(dir, { withFileTypes: true });
@@ -70,20 +91,27 @@ export function findSpaceMapFile(dir: string): string | null {
       .map((e) => e.name)
       .sort();
     if (!mapFiles.length) return null;
-    if (mapFiles.includes("home.map.md")) return "home.map.md";
-    return mapFiles[0];
+    const chosen = mapFiles.includes("home.map.md") ? "home.map.md" : mapFiles[0];
+    const otherFiles = mapFiles.filter((f) => f !== chosen);
+    return { file: chosen, otherFiles };
   } catch {
     return null;
   }
 }
 
+/** Find a curated `*.map.md` in the target directory (prefers `home.map.md` if present). */
+export function findSpaceMapFile(dir: string): string | null {
+  return discoverSpaceMapFiles(dir)?.file ?? null;
+}
+
 /** Inspect all roots in a Map against local checkouts to determine drift. */
 export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): SpaceMapRootDrift[] {
-  let knownSpaces: Record<string, any> | null = null;
+  let knownSpaces: SpacesMap | null = null;
 
   return roots.map((root, rootIndex) => {
     const rootNodeId = root.root_node_id ?? extractRootNodeIdFromRepoUrl(root.repo);
     const repo = root.repo ?? null;
+    const routeInfo = parseNamespaceAndSlugFromRepoUrl(root.repo);
     const pinnedSha = root.sha;
 
     let checkoutPath: string | null = null;
@@ -129,15 +157,21 @@ export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): Spac
       }
       for (const [registeredPath, record] of Object.entries(knownSpaces)) {
         if (!record || typeof record !== "object") continue;
+
         const matchesId =
           rootNodeId &&
           (record.root_node_id === rootNodeId ||
             record.source_root_node_id === rootNodeId ||
-            (record.canonical_path && record.canonical_path.includes(rootNodeId)) ||
-            (record.remote_url && record.remote_url.includes(rootNodeId)) ||
-            (record.repo_url && record.repo_url.includes(rootNodeId)));
-        const matchesRepo = repo && (record.repo_url === repo || record.space_url === repo);
-        if (matchesId || matchesRepo) {
+            record.canonical_path === `/repos/${rootNodeId}` ||
+            record.canonical_path === `/spaces/${rootNodeId}`);
+
+        const matchesRoute =
+          routeInfo &&
+          isHostedSpaceRecord(record) &&
+          ((record.route_namespace === routeInfo.namespace && record.route_slug === routeInfo.slug) ||
+            (record.namespace === routeInfo.namespace && record.slug === routeInfo.slug));
+
+        if (matchesId || matchesRoute) {
           if (existsSync(registeredPath)) {
             checkoutPath = registeredPath;
             break;
@@ -181,7 +215,8 @@ export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): Spac
 
 /** Load and inspect a curated `*.map.md` in the target directory if one exists. */
 export function inspectSpaceMap(dir: string, mapFileName?: string): SpaceMapInspection | null {
-  const fileName = mapFileName ?? findSpaceMapFile(dir);
+  const discovery = discoverSpaceMapFiles(dir);
+  const fileName = mapFileName ?? discovery?.file;
   if (!fileName) return null;
 
   try {
@@ -189,6 +224,7 @@ export function inspectSpaceMap(dir: string, mapFileName?: string): SpaceMapInsp
     const roots = inspectSpaceMapRoots(note.map.roots, dir);
     return {
       file: fileName,
+      otherFiles: discovery?.otherFiles ?? [],
       absolutePath: resolve(dir, fileName),
       note,
       roots,

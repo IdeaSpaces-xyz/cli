@@ -453,5 +453,25 @@ map:
       expect(humanRes.stdout).toContain("(no members)");
       expect(humanRes.stdout).not.toContain("Derived Map");
     });
+
+    it("surfaces a notice when multiple *.map.md files are present", async () => {
+      await fs.writeFile(
+        join(root, "home.map.md"),
+        "---\nname: Home\nmap:\n  roots: []\n  members: []\n---\n# Home\n",
+      );
+      await fs.writeFile(
+        join(root, "team.map.md"),
+        "---\nname: Team\nmap:\n  roots: []\n  members: []\n---\n# Team\n",
+      );
+
+      const jsonRes = await runMap(["."]);
+      expect(jsonRes.exit).toBe(0);
+      expect(jsonRes.data.file).toBe("home.map.md");
+      expect(jsonRes.data.other_files).toEqual(["team.map.md"]);
+
+      const humanRes = await runMap(["."], {}, { ...JSON_FLAGS, json: false, quiet: false });
+      expect(humanRes.exit).toBe(0);
+      expect(humanRes.stdout).toContain("Note: Multiple Space Maps found (home.map.md, team.map.md). Using home.map.md.");
+    });
   });
 });
