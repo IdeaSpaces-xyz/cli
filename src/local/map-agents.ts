@@ -68,10 +68,6 @@ function resolveLocalCheckout(
       if (existsSync(folderPath)) return folderPath;
     }
     if (root.repo) {
-      const idFromUrl = rootNodeIdFromGitUrl(root.repo, apiUrl);
-      if (idFromUrl && record.root_node_id === idFromUrl) {
-        if (existsSync(folderPath)) return folderPath;
-      }
       if (record.root_node_id && canonicalRepoUrl(apiUrl, record.root_node_id) === root.repo) {
         if (existsSync(folderPath)) return folderPath;
       }
