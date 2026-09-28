@@ -24,7 +24,7 @@ import type { CommandDef } from "../types.js";
 // Bare usage (no "Usage:" prefix) — `main.ts` adds the label for `--help`, and
 // the error path below adds it explicitly. Matches the convention used by the
 // other commands' `usage:` fields.
-const USAGE = "ideaspaces search <query> [--limit N] [--json]";
+const USAGE = "ideaspaces search <query> [--limit N] [--threads] [--json]";
 const DEFAULT_LIMIT = 20;
 
 // Lazy: yields one document at a time so the scorer never holds the whole repo
@@ -48,6 +48,7 @@ export const searchCommand: CommandDef = {
     "ideaspaces search awareness loop",
     'ideaspaces search "state and location" --limit 5',
     "ideaspaces search conversation --json",
+    "ideaspaces search decision --threads  # include the local _threads/ extension",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -77,7 +78,31 @@ export const searchCommand: CommandDef = {
     } catch {
       headBefore = null; // unborn HEAD: results still come, the Map does not
     }
-    const markdown = listFiles(root).filter((p) => p.endsWith(".md"));
+    if (flags.threads !== undefined && flags.threads !== true) {
+      output.error("--threads does not take a value.");
+      return 1;
+    }
+    const markdown = listFiles(root).filter((p) => p.endsWith(".md") &&
+      (flags.threads || !p.split("/").includes("_threads")));
+    // A separate worktree is ignored by the main index; aware search opts in
+    // to its Markdown without assuming those files exist at main's HEAD.
+    if (flags.threads) {
+      const { listLocal, NoAgreementError } = await import("../local/threads.js");
+      try {
+        for (const thread of listLocal(root)) {
+          for (const p of ["README.md", ...thread.posts.map((post) => post.path)]) {
+            const path = `_threads/${thread.slug}/${p}`;
+            if (!markdown.includes(path)) markdown.push(path);
+          }
+        }
+      } catch (error) {
+        if (!(error instanceof NoAgreementError)) {
+          output.error(`Cannot search local Threads: ${error instanceof Error ? error.message : String(error)}`);
+          return 1;
+        }
+        // Non-Space repositories still allow ordinary search.
+      }
+    }
     const results = searchDocs(readDocs(root, markdown), query, limit);
 
     let projection: SearchMapProjection;

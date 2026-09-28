@@ -40,6 +40,7 @@ import { timesCommand } from "./commands/times.js";
 import { shareCommand } from "./commands/share.js";
 import { spacesCommand } from "./commands/spaces.js";
 import { inboxCommand } from "./commands/inbox.js";
+import { threadsCommand } from "./commands/threads.js";
 import { followCommand, unfollowCommand } from "./commands/follow.js";
 
 // Power commands
@@ -106,6 +107,7 @@ const topLevel: CommandDef[] = [
   timesCommand,
   shareCommand,
   spacesCommand,
+  threadsCommand,
   inboxCommand,
   followCommand,
   unfollowCommand,

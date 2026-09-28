@@ -37,17 +37,17 @@ type Flags = Record<string, string | boolean>;
 
 const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
-const USAGE = "ideaspaces inbox <list|read|send|reply|expand> ...";
+const USAGE = "ideaspaces threads <list|read|send|reply|expand> ...";
 const LIST_USAGE =
-  "ideaspaces inbox list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
+  "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
 const READ_USAGE =
-  "ideaspaces inbox read <thread_id> [--new|--since <position>] [--kind <message|reframe>] [--depth <name|summary|full>] [--ack]";
+  "ideaspaces threads read <thread_id> [--new|--since <position>] [--kind <message|reframe>] [--depth <name|summary|full>] [--ack]";
 const SEND_USAGE =
-  "ideaspaces inbox send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
-const EXPAND_USAGE = "ideaspaces inbox expand <thread_id> <member_ordinal>";
+  "ideaspaces threads send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+const EXPAND_USAGE = "ideaspaces threads expand <thread_id> <member_ordinal>";
 const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
-  "ideaspaces inbox reply <thread_id> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces threads reply <thread_id> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 
 function flagString(flags: Flags, name: string): string | undefined {
   return typeof flags[name] === "string" ? flags[name] : undefined;
@@ -146,7 +146,7 @@ function inboxItemText(item: InboxItem): string {
   ].join("\n");
 }
 
-function exchangeText(
+export function exchangeText(
   exchange: ExchangeReadResponse,
   messages: ExchangeMessage[] = exchange.messages,
   depth: ReadDepth = "full",
@@ -552,20 +552,20 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
   });
 }
 
-export const inboxCommand: CommandDef = {
-  name: "inbox",
-  description: "Ask, read, and reply to messages about shared Content",
+export const hostedThreadsCommand: CommandDef = {
+  name: "threads-hosted",
+  description: "Ask, read, and reply to hosted Threads about shared Content",
   usage: USAGE,
   examples: [
-    "ideaspaces inbox list --new --depth name",
-    "ideaspaces inbox list --space n_0123456789abcdef01234567",
-    "ideaspaces inbox read x_example --new --depth full --ack",
-    "ideaspaces inbox expand x_example 0",
-    "ideaspaces inbox send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
-    "ideaspaces inbox send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
-    "ideaspaces inbox send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
-    "ideaspaces inbox send --about n_0123456789abcdef01234567 --name 'Bug' --summary 'share invite 404s' --message '…'  # no recipient: goes to the Node's owner",
-    "printf '# Reply\\n\\nKeep it narrow.' | ideaspaces inbox reply x_example --name 'Answer' --summary 'A bounded answer'",
+    "ideaspaces threads list --new --depth name",
+    "ideaspaces threads list --space n_0123456789abcdef01234567",
+    "ideaspaces threads read x_example --new --depth full --ack",
+    "ideaspaces threads expand x_example 0",
+    "ideaspaces threads send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
+    "ideaspaces threads send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
+    "ideaspaces threads send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
+    "ideaspaces threads send --about n_0123456789abcdef01234567 --name 'Bug' --summary 'share invite 404s' --message '…'  # no recipient: goes to the Node's owner",
+    "printf '# Reply\\n\\nKeep it narrow.' | ideaspaces threads reply x_example --name 'Answer' --summary 'A bounded answer'",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
@@ -585,5 +585,18 @@ export const inboxCommand: CommandDef = {
         output.error(`Usage: ${USAGE}`);
         return 1;
     }
+  },
+};
+
+/** One-release compatibility name. Never silently reuse inbox for a new Thread feature. */
+export const inboxCommand: CommandDef = {
+  ...hostedThreadsCommand,
+  name: "inbox",
+  description: "Legacy name for hosted threads (deprecated; use threads)",
+  usage: USAGE.replace("ideaspaces threads", "ideaspaces inbox"),
+  examples: hostedThreadsCommand.examples?.map((example) => example.replace("ideaspaces threads", "ideaspaces inbox")),
+  async run(args, flags, global) {
+    createOutput(global).log("`ideaspaces inbox` is deprecated; use `ideaspaces threads` (legacy alias for this release).");
+    return hostedThreadsCommand.run(args, flags, global);
   },
 };
