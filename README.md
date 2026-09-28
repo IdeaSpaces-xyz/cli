@@ -64,7 +64,7 @@ administration.
 | Write things down | `write`, `commit`, `change`, `node` |
 | Start, bring home | `create`, `get` (`clone`, `fork`, `link`), `clones`, `forget` |
 | Share and sync | `login`, `status account` (`whoami`), `publish`, `share`, `push`, `integrate` (`pull`, `update`), `sync`, `repos`, `catalog` |
-| Talk | `conversation`, `conversations`, `inbox`, `spaces`, `agents`, `agent list` |
+| Talk | `conversation`, `conversations`, `threads` (`inbox` legacy alias for one release), `spaces`, `agents`, `agent list` |
 | Run a local agent | `agent run` (`--runtime=pi` or `--runtime=claude`, `--model`), `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
 | Housekeeping | `status doctor` (`doctor`), `credential`, `power logout` |
 
@@ -77,6 +77,7 @@ administration.
 - **`integrate` follows what the checkout is.** A clone integrates its upstream; an unpublished fork integrates its maintained source; a published fork with source lineage defaults to its own remote and takes `--from source` for the other. Plan-first: `--yes` applies. `pull` and `update` remain as the underlying verbs.
 - **`status` is the tail, and only the tail.** It renders local State (branch, upstream, working tree, captures awaiting commit), the repo catalog when you pass `--workspace`, and what moved since last session — the same composition an agent runtime appends after its cached head, so the two never disagree. Nothing `navigate` already showed in the head. Login state and installation health are separate sections: `status account` and `status doctor` (`whoami` and `doctor` still work for one release).
 - **`look` deepens one target without adopting its terms.** The applicable Agreement or Foundation is reference context only. JSON adds a portable `map` only for a clean, pinned, identified root; dirty, unborn, ignored, local-only, or invalid roots remain honest local projections.
+- **`threads` is one family for local files and hosted `x_` ids.** `threads list` shows local and hosted rows together when logged in; `threads open <slug|path>` reads a local Thread at name, summary or full depth, while `threads read <x_…>`, `send`, `reply`, and `expand` keep the hosted wire unchanged. `threads new`, `post`, `close` (a closure post), and `render` work without a login. Posts are exclusive-create Markdown; commit and push their exact paths through the repo's usual Git flow for a second machine to see them. `--reply-to` fills the ancestor chain, `--map` accepts a validated authored Map, and `render` derives the timeline without overwriting the curated README. `open --new` uses a private per-thread cursor; only `--ack` moves it. Use `open --map <file> --member <ordinal>` to read an authored pinned `_threads/` member; an unavailable commit refuses rather than silently using HEAD. For a private code repo, `threads init` mounts an orphan `threads` branch at ignored `_threads/`; `threads push --remote <team-remote>` explicitly names a non-GitHub, non-origin destination. Never publish that branch to GitHub. The `inbox` alias prints a deprecation notice for one release; the server's `/inbox` API stays unchanged.
 - **`search --json` seals its hits as a Map under the same gate.** Ranked results always come back; `map_status` is `available` with a parse-valid `map` only for a clean, pinned, identified root with every hit tracked at an unchanged HEAD, else `projection_pending` with `map: null`. Rank, score, and snippet stay in `results`; member order carries the rank.
 - **`map` prefers a curated `*.map.md` at the target.** It shows each pinned root as `pinned` (checkout HEAD matches), `moved` (HEAD differs), or `unresolved` (no matching local checkout), and names other Maps in the same folder. Without one, it derives the local tree: JSON includes a portable `map` block only for a clean, exactly pinned root with stable identity that passes strict protocol validation. Dirty, unborn, unidentified, or invalid trees remain inspectable under `projection` without leaking their checkout path into a Map.
 - **`fork` and `update`** validate before touching your disk and never overwrite your work; conflicts are reported.
@@ -108,6 +109,7 @@ Pick `claude` to continue a session you started in Claude Code; the same session
 |---|---|
 | `~/.ideaspaces/credentials.json` | API credentials |
 | `~/.ideaspaces/spaces.json` | Known spaces and remotes |
+| `~/.ideaspaces/cursors/` | Private per-reader local Thread acknowledgements |
 | `~/.pi/agent/auth.json` | Local-agent model credentials |
 
 `IS_API_KEY` overrides stored credentials. `IS_API_URL` points at another host. `IDEASPACES_PI_EXTENSIONS` lists extension paths for the local agent. `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.

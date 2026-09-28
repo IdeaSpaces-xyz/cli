@@ -478,5 +478,11 @@ export function mergeUpstream(cwd?: string): void {
 }
 
 export function push(cwd?: string): void {
+  // The independent, private `_threads/` branch must never escape through the
+  // generic push path, even if someone configured an upstream after init.
+  // Its only outbound path is `threads push --remote <team-remote>`.
+  if (git(["branch", "--show-current"], cwd).out === "threads") {
+    throw new GitError("Private threads branch: use `ideaspaces threads push --remote <team-remote>`; generic push is refused.");
+  }
   gitOrThrow(["push"], cwd);
 }

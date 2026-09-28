@@ -276,7 +276,7 @@ export async function runMapSelection(
       [
         `Portable Inbox context — about ${selection.target_node_id}`,
         ...formatPortableMap(selection.map),
-        "Review this selection, then send it with `ideaspaces inbox send … --map <selection.json>`.",
+        "Review this selection, then send it with `ideaspaces threads send … --map <selection.json>`.",
       ].join("\n"),
     );
     return 0;
