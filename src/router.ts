@@ -91,7 +91,6 @@ const topLevel: CommandDef[] = [
   conversationCommand,
   agentCommand,
   agentsCommand,
-  agentCommand,
   nodeCommand,
   searchCommand,
   lsCommand,

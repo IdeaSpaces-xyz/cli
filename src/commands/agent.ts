@@ -23,13 +23,13 @@ function flagString(flags: Flags, name: string): string | undefined {
 }
 
 export const RUN_USAGE =
-  "ideaspaces agent run <pov> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--message <text>] [--json]";
+  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--json]";
 
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const USAGE =
-  "ideaspaces agent <run|list> … (run <pov> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--message <text>] [--json]; list --map <file> [--json])";
+  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--json]; list --map <file> [--json])";
 
 /**
  * Resolve a point-of-view locator to an absolute directory path on the local machine.
@@ -92,6 +92,8 @@ export function resolveAgentPov(pov: string): string | null {
 export interface AgentDefaults {
   runtime?: LocalRuntime;
   model?: string;
+  pi_model?: string;
+  claude_model?: string;
 }
 
 /**
@@ -119,10 +121,12 @@ export function readAgentDefaults(povPath: string): AgentDefaults {
     }
     if (typeof fm.model === "string" && fm.model.trim()) {
       defaults.model = fm.model.trim();
-    } else if (defaults.runtime === "claude" && typeof fm.claude_model === "string" && fm.claude_model.trim()) {
-      defaults.model = fm.claude_model.trim();
-    } else if (defaults.runtime === "pi" && typeof fm.pi_model === "string" && fm.pi_model.trim()) {
-      defaults.model = fm.pi_model.trim();
+    }
+    if (typeof fm.claude_model === "string" && fm.claude_model.trim()) {
+      defaults.claude_model = fm.claude_model.trim();
+    }
+    if (typeof fm.pi_model === "string" && fm.pi_model.trim()) {
+      defaults.pi_model = fm.pi_model.trim();
     }
     return defaults;
   } catch {
@@ -180,6 +184,10 @@ async function cmdRun(
     model = flags["claude-model"].trim();
   } else if (defaults.model) {
     model = defaults.model;
+  } else if (runtime === "pi" && defaults.pi_model) {
+    model = defaults.pi_model;
+  } else if (runtime === "claude" && defaults.claude_model) {
+    model = defaults.claude_model;
   }
 
   const forwardFlags: Flags = {
@@ -235,10 +243,10 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
-      "ideaspaces agent run agents/scout --runtime claude --model sonnet --message 'Check findings'",
-      "ideaspaces agent run agents/scout --runtime pi --ext pi-is-space,pi-local-context --message 'Check findings'",
-      "ideaspaces agent run agents/scout --conversation c_123 --message 'Resume turn'",
-      "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --runtime claude --message 'Hello from root id'",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
+      "ideaspaces agent run agents/scout --message 'Resume turn' --conversation c_123",
+      "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
     ],
     async run(args, flags, global: GlobalFlags) {
       const output = createOutput(global);
@@ -255,3 +263,10 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
     },
   };
 }
+
+export const agentCommand: CommandDef = makeAgentCommand({
+  send: async () => 1,
+  createNew: () => 1,
+  get: () => 1,
+  list: () => 1,
+});

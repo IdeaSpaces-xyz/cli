@@ -68,10 +68,6 @@ function resolveLocalCheckout(
       if (existsSync(folderPath)) return folderPath;
     }
     if (root.repo) {
-      const idFromUrl = rootNodeIdFromGitUrl(root.repo, apiUrl);
-      if (idFromUrl && record.root_node_id === idFromUrl) {
-        if (existsSync(folderPath)) return folderPath;
-      }
       if (record.root_node_id && canonicalRepoUrl(apiUrl, record.root_node_id) === root.repo) {
         if (existsSync(folderPath)) return folderPath;
       }
@@ -103,15 +99,19 @@ function readGitBlobAtCommit(
   repoPath: string,
   sha: string,
   relativePath: string,
-): { ok: boolean; content?: string; reason?: "unavailable_pin" | "missing_path" | "git_error" } {
+): { ok: boolean; content?: string; reason?: "unavailable_pin" | "missing_path" | "git_error"; detail?: string } {
   const commitCheck = spawnSync("git", ["-C", repoPath, "cat-file", "-e", `${sha}^{commit}`], {
     encoding: "utf-8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
   });
   if (commitCheck.error) {
-    return { ok: false, reason: "git_error" };
+    return { ok: false, reason: "git_error", detail: commitCheck.error.message };
   }
   if (commitCheck.status !== 0) {
+    const stderr = (commitCheck.stderr ?? "").trim();
+    if (stderr.includes("fatal: not a git repository")) {
+      return { ok: false, reason: "git_error", detail: stderr };
+    }
     return { ok: false, reason: "unavailable_pin" };
   }
 
@@ -120,12 +120,20 @@ function readGitBlobAtCommit(
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
   });
   if (show.error) {
-    return { ok: false, reason: "git_error" };
+    return { ok: false, reason: "git_error", detail: show.error.message };
   }
   if (show.status !== 0) {
+    const stderr = (show.stderr ?? "").trim();
+    if (stderr.includes("fatal: bad object") || stderr.includes("fatal: not a git repository")) {
+      return { ok: false, reason: "git_error", detail: stderr };
+    }
     return { ok: false, reason: "missing_path" };
   }
   return { ok: true, content: show.stdout };
+}
+
+function isMapBlock(value: unknown): value is MapBlock {
+  return typeof value === "object" && value !== null && "roots" in value && "members" in value;
 }
 
 /**
@@ -135,10 +143,6 @@ function readGitBlobAtCommit(
  * resolved local checkout without network access, folder scanning, or HEAD
  * substitution.
  */
-function isMapBlock(value: unknown): value is MapBlock {
-  return typeof value === "object" && value !== null && "roots" in value && "members" in value;
-}
-
 export function projectMapAgents(
   mapInput: LoadedMapNote | MapBlock,
   options?: CheckoutResolverOptions,
@@ -146,6 +150,14 @@ export function projectMapAgents(
   const mapBlock: MapBlock = "map" in mapInput && isMapBlock(mapInput.map) ? mapInput.map : (mapInput as MapBlock);
   const roots = mapBlock.roots ?? [];
   const members = mapBlock.members ?? [];
+
+  const spacesMap = options?.spacesMap ?? loadSpaces();
+  const apiUrl = options?.apiUrl ?? loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const effectiveOptions: CheckoutResolverOptions = {
+    ...options,
+    spacesMap,
+    apiUrl,
+  };
 
   const agents: MapAgentListing[] = [];
   const unresolved: MapUnresolvedRoot[] = [];
@@ -167,7 +179,7 @@ export function projectMapAgents(
     const root = roots[rootIndex];
     if (!root) continue;
 
-    const checkoutPath = resolveLocalCheckout(root, options);
+    const checkoutPath = resolveLocalCheckout(root, effectiveOptions);
     if (!checkoutPath) {
       unresolved.push({
         ...(root.root_node_id ? { root_node_id: root.root_node_id } : {}),
@@ -197,7 +209,7 @@ export function projectMapAgents(
           sha: root.sha,
           path: checkoutPath,
           reason: "git_error",
-          detail: "Git execution failed",
+          detail: blobResult.detail ?? "git command failed",
         });
       }
       continue;
@@ -268,7 +280,7 @@ export function formatMapAgentsText(result: MapAgentsResult): string {
         u.reason === "unavailable_pin"
           ? `pin unavailable (${u.sha.slice(0, 8)})`
           : u.reason === "git_error"
-            ? "git error"
+            ? `git error: ${u.detail ?? "unknown"}`
             : "unbound (no local checkout)";
       lines.push(`  ${id} — ${reasonText}`);
     }

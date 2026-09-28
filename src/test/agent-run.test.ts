@@ -124,7 +124,8 @@ describe("agent run — Agreement and Foundation defaults", () => {
 
     const defaults = readAgentDefaults(dir);
     expect(defaults.runtime).toBe("pi");
-    expect(defaults.model).toBe("openai/gpt-4o");
+    expect(defaults.model).toBeUndefined();
+    expect(defaults.pi_model).toBe("openai/gpt-4o");
   });
 
   it("falls back to _agent/foundation.md when agreement is absent", () => {
@@ -137,7 +138,7 @@ describe("agent run — Agreement and Foundation defaults", () => {
 
     const defaults = readAgentDefaults(dir);
     expect(defaults.runtime).toBe("claude");
-    expect(defaults.model).toBe("opus");
+    expect(defaults.claude_model).toBe("opus");
   });
 });
 
@@ -154,6 +155,33 @@ describe("agent run — command options & validation", () => {
   beforeEach(() => {
     mockSend.mockReset();
     mockSend.mockResolvedValue(0);
+  });
+
+  it("honors pi_model fallback when runtime is omitted and defaults to pi", async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, "_agent"), { recursive: true });
+    writeFileSync(
+      join(dir, "_agent", "agreement.md"),
+      `---\nname: Scout\npi_model: openai/gpt-4o\n---\n# Agreement\n`,
+    );
+
+    const code = await agentCmd.run(
+      ["run", dir],
+      { message: "Analyze data" },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: true,
+        context: dir,
+        runtime: "pi",
+        "pi-model": "openai/gpt-4o",
+        message: "Analyze data",
+      }),
+      expect.anything(),
+    );
   });
 
   it("refuses invocation without a POV argument", async () => {

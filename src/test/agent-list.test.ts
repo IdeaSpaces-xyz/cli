@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { makeAgentCommand } from "../commands/agent.js";
+import { agentCommand } from "../commands/agent.js";
 import { agentsCommand } from "../commands/agents.js";
 import { saveSpace } from "../auth/spaces.js";
 import { projectMapAgents, formatMapAgentsText } from "../local/map-agents.js";
@@ -34,13 +34,6 @@ function commitFile(dir: string, relPath: string, content: string, message = "in
 describe("agent list — Map-derived agent discovery (S1)", () => {
   let tempBase: string;
   let originalHome: string | undefined;
-  const mockLocal: any = {
-    send: async () => 0,
-    createNew: () => 0,
-    get: () => 0,
-    list: () => 0,
-  };
-  const agentCommand = makeAgentCommand(mockLocal);
 
   beforeEach(() => {
     tempBase = mkdtempSync(join(tmpdir(), "is-agent-list-test-"));
@@ -53,7 +46,7 @@ describe("agent list — Map-derived agent discovery (S1)", () => {
     rmSync(tempBase, { recursive: true, force: true });
   });
 
-  function makeRepo(name: string): string {
+    function makeRepo(name: string): string {
     const dir = join(tempBase, name);
     mkdirSync(dir, { recursive: true });
     initGitRepo(dir);
@@ -248,6 +241,8 @@ Space map legend.
     expect(text).not.toContain("Untyped Space");
 
     // Also run via agentCommand
+    let capturedData: any = null;
+    let capturedTextOutput = "";
     const mockGlobal = {
       json: true,
       quiet: false,
@@ -530,11 +525,45 @@ map:
     expect(result.unresolved).toHaveLength(0);
   });
 
+  it("reports a git error for corrupted or non-git registered checkouts as unresolved", () => {
+    const nonGitDir = join(tempBase, "not-a-git-repo");
+    mkdirSync(nonGitDir, { recursive: true });
+    const idE = "n_eeeeeeeeeeeeeeeeeeeeeeee";
+    saveSpace(nonGitDir, { repo_id: "repo_e", slug: "not-a-git-repo", namespace: "test", root_node_id: idE });
+
+    const mapPath = join(tempBase, "giterror.map.md");
+    writeFileSync(
+      mapPath,
+      `---
+name: Git Error Map
+map:
+  roots:
+    - root_node_id: ${idE}
+      sha: 0123456789abcdef0123456789abcdef01234567
+  members:
+    - root: 0
+      position: .
+      depth: summary
+---
+`,
+      "utf-8",
+    );
+
+    const loaded = loadMapNote(mapPath, tempBase);
+    const result = projectMapAgents(loaded, { cwd: tempBase });
+
+    expect(result.agents).toHaveLength(0);
+    expect(result.unresolved).toHaveLength(1);
+    expect(result.unresolved[0].root_node_id).toBe(idE);
+    expect(result.unresolved[0].reason).toBe("git_error");
+    expect(formatMapAgentsText(result)).toContain("git error:");
+  });
+
   it("preserves the existing hosted ideaspaces agents command definition and usage", () => {
     expect(agentsCommand.name).toBe("agents");
     expect(agentsCommand.usage).toContain("ideaspaces agents");
     expect(agentCommand.name).toBe("agent");
-    expect(agentCommand.usage).toContain("ideaspaces agent");
+    expect(agentCommand.usage).toContain("list --map <file>");
   });
 
   it("validates required --map flag and reports errors honestly", async () => {
