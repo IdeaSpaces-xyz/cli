@@ -1,8 +1,9 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { parseFrontmatter, type MapMember, type MapRoot } from "@ideaspaces/protocol";
+import { type MapMember, type MapRoot } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
 import { headSha } from "../git.js";
+import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 
 export type SpaceMapRootStatus = "pinned" | "moved" | "unresolved";
@@ -56,29 +57,14 @@ function parseNamespaceAndSlugFromRepoUrl(url?: string): { namespace: string; sl
   return null;
 }
 
-function readContractRootNodeId(dir: string): string | null {
-  const agreementPath = join(dir, "_agent", "agreement.md");
-  const foundationPath = join(dir, "_agent", "foundation.md");
-
-  for (const candidate of [agreementPath, foundationPath]) {
-    if (!existsSync(candidate)) continue;
-    try {
-      const content = readFileSync(candidate, "utf8");
-      const fm = parseFrontmatter(content);
-      if (fm) {
-        if (typeof fm.root_node_id === "string" && fm.root_node_id.trim()) {
-          return fm.root_node_id.trim();
-        }
-        if (typeof fm.agreement === "string") {
-          const match = fm.agreement.match(ROOT_NODE_ID_RE);
-          if (match) return match[1];
-        }
-      }
-    } catch {
-      // ignore unreadable contract
-    }
+function getRepoRootNodeId(dir: string): string | null {
+  if (!existsSync(join(dir, ".git"))) return null;
+  try {
+    const report = inspectLocalRootIdentity(dir);
+    return report.root_node_id;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /** Discover all `*.map.md` files in the directory and pick the curated primary. */
@@ -117,8 +103,8 @@ export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): Spac
     let checkoutPath: string | null = null;
 
     // 1. Check context directory itself
-    if (rootNodeId && existsSync(join(contextDir, ".git"))) {
-      const selfId = readContractRootNodeId(contextDir);
+    if (rootNodeId) {
+      const selfId = getRepoRootNodeId(contextDir);
       if (selfId && selfId === rootNodeId) {
         checkoutPath = contextDir;
       }
@@ -133,12 +119,10 @@ export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): Spac
             continue;
           }
           const candidate = join(contextDir, dirent.name);
-          if (existsSync(join(candidate, ".git"))) {
-            const candidateId = readContractRootNodeId(candidate);
-            if (candidateId && rootNodeId && candidateId === rootNodeId) {
-              checkoutPath = candidate;
-              break;
-            }
+          const candidateId = getRepoRootNodeId(candidate);
+          if (candidateId && rootNodeId && candidateId === rootNodeId) {
+            checkoutPath = candidate;
+            break;
           }
         }
       } catch {
@@ -161,7 +145,6 @@ export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): Spac
         const matchesId =
           rootNodeId &&
           (record.root_node_id === rootNodeId ||
-            record.source_root_node_id === rootNodeId ||
             record.canonical_path === `/repos/${rootNodeId}` ||
             record.canonical_path === `/spaces/${rootNodeId}`);
 

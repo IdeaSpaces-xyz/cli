@@ -113,6 +113,10 @@ export const createCommand: CommandDef = {
   async run(args, flags, global) {
     const output = createOutput(global);
     const homeMode = flags.home !== undefined;
+    if (args[0] && typeof flags.home === "string" && flags.home.trim()) {
+      output.error("Provide a target directory either as an argument or via --home <dir>, not both.");
+      return 5;
+    }
     const name = typeof flags.home === "string" && flags.home.trim() ? flags.home.trim() : args[0];
     const targetDir = name ? resolve(process.cwd(), name) : process.cwd();
     const apply = global.yes === true;
@@ -179,6 +183,7 @@ export const createCommand: CommandDef = {
           : agentMode
             ? agentClaudeMd(agentName)
             : CLAUDE_MD;
+    const existingHomeMap = homeMode && existsSync(join(targetDir, "home.map.md"));
     const plan = buildPlan({
       targetDir,
       name,
@@ -216,6 +221,7 @@ export const createCommand: CommandDef = {
           nestedInRepo: inspection.nestedInRepo,
           agentName: agentMode ? agentName : undefined,
           homeMode,
+          existingHomeMap,
           foundationNote,
         }),
       );
@@ -244,7 +250,7 @@ export const createCommand: CommandDef = {
 
     const where = name ? `./${name}` : "this directory";
     const lines = [
-      `Scaffolded ${homeMode ? "Home ideaspace" : describeTarget(targetDir, name)} (${homeMode ? "home with empty home.map.md" : agentMode ? `agent: ${agentName}` : shape}${privateAgent ? ", private _agent/" : ""}).`,
+      `Scaffolded ${homeMode ? "Home ideaspace" : describeTarget(targetDir, name)} (${homeMode ? existingHomeMap ? "existing home.map.md preserved" : "home with empty home.map.md" : agentMode ? `agent: ${agentName}` : shape}${privateAgent ? ", private _agent/" : ""}).`,
     ];
     if (inspection.nestedInRepo) {
       lines.push(nestingNotice(targetDir, inspection.nestedInRepo));
@@ -259,7 +265,7 @@ export const createCommand: CommandDef = {
     }
     if (homeMode) {
       lines.push(
-        `Next: open a session in ${where} — Home is scaffolded with an Agreement and empty home.map.md as the curated Space Map.`,
+        `Next: open a session in ${where} — Home is scaffolded with an Agreement and ${existingHomeMap ? "your existing" : "an empty"} home.map.md as the curated Space Map.`,
       );
     } else if (contractShape === "agreement") {
       lines.push(
@@ -403,7 +409,7 @@ function buildPlan(opts: {
     steps.push({ op: "write", path: join(targetDir, "_agent", `${fileName}.md`) });
   }
 
-  if (homeMode) {
+  if (homeMode && !existsSync(join(targetDir, "home.map.md"))) {
     steps.push({ op: "write", path: join(targetDir, "home.map.md"), detail: "empty Space Map" });
   }
 
@@ -451,13 +457,14 @@ function renderPlanText(opts: {
   /** Present when scaffolding an agent — the plan must say so before --yes. */
   agentName?: string;
   homeMode?: boolean;
+  existingHomeMap?: boolean;
   /** Present under --foundation — the plan must say the shape is the old one. */
   foundationNote?: string;
 }): string {
-  const { targetDir, name, shape, privateAgent, plan, nestedInRepo, agentName, homeMode, foundationNote } = opts;
+  const { targetDir, name, shape, privateAgent, plan, nestedInRepo, agentName, homeMode, existingHomeMap, foundationNote } = opts;
   const lines: string[] = [];
   lines.push(
-    `Plan for ${describeTarget(targetDir, name)} — ${homeMode ? "home (with empty home.map.md)" : agentName ? `agent: ${agentName} (the space IS its character)` : `shape: ${shape}`}${privateAgent ? " (private _agent/)" : ""}`,
+    `Plan for ${describeTarget(targetDir, name)} — ${homeMode ? existingHomeMap ? "home (existing home.map.md preserved)" : "home (with empty home.map.md)" : agentName ? `agent: ${agentName} (the space IS its character)` : `shape: ${shape}`}${privateAgent ? " (private _agent/)" : ""}`,
   );
   if (nestedInRepo) {
     lines.push("");
@@ -521,8 +528,11 @@ async function applyPlan(opts: {
 
   if (homeMapMd) {
     const mapRel = "home.map.md";
-    await fs.writeFile(join(targetDir, mapRel), homeMapMd, "utf-8");
-    commitPaths.push(mapRel);
+    const mapAbs = join(targetDir, mapRel);
+    if (!existsSync(mapAbs)) {
+      await fs.writeFile(mapAbs, homeMapMd, "utf-8");
+      commitPaths.push(mapRel);
+    }
   }
 
   if (contractShape === "foundation") {

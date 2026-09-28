@@ -57,7 +57,7 @@ export const writeCommand: CommandDef = {
   name: "write",
   description: "Create or update a Note (local file with Layer 1 frontmatter)",
   usage:
-    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to entity] [--map JSON|FILE] [--content TEXT] [--if-match SHA] [--force] [--stage=false]",
+    "ideaspaces write <path> [--name NAME] [--summary TEXT] [--tags a,b] [--attached-to entity] [--map JSON|YAML|FILE] [--content TEXT] [--if-match SHA] [--force] [--stage=false]",
   examples: [
     'echo "# My Note\\nContent here" | ideaspaces write notes/my-note.md --name "My Note"',
     'ideaspaces write notes/test.md --name "Test" --content "# Test\\nHello"',

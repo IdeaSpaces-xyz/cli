@@ -7,12 +7,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAP_DEPTHS, parseMap } from "@ideaspaces/protocol";
 import { loadConfig } from "../auth/credentials.js";
+import { loadSpaces } from "../auth/spaces.js";
 import { mapCommand } from "../commands/map.js";
 import type { GlobalFlags } from "../types.js";
 
 vi.mock("../auth/credentials.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../auth/credentials.js")>()),
   loadConfig: vi.fn(() => null),
+}));
+vi.mock("../auth/spaces.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../auth/spaces.js")>()),
+  loadSpaces: vi.fn(() => ({})),
 }));
 
 const JSON_FLAGS: GlobalFlags = {
@@ -74,6 +79,7 @@ beforeEach(async () => {
   git(["config", "user.name", "Map Test"]);
   git(["remote", "add", "origin", `https://git.ideaspaces.xyz/repos/${ROOT_NODE_ID}.git`]);
   vi.mocked(loadConfig).mockReturnValue(null);
+  vi.mocked(loadSpaces).mockReturnValue({});
 });
 
 afterEach(async () => {
@@ -420,6 +426,59 @@ map:
       expect(humanRes.stdout).toContain("[pinned] n_111111111111111111111111");
       expect(humanRes.stdout).toContain(`[moved] n_222222222222222222222222 @ ${oldSha} (head: ${child2Head})`);
       expect(humanRes.stdout).toContain("[unresolved] n_333333333333333333333333");
+    });
+
+    it("does not mistake a shared Agreement reference for a child's root identity", async () => {
+      const child = join(root, "unminted-child");
+      await fs.mkdir(join(child, "_agent"), { recursive: true });
+      spawnSync("git", ["init", "-q", "-b", "main"], { cwd: child });
+      spawnSync("git", ["config", "user.email", "child@example.com"], { cwd: child });
+      spawnSync("git", ["config", "user.name", "Child"], { cwd: child });
+      await fs.writeFile(join(child, "_agent", "agreement.md"),
+        "---\nname: Agreement\nagreement: knowledge:repo:n_f1511280efecd7fcff155152\n---\n# Child\n");
+      spawnSync("git", ["add", "."], { cwd: child });
+      spawnSync("git", ["commit", "-q", "-m", "child"], { cwd: child });
+      await fs.writeFile(join(root, "home.map.md"), `---
+name: Home
+map:
+  roots:
+    - root_node_id: n_f1511280efecd7fcff155152
+      sha: "${"0".repeat(40)}"
+  members: []
+---
+# Home
+`);
+
+      const result = await runMap(["."]);
+      expect(result.exit, result.stderr).toBe(0);
+      expect(result.data.roots[0]).toMatchObject({ status: "unresolved", head_sha: null, checkout_path: null });
+    });
+
+    it("does not resolve a root to a fork that only names it as source lineage", async () => {
+      await fs.mkdir(join(root, "fork"));
+      vi.mocked(loadSpaces).mockReturnValue({
+        [join(root, "fork")]: {
+          kind: "unpublished_fork",
+          root_node_id: "n_222222222222222222222222",
+          source_root_node_id: "n_111111111111111111111111",
+          source_head: "1".repeat(40),
+          source_baseline_initialized: true,
+          name: "Fork",
+        },
+      });
+      await fs.writeFile(join(root, "home.map.md"), `---
+name: Home
+map:
+  roots:
+    - root_node_id: n_111111111111111111111111
+      sha: "${"1".repeat(40)}"
+  members: []
+---
+# Home
+`);
+      const result = await runMap(["."]);
+      expect(result.exit, result.stderr).toBe(0);
+      expect(result.data.roots[0]).toMatchObject({ status: "unresolved", checkout_path: null });
     });
 
     it("prints an empty Map when home.map.md has no roots or members, not a derived tree", async () => {

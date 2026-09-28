@@ -832,5 +832,29 @@ describe("ideaspaces create — git author identity", () => {
       expect(existsSync(join(target, "_agent"))).toBe(false);
       expect(existsSync(join(target, "home.map.md"))).toBe(false);
     });
+
+    it("does not overwrite an existing home.map.md on create --home", async () => {
+      const target = join(tmp, "existing-home");
+      await fs.mkdir(target);
+      const existingMapContent = "---\nname: Existing Home\nsummary: Custom.\nmap:\n  roots: []\n  members: []\n---\n# Existing\n";
+      await fs.writeFile(join(target, "home.map.md"), existingMapContent);
+
+      const plan = await captureStdout(() => createCommand.run([], { home: target }, baseGlobal));
+      expect(plan.exit).toBe(0);
+      expect(JSON.parse(plan.out).plan.some((step: { path?: string }) => step.path?.endsWith("home.map.md"))).toBe(false);
+
+      const { createCommand: cc } = await import("../commands/create.js");
+      const exit = await cc.run([], { home: target }, { ...baseGlobal, yes: true });
+      expect(exit).toBe(0);
+
+      const mapAfter = await fs.readFile(join(target, "home.map.md"), "utf-8");
+      expect(mapAfter).toBe(existingMapContent);
+    });
+
+    it("refuses when both positional target and --home <dir> are provided", async () => {
+      const { createCommand: cc } = await import("../commands/create.js");
+      const exit = await cc.run(["dir1"], { home: "dir2" }, { ...baseGlobal, yes: true });
+      expect(exit).toBe(5);
+    });
   });
 });
