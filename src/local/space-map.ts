@@ -97,7 +97,26 @@ export function findSpaceMapFile(dir: string): string | null {
 /** Inspect all roots in a Map against local checkouts to determine drift. */
 export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): SpaceMapRootDrift[] {
   let knownSpaces: SpacesMap | null = null;
+  let selfId: string | null | undefined;
+  let childPaths: Map<string, string> | null = null;
   const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+
+  const findChild = (rootNodeId: string): string | null => {
+    if (!childPaths) {
+      childPaths = new Map();
+      try {
+        for (const dirent of readdirSync(contextDir, { withFileTypes: true })) {
+          if (!dirent.isDirectory() || dirent.name.startsWith(".") || dirent.name.startsWith("_")) continue;
+          const candidate = join(contextDir, dirent.name);
+          const id = getRepoRootNodeId(candidate);
+          if (id && !childPaths.has(id)) childPaths.set(id, candidate);
+        }
+      } catch {
+        // Unreadable folders do not resolve any root; registry matching still works.
+      }
+    }
+    return childPaths.get(rootNodeId) ?? null;
+  };
 
   return roots.map((root, rootIndex) => {
     const repo = root.repo ?? null;
@@ -112,31 +131,12 @@ export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): Spac
 
     // 1. Check context directory itself
     if (rootNodeId) {
-      const selfId = getRepoRootNodeId(contextDir);
-      if (selfId && selfId === rootNodeId) {
-        checkoutPath = contextDir;
-      }
+      if (selfId === undefined) selfId = getRepoRootNodeId(contextDir);
+      if (selfId === rootNodeId) checkoutPath = contextDir;
     }
 
-    // 2. Check immediate subdirectories of contextDir
-    if (!checkoutPath && existsSync(contextDir) && statSync(contextDir).isDirectory()) {
-      try {
-        const subdirs = readdirSync(contextDir, { withFileTypes: true });
-        for (const dirent of subdirs) {
-          if (!dirent.isDirectory() || dirent.name.startsWith(".") || dirent.name.startsWith("_")) {
-            continue;
-          }
-          const candidate = join(contextDir, dirent.name);
-          const candidateId = getRepoRootNodeId(candidate);
-          if (candidateId && rootNodeId && candidateId === rootNodeId) {
-            checkoutPath = candidate;
-            break;
-          }
-        }
-      } catch {
-        // ignore readdir error
-      }
-    }
+    // 2. Check immediate subdirectories once, however many roots the Map pins.
+    if (!checkoutPath && rootNodeId) checkoutPath = findChild(rootNodeId);
 
     // 3. Check registered spaces
     if (!checkoutPath) {
