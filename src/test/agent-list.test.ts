@@ -563,7 +563,7 @@ map:
     expect(agentsCommand.name).toBe("agents");
     expect(agentsCommand.usage).toContain("ideaspaces agents");
     expect(agentCommand.name).toBe("agent");
-    expect(agentCommand.usage).toContain("ideaspaces agent list --map <file>");
+    expect(agentCommand.usage).toContain("list --map <file>");
   });
 
   it("validates required --map flag and reports errors honestly", async () => {

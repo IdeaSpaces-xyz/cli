@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findCommand_ } from "../router.js";
+import { findCommand_, printHelp } from "../router.js";
 
 describe("router", () => {
   it("exposes the local readiness doctor", () => {
@@ -35,7 +35,25 @@ describe("router", () => {
     expect(findCommand_("unfollow")?.name).toBe("unfollow");
   });
 
-  it("exposes the agent command for Space Map agent discovery", () => {
+  it("exposes the agent command for running or listing agents", () => {
     expect(findCommand_("agent")?.name).toBe("agent");
+  });
+
+  it("registers every command name uniquely in help output", () => {
+    const lines: string[] = [];
+    const origWrite = process.stderr.write;
+    (process.stderr.write as unknown as (s: string) => boolean) = (chunk: string | Uint8Array) => {
+      lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+      return true;
+    };
+    try {
+      printHelp();
+      const output = lines.join("");
+      const commandNames = (output.match(/^ {2}([a-z-]+) {2,}/gm) ?? []).map((l) => l.trim().split(/\s+/)[0]);
+      const duplicates = commandNames.filter((name, idx) => commandNames.indexOf(name) !== idx);
+      expect(duplicates).toEqual([]);
+    } finally {
+      process.stderr.write = origWrite;
+    }
   });
 });
