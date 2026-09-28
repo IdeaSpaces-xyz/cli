@@ -12,8 +12,8 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { isIdeaspacePath } from "@ideaspaces/protocol";
 
 export class GitError extends Error {}
@@ -477,14 +477,24 @@ export function mergeUpstream(cwd?: string): void {
   gitOrThrow(["merge", "--no-edit", "@{upstream}"], cwd);
 }
 
+const PRIVATE_THREADS_MARKER = "ideaspaces-private-threads";
+
+/** Mark the linked worktree's Git metadata, not its mount path or shared repo. */
+export function markPrivateThreadsWorktree(cwd: string): void {
+  const dir = gitOrThrow(["rev-parse", "--absolute-git-dir"], cwd);
+  const common = gitOrThrow(["rev-parse", "--git-common-dir"], cwd);
+  if (realpathSync(dir) === realpathSync(resolve(cwd, common))) {
+    throw new GitError("Private Threads require a separate linked Git worktree.");
+  }
+  writeFileSync(join(dir, PRIVATE_THREADS_MARKER), "private threads branch\n", { flag: "wx", mode: 0o600 });
+}
+
 export function push(cwd?: string): void {
-  // The independent, private `_threads/` branch must never escape through the
-  // generic push path, even if someone configured an upstream after init.
-  // Its only outbound path is `threads push --remote <team-remote>`.
-  const root = repoRoot(cwd);
-  if (basename(root) === "_threads" &&
-      git(["branch", "--show-current"], root).out === "threads" &&
-      git(["rev-parse", "--show-toplevel"], dirname(root)).out === dirname(root)) {
+  // Marker lives in the linked worktree's gitdir. `git worktree move` preserves
+  // it even when the checkout is renamed away from `_threads/`.
+  const branch = git(["branch", "--show-current"], cwd).out;
+  const gitDir = git(["rev-parse", "--absolute-git-dir"], cwd);
+  if (branch === "threads" && gitDir.ok && existsSync(join(gitDir.out, PRIVATE_THREADS_MARKER))) {
     throw new GitError("Private threads branch: use `ideaspaces threads push --remote <team-remote>`; generic push is refused.");
   }
   gitOrThrow(["push"], cwd);

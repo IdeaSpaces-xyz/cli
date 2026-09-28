@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
@@ -66,6 +66,16 @@ describe("local Threads", () => {
     expect(readdirSync(t.path).filter((p) => p.startsWith("20"))).toEqual([]);
     writeFileSync(join(t.path, "bad.md"), "---\nkind: post\n---\nMissing id");
     expect(() => loadThread(t.path)).toThrow(/Invalid post/);
+    rmSync(join(t.path, "bad.md"));
+    const first = appendPost(t.path, { body: "First" });
+    writeFileSync(join(t.path, "duplicate.md"), readFileSync(first.path));
+    expect(() => loadThread(t.path)).toThrow(/Duplicate post id/);
+    rmSync(join(t.path, "duplicate.md"));
+    const outside = join(root, "outside"); mkdirSync(outside);
+    symlinkSync(outside, join(root, "_threads", "escape"));
+    expect(() => resolveLocalThread("escape", root)).toThrow(/symlink/);
+    symlinkSync(first.path, join(t.path, "linked.md"));
+    expect(() => loadThread(t.path)).toThrow(/Unexpected thread entry/);
   });
 
   it("cold CLI read respects the rung and advances the cursor only on explicit ack", async () => {
@@ -182,13 +192,25 @@ describe("local Threads", () => {
     expect(readPinnedThreadMember(root, pin, `_threads/decision/${one.post.path}`)).toContain("At pin");
     expect(() => readPinnedThreadMember(root, pin, `_threads/decision/${two.post.path}`)).toThrow(/refusing working-tree HEAD fallback/);
     expect(() => readPinnedThreadMember(root, main, `_threads/decision/${one.post.path}`)).toThrow(/fallback/);
+    const oldPath = process.env.PATH;
+    process.env.PATH = "";
+    try {
+      expect(() => readPinnedThreadMember(root, pin, `_threads/decision/${one.post.path}`)).toThrow(/git not found/);
+    } finally { process.env.PATH = oldPath; }
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toContain("/_threads/");
     git(root, "remote", "add", "origin", "https://github.com/example/repo.git");
     expect(() => pushWorktree(root, "origin")).toThrow(/GitHub|origin/);
+    git(root, "remote", "add", "enterprise", "ssh://git@code.example.test/team/private.git");
+    expect(() => pushWorktree(root, "enterprise")).toThrow(/unknown hosts/);
     expect(() => genericPush(worktree)).toThrow(/Private threads branch/);
+    git(root, "worktree", "move", worktree, join(root, "private-discussion"));
+    expect(() => genericPush(join(root, "private-discussion"))).toThrow(/Private threads branch/);
     const bare = join(root, "team.git");
     git(root, "init", "--bare", bare);
     git(root, "remote", "add", "team", bare);
+    // The explicit command expects the documented _threads/ mount; reattach it
+    // after verifying generic push remains guarded under a moved path.
+    git(root, "worktree", "move", join(root, "private-discussion"), worktree);
     expect(pushWorktree(root, "team")).toBe("team");
     expect(git(root, "ls-remote", "team", "refs/heads/threads")).toContain("refs/heads/threads");
   });

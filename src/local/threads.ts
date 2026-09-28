@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, resolveThreadGitPath, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
-import { sanitizedGitEnvironment } from "../git.js";
+import { gitAvailability, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 
 const MAX_POST = 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
@@ -22,6 +22,8 @@ export interface LocalThread {
 }
 
 function git(cwd: string, args: string[]): string {
+  const availability = gitAvailability();
+  if (availability.state !== "usable") throw new Error(availability.hint);
   const result = spawnSync("git", args, { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status !== 0) throw new Error((result.stderr || result.error?.message || `git ${args[0]} failed`).trim());
   return result.stdout.trim();
@@ -195,6 +197,8 @@ export function acknowledge(thread: LocalThread, posts: ThreadPost[]): void {
 export function readPinnedThreadMember(repo: string, pin: string, position: string): string {
   if (!SHA.test(pin)) throw new Error("A full 40-character authored commit pin is required.");
   if (!/^_threads\/[a-z0-9-]+\/[A-Za-z0-9._-]+\.md$/.test(position) || position.includes("..")) throw new Error("Invalid _threads/ Map position.");
+  const availability = gitAvailability();
+  if (availability.state !== "usable") throw new Error(availability.hint);
   const path = resolveThreadGitPath(position, (candidate) => {
     const probe = spawnSync("git", ["cat-file", "-e", `${pin}:${candidate}`], { cwd: repo, env: sanitizedGitEnvironment() });
     return probe.status === 0;
@@ -216,6 +220,7 @@ export function initWorktree(cwd = process.cwd()): string {
   const ignore = join(root, ".gitignore");
   if (existsSync(ignore) && lstatSync(ignore).isSymbolicLink()) throw new Error("Refusing symlink .gitignore.");
   git(root, ["worktree", "add", "--orphan", "-b", "threads", dir]);
+  markPrivateThreadsWorktree(dir);
   const old = existsSync(ignore) ? readFileSync(ignore, "utf8") : "";
   if (!old.split("\n").includes("/_threads/")) writeFileSync(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/\n`);
   return dir;
@@ -226,7 +231,15 @@ export function pushWorktree(cwd = process.cwd(), remote?: string): string {
   if (!remote || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(remote)) throw new Error("Pass --remote <team-remote> explicitly; never push private Threads to the default remote.");
   if (git(dir, ["branch", "--show-current"]) !== "threads") throw new Error("_threads/ must be the dedicated threads branch worktree.");
   const url = git(dir, ["remote", "get-url", "--push", remote]);
-  if (/github\.com|github:/i.test(url) || remote === "origin") throw new Error("Refusing to push a private threads branch to GitHub or origin; configure a separate team remote.");
+  if (remote === "origin") throw new Error("Refusing to push private Threads to origin; configure a separate team remote.");
+  // A negative GitHub hostname check cannot recognize Enterprise installations
+  // on arbitrary domains. Only the known team host (and local file remotes for
+  // offline collaboration/tests) is allowed; never guess from a remote's name.
+  const scp = /^[^@\s]+@([^:/\s]+):/.exec(url);
+  const host = scp?.[1] ?? (url.includes("://") ? new URL(url).hostname : null);
+  if (host !== "git.ideaspaces.xyz" && !(url.startsWith("file://") || isAbsolute(url))) {
+    throw new Error("Private Threads may push only to git.ideaspaces.xyz or a local file remote; GitHub and unknown hosts are refused.");
+  }
   git(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
   return remote;
 }
