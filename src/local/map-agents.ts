@@ -29,11 +29,7 @@ export interface MapUnresolvedRoot {
   repo?: string;
   sha: string;
   path?: string;
-<<<<<<< HEAD
   reason: "unbound" | "unavailable_pin" | "git_error";
-=======
-  reason: "unbound" | "unavailable_pin";
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
   detail?: string;
 }
 
@@ -72,13 +68,10 @@ function resolveLocalCheckout(
       if (existsSync(folderPath)) return folderPath;
     }
     if (root.repo) {
-<<<<<<< HEAD
-=======
       const idFromUrl = rootNodeIdFromGitUrl(root.repo, apiUrl);
       if (idFromUrl && record.root_node_id === idFromUrl) {
         if (existsSync(folderPath)) return folderPath;
       }
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
       if (record.root_node_id && canonicalRepoUrl(apiUrl, record.root_node_id) === root.repo) {
         if (existsSync(folderPath)) return folderPath;
       }
@@ -110,27 +103,15 @@ function readGitBlobAtCommit(
   repoPath: string,
   sha: string,
   relativePath: string,
-<<<<<<< HEAD
-): { ok: boolean; content?: string; reason?: "unavailable_pin" | "missing_path" | "git_error"; detail?: string } {
-=======
 ): { ok: boolean; content?: string; reason?: "unavailable_pin" | "missing_path" | "git_error" } {
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
   const commitCheck = spawnSync("git", ["-C", repoPath, "cat-file", "-e", `${sha}^{commit}`], {
     encoding: "utf-8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
   });
-<<<<<<< HEAD
   if (commitCheck.error) {
-    return { ok: false, reason: "git_error", detail: commitCheck.error.message };
+    return { ok: false, reason: "git_error" };
   }
   if (commitCheck.status !== 0) {
-    const stderr = (commitCheck.stderr ?? "").trim();
-    if (stderr.includes("fatal: not a git repository")) {
-      return { ok: false, reason: "git_error", detail: stderr };
-    }
-=======
-  if (commitCheck.status !== 0) {
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
     return { ok: false, reason: "unavailable_pin" };
   }
 
@@ -138,30 +119,15 @@ function readGitBlobAtCommit(
     encoding: "utf-8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
   });
-<<<<<<< HEAD
   if (show.error) {
-    return { ok: false, reason: "git_error", detail: show.error.message };
+    return { ok: false, reason: "git_error" };
   }
   if (show.status !== 0) {
-    const stderr = (show.stderr ?? "").trim();
-    if (stderr.includes("fatal: bad object") || stderr.includes("fatal: not a git repository")) {
-      return { ok: false, reason: "git_error", detail: stderr };
-    }
-=======
-  if (show.status !== 0) {
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
     return { ok: false, reason: "missing_path" };
   }
   return { ok: true, content: show.stdout };
 }
 
-<<<<<<< HEAD
-function isMapBlock(value: unknown): value is MapBlock {
-  return typeof value === "object" && value !== null && "roots" in value && "members" in value;
-}
-
-=======
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
 /**
  * Project the agent-kind roots included in a Space Map selection.
  *
@@ -169,13 +135,10 @@ function isMapBlock(value: unknown): value is MapBlock {
  * resolved local checkout without network access, folder scanning, or HEAD
  * substitution.
  */
-<<<<<<< HEAD
-=======
 function isMapBlock(value: unknown): value is MapBlock {
   return typeof value === "object" && value !== null && "roots" in value && "members" in value;
 }
 
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
 export function projectMapAgents(
   mapInput: LoadedMapNote | MapBlock,
   options?: CheckoutResolverOptions,
@@ -184,17 +147,6 @@ export function projectMapAgents(
   const roots = mapBlock.roots ?? [];
   const members = mapBlock.members ?? [];
 
-<<<<<<< HEAD
-  const spacesMap = options?.spacesMap ?? loadSpaces();
-  const apiUrl = options?.apiUrl ?? loadConfig()?.apiUrl ?? getDefaultApiUrl();
-  const effectiveOptions: CheckoutResolverOptions = {
-    ...options,
-    spacesMap,
-    apiUrl,
-  };
-
-=======
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
   const agents: MapAgentListing[] = [];
   const unresolved: MapUnresolvedRoot[] = [];
   const seenRootIndices = new Set<number>();
@@ -215,11 +167,7 @@ export function projectMapAgents(
     const root = roots[rootIndex];
     if (!root) continue;
 
-<<<<<<< HEAD
-    const checkoutPath = resolveLocalCheckout(root, effectiveOptions);
-=======
     const checkoutPath = resolveLocalCheckout(root, options);
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
     if (!checkoutPath) {
       unresolved.push({
         ...(root.root_node_id ? { root_node_id: root.root_node_id } : {}),
@@ -242,7 +190,6 @@ export function projectMapAgents(
           reason: "unavailable_pin",
           detail: `Pin ${root.sha} not found in local checkout`,
         });
-<<<<<<< HEAD
       } else if (blobResult.reason === "git_error") {
         unresolved.push({
           ...(root.root_node_id ? { root_node_id: root.root_node_id } : {}),
@@ -250,10 +197,8 @@ export function projectMapAgents(
           sha: root.sha,
           path: checkoutPath,
           reason: "git_error",
-          detail: blobResult.detail ?? "git command failed",
+          detail: "Git execution failed",
         });
-=======
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
       }
       continue;
     }
@@ -322,13 +267,9 @@ export function formatMapAgentsText(result: MapAgentsResult): string {
       const reasonText =
         u.reason === "unavailable_pin"
           ? `pin unavailable (${u.sha.slice(0, 8)})`
-<<<<<<< HEAD
           : u.reason === "git_error"
-            ? `git error: ${u.detail ?? "unknown"}`
+            ? "git error"
             : "unbound (no local checkout)";
-=======
-          : "unbound (no local checkout)";
->>>>>>> e8a703b (Support agent list alongside run, accept 12-hex IDs, and use preferredContractSource)
       lines.push(`  ${id} — ${reasonText}`);
     }
   }
