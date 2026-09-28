@@ -123,6 +123,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
   process.on("SIGTERM", onSignal);
 
   try {
+    let hadError = false;
     for await (const event of runLocalTurn({
       repoPath,
       workingRoot,
@@ -140,8 +141,11 @@ async function send(flags: Flags, output: Output): Promise<number> {
       signal: controller.signal,
     })) {
       process.stdout.write(`${JSON.stringify(event)}\n`);
+      if (event.type === "error") {
+        hadError = true;
+      }
     }
-    return 0;
+    return hadError ? 1 : 0;
   } catch (err) {
     return reportLocalError(err, output);
   } finally {

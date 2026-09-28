@@ -31,6 +31,7 @@ import { linkCommand } from "./commands/link.js";
 import { forgetCommand } from "./commands/forget.js";
 import { makeConversationsCommand } from "./commands/conversations.js";
 import { makeConversationCommand } from "./commands/conversation.js";
+import { makeAgentCommand } from "./commands/agent.js";
 import { agentsCommand } from "./commands/agents.js";
 import { agentCommand } from "./commands/agent.js";
 import { nodeCommand } from "./commands/node.js";
@@ -64,6 +65,7 @@ import { composeLocalConversationOps } from "./local/runtime.js";
 const localConversationOps = composeLocalConversationOps({ pi: piConversationOps, claude: claudeConversationOps });
 const conversationCommand = makeConversationCommand(localConversationOps);
 const conversationsCommand = makeConversationsCommand(localConversationOps);
+const agentCommand = makeAgentCommand(localConversationOps);
 
 const topLevel: CommandDef[] = [
   doctorCommand,
@@ -88,6 +90,7 @@ const topLevel: CommandDef[] = [
   forgetCommand,
   conversationsCommand,
   conversationCommand,
+  agentCommand,
   agentsCommand,
   agentCommand,
   nodeCommand,

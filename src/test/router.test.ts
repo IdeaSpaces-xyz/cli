@@ -35,7 +35,7 @@ describe("router", () => {
     expect(findCommand_("unfollow")?.name).toBe("unfollow");
   });
 
-  it("exposes the agent command for Space Map agent discovery", () => {
+  it("exposes the agent command for running or listing agents", () => {
     expect(findCommand_("agent")?.name).toBe("agent");
   });
 });

@@ -64,8 +64,8 @@ administration.
 | Write things down | `write`, `commit`, `change`, `node` |
 | Start, bring home | `create`, `get` (`clone`, `fork`, `link`), `clones`, `forget` |
 | Share and sync | `login`, `status account` (`whoami`), `publish`, `share`, `push`, `integrate` (`pull`, `update`), `sync`, `repos`, `catalog` |
-| Talk | `conversation`, `conversations`, `inbox`, `spaces`, `agents`, `agent` |
-| Run a local agent | `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
+| Talk | `conversation`, `conversations`, `inbox`, `spaces`, `agents`, `agent list` |
+| Run a local agent | `agent run` (`--runtime=pi` or `--runtime=claude`, `--model`), `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
 | Housekeeping | `status doctor` (`doctor`), `credential`, `power logout` |
 
 ## What the CLI promises
