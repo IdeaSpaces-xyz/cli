@@ -79,6 +79,21 @@ describe("agent run — point of view resolution", () => {
     expect(resolveAgentPov(`https://ideaspaces.xyz/repos/${ROOT_A}`)).toBe(expected);
   });
 
+  it("resolves a registered Space by legacy 12-hex root_node_id URL", () => {
+    const dir = tempDir();
+    const shortId = "n_0123456789ab";
+    saveSpace(dir, {
+      repo_id: "repo_agent_short",
+      slug: "scout-short",
+      namespace: "test",
+      root_node_id: shortId,
+    });
+
+    const expected = realpathSync.native(dir);
+    expect(resolveAgentPov(shortId)).toBe(expected);
+    expect(resolveAgentPov(`https://ideaspaces.xyz/repos/${shortId}`)).toBe(expected);
+  });
+
   it("returns null for unknown paths or unregistered ids", () => {
     expect(resolveAgentPov("/nonexistent/agent/path")).toBeNull();
     expect(resolveAgentPov("n_999999999999999999999999")).toBeNull();
