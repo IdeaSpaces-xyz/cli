@@ -125,6 +125,9 @@ describe("local Threads", () => {
       expect((await run(searchCommand, ["Cold"])).results).toHaveLength(0);
       await run(threadsCommand, ["close", "decision"], { message: "Closing" });
       expect(loadThread(join(root, "_threads", "decision")).closed).toBe(true);
+      writeFileSync(join(root, "_threads", "decision", "invalid.md"), "---\nkind: post\n---\nMissing id");
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(1);
+      expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(1);
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
 

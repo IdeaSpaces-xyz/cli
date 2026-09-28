@@ -87,15 +87,21 @@ export const searchCommand: CommandDef = {
     // A separate worktree is ignored by the main index; aware search opts in
     // to its Markdown without assuming those files exist at main's HEAD.
     if (flags.threads) {
+      const { listLocal, NoAgreementError } = await import("../local/threads.js");
       try {
-        const { listLocal } = await import("../local/threads.js");
         for (const thread of listLocal(root)) {
           for (const p of ["README.md", ...thread.posts.map((post) => post.path)]) {
             const path = `_threads/${thread.slug}/${p}`;
             if (!markdown.includes(path)) markdown.push(path);
           }
         }
-      } catch { /* non-space repos keep ordinary search available */ }
+      } catch (error) {
+        if (!(error instanceof NoAgreementError)) {
+          output.error(`Cannot search local Threads: ${error instanceof Error ? error.message : String(error)}`);
+          return 1;
+        }
+        // Non-Space repositories still allow ordinary search.
+      }
     }
     const results = searchDocs(readDocs(root, markdown), query, limit);
 

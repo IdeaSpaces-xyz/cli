@@ -11,6 +11,8 @@ const MAX_POST = 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
 
+export class NoAgreementError extends Error {}
+
 export interface LocalThread {
   path: string;
   slug: string;
@@ -51,7 +53,7 @@ export function threadBase(cwd = process.cwd()): string {
   while (true) {
     if (existsSync(join(at, "_agent", "agreement.md"))) return at;
     const parent = dirname(at);
-    if (parent === at) throw new Error("No enclosing Agreement; run from an ideaspace with _agent/agreement.md.");
+    if (parent === at) throw new NoAgreementError("No enclosing Agreement; run from an ideaspace with _agent/agreement.md.");
     at = parent;
   }
 }

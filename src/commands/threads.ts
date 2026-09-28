@@ -11,7 +11,7 @@ import { exchangeText, hostedThreadsCommand } from "./inbox.js";
 import { sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
-  pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase,
+  pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
   type LocalThread,
 } from "../local/threads.js";
 
@@ -129,8 +129,14 @@ export const threadsCommand: CommandDef = {
         let local: ReturnType<typeof localRows> = [];
         let localThreads: LocalThread[] = [];
         if (!space) {
-          try { localThreads = listLocal(cwd); local = localRows(localThreads, newOnly); }
-          catch (error) { if (rest.length) throw error; /* Hosted-only contexts have no Agreement. */ }
+          try {
+            localThreads = listLocal(cwd);
+            local = localRows(localThreads, newOnly);
+          } catch (error) {
+            // Outside a Space, hosted listing still works. A malformed Thread or
+            // cursor inside a Space is not an empty list — fail visibly.
+            if (rest.length || !(error instanceof NoAgreementError)) throw error;
+          }
         }
         const config = loadConfig();
         if (space && !config) throw new Error("Not logged in. Run `ideaspaces login` to list hosted Space Threads.");
