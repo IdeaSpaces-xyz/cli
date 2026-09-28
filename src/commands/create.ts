@@ -143,6 +143,10 @@ export const createCommand: CommandDef = {
       output.error("--home and --agent cannot be used together.");
       return 5;
     }
+    if (homeMode && flags.foundation) {
+      output.error("--home always uses an Agreement; --foundation cannot be combined with --home.");
+      return 5;
+    }
     if (homeMode && shape === "code-repo") {
       output.error(
         `${describeTarget(targetDir, name)} looks like a code repo. Home is a container space for your ideaspaces, not a codebase. Create it in a dedicated directory: \`ideaspaces create --home <dir>\`.`,

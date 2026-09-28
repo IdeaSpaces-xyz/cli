@@ -851,6 +851,15 @@ describe("ideaspaces create — git author identity", () => {
       expect(mapAfter).toBe(existingMapContent);
     });
 
+    it("refuses --home with --foundation before writing an inconsistent contract", async () => {
+      const target = join(tmp, "invalid-home");
+      const captured = await captureStdout(() =>
+        createCommand.run([], { home: target, foundation: true }, { ...baseGlobal, yes: true }),
+      );
+      expect(captured.exit).toBe(5);
+      expect(existsSync(target)).toBe(false);
+    });
+
     it("refuses when both positional target and --home <dir> are provided", async () => {
       const { createCommand: cc } = await import("../commands/create.js");
       const exit = await cc.run(["dir1"], { home: "dir2" }, { ...baseGlobal, yes: true });

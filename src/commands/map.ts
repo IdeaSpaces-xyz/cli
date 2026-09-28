@@ -86,7 +86,13 @@ export const mapCommand: CommandDef = {
     }
 
     // 1. Check for a curated Space Map (*.map.md) at the target position
-    const spaceMap = inspectSpaceMap(target);
+    let spaceMap: ReturnType<typeof inspectSpaceMap>;
+    try {
+      spaceMap = inspectSpaceMap(target);
+    } catch (error) {
+      output.error(`Could not open Space Map: ${error instanceof Error ? error.message : String(error)}`);
+      return 1;
+    }
     if (spaceMap) {
       const data = {
         kind: "space-map",

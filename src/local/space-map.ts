@@ -2,7 +2,9 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { type MapMember, type MapRoot } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
+import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
 import { headSha } from "../git.js";
+import { canonicalRepoUrl, parseRepoLocator } from "../repo-locator.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 
@@ -34,22 +36,24 @@ export interface SpaceMapInspection {
   members: MapMember[];
 }
 
-const ROOT_NODE_ID_RE = /(?:^|\/|\b)(n_[0-9a-f]{24})(?:\.git|\/|\b|$)/i;
-
-function extractRootNodeIdFromRepoUrl(url?: string): string | null {
+function rootNodeIdFromRepoUrl(url: string | undefined, apiUrl: string): string | null {
   if (!url) return null;
-  const match = url.match(ROOT_NODE_ID_RE);
-  return match ? match[1] : null;
+  try {
+    return parseRepoLocator(url, apiUrl).rootNodeId;
+  } catch {
+    return null;
+  }
 }
 
-function parseNamespaceAndSlugFromRepoUrl(url?: string): { namespace: string; slug: string } | null {
+function parseNamespaceAndSlugFromRepoUrl(url: string | undefined, apiUrl: string): { namespace: string; slug: string } | null {
   if (!url) return null;
   try {
     const parsed = new URL(url);
+    const configured = new URL(canonicalRepoUrl(apiUrl, "n_000000000000"));
+    if (parsed.origin !== configured.origin || parsed.username || parsed.password || parsed.search || parsed.hash) return null;
     const parts = parsed.pathname.split("/").filter(Boolean);
-    if (parts.length >= 2 && parts[0] !== "repos" && parts[0] !== "spaces") {
-      const slug = parts[1].replace(/\.git$/, "");
-      return { namespace: parts[0], slug };
+    if (parts.length === 2 && parts[0] !== "repos" && parts[0] !== "spaces") {
+      return { namespace: parts[0], slug: parts[1].replace(/\.git$/, "") };
     }
   } catch {
     // ignore invalid URL
@@ -93,11 +97,15 @@ export function findSpaceMapFile(dir: string): string | null {
 /** Inspect all roots in a Map against local checkouts to determine drift. */
 export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): SpaceMapRootDrift[] {
   let knownSpaces: SpacesMap | null = null;
+  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
 
   return roots.map((root, rootIndex) => {
-    const rootNodeId = root.root_node_id ?? extractRootNodeIdFromRepoUrl(root.repo);
     const repo = root.repo ?? null;
-    const routeInfo = parseNamespaceAndSlugFromRepoUrl(root.repo);
+    const repoId = rootNodeIdFromRepoUrl(root.repo, apiUrl);
+    const routeInfo = parseNamespaceAndSlugFromRepoUrl(root.repo, apiUrl);
+    // The protocol can infer root_node_id from any syntactically valid repo URL.
+    // A foreign host is still untrusted local navigation data, not a checkout binding.
+    const rootNodeId = repo && !repoId && !routeInfo ? null : root.root_node_id ?? repoId;
     const pinnedSha = root.sha;
 
     let checkoutPath: string | null = null;
@@ -166,7 +174,12 @@ export function inspectSpaceMapRoots(roots: MapRoot[], contextDir: string): Spac
     // 4. Determine status and drift
     let head: string | null = null;
     if (checkoutPath) {
-      head = headSha(checkoutPath);
+      try {
+        head = headSha(checkoutPath);
+      } catch {
+        // An unborn or unreadable checkout cannot be compared to a pin.
+        // Keep every other root visible in the curated Map.
+      }
     }
 
     let status: SpaceMapRootStatus = "unresolved";
@@ -202,18 +215,14 @@ export function inspectSpaceMap(dir: string, mapFileName?: string): SpaceMapInsp
   const fileName = mapFileName ?? discovery?.file;
   if (!fileName) return null;
 
-  try {
-    const note = loadMapNote(fileName, dir);
-    const roots = inspectSpaceMapRoots(note.map.roots, dir);
-    return {
-      file: fileName,
-      otherFiles: discovery?.otherFiles ?? [],
-      absolutePath: resolve(dir, fileName),
-      note,
-      roots,
-      members: note.map.members,
-    };
-  } catch {
-    return null;
-  }
+  const note = loadMapNote(fileName, dir);
+  const roots = inspectSpaceMapRoots(note.map.roots, dir);
+  return {
+    file: fileName,
+    otherFiles: discovery?.otherFiles ?? [],
+    absolutePath: resolve(dir, fileName),
+    note,
+    roots,
+    members: note.map.members,
+  };
 }

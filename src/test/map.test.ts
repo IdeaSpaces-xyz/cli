@@ -454,6 +454,31 @@ map:
       expect(result.data.roots[0]).toMatchObject({ status: "unresolved", head_sha: null, checkout_path: null });
     });
 
+    it("does not trust a foreign repo URL as a local checkout identity", async () => {
+      const child = join(root, "child");
+      await fs.mkdir(join(child, "_agent"), { recursive: true });
+      spawnSync("git", ["init", "-q", "-b", "main"], { cwd: child });
+      spawnSync("git", ["config", "user.email", "child@example.com"], { cwd: child });
+      spawnSync("git", ["config", "user.name", "Child"], { cwd: child });
+      await fs.writeFile(join(child, "_agent", "agreement.md"),
+        "---\nroot_node_id: n_111111111111111111111111\n---\n# Child\n");
+      spawnSync("git", ["add", "."], { cwd: child });
+      spawnSync("git", ["commit", "-q", "-m", "child"], { cwd: child });
+      await fs.writeFile(join(root, "home.map.md"), `---
+name: Home
+map:
+  roots:
+    - repo: https://evil.example/repos/n_111111111111111111111111
+      sha: "${"1".repeat(40)}"
+  members: []
+---
+# Home
+`);
+      const result = await runMap(["."]);
+      expect(result.exit, result.stderr).toBe(0);
+      expect(result.data.roots[0]).toMatchObject({ status: "unresolved", checkout_path: null });
+    });
+
     it("does not resolve a root to a fork that only names it as source lineage", async () => {
       await fs.mkdir(join(root, "fork"));
       vi.mocked(loadSpaces).mockReturnValue({
@@ -479,6 +504,43 @@ map:
       const result = await runMap(["."]);
       expect(result.exit, result.stderr).toBe(0);
       expect(result.data.roots[0]).toMatchObject({ status: "unresolved", checkout_path: null });
+    });
+
+    it("keeps the curated Map when a registered child has an unborn HEAD", async () => {
+      const child = join(root, "unborn-child");
+      await fs.mkdir(child);
+      spawnSync("git", ["init", "-q", "-b", "main"], { cwd: child });
+      vi.mocked(loadSpaces).mockReturnValue({
+        [child]: {
+          kind: "hosted",
+          repo_id: "child-repo",
+          root_node_id: "n_222222222222222222222222",
+          slug: "child",
+          namespace: "test",
+        },
+      });
+      await fs.writeFile(join(root, "home.map.md"), `---
+name: Home
+map:
+  roots:
+    - root_node_id: n_222222222222222222222222
+      sha: "${"2".repeat(40)}"
+  members: []
+---
+# Home
+`);
+      const result = await runMap(["."]);
+      expect(result.exit, result.stderr).toBe(0);
+      expect(result.data).toMatchObject({ kind: "space-map", roots: [{ status: "unresolved", head_sha: null, checkout_path: child }] });
+    });
+
+    it("reports a broken curated Map rather than silently deriving a different tree", async () => {
+      await fs.writeFile(join(root, "home.map.md"), "---\nname: Broken\nmap: invalid\n---\n# Broken\n");
+      const result = await runMap(["."]);
+      expect(result.exit).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Could not open Space Map: Map note \"home.map.md\" has an invalid map block");
+      expect(result.stderr).not.toContain("Derived Map");
     });
 
     it("prints an empty Map when home.map.md has no roots or members, not a derived tree", async () => {
