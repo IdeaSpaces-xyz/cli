@@ -13,18 +13,18 @@ const initialCwd = process.cwd();
 const initialHome = process.env.HOME;
 const roots: string[] = [];
 function git(root: string, ...args: string[]) { return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim(); }
-function space(id: string) {
+function space(id: string, typed = true) {
   const root = mkdtempSync(join(tmpdir(), "cross-thread-")); roots.push(root);
   mkdirSync(join(root, "_agent"));
-  writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Agreement — ${id === ID ? "Home" : "Integrator"}\nsummary: Test\nagreement: agent:repo:${id}\nroot_node_id: ${id}\n---\n`);
+  writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Agreement — ${id === ID ? "Home" : "Integrator"}\nsummary: Test\n${typed ? `agreement: agent:repo:${id}\n` : ""}root_node_id: ${id}\n---\n`);
   git(root, "init", "-b", "main");
   git(root, "config", "user.name", "Test"); git(root, "config", "user.email", "test@example.test");
   git(root, "add", "_agent/agreement.md"); git(root, "commit", "-m", "contract");
   return root;
 }
 function posts(root: string, slug = "decision") { return loadThread(join(root, "_threads", slug)).posts; }
-function fixture(orphan = false) {
-  const home = space(ID); const agent = space(OTHER);
+function fixture(orphan = false, typed = true) {
+  const home = space(ID); const agent = space(OTHER, typed);
   const own = createThread("decision", "Agent's own Thread", agent);
   appendPost(own.path, { body: "agent only" });
   const worktree = orphan ? initWorktree(home) : home;
@@ -55,9 +55,9 @@ afterEach(() => {
 });
 
 describe("authored cross-Space local Thread selection", () => {
-  for (const orphan of [false, true]) {
-    it(`${orphan ? "orphan worktree" : "unified"}: reads only the selected pin, then branches from an older parent as the agent`, async () => {
-      const f = fixture(orphan); process.env.HOME = f.agent; process.chdir(f.agent);
+  for (const orphan of [false, true]) for (const typed of [true, false]) {
+    it(`${orphan ? "orphan worktree" : "unified"}, ${typed ? "typed" : "untyped"} POV: reads the pin and branches from an older parent as the agent`, async () => {
+      const f = fixture(orphan, typed); process.env.HOME = f.agent; process.chdir(f.agent);
       saveSpace(f.home, { repo_id: "repo_test", slug: "home", namespace: "team", root_node_id: ID });
       const opened = await run(["open", "decision"], { map: f.map, member: "0", depth: "full" });
       expect(opened.status).toBe(0);
@@ -105,6 +105,30 @@ describe("authored cross-Space local Thread selection", () => {
       expect(process.cwd()).toBe(realpathSync(f.agent));
     }, 15_000);
   }
+
+  it("refuses absent, malformed or borrowed caller Agreements without writing or using git/Home identity", async () => {
+    const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
+    const caller = join(f.agent, "_agent", "agreement.md");
+    const flags = { map: f.map, member: "0", checkout: f.home, message: "Never", "reply-to": f.first.post.id };
+    const refuse = async () => {
+      const result = await run(["post", "decision"], flags);
+      expect(result.status).toBe(1);
+      expect(result.error).toMatch(/caller|Caller/);
+      expect(posts(f.home)).toHaveLength(2);
+      expect(posts(f.agent)).toHaveLength(1);
+    };
+    writeFileSync(caller, "---\nsummary: missing name\n---\n"); await refuse();
+    writeFileSync(caller, "---\nname: [invalid\n---\n"); await refuse();
+    writeFileSync(caller, "---\nname: Agreement —    \n---\n"); await refuse();
+    writeFileSync(caller, `---\nname: Agreement — Home\nagreement: knowledge:repo:${OTHER}\n---\n`); await refuse();
+    rmSync(caller); await refuse();
+    // A nested checkout without a contract must not inherit the outer Agreement.
+    writeFileSync(caller, `---\nname: Agreement — Parent\n---\n`);
+    const nested = join(f.agent, "nested"); mkdirSync(nested);
+    git(nested, "init", "-b", "main");
+    process.chdir(nested); await refuse();
+    expect(process.cwd()).toBe(realpathSync(nested));
+  });
 
   it("requires a unique registered checkout or a validated explicit hint, never scans or grants by path", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
