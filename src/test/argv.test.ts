@@ -37,6 +37,12 @@ describe("parseArgs", () => {
     expect(parsed.args).toEqual(["notes/a.md", "notes/b.md"]);
   });
 
+  it("keeps a positional after --read-only and accepts a leading-dash message via equals", () => {
+    const parsed = parseArgs(["agent", "run", "--read-only", "./other-pov", "--message=--inspect"]);
+    expect(parsed.args).toEqual(["run", "./other-pov"]);
+    expect(parsed.flags).toMatchObject({ "read-only": true, message: "--inspect" });
+  });
+
   it("treats a short flag with no following value as boolean", () => {
     const parsed = parseArgs(["sync", "-n"]);
     expect(parsed.flags.n).toBe(true);

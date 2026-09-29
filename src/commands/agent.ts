@@ -195,8 +195,11 @@ async function cmdRun(
     runtime,
     message,
   };
+  // Keep Desktop's legacy conversation-send default intact, but never approve
+  // an agent run's Pi project resources merely because the CLI was invoked.
+  if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";
 
-  if (runtime === "pi" && (flags["read-only"] || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined)) {
+  if (runtime === "pi" && (flags["read-only"] === true || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined)) {
     output.error("Claude read-only, effort, and permission mode are unavailable under Pi. Choose --runtime claude or omit them.");
     return 1;
   }

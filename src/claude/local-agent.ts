@@ -41,15 +41,18 @@ import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
  * a tool and close the turn, they do not wait — so the mode is the whole approval
  * policy for the turn. */
 export const CLAUDE_PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const;
-export const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
-export type ClaudeEffort = (typeof CLAUDE_EFFORT_LEVELS)[number];
-export function isValidClaudeEffort(value: string): value is ClaudeEffort {
-  return (CLAUDE_EFFORT_LEVELS as readonly string[]).includes(value);
-}
 export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
 
 export function isValidClaudePermissionMode(mode: string): mode is ClaudePermissionMode {
   return (CLAUDE_PERMISSION_MODES as readonly string[]).includes(mode);
+}
+
+/** `--effort` choices verified against Claude Code 2.1.284's --help. Older
+ * versions may not support the flag; their rejection is surfaced as a failed run. */
+export const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type ClaudeEffort = (typeof CLAUDE_EFFORT_LEVELS)[number];
+export function isValidClaudeEffort(value: string): value is ClaudeEffort {
+  return (CLAUDE_EFFORT_LEVELS as readonly string[]).includes(value);
 }
 
 /** How the spawned Claude Code authenticates. `login` is the user's own Claude

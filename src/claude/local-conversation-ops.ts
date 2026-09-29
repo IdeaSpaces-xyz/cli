@@ -59,12 +59,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     return 1;
   }
   const readOnly = flags["read-only"] === true;
-  if (flags["read-only"] !== undefined && flags["read-only"] !== true && flags["read-only"] !== false) {
-    output.error("--read-only is a boolean flag");
-    return 1;
-  }
   if (readOnly && permissionMode === "bypassPermissions") {
-    output.error("--read-only cannot be combined with --permission-mode bypassPermissions");
+    output.error("--read-only cannot be combined with --permission-mode bypassPermissions: bypass changes project authority. Use --permission-mode dontAsk for a read-only turn, or omit --read-only if bypass is intended.");
     return 1;
   }
   const effort = flags["claude-effort"];

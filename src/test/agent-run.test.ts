@@ -235,6 +235,7 @@ describe("agent run — command options & validation", () => {
         context: realpathSync.native(dir),
         runtime: "pi",
         "pi-model": "openai/gpt-4o",
+        "pi-trust": "saved",
         message: "Analyze data",
       }),
       expect.anything(),
@@ -275,6 +276,13 @@ describe("agent run — command options & validation", () => {
     );
     expect(code).toBe(1);
     expect(stderr()).toContain('Unknown local runtime "unsupported"');
+  });
+
+  it("bounds the injected Agreement before any runtime spawn", async () => {
+    const dir = makeAgentDir("large-agreement-", "x".repeat(64 * 1024 + 1));
+    expect(await agentCmd.run(["run", dir], { message: "Hi" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Agreement exceeds 64 KiB");
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
   it("refuses launch when target has missing Agreement contract", async () => {
@@ -586,6 +594,22 @@ process.stdin.on("data", (chunk) => {
     } finally { process.chdir(previous); }
   });
 
+  it("forwards explicit Pi trust and Claude effort/read-only flags to the selected runtime", async () => {
+    const dir = makeAgentDir();
+    const pi = join(dir, "pi-test-bin");
+    const claude = join(dir, "claude-test-bin");
+    writeFileSync(join(dir, "pi-test-bin.cjs"), FAKE_PI);
+    writeFileSync(join(dir, "claude-test-bin.cjs"), FAKE_CLAUDE);
+    writeFileSync(pi, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "pi-test-bin.cjs")}" "$@"\n`);
+    writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "claude-test-bin.cjs")}" "$@"\n`);
+    chmodSync(pi, 0o755); chmodSync(claude, 0o755);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", ext: "/fake/ext", "pi-bin": pi, "pi-trust": "saved" }, JSON_GLOBAL)).toBe(0);
+    stdoutChunks = [];
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "claude-bin": claude,
+      "claude-effort": "high", "read-only": true, "permission-mode": "dontAsk" }, JSON_GLOBAL)).toBe(0);
+    expect(stdout()).toContain('"turn_complete"');
+  });
+
   it("loads the selected Agreement into both child runtimes rather than relying on parent hooks", async () => {
     const dir = makeAgentDir("agent-run-orientation-", "# Distinct Agreement POV\n");
     for (const runtime of ["pi", "claude"] as const) {
@@ -601,6 +625,14 @@ process.stdin.on("data", (chunk) => {
       expect(events.find((e) => e.type === "turn_complete")?.result.response).toBe("contract:yes");
       stdoutChunks = [];
     }
+  });
+
+  it("rejects invalid Pi trust and Claude effort values before starting a child", async () => {
+    const dir = makeAgentDir();
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", ext: "/fake/ext", "pi-trust": "unsafe" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid Pi trust policy");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "claude-effort": "infinite" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid Claude effort");
   });
 
   it("refuses runtime-incompatible controls before spawning", async () => {
