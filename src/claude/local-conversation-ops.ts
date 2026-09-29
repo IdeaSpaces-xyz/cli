@@ -13,6 +13,7 @@ import {
   CLAUDE_PERMISSION_MODES,
   CLAUDE_EFFORT_LEVELS,
   isValidClaudeEffort,
+  type ClaudeEffort,
   isValidClaudeAuthMode,
   isValidClaudeAutocompact,
   isValidClaudePermissionMode,
@@ -63,11 +64,12 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error("--read-only cannot be combined with --permission-mode bypassPermissions: bypass changes project authority. Use --permission-mode dontAsk for a read-only turn, or omit --read-only if bypass is intended.");
     return 1;
   }
-  const effort = flags["claude-effort"];
-  if (effort !== undefined && (typeof effort !== "string" || !isValidClaudeEffort(effort))) {
-    output.error(`Invalid Claude effort "${String(effort)}". Valid values: ${CLAUDE_EFFORT_LEVELS.join(", ")}`);
+  const rawEffort = flags["claude-effort"];
+  if (rawEffort !== undefined && (typeof rawEffort !== "string" || !isValidClaudeEffort(rawEffort))) {
+    output.error(`Invalid Claude effort "${String(rawEffort)}". Valid values: ${CLAUDE_EFFORT_LEVELS.join(", ")}`);
     return 1;
   }
+  const effort: ClaudeEffort | undefined = rawEffort as ClaudeEffort | undefined;
   const auth = flags["claude-auth"] === undefined ? "login" : flags["claude-auth"];
   if (typeof auth !== "string" || !isValidClaudeAuthMode(auth)) {
     output.error(`Invalid auth mode "${String(auth)}". Valid values: ${CLAUDE_AUTH_MODES.join(", ")}`);
@@ -135,7 +137,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       model,
       permissionMode,
       readOnly,
-      effort: effort as (typeof CLAUDE_EFFORT_LEVELS)[number] | undefined,
+      effort,
       auth,
       claudeBin,
       autocompact,

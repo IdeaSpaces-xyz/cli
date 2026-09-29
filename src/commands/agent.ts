@@ -39,6 +39,11 @@ export {
 
 type Flags = Record<string, string | boolean>;
 
+// Keep the combined system-prompt argv below Windows' command-line bound;
+// reserve room for an 8 KiB message, executable paths and runtime flags.
+const MAX_MESSAGE_BYTES = 8 * 1024;
+const MAX_ORIENTATION_BYTES = 16 * 1024;
+
 function flagString(flags: Flags, name: string): string | undefined {
   const value = flags[name];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -115,7 +120,7 @@ async function cmdRun(
     output.error("A message is required: --message <text>");
     return 1;
   }
-  if (Buffer.byteLength(message) > 8 * 1024) {
+  if (Buffer.byteLength(message) > MAX_MESSAGE_BYTES) {
     output.error("Agent launch message exceeds 8 KiB; use a shorter instruction or point to a local Note.");
     return 1;
   }
@@ -131,13 +136,14 @@ async function cmdRun(
   // other harness has no IdeaSpaces plugin installed yet.
   let povOrientation: string;
   try {
-    if (statSync(povResult.contractPath).size > 16 * 1024) {
+    // Preflight before reading a possibly huge Agreement into memory.
+    if (statSync(povResult.contractPath).size > MAX_ORIENTATION_BYTES) {
       output.error("Selected POV Agreement exceeds 16 KiB; shorten it before launch.");
       return 1;
     }
     const contract = readFileSync(povResult.contractPath, "utf8");
     povOrientation = `[Selected ${povResult.contractType} POV: ${povPath}]\n${contract}`;
-    if (Buffer.byteLength(povOrientation) > 16 * 1024) {
+    if (Buffer.byteLength(povOrientation) > MAX_ORIENTATION_BYTES) {
       output.error("Selected POV orientation exceeds 16 KiB; shorten the Agreement before launch.");
       return 1;
     }
@@ -164,7 +170,7 @@ async function cmdRun(
     }
   }
 
-  if (thread && Buffer.byteLength(`${povOrientation}\n\n${thread.orientation}`) > 16 * 1024) {
+  if (thread && Buffer.byteLength(`${povOrientation}\n\n${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
     output.error("Combined Agreement and Thread orientation exceeds 16 KiB; shorten the selected frame before launch.");
     return 1;
   }
@@ -284,12 +290,13 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list agents; a pinned local Thread run appends a named snapshot on success",
+    description: "Run or list local POVs. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox); pinned Thread runs append a named snapshot.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
-      "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
+      "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --pi-trust saved --pi-thinking high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation c_123",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",

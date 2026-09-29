@@ -41,6 +41,8 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["agent", "run", "--read-only", "./other-pov", "--message=--inspect"]);
     expect(parsed.args).toEqual(["run", "./other-pov"]);
     expect(parsed.flags).toMatchObject({ "read-only": true, message: "--inspect" });
+    expect(parseArgs(["conversation", "send", "--read-only", "--message=hi"]).flags["read-only"]).toBe(true);
+    expect(parseArgs(["share", "--read-only", "value"]).flags["read-only"]).toBe("value");
   });
 
   it("treats a short flag with no following value as boolean", () => {

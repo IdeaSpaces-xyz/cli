@@ -256,6 +256,34 @@ describe("agent run — command options & validation", () => {
     expect(stderr()).toContain("A message is required: --message <text>");
   });
 
+  it("bounds the combined Agreement and pinned Thread orientation before spawn", async () => {
+    const root = tempDir();
+    const pov = makeAgentDir("large-combined-pov-", `---\nname: Agreement — Fellow\n---\n# Fellow\n${"a".repeat(9_000)}`);
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "-b", "main"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.test");
+    mkdirSync(join(root, "_agent"));
+    writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Root\nroot_node_id: ${ROOT_A}\n---\n`);
+    const thread = createThread("decision", "Decision", root);
+    writeFileSync(join(thread.path, "_agent", "agreement.md"), `---\nname: Thread agreement\n---\n# Thread\n${"b".repeat(9_000)}`);
+    const post = appendPost(thread.path, { body: "A decision", summary: "Decision summary" });
+    git("add", "_agent", "_threads"); git("commit", "-m", "pin");
+    const map = join(root, "handoff.json");
+    writeFileSync(map, JSON.stringify({ map: { roots: [{ root_node_id: ROOT_A, sha: git("rev-parse", "HEAD") }],
+      members: [{ root: 0, position: `_threads/decision/${post.post.path}`, depth: "summary" }] } }));
+    const previous = process.cwd(); process.chdir(root);
+    try {
+      const code = await agentCmd.run(["run", pov], { message: "Read this", thread: thread.path,
+        "thread-map": map, "thread-member": "0" }, JSON_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("Combined Agreement and Thread orientation exceeds 16 KiB");
+    } finally { process.chdir(previous); }
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
   it("refuses a path-only Thread launch before invoking the runtime", async () => {
     const dir = makeAgentDir();
     const code = await agentCmd.run(["run", dir], { message: "hi", thread: "_threads/decision" }, JSON_GLOBAL);
@@ -276,6 +304,13 @@ describe("agent run — command options & validation", () => {
     );
     expect(code).toBe(1);
     expect(stderr()).toContain('Unknown local runtime "unsupported"');
+  });
+
+  it("bounds the message before any runtime spawn", async () => {
+    const dir = makeAgentDir();
+    expect(await agentCmd.run(["run", dir], { message: "x".repeat(8 * 1024 + 1) }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("message exceeds 8 KiB");
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
   it("bounds the injected Agreement before any runtime spawn", async () => {
