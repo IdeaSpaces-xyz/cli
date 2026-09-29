@@ -751,6 +751,18 @@ process.stdin.on("data", (chunk) => {
     }
   });
 
+  it("rechecks at send when a transcript vanishes after agent preflight", async () => {
+    const dir = makeAgentDir();
+    const selected = makeAgentCommand({ ...localOps, canResume: () => true });
+    for (const [runtime, id] of [["pi", "local-deleted"], ["claude", "55555555-5555-4555-8555-555555555555"]] as const) {
+      const ext = runtime === "pi" ? { ext: join(dir, "_agent", "agreement.md") } : {};
+      const code = await selected.run(["run", dir], { runtime, conversation: id, message: "never spawn", ...ext }, JSON_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("refusing to create a replacement");
+      expect(stdout()).toBe("");
+    }
+  });
+
   it("refuses unknown, empty and foreign resume ids for both runtimes before spawn", async () => {
     const dir = makeAgentDir();
     const foreign = makeAgentDir();
