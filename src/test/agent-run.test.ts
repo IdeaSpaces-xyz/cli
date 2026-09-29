@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { stringify } from "yaml";
 import { appendPost, createThread, initWorktree, loadThread } from "../local/threads.js";
@@ -14,6 +14,7 @@ import { saveSpace } from "../auth/spaces.js";
 import { claudeConversationOps } from "../claude/local-conversation-ops.js";
 import { localConversationOps as piConversationOps } from "../pi/local-conversation-ops.js";
 import { composeLocalConversationOps } from "../local/runtime.js";
+import { claudeProjectDir } from "../claude/local-conversations.js";
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
 const ROOT_A = "n_0123456789abcdef01234567";
@@ -208,6 +209,7 @@ describe("agent run — command options & validation", () => {
     createNew: vi.fn(),
     get: vi.fn(),
     list: vi.fn(),
+    canResume: vi.fn(() => true),
   };
   const agentCmd = makeAgentCommand(mockLocal);
 
@@ -224,7 +226,7 @@ describe("agent run — command options & validation", () => {
 
     const code = await agentCmd.run(
       ["run", dir],
-      { message: "Analyze data" },
+      { message: "Analyze data", ext: "/approved/connector" },
       JSON_GLOBAL,
     );
 
@@ -411,7 +413,7 @@ describe("agent run — command options & validation", () => {
 
     const code = await agentCmd.run(
       ["run", dir],
-      { message: "Analyze data", runtime: "pi", model: "gpt-4o" },
+      { message: "Analyze data", runtime: "pi", model: "gpt-4o", ext: "/approved/connector" },
       JSON_GLOBAL,
     );
 
@@ -485,7 +487,8 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
       const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
-      const answer = command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
+      const answer = command.message === "selection_probe" ? JSON.stringify({ ext: args.filter((arg) => arg === "--extension").length, skill: args.filter((arg) => arg === "--skill").length, noDiscovery: args.includes("--no-extensions") })
+        : command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
         : command.message === "policy_probe" ? JSON.stringify({ approved: args.includes("-a"), thinking: args[args.indexOf("--thinking") + 1] })
         : "pi:" + command.message + frame;
       if (command.message !== "empty_response") console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: answer } }));
@@ -564,8 +567,7 @@ process.stdin.on("data", (chunk) => {
       chmodSync(claudeBin, 0o755);
       stdoutChunks = [];
       expect(await agentCmd.run(["run", pov], { runtime: "claude", message: "Second runtime", thread: thread.path,
-        "thread-map": map, "thread-member": "0", "claude-bin": claudeBin,
-        conversation: "22222222-2222-4222-8222-222222222222" }, JSON_GLOBAL)).toBe(0);
+        "thread-map": map, "thread-member": "0", "claude-bin": claudeBin }, JSON_GLOBAL)).toBe(0);
       expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete")?.result.thread_snapshot.path).toContain("_threads/decision/");
       expect(loadThread(thread.path).posts.filter((post) => post.kind === "snapshot")).toHaveLength(2);
       // No cursor state or same-process buffer: a fresh CLI read sees the durable snapshot.
@@ -586,8 +588,7 @@ process.stdin.on("data", (chunk) => {
         expect(stdout()).not.toContain('"type":"turn_complete"');
         stdoutChunks = [];
         expect(await agentCmd.run(["run", pov], { runtime: "claude", message: "Cannot write Claude", thread: thread.path,
-          "thread-map": map, "thread-member": "0", "claude-bin": claudeBin,
-          conversation: "33333333-3333-4333-8333-333333333333" }, JSON_GLOBAL)).toBe(1);
+          "thread-map": map, "thread-member": "0", "claude-bin": claudeBin }, JSON_GLOBAL)).toBe(1);
         expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
         expect(stdout()).not.toContain('"type":"turn_complete"');
       } finally { chmodSync(thread.path, 0o700); }
@@ -706,6 +707,65 @@ process.stdin.on("data", (chunk) => {
     expect(stderr()).toContain("cannot be combined");
   });
 
+  it("fails closed without explicit child resources, rejects a symlink escape, and loads duplicates once", async () => {
+    const dir = makeAgentDir();
+    const outside = tempDir("other-extension-");
+    const extension = join(dir, "approved.ts");
+    writeFileSync(extension, "export default () => {};\n");
+    symlinkSync(extension, join(dir, "duplicate.ts"));
+    writeFileSync(join(outside, "foreign.ts"), "export default () => {};\n");
+    symlinkSync(join(outside, "foreign.ts"), join(dir, "escaping.ts"));
+    const fakeBin = join(dir, "fake-pi");
+    writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+    const oldAmbient = process.env.IDEASPACES_PI_EXTENSIONS;
+    process.env.IDEASPACES_PI_EXTENSIONS = extension;
+    try {
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("explicit trusted extension paths");
+      expect(stdout()).toBe("");
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "escaping.ts" }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Refusing ext path escaping.ts");
+      expect(stdout()).toBe("");
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},${extension}` }, JSON_GLOBAL)).toBe(0);
+      const done = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
+      expect(JSON.parse(done.result.response)).toEqual({ ext: 1, skill: 0, noDiscovery: true });
+    } finally {
+      if (oldAmbient === undefined) delete process.env.IDEASPACES_PI_EXTENSIONS;
+      else process.env.IDEASPACES_PI_EXTENSIONS = oldAmbient;
+    }
+  });
+
+  it("refuses unknown, empty and foreign resume ids for both runtimes before spawn", async () => {
+    const dir = makeAgentDir();
+    const foreign = makeAgentDir();
+    const claudeId = "44444444-4444-4444-8444-444444444444";
+    const piId = "local-foreign";
+    mkdirSync(join(foreign, ".pi", "sessions"), { recursive: true });
+    writeFileSync(join(foreign, ".pi", "sessions", `2026_${piId}.jsonl`), `${JSON.stringify({ type: "session", id: piId, cwd: foreign })}\n${JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "foreign" }] } })}\n`);
+    mkdirSync(claudeProjectDir(foreign), { recursive: true });
+    writeFileSync(join(claudeProjectDir(foreign), `${claudeId}.jsonl`), `${JSON.stringify({ type: "user", sessionId: claudeId, cwd: foreign, message: { role: "user", content: "foreign" } })}\n`);
+    for (const [runtime, id] of [["pi", piId], ["claude", claudeId]] as const) {
+      const ext = runtime === "pi" ? { ext: "/approved/connector" } : {};
+      expect(await agentCmd.run(["run", dir], { runtime, message: "must not run", conversation: id, ...ext }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain(`No nonempty ${runtime} conversation`);
+      expect(await agentCmd.run(["run", foreign], { runtime, message: "must not run", conversation: "typo", ...ext }, JSON_GLOBAL)).toBe(1);
+    }
+    expect(stdout()).toBe("");
+    mkdirSync(join(dir, ".pi", "sessions"), { recursive: true });
+    writeFileSync(join(dir, ".pi", "sessions", "2026_local-empty.jsonl"), `${JSON.stringify({ type: "session", id: "local-empty", cwd: dir })}\n`);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: "local-empty", ext: "/approved/connector" }, JSON_GLOBAL)).toBe(1);
+    writeFileSync(join(dir, ".pi", "sessions", "2026_local-foreign-root.jsonl"), `${JSON.stringify({ type: "session", id: "local-foreign-root", cwd: foreign })}\n${JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "foreign" }] } })}\n`);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: "local-foreign-root", ext: "/approved/connector" }, JSON_GLOBAL)).toBe(1);
+    const canonicalProject = claudeProjectDir(realpathSync.native(dir));
+    mkdirSync(canonicalProject, { recursive: true });
+    writeFileSync(join(canonicalProject, `${claudeId}.jsonl`), `${JSON.stringify({ type: "user", sessionId: claudeId, cwd: foreign, message: { role: "user", content: "foreign" } })}\n`);
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "must not run", conversation: claudeId }, JSON_GLOBAL)).toBe(1);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: true }, JSON_GLOBAL)).toBe(1);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", "session-dir": foreign }, JSON_GLOBAL)).toBe(1);
+  });
+
   it("agent run with claude runtime streams and resumes by --conversation", async () => {
     const dir = makeAgentDir();
     const fakeBin = join(dir, "fake-claude");
@@ -714,6 +774,9 @@ process.stdin.on("data", (chunk) => {
     chmodSync(fakeBin, 0o755);
 
     const convId = "22222222-2222-4222-8222-222222222222";
+    const project = claudeProjectDir(realpathSync.native(dir));
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, `${convId}.jsonl`), `${JSON.stringify({ type: "user", sessionId: convId, cwd: dir, message: { role: "user", content: "earlier" } })}\n`);
     const code = await agentCmd.run(
       ["run", dir],
       {
@@ -743,6 +806,8 @@ process.stdin.on("data", (chunk) => {
     chmodSync(fakeBin, 0o755);
 
     const convId = "local-session-123";
+    mkdirSync(join(dir, ".pi", "sessions"), { recursive: true });
+    writeFileSync(join(dir, ".pi", "sessions", `2026_${convId}.jsonl`), `${JSON.stringify({ type: "session", id: convId, cwd: dir })}\n${JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "earlier" }] } })}\n`);
     const code = await agentCmd.run(
       ["run", dir],
       {
@@ -772,14 +837,12 @@ process.stdin.on("data", (chunk) => {
     writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
     chmodSync(fakeBin, 0o755);
 
-    const convId = "33333333-3333-4333-8333-333333333333";
     const code = await agentCmd.run(
       ["run", dir],
       {
         runtime: "claude",
         model: "sonnet",
         message: "auth_fail trigger",
-        conversation: convId,
         "claude-bin": fakeBin,
       },
       JSON_GLOBAL,

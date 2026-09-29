@@ -20,6 +20,7 @@ import {
   runClaudeTurn,
 } from "./local-agent.js";
 import {
+  canResumeClaudeConversation,
   getClaudeConversation,
   isClaudeConversationId,
   listClaudeConversations,
@@ -52,6 +53,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   const conversationId = typeof flags.conversation === "string" ? flags.conversation : mintClaudeConversationId();
   if (!isClaudeConversationId(conversationId)) {
     output.error(`A Claude Code conversation id is a UUID; got "${conversationId}"`);
+    return 1;
+  }
+  if (flags["resume-only"] === true && !canResumeClaudeConversation(repoPath, conversationId)) {
+    output.error(`Claude conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
     return 1;
   }
   const modelTier = typeof flags["model-tier"] === "string" ? flags["model-tier"] : undefined;
@@ -271,4 +276,4 @@ async function compact(flags: Flags, output: Output): Promise<number> {
 }
 
 /** The Claude Code implementation of the local-conversation seam. */
-export const claudeConversationOps: LocalConversationOps = { send, createNew, get, list, compact };
+export const claudeConversationOps: LocalConversationOps = { send, createNew, get, list, compact, canResume: canResumeClaudeConversation };

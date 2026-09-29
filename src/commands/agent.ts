@@ -1,6 +1,6 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
 import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
@@ -214,13 +214,63 @@ async function cmdRun(
     model = defaults.claude_model;
   }
 
+  if (runtime === "pi" && (typeof flags.ext !== "string" || !flags.ext.split(",").some((path) => path.trim()))) {
+    output.error("Pi child launch needs explicit trusted extension paths: pass --ext <pi-is-space-path,pi-local-context-path> and --skill <skill-dirs> if needed. This CLI does not approve paths for you; installed packages and IDEASPACES_PI_EXTENSIONS do not authorize agent run. CLI >=0.1.53 is required for adapter policy flags. No child was started.");
+    return 1;
+  }
+  // A path selected from inside the child repo cannot smuggle executable code
+  // through a symlink to somewhere outside it. External paths must be named
+  // explicitly by the caller; the repo's declarations grant nothing here.
+  if (runtime === "pi") {
+    for (const key of ["ext", "skill"] as const) {
+      if (typeof flags[key] !== "string") continue;
+      for (const raw of flags[key].split(",").map((s) => s.trim()).filter(Boolean)) {
+        const path = isAbsolute(raw) ? raw : resolve(povPath, raw);
+        const within = relative(povPath, path);
+        if (within.startsWith("..") || isAbsolute(within)) continue;
+        try {
+          const actual = relative(povPath, realpathSync(path));
+          if (actual.startsWith("..") || isAbsolute(actual)) throw new Error("escapes the selected POV");
+        } catch (err) {
+          output.error(`Refusing ${key} path ${raw}: ${err instanceof Error ? err.message : String(err)}. Select an explicit reviewed path instead.`);
+          return 1;
+        }
+      }
+    }
+  }
+  if (runtime === "pi" && flags.skill !== undefined && typeof flags.skill !== "string") {
+    output.error("Pi child skills require --skill <comma-separated-dirs>; a bare flag selects nothing.");
+    return 1;
+  }
+  if (flags["session-dir"] !== undefined) {
+    output.error("agent run uses the selected POV's session directory; --session-dir cannot redirect its transcript.");
+    return 1;
+  }
+  if (flags.conversation !== undefined) {
+    if (typeof flags.conversation !== "string" || !flags.conversation.trim()) {
+      output.error("Resume requires --conversation <existing-id> at the selected POV.");
+      return 1;
+    }
+    if (!local.canResume?.(povPath, flags.conversation, runtime)) {
+      output.error(`No nonempty ${runtime} conversation ${flags.conversation} at the selected POV (${povPath}). Start a new turn without --conversation, or use an id from conversations --local --runtime ${runtime} --context <pov>.`);
+      return 1;
+    }
+    const resumePov = revalidateAgentPov(povPath);
+    if (!resumePov.valid || resumePov.contractPath !== povResult.contractPath) {
+      output.error("Selected POV contract changed before resume; select it again.");
+      return 1;
+    }
+  }
+
   const forwardFlags: Flags = {
     ...flags,
     local: true,
     context: povPath,
     runtime,
     message,
+    "explicit-launch": true,
   };
+  if (flags.conversation !== undefined) forwardFlags["resume-only"] = true;
   // Keep Desktop's legacy conversation-send default intact, but never approve
   // an agent run's Pi project resources merely because the CLI was invoked.
   if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";
@@ -300,7 +350,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --pi-trust saved --pi-thinking high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
-      "ideaspaces agent run agents/scout --message 'Resume turn' --conversation c_123",
+      "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
     ],

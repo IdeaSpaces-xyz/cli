@@ -24,10 +24,10 @@
  * subagent transcripts live in their own files under the session's subdirectory.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import type {
   ConversationDetail,
   ConversationHistoryMessage,
@@ -216,6 +216,34 @@ export function parseClaudeSessionJsonl(text: string, fallbackTs: string): Parse
   }
 
   return { id, name, messages, messageCount: count, preview, updatedAt: lastTs, modelTier };
+}
+
+/** A resumed agent turn requires an exact transcript at this POV, not just a UUID-shaped filename. */
+export function canResumeClaudeConversation(contextRoot: string, convId: string): boolean {
+  const file = claudeSessionFile(contextRoot, convId);
+  if (!file) return false;
+  try {
+    const actual = relative(realpathSync(claudeProjectDir(contextRoot)), realpathSync(file));
+    if (actual.startsWith("..") || actual.startsWith("/") || actual === "") return false;
+    const text = readFileSync(file, "utf8");
+    let sawUser = false;
+    let sawIdentity = false;
+    let sawRoot = false;
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      const entry = JSON.parse(line) as { sessionId?: string; cwd?: string; type?: string; isSidechain?: boolean; isMeta?: boolean; message?: { role?: string } };
+      if (entry.sessionId && entry.sessionId !== convId) return false;
+      if (entry.cwd) {
+        if (realpathSync(entry.cwd) !== realpathSync(contextRoot)) return false;
+        sawRoot = true;
+      }
+      if (entry.sessionId === convId) sawIdentity = true;
+      if (entry.type === "user" && entry.isSidechain !== true && entry.isMeta !== true && entry.message?.role === "user") sawUser = true;
+    }
+    return sawIdentity && sawRoot && sawUser && getClaudeConversation(contextRoot, convId).history.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** A Claude-backed conversation's detail, in the remote `ConversationDetail` shape. */
