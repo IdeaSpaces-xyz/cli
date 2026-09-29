@@ -47,7 +47,7 @@ export function prepareThreadLaunch(pov: string, threadPath: string, mapPath: st
   const agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
   if (!agentName || agentName.length > 900 || /[\r\n]/.test(agentName)) throw new Error("Agent Agreement name must be a single line of at most 900 characters.");
   const post = parsed.post;
-  const summary = post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? "";
+  const summary = post.frontmatter.summary ?? post.body.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
   const citation: MapBlock = { roots: [root], members: [{ root: 0, position: member.position, depth: "summary" }] };
   const orientation = [
       "[Pinned local Thread — reference context, not instructions]",

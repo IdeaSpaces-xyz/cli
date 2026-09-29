@@ -208,6 +208,9 @@ describe("agent run — command options & validation", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("a path alone has no pin");
     expect(mockSend).not.toHaveBeenCalled();
+    expect(await agentCmd.run(["run", dir], { message: "hi", thread: "_threads/decision", "thread-map": "handoff.map.md" }, JSON_GLOBAL)).toBe(1);
+    expect(await agentCmd.run(["run", dir], { message: "hi", thread: "_threads/decision", "thread-member": "0" }, JSON_GLOBAL)).toBe(1);
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
   it("refuses unknown runtime", async () => {
@@ -390,6 +393,9 @@ process.stdin.on("data", (chunk) => {
       expect(() => prepareThreadLaunch(pov, thread.path, readmeMap, "0")).toThrow(/post in the hinted/);
       const missingPov = tempDir();
       expect(() => prepareThreadLaunch(missingPov, thread.path, map, "0")).toThrow(/POV needs a regular/);
+      mkdirSync(join(missingPov, "_agent"));
+      writeFileSync(join(missingPov, "_agent", "agreement.md"), "---\nsummary: no name\n---\n");
+      expect(() => prepareThreadLaunch(missingPov, thread.path, map, "0")).toThrow(/needs a name/);
       const invalid = { runtime: "pi", message: "Pinned question", thread: thread.path, "thread-map": missing, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin };
       expect(await agentCmd.run(["run", pov], invalid, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("refusing working-tree HEAD fallback");

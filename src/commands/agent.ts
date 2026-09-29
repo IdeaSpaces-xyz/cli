@@ -236,7 +236,7 @@ async function cmdRun(
       if (!response?.trim()) throw new Error("Agent completed without a closing response.");
       const { post, path } = appendPost(thread.directory, {
         body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
-        summary: response.trim().split("\n").find(Boolean)?.slice(0, 200),
+        summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
         kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
       });
       snapshotWritten = true;
@@ -284,7 +284,6 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation c_123",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
-      "ideaspaces agent run agents/scout --thread _threads/decision --message 'No pin'  # refused",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
     ],
     async run(args, flags, global: GlobalFlags) {

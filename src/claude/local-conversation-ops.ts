@@ -3,8 +3,9 @@
 // (`src/pi/local-conversation-ops.ts`); the router picks one by `--runtime`.
 
 import type { Output } from "../output.js";
-import type { LocalConversationOps, LocalSendOptions } from "../commands/conversation.js";
+import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
+import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
 import { loadMapNoteOrientation } from "../local/map-note.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
 import {
@@ -118,7 +119,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       conversationId,
       modelTier,
       mapOrientation,
-      launchOrientation: [launchOrientation, options?.extraOrientation].filter(Boolean).join("\n\n"),
+      launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       model,
       permissionMode,
       auth,

@@ -6,8 +6,9 @@
 
 import { join } from "node:path";
 import type { Output } from "../output.js";
-import type { LocalConversationOps, LocalSendOptions } from "../commands/conversation.js";
+import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
+import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapNoteOrientation } from "../local/map-note.js";
@@ -135,7 +136,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       sessionDir,
       modelTier,
       mapOrientation,
-      launchOrientation: [launchOrientation, options?.extraOrientation].filter(Boolean).join("\n\n"),
+      launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       piModel,
       thinkingLevel: piThinking,
       piBin,

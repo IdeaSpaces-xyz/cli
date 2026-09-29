@@ -1,5 +1,5 @@
 import type { KeeperStreamEvent } from "@ideaspaces/sdk";
-import type { LocalSendOptions } from "../commands/conversation.js";
+import type { LocalSendOptions } from "./send-options.js";
 
 /** Preserve JSONL: a post-run write failure is a terminal error, never a completed stream. */
 export function observedEvent(event: KeeperStreamEvent, options?: LocalSendOptions): KeeperStreamEvent {

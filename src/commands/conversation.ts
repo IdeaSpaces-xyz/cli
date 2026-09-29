@@ -10,7 +10,7 @@ import {
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
-import type { KeeperStreamEvent } from "@ideaspaces/sdk";
+import type { LocalSendOptions } from "../local/send-options.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -19,11 +19,6 @@ type Flags = Record<string, string | boolean>;
  * core command stays Pi-free. The Pi module implements this; the router wires it.
  * Core dispatches `--local` here and never imports the Pi runtime itself.
  */
-export interface LocalSendOptions {
-  onEvent?: (event: KeeperStreamEvent) => KeeperStreamEvent;
-  extraOrientation?: string;
-}
-
 export interface LocalConversationOps {
   send(flags: Flags, output: Output, options?: LocalSendOptions): Promise<number>;
   createNew(flags: Flags, output: Output): number;
