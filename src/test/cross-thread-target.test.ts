@@ -67,7 +67,7 @@ describe("authored cross-Space local Thread selection", () => {
       expect(opened.data.posts).toHaveLength(1);
       expect(JSON.stringify(opened.data)).not.toContain("Newer live post");
       // The packaged entrypoint must parse and forward the same selection flags.
-      const installed = spawnSync(process.execPath, [join(initialCwd, "bundle", "ideaspaces.js"), "--json", "threads", "open", "decision", "--map", f.map, "--member", "0", "--depth", "full"],
+      const installed = spawnSync(process.execPath, [join(initialCwd, "bundle", "ideaspaces.js"), "--json", "threads", "open", "decision", "--map", f.map, "--member", "0", "--checkout", f.home, "--depth", "full"],
         { cwd: f.agent, encoding: "utf8", env: { ...process.env, HOME: f.agent } });
       expect(installed.status, installed.stderr).toBe(0);
       expect(JSON.parse(installed.stdout).pinned).toContain("Selected at pin");
@@ -76,6 +76,12 @@ describe("authored cross-Space local Thread selection", () => {
       expect(posts(f.home).at(-1)?.frontmatter.author).toBe("Integrator");
       expect(posts(f.home).at(-1)?.inReplyTo).toEqual([f.first.post.id]);
       expect(posts(f.home).at(-1)?.frontmatter.map).toEqual(f.selection());
+      const installedPost = spawnSync(process.execPath, [join(initialCwd, "bundle", "ideaspaces.js"), "--json", "threads", "post", "decision",
+        "--map", f.map, "--member", "0", "--checkout", f.home, "--message", "Installed reply", "--reply-to", f.first.post.id],
+        { cwd: f.agent, encoding: "utf8", env: { ...process.env, HOME: f.agent } });
+      expect(installedPost.status, installedPost.stderr).toBe(0);
+      expect(posts(f.home).at(-1)?.frontmatter.author).toBe("Integrator");
+      expect(posts(f.home).at(-1)?.body).toContain("Installed reply");
       expect(posts(f.agent)).toHaveLength(1);
       if (orphan) expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: f.worktree })).status).toBe(1);
       expect(process.cwd()).toBe(realpathSync(f.agent));
@@ -91,6 +97,9 @@ describe("authored cross-Space local Thread selection", () => {
     saveSpace(f.home, { repo_id: "repo_test", slug: "home", namespace: "team", root_node_id: ID });
     saveSpace(copy, { repo_id: "repo_test", slug: "copy", namespace: "team", root_node_id: ID });
     expect((await run(["open", "decision"], { map: f.map, member: "0" })).error).toMatch(/2 registered/);
+    expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: f.home })).status).toBe(0);
+    rmSync(copy, { recursive: true, force: true }); // stale registered copy: hint still selects Home
+    expect((await run(["open", "decision"], { map: f.map, member: "0" })).status).toBe(1);
     expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: f.home })).status).toBe(0);
     expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: f.agent })).error).toMatch(/mismatched/);
     expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: join(f.home, "_threads") })).status).toBe(1);

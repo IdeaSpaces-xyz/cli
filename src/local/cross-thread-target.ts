@@ -1,13 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
-import { parseFrontmatter, parseThreadPost, type MapPositionMember, type MapRoot, type ThreadPost } from "@ideaspaces/protocol";
+import { parseCanonicalRepoUrl, parseFrontmatter, parseThreadPost, type MapPositionMember, type MapRoot, type ThreadPost } from "@ideaspaces/protocol";
 import { listClones } from "../auth/spaces.js";
 import { sanitizedGitEnvironment } from "../git.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadThread, readPinnedThreadAgreement, readPinnedThreadMember, resolveLocalThread, threadBase, type LocalThread } from "./threads.js";
-
-const ROOT_IN_URL = /\/repos\/(n_[0-9a-f]{12}(?:[0-9a-f]{12})?)(?:\/|$)/;
 
 function physical(path: string): string {
   if (!isAbsolute(path) || !existsSync(path) || lstatSync(path).isSymbolicLink() || !lstatSync(path).isDirectory()) {
@@ -17,7 +15,8 @@ function physical(path: string): string {
 }
 
 function rootId(root: MapRoot): string {
-  const id = root.root_node_id ?? ROOT_IN_URL.exec(root.repo ?? "")?.[1];
+  const parsed = root.repo ? parseCanonicalRepoUrl(root.repo) : null;
+  const id = root.root_node_id ?? (parsed?.status === "valid" ? parsed.rootNodeId : undefined);
   if (!id) throw new Error("Selected Map root needs a portable root identity.");
   return id;
 }
@@ -40,14 +39,13 @@ function validatedCheckout(path: string, expected: string): string {
 /** Registry narrows discovery, not authority. A hint selects among physical copies or an unregistered Home. */
 function locate(root: MapRoot, hint?: string): string {
   const id = rootId(root);
+  if (hint) {
+    // A stale registry path must not prevent a different explicit physical
+    // choice. That hint is still checked against declaration/origin/registry.
+    return validatedCheckout(physical(hint), id);
+  }
   const matches = listClones().filter(({ record }) => record.root_node_id === id);
   const paths = new Set(matches.map(({ path }) => physical(path)));
-  if (hint) {
-    const selected = physical(hint);
-    // An explicit physical choice is required when there are several registered copies.
-    // An unregistered checkout is also allowed, but must prove the same root identity.
-    return validatedCheckout(selected, id);
-  }
   if (paths.size === 0) {
     // Same-Space Map reads have always worked without a registry entry. This
     // does not discover another checkout: it is only the caller's own Space.
@@ -80,10 +78,12 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
     throw new Error("Selected Map member must name a pinned Thread post, not a README or another position.");
   }
   const slug = match[1];
-  // The positional operand is a slug, not a cross-Space path grant. A checkout
-  // hint selects the Space root; the authored member selects only its Thread.
-  if (input !== slug) throw new Error(`Selected Map member belongs to Thread ${slug}; pass that slug, not a path.`);
   const directory = resolveLocalThread(slug, checkout);
+  // Preserve same-Space paths, but never let a path locate a cross-Space
+  // target. Only the hint chooses the checkout; the member chooses its slug.
+  if (input !== slug && (threadBase() !== checkout || resolveLocalThread(input) !== directory)) {
+    throw new Error(`Selected Map member belongs to Thread ${slug}; pass that slug, not a cross-Space path.`);
+  }
   const thread = loadThread(directory);
   const pinned = readPinnedThreadMember(checkout, root.sha, position);
   const parsed = parseThreadPost(pinned, basename(position));
@@ -95,7 +95,11 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
   const verifyWrite = (live: LocalThread, parents: string[]) => {
     if (live.path !== directory || live.slug !== slug || live.closed) throw new Error("Selected live Thread changed or closed; refusing append.");
     const selectedPath = join(directory, basename(position));
-    const safeEqual = (path: string, content: string) => existsSync(path) && !lstatSync(path).isSymbolicLink() && lstatSync(path).isFile() && readFileSync(path, "utf8") === content;
+    const safeEqual = (path: string, content: string) => {
+      if (!existsSync(path)) return false;
+      const entry = lstatSync(path);
+      return !entry.isSymbolicLink() && entry.isFile() && readFileSync(path, "utf8") === content;
+    };
     if (!safeEqual(join(directory, "_agent", "agreement.md"), agreement) ||
         !safeEqual(join(directory, "README.md"), readme) ||
         !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed.post.id && post.path === basename(position))) {

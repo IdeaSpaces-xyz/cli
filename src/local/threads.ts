@@ -136,7 +136,6 @@ export function appendPost(dir: string, options: {
   verifyTarget?: (thread: LocalThread, parents: string[]) => void;
 }): { post: ThreadPost; path: string } {
   const thread = loadThread(dir);
-  options.verifyTarget?.(thread, options.replyTo ?? []);
   if (thread.closed) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
   if (!options.body.trim()) throw new Error("Post body is required through --message or stdin.");
   if (Buffer.byteLength(options.body) > MAX_POST) throw new Error(`Post body exceeds ${MAX_POST} bytes.`);
@@ -157,6 +156,9 @@ export function appendPost(dir: string, options: {
     const map = parseMap(options.map);
     if (map.status !== "valid") throw new Error("--map must contain a valid protocol Map block; no implicit HEAD pin is substituted.");
   }
+  // Local-first exclusive create, not a cross-process lock: check the selected
+  // target as late as possible before writing, after all option validation.
+  options.verifyTarget?.(thread, parentIds);
   const id = `msg_${randomUUID()}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const path = join(thread.path, `${stamp}-${id}.md`);

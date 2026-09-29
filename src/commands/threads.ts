@@ -27,6 +27,10 @@ function yes(flags: Flags, key: string): boolean {
   if (flags[key] === true || flags[key] === "true") return true;
   throw new Error(`--${key} does not take a value.`);
 }
+function selectionFlags(flags: Flags): void {
+  if (flags.map === undefined && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("--member and --checkout require --map.");
+  if (flags.checkout === true) throw new Error("--checkout requires an absolute Space root path.");
+}
 function depth(flags: Flags, fallback: string): "name" | "summary" | "full" {
   const value = flags.depth ?? fallback;
   if (value === "name" || value === "summary" || value === "full") return value;
@@ -60,7 +64,10 @@ function writerName(explicit?: string, requireAgent = false): string {
   while (true) {
     const agreement = join(at, "_agent", "agreement.md");
     if (existsSync(agreement)) {
-      if (requireAgent && (lstatSync(agreement).isSymbolicLink() || !lstatSync(agreement).isFile())) throw new Error("Caller Agent Agreement must be a regular file.");
+      if (requireAgent) {
+        const entry = lstatSync(agreement);
+        if (entry.isSymbolicLink() || !entry.isFile()) throw new Error("Caller Agent Agreement must be a regular file.");
+      }
       const fm = parseFrontmatter(readFileSync(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
@@ -183,8 +190,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|full] [--new] [--ack]");
         if (HOSTED.test(rest[0])) return hostedThreadsCommand.run(["read", rest[0]], flags, global);
-        if (flags.member !== undefined && flags.map === undefined || flags.checkout !== undefined && flags.map === undefined) throw new Error("--member and --checkout require --map.");
-        if (flags.checkout === true) throw new Error("--checkout requires an absolute Space root path.");
+        selectionFlags(flags);
         if (flags.map !== undefined && flags.member !== undefined) {
           if (flags.pin !== undefined || flags.position !== undefined) throw new Error("Use either --map with --member or --pin with --position, not both.");
           if (flags.new !== undefined || flags.ack !== undefined) throw new Error("Selected pinned reads cannot use live --new or --ack.");
@@ -248,8 +254,7 @@ export const threadsCommand: CommandDef = {
         if (!KINDS.has(kind)) throw new Error("--kind must be post, snapshot, reframe, correction or closure.");
         const body = str(flags, "message") ?? await stdin();
         const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
-        if (flags.member !== undefined && flags.map === undefined || flags.checkout !== undefined && flags.map === undefined) throw new Error("--member and --checkout require --map.");
-        if (flags.checkout === true) throw new Error("--checkout requires an absolute Space root path.");
+        selectionFlags(flags);
         if (sub === "close" && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         const selected = flags.member !== undefined
