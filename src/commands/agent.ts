@@ -133,7 +133,7 @@ async function cmdRun(
     output.error(povResult.message);
     return 1;
   }
-  const povPath = povResult.path;
+  const povPath = povResult.path; // validateAgentPov returns the realpath, including symlinked ancestors
   // The selected contract, not the caller's SessionStart, owns this child POV.
   // Child hooks may also run, but launch must be grounded even when that
   // other harness has no IdeaSpaces plugin installed yet.
@@ -216,7 +216,7 @@ async function cmdRun(
   }
 
   if (runtime === "pi" && (typeof flags.ext !== "string" || !flags.ext.split(",").some((path) => path.trim()))) {
-    output.error("Pi child launch needs explicit trusted extension paths; no child was started.\nPass --ext <pi-is-space-path,pi-local-context-path> (and --skill <dirs> if needed). Installed packages and IDEASPACES_PI_EXTENSIONS do not authorize an agent run. Adapters using --pi-trust/--claude-effort need CLI 0.1.53 or newer.");
+    output.error("Pi child launch needs explicit trusted extension paths; no child was started.\nPass --ext <pi-is-space-path,pi-local-context-path> (and --skill <dirs> if needed). Relative paths resolve from the selected POV. Installed packages and IDEASPACES_PI_EXTENSIONS do not authorize an agent run.");
     return 1;
   }
   // A path selected from inside the child repo cannot smuggle executable code
@@ -346,7 +346,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Pi runs require explicit --ext paths; --skill dirs are optional. --conversation resumes an existing nonempty POV transcript; --session-dir is refused. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
+    description: "Run or list local POVs. Pi runs require explicit --ext paths relative to the selected POV (or absolute); --skill dirs are optional. --conversation resumes an existing nonempty POV transcript; --session-dir is refused. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",

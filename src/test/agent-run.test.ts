@@ -737,6 +737,10 @@ process.stdin.on("data", (chunk) => {
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},approved.ts,./approved.ts` }, JSON_GLOBAL)).toBe(0);
       const done = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
       expect(JSON.parse(done.result.response)).toEqual({ ext: 1, skill: 0, noDiscovery: true });
+      const alias = join(outside, "agent-alias");
+      symlinkSync(dir, alias);
+      stdoutChunks = [];
+      expect(await agentCmd.run(["run", alias], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "approved.ts" }, JSON_GLOBAL)).toBe(0);
       stdoutChunks = [];
       expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", context: dir, message: "selection_probe", "pi-bin": fakeBin, "explicit-launch": true, "resume-only": true }, JSON_GLOBAL)).toBe(0);
       const direct = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
