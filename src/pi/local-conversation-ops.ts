@@ -7,6 +7,8 @@
 import { join } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
+import { observedEvent } from "../local/observed-event.js";
+import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapNoteOrientation } from "../local/map-note.js";
@@ -35,7 +37,7 @@ function reportLocalError(err: unknown, output: Output): number {
 // Keeper), context-rooted at cwd (a workspace that may mount repos), resuming
 // the conversation's pi session. Emits the same Keeper JSON-lines contract as
 // remote `send`, so any client renders it identically.
-async function send(flags: Flags, output: Output): Promise<number> {
+async function send(flags: Flags, output: Output, options?: LocalSendOptions): Promise<number> {
   const message = typeof flags.message === "string" ? flags.message : undefined;
   if (!message) {
     output.error("A message is required: --message <text>");
@@ -134,14 +136,15 @@ async function send(flags: Flags, output: Output): Promise<number> {
       sessionDir,
       modelTier,
       mapOrientation,
-      launchOrientation,
+      launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       piModel,
       thinkingLevel: piThinking,
       piBin,
       signal: controller.signal,
     })) {
-      process.stdout.write(`${JSON.stringify(event)}\n`);
-      if (event.type === "error") {
+      const emitted = observedEvent(event, options);
+      process.stdout.write(`${JSON.stringify(emitted)}\n`);
+      if (emitted.type === "error") {
         hadError = true;
       }
     }

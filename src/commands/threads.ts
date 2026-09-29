@@ -1,8 +1,8 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
-import { parseFrontmatter, parseMap, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
-import { parse as parseYaml } from "yaml";
+import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
@@ -71,22 +71,6 @@ function writerName(explicit?: string): string {
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
 }
-function loadLocalMap(input: string): unknown {
-  const path = resolve(input);
-  let value: unknown;
-  if (existsSync(path)) {
-    if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink() || lstatSync(path).size > 128 * 1024) throw new Error("--map file must be a regular file no larger than 128 KiB.");
-    const content = readFileSync(path, "utf8");
-    const fm = parseFrontmatter(content);
-    value = fm?.map ?? parseYaml(content);
-  } else {
-    value = parseYaml(input);
-  }
-  if (value && typeof value === "object" && "map" in value) value = (value as { map: unknown }).map;
-  if (parseMap(value).status !== "valid") throw new Error("--map must supply valid roots and members with authored pins.");
-  return value;
-}
-
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
@@ -207,16 +191,9 @@ export const threadsCommand: CommandDef = {
         let position = str(flags, "position");
         if (flags.map !== undefined) {
           if (pin || position) throw new Error("Use either --map with --member or --pin with --position, not both.");
-          const parsed = parseMap(loadLocalMap(str(flags, "map") ?? ""));
-          if (parsed.status !== "valid") throw new Error("Invalid authored Map.");
-          const ordinal = Number(str(flags, "member"));
-          if (!Number.isSafeInteger(ordinal) || ordinal < 0) throw new Error("--member <zero-based ordinal> is required with --map.");
-          const member = parsed.map.members[ordinal];
-          if (!member || !("position" in member) || typeof member.position !== "string" || !("root" in member) || typeof member.root !== "number") throw new Error("Selected Map member is not a pinned local position.");
-          const selectedRoot = parsed.map.roots[member.root];
-          if (!selectedRoot?.sha) throw new Error("Selected Map root has no authored commit pin.");
-          pin = selectedRoot.sha;
-          position = member.position;
+          const selected = selectPinnedThreadMember(loadLocalThreadMap(str(flags, "map") ?? ""), str(flags, "member") ?? "");
+          pin = selected.root.sha;
+          position = selected.member.position;
         }
         if (flags.pin === true || flags.position === true) throw new Error("--pin and --position require values.");
         if (!!pin !== !!position) throw new Error("Pinned open requires both --pin <authored SHA> and --position <_threads/...md>.");
@@ -245,7 +222,7 @@ export const threadsCommand: CommandDef = {
         if (!KINDS.has(kind)) throw new Error("--kind must be post, snapshot, reframe, correction or closure.");
         const body = str(flags, "message") ?? await stdin();
         const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
-        const map = str(flags, "map") ? loadLocalMap(str(flags, "map")!) : undefined;
+        const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         const { post, path } = appendPost(resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
           summary: str(flags, "summary"), author: writerName(str(flags, "author")), replyTo: parents,
           kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map });

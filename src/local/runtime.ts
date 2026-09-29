@@ -37,7 +37,7 @@ export function composeLocalConversationOps(runtimes: Record<LocalRuntime, Local
     }
   };
   return {
-    send: async (flags, output) => (await pick(flags, output))?.send(flags, output) ?? 1,
+    send: async (flags, output, options) => (await pick(flags, output))?.send(flags, output, options) ?? 1,
     createNew: (flags, output) => pick(flags, output)?.createNew(flags, output) ?? 1,
     get: (flags, output) => pick(flags, output)?.get(flags, output) ?? 1,
     list: (flags, output) => pick(flags, output)?.list(flags, output) ?? 1,

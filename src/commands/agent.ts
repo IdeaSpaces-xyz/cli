@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { listClones } from "../auth/spaces.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
+import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
+import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { createOutput, type Output } from "../output.js";
 import type { LocalConversationOps } from "./conversation.js";
@@ -23,13 +25,13 @@ function flagString(flags: Flags, name: string): string | undefined {
 }
 
 export const RUN_USAGE =
-  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--json]";
+  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
 
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const USAGE =
-  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--json]; list --map <file> [--json])";
+  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]; list --map <file> [--json])";
 
 /**
  * Resolve a point-of-view locator to an absolute directory path on the local machine.
@@ -158,6 +160,24 @@ async function cmdRun(
     return 1;
   }
 
+  let thread: ReturnType<typeof prepareThreadLaunch> | undefined;
+  if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
+    const path = flagString(flags, "thread");
+    const map = flagString(flags, "thread-map");
+    const member = flagString(flags, "thread-member");
+    if (!path || !map || member === undefined) {
+      output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
+      return 1;
+    }
+    try {
+      thread = prepareThreadLaunch(povPath, path, map, member);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
+      return 1;
+    }
+  }
+
   const defaults = readAgentDefaults(povPath);
 
   let runtime: LocalRuntime;
@@ -206,7 +226,25 @@ async function cmdRun(
     }
   }
 
-  return local.send(forwardFlags, output);
+  if (!thread) return local.send(forwardFlags, output);
+  let snapshotWritten = false;
+  return local.send(forwardFlags, output, {
+    extraOrientation: thread.orientation,
+    onEvent(event) {
+      if (event.type !== "turn_complete") return event;
+      if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
+      const response = event.result.response;
+      if (!response?.trim()) throw new Error("Agent completed without a closing response.");
+      const { post, path } = appendPost(thread.directory, {
+        body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
+        summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
+        kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+      });
+      snapshotWritten = true;
+      output.progress(`Thread snapshot: ${path}`);
+      return withThreadSnapshot(event, post.id, path);
+    },
+  });
 }
 
 function cmdList(
@@ -238,7 +276,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list agents in a Space or point of view",
+    description: "Run or list agents; a pinned local Thread run appends a named snapshot on success",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
@@ -246,6 +284,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation c_123",
+      "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
     ],
     async run(args, flags, global: GlobalFlags) {
