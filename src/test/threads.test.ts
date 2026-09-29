@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
@@ -76,6 +76,9 @@ describe("local Threads", () => {
     expect(() => resolveLocalThread("escape", root)).toThrow(/symlink/);
     symlinkSync(first.path, join(t.path, "linked.md"));
     expect(() => loadThread(t.path)).toThrow(/Unexpected thread entry/);
+    renameSync(join(root, "_threads"), join(root, "physical-threads"));
+    symlinkSync("physical-threads", join(root, "_threads"));
+    expect(() => resolveLocalThread("decision", root)).toThrow(/symlink/);
   });
 
   it("cold CLI read respects the rung and advances the cursor only on explicit ack", async () => {
@@ -161,7 +164,8 @@ describe("local Threads", () => {
   });
 
   it("resolves a separate orphan worktree at the authored commit, not HEAD", async () => {
-    const root = fixture();
+    const root = fixture(); process.env.HOME = root;
+    writeFileSync(join(root, "_agent", "agreement.md"), "---\nname: Fixture\nsummary: Test\nroot_node_id: n_0123456789abcdef01234567\n---\n");
     git(root, "init", "-b", "main");
     git(root, "config", "user.name", "Test"); git(root, "config", "user.email", "test@example.test");
     git(root, "add", "_agent/agreement.md"); git(root, "commit", "-m", "init");
@@ -186,12 +190,15 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["open", "decision"], { map, member: "0", depth: "full" }, flags)).toBe(0);
       expect(JSON.parse(output).pinned).toContain("At pin");
       output = "";
+      expect(await threadsCommand.run(["open", t.path], { map, member: "0", depth: "full" }, flags)).toBe(0);
+      expect(JSON.parse(output).pinned).toContain("At pin");
+      output = "";
       expect(await threadsCommand.run(["open", "decision"], { pin, position: "_threads/decision/_agent/agreement.md" }, flags)).toBe(1);
       output = "";
       expect(await threadsCommand.run(["open", "decision"], { pin, position: `_threads/decision/${one.post.path}`, depth: "full" }, flags)).toBe(0);
       expect(JSON.parse(output).pinned).toContain("At pin");
       createThread("other", "Other", root);
-      expect(await threadsCommand.run(["open", "other"], { map, member: "0" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["open", "other"], { map, member: "0", checkout: root }, flags)).toBe(1);
     } finally { process.stdout.write = original; process.chdir(before); }
     git(worktree, "add", "decision"); git(worktree, "commit", "-m", "second post");
     expect(readPinnedThreadMember(root, pin, `_threads/decision/${one.post.path}`)).toContain("At pin");

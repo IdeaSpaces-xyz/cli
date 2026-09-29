@@ -64,6 +64,9 @@ export function threadsDirectory(cwd = process.cwd()): string {
 
 export function resolveLocalThread(input: string, cwd = process.cwd()): string {
   const base = threadsDirectory(cwd);
+  // Do not follow an _threads mount or symlink into another Space. An orphan
+  // git worktree is a real directory and remains supported.
+  safeDirectory(base);
   const path = input.includes("/") || input.startsWith(".") || isAbsolute(input) ? resolve(cwd, input) : join(base, input);
   const dir = safeDirectory(path);
   if (dirname(dir) !== base) throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
@@ -130,6 +133,7 @@ function references(parents: ThreadPost[]): string[] {
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; supersedes?: string; map?: unknown;
+  verifyTarget?: (thread: LocalThread, parents: string[], supersedes?: string) => void;
 }): { post: ThreadPost; path: string } {
   const thread = loadThread(dir);
   if (thread.closed) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
@@ -152,6 +156,9 @@ export function appendPost(dir: string, options: {
     const map = parseMap(options.map);
     if (map.status !== "valid") throw new Error("--map must contain a valid protocol Map block; no implicit HEAD pin is substituted.");
   }
+  // Local-first exclusive create, not a cross-process lock: check the selected
+  // target as late as possible before writing, after all option validation.
+  options.verifyTarget?.(thread, parentIds, options.supersedes);
   const id = `msg_${randomUUID()}`;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const path = join(thread.path, `${stamp}-${id}.md`);
