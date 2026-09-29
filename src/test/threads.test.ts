@@ -161,7 +161,8 @@ describe("local Threads", () => {
   });
 
   it("resolves a separate orphan worktree at the authored commit, not HEAD", async () => {
-    const root = fixture();
+    const root = fixture(); process.env.HOME = root;
+    writeFileSync(join(root, "_agent", "agreement.md"), "---\nname: Fixture\nsummary: Test\nroot_node_id: n_0123456789abcdef01234567\n---\n");
     git(root, "init", "-b", "main");
     git(root, "config", "user.name", "Test"); git(root, "config", "user.email", "test@example.test");
     git(root, "add", "_agent/agreement.md"); git(root, "commit", "-m", "init");
@@ -191,7 +192,7 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["open", "decision"], { pin, position: `_threads/decision/${one.post.path}`, depth: "full" }, flags)).toBe(0);
       expect(JSON.parse(output).pinned).toContain("At pin");
       createThread("other", "Other", root);
-      expect(await threadsCommand.run(["open", "other"], { map, member: "0" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["open", "other"], { map, member: "0", checkout: root }, flags)).toBe(1);
     } finally { process.stdout.write = original; process.chdir(before); }
     git(worktree, "add", "decision"); git(worktree, "commit", "-m", "second post");
     expect(readPinnedThreadMember(root, pin, `_threads/decision/${one.post.path}`)).toContain("At pin");

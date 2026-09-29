@@ -64,6 +64,9 @@ export function threadsDirectory(cwd = process.cwd()): string {
 
 export function resolveLocalThread(input: string, cwd = process.cwd()): string {
   const base = threadsDirectory(cwd);
+  // Do not follow an _threads mount or symlink into another Space. An orphan
+  // git worktree is a real directory and remains supported.
+  safeDirectory(base);
   const path = input.includes("/") || input.startsWith(".") || isAbsolute(input) ? resolve(cwd, input) : join(base, input);
   const dir = safeDirectory(path);
   if (dirname(dir) !== base) throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
@@ -130,8 +133,10 @@ function references(parents: ThreadPost[]): string[] {
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; supersedes?: string; map?: unknown;
+  verifyTarget?: (thread: LocalThread, parents: string[]) => void;
 }): { post: ThreadPost; path: string } {
   const thread = loadThread(dir);
+  options.verifyTarget?.(thread, options.replyTo ?? []);
   if (thread.closed) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
   if (!options.body.trim()) throw new Error("Post body is required through --message or stdin.");
   if (Buffer.byteLength(options.body) > MAX_POST) throw new Error(`Post body exceeds ${MAX_POST} bytes.`);

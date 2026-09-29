@@ -1,8 +1,9 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
+import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
@@ -53,12 +54,13 @@ function localText(thread: LocalThread, posts: LocalThread["posts"], rung: strin
     : `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}`),
   ].join("\n");
 }
-function writerName(explicit?: string): string {
+function writerName(explicit?: string, requireAgent = false): string {
   if (explicit) return explicit;
   let at = resolve(process.cwd());
   while (true) {
     const agreement = join(at, "_agent", "agreement.md");
     if (existsSync(agreement)) {
+      if (requireAgent && (lstatSync(agreement).isSymbolicLink() || !lstatSync(agreement).isFile())) throw new Error("Caller Agent Agreement must be a regular file.");
       const fm = parseFrontmatter(readFileSync(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
@@ -67,6 +69,7 @@ function writerName(explicit?: string): string {
     if (dirname(at) === at) break;
     at = dirname(at);
   }
+  if (requireAgent) throw new Error("Selected Thread posts require the caller's Agent Agreement name; no git-author fallback.");
   const result = spawnSync("git", ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
@@ -79,8 +82,8 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
     "ideaspaces threads new <slug> --about 'What we are deciding'",
-    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2] [--kind snapshot] [--map selection.json]",
-    "ideaspaces threads open <slug|path> --map home.map.md --member 0  # pin belongs to that Thread",
+    "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
+    "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
     "ideaspaces threads open <slug|path> --pin <40-hex-sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads close <slug|path> --message 'Closing rationale'",
     "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
@@ -180,6 +183,29 @@ export const threadsCommand: CommandDef = {
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|full] [--new] [--ack]");
         if (HOSTED.test(rest[0])) return hostedThreadsCommand.run(["read", rest[0]], flags, global);
+        if (flags.member !== undefined && flags.map === undefined || flags.checkout !== undefined && flags.map === undefined) throw new Error("--member and --checkout require --map.");
+        if (flags.checkout === true) throw new Error("--checkout requires an absolute Space root path.");
+        if (flags.map !== undefined && flags.member !== undefined) {
+          if (flags.pin !== undefined || flags.position !== undefined) throw new Error("Use either --map with --member or --pin with --position, not both.");
+          if (flags.new !== undefined || flags.ack !== undefined) throw new Error("Selected pinned reads cannot use live --new or --ack.");
+          const { root, member } = selectPinnedThreadMember(loadLocalThreadMap(str(flags, "map") ?? ""), str(flags, "member") ?? "");
+          const target = selectLocalThreadTarget(rest[0], root, member, str(flags, "checkout"));
+          const rung = depth(flags, "summary");
+          const parsed = parseThreadPost(target.pinned);
+          if (parsed.status !== "valid") throw new Error("Selected pinned post is invalid.");
+          const post = parsed.post;
+          const posts = rung === "name" ? [] : rung === "summary" ? [{ id: post.id, path: post.path, kind: post.kind,
+            name: post.frontmatter.name ?? post.id, summary: post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? "", in_reply_to: post.inReplyTo }] : [post];
+          const pinnedReadme = readPinnedThreadMember(target.checkout, target.pin, `_threads/${target.thread.slug}/README.md`);
+          const frontmatter = parseFrontmatter(pinnedReadme);
+          const name = typeof frontmatter?.name === "string" ? frontmatter.name : target.thread.slug;
+          const summary = typeof frontmatter?.summary === "string" ? frontmatter.summary : "";
+          output.result({ thread: { path: target.thread.path, name, summary: rung === "name" ? undefined : summary },
+            posts, ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
+            rung === "full" ? target.pinned : rung === "name" ? name : `${name}\n${post.frontmatter.name ?? post.id} — ${post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? ""}`);
+          return 0;
+        }
+        if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         const thread = loadThread(resolveLocalThread(rest[0]));
         const rung = depth(flags, "summary");
         const newOnly = yes(flags, "new");
@@ -222,10 +248,19 @@ export const threadsCommand: CommandDef = {
         if (!KINDS.has(kind)) throw new Error("--kind must be post, snapshot, reframe, correction or closure.");
         const body = str(flags, "message") ?? await stdin();
         const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
+        if (flags.member !== undefined && flags.map === undefined || flags.checkout !== undefined && flags.map === undefined) throw new Error("--member and --checkout require --map.");
+        if (flags.checkout === true) throw new Error("--checkout requires an absolute Space root path.");
+        if (sub === "close" && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
-        const { post, path } = appendPost(resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
-          summary: str(flags, "summary"), author: writerName(str(flags, "author")), replyTo: parents,
-          kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map });
+        const selected = flags.member !== undefined
+          ? selectPinnedThreadMember(map, str(flags, "member") ?? "") : undefined;
+        if (!selected && flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
+        if (selected && flags.author !== undefined) throw new Error("Selected Thread posts use the caller's Agreement name; omit --author.");
+        const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
+        const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
+          summary: str(flags, "summary"), author: writerName(target ? undefined : str(flags, "author"), Boolean(target)), replyTo: parents,
+          kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map,
+          verifyTarget: target?.verifyWrite });
         output.result({ id: post.id, path, kind: post.kind }, `Appended ${post.kind}: ${path}`); return 0;
       }
       if (sub === "render") {
