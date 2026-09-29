@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import {
@@ -15,6 +16,7 @@ export const MAX_MAP_ORIENTATION_LENGTH = 12_000;
 
 export interface LoadedMapNote {
   path: string;
+  fileSha: string;
   name?: string;
   summary?: string;
   legend: string;
@@ -74,6 +76,7 @@ export function loadMapNote(reference: string, contextRoot: string): LoadedMapNo
   const summary = scalar(frontmatter.summary);
   return {
     path: displayPath(absolutePath, resolve(contextRoot), reference),
+    fileSha: createHash("sha256").update(content).digest("hex"),
     ...(name ? { name } : {}),
     ...(summary ? { summary } : {}),
     legend: stripFrontmatter(content).trim(),

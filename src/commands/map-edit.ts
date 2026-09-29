@@ -6,7 +6,7 @@ import { parseMap, type MapMember } from "@ideaspaces/protocol";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> --depth <name|summary|surface|children|full> (--root <index> | --root-node-id <id> --sha <commit>)\n       ideaspaces map remove <map-note> <member-index|address> [--if-match <sha256>]";
+const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> --depth <name|summary|surface|children|full> (--root <index> | --root-node-id <id> --sha <commit>)\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address> [--if-match <file_sha>]";
 
 function value(flags: Record<string, string | boolean>, key: string): string | undefined {
   const v = flags[key];
@@ -143,6 +143,7 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
         if (members.length !== 1) throw new Error("map remove needs one member index or address.");
         const requested = members[0];
         if (/^(0|[1-9]\d*)$/.test(requested)) {
+          if (!match) throw new Error(`Removing by index requires --if-match <file_sha> from map ${file} --json; an index can name a different member after another edit. Or remove by address.`);
           index = Number(requested);
         } else {
           const matches = parsed.map.members.flatMap((member, i) => "address" in member && member.address === requested ? [i] : []);

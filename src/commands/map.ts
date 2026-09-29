@@ -55,7 +55,7 @@ export const mapCommand: CommandDef = {
     "ideaspaces map . --json",
     "ideaspaces map create team.map.md --name Team --summary 'Team space'",
     "ideaspaces map add team.map.md thread:x_0123456789abcdef01234567 --depth summary",
-    "ideaspaces map remove team.map.md 0",
+    "ideaspaces map remove team.map.md 0 --if-match <file_sha>  # from map team.map.md --json",
     "ideaspaces map select notes/finding.md --hostname example.com --note-depth surface --json",
     "ideaspaces map ../research --depth 2 --json",
     "ideaspaces map ../research --depth full --json  # complete local Content tree",
@@ -112,6 +112,7 @@ export const mapCommand: CommandDef = {
         file: spaceMap.file,
         ...(spaceMap.otherFiles.length ? { other_files: spaceMap.otherFiles } : {}),
         path: spaceMap.note.path,
+        file_sha: spaceMap.note.fileSha,
         name: spaceMap.note.name ?? null,
         summary: spaceMap.note.summary ?? null,
         roots: spaceMap.roots.map((r) => ({

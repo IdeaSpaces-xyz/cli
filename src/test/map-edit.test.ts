@@ -76,10 +76,13 @@ describe("map authoring", () => {
     const stale = await run(["remove", file, "0"], { "if-match": base });
     expect(stale.code).toBe(1);
     expect(stale.error).toContain("Map base moved");
-    const map = (await run([file])).data.map;
+    const opened = (await run([file])).data;
+    expect(opened.file_sha).toBe(position.data.sha);
+    const map = opened.map;
     expect(map.roots).toHaveLength(1);
     expect(map.members).toMatchObject([{ address: "thread:x_0123456789abcdef01234567" }, { root: 0, position: ".", depth: "surface" }]);
-    expect((await run(["remove", file, "0"])).code).toBe(0);
+    expect((await run(["remove", file, "0"])).error).toContain("requires --if-match");
+    expect((await run(["remove", file, "0"], { "if-match": (await run([file])).data.file_sha })).code).toBe(0);
     const content = await fs.readFile(file, "utf8");
     expect(content).toContain("custom: retained");
     expect(content).toContain("custom: preserved");
@@ -102,7 +105,7 @@ describe("map authoring", () => {
     expect((await run(["add", file, address])).code).toBe(0);
     expect((await run(["add", file, address])).code).toBe(0);
     expect((await run(["remove", file, address])).error).toContain("matches multiple members");
-    expect((await run(["remove", file, "1"])).code).toBe(0);
+    expect((await run(["remove", file, "1"], { "if-match": (await run([file])).data.file_sha })).code).toBe(0);
     expect((await run(["remove", file, address])).code).toBe(0);
     expect((await run([file])).data.members).toEqual([]);
     await fs.writeFile(file, "---\nname: Broken\nmap: [\n---\n# Still a Note\n");
