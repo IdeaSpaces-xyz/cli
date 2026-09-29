@@ -66,7 +66,9 @@ function selectedWriterName(): string {
   let at = cwd;
   while (true) {
     const pathFromRoot = relative(boundary, at);
-    if (pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot)) break;
+    const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot);
+    // Inspect cwd even when Git reports a differently canonicalized root (Windows).
+    if (at !== cwd && outsideRoot) break;
     const agentDir = join(at, "_agent");
     const agreement = join(agentDir, "agreement.md");
     if (existsSync(agentDir) || existsSync(agreement)) {
@@ -83,7 +85,7 @@ function selectedWriterName(): string {
       if (!name || name.length > 900 || /[\r\n]/.test(name)) throw new Error("Caller Agreement name must be a single line of at most 900 characters.");
       return name;
     }
-    if (at === boundary) break;
+    if (at === boundary || outsideRoot) break;
     at = dirname(at);
   }
   throw new Error("Selected Thread posts require the caller's own _agent/agreement.md with a name; no git-author fallback.");
