@@ -218,14 +218,8 @@ export const threadsCommand: CommandDef = {
         const posts = thread.posts.filter((p) => !seen.has(p.id));
         const ack = yes(flags, "ack");
         if (ack && rung === "name") throw new Error("Cannot --ack at name depth: no posts were shown.");
-        let pin = str(flags, "pin");
-        let position = str(flags, "position");
-        if (flags.map !== undefined) {
-          if (pin || position) throw new Error("Use either --map with --member or --pin with --position, not both.");
-          const selected = selectPinnedThreadMember(loadLocalThreadMap(str(flags, "map") ?? ""), str(flags, "member") ?? "");
-          pin = selected.root.sha;
-          position = selected.member.position;
-        }
+        const pin = str(flags, "pin");
+        const position = str(flags, "position");
         if (flags.pin === true || flags.position === true) throw new Error("--pin and --position require values.");
         if (!!pin !== !!position) throw new Error("Pinned open requires both --pin <authored SHA> and --position <_threads/...md>.");
         if (position && !position.startsWith(`_threads/${thread.slug}/`)) {

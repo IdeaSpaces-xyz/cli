@@ -52,7 +52,9 @@ function locate(root: MapRoot, hint?: string): string {
     // Same-Space Map reads have always worked without a registry entry. This
     // does not discover another checkout: it is only the caller's own Space.
     const caller = threadBase();
-    if (inspectLocalRootIdentity(caller).root_node_id === id) return validatedCheckout(caller, id);
+    const callerId = inspectLocalRootIdentity(caller).root_node_id;
+    if (callerId === id) return validatedCheckout(caller, id);
+    if (callerId === null) throw new Error(`Map root ${id} has no registered checkout and the caller has no verifiable root identity. Pass --checkout <absolute Space root> for another Space; for this Space, declare root_node_id in its Agreement (check with ideaspaces doctor).`);
   }
   if (paths.size !== 1) throw new Error(`Map root ${id} has ${paths.size} registered local checkouts; pass --checkout <absolute Space root> for an explicit validated choice.`);
   return validatedCheckout([...paths][0], id);
@@ -112,7 +114,7 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
     if (!safeEqual(join(directory, "_agent", "agreement.md"), agreement) ||
         !safeEqual(join(directory, "README.md"), readme) ||
         !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed.post.id && post.path === basename(position))) {
-      throw new Error("Selected live Thread differs from the authored pin; refusing append.");
+      throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
     }
     if (!parents.length || new Set(parents).size !== parents.length) throw new Error("Selected cross-Space post requires distinct explicit --reply-to ids; no implicit HEAD parent.");
     for (const id of parents) {
