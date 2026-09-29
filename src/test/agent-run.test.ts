@@ -743,6 +743,9 @@ process.stdin.on("data", (chunk) => {
       const alias = join(outside, "agent-alias");
       symlinkSync(dir, alias);
       stdoutChunks = [];
+      expect(await agentCmd.run(["run", alias], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: join(alias, "..escaping.ts") }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("escapes the selected POV");
+      expect(stdout()).toBe("");
       expect(await agentCmd.run(["run", alias], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "approved.ts" }, JSON_GLOBAL)).toBe(0);
       stdoutChunks = [];
       expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", context: dir, message: "selection_probe", "pi-bin": fakeBin, "explicit-launch": true, "resume-only": true }, JSON_GLOBAL)).toBe(0);

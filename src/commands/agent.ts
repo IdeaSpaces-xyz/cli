@@ -3,7 +3,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
-import { isContained } from "../local/contained-path.js";
+import { enteredThroughRoot, isContained } from "../local/contained-path.js";
 import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
@@ -240,7 +240,7 @@ async function cmdRun(
           return 1;
         }
         try {
-          if (isContained(povPath, path) && !isContained(povPath, realpathSync(path))) {
+          if (enteredThroughRoot(povPath, path) && !isContained(povPath, realpathSync(path))) {
             throw new Error("escapes the selected POV");
           }
         } catch (err) {
