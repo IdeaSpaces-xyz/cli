@@ -69,11 +69,14 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     return 1;
   }
   const rawEffort = flags["claude-effort"];
-  if (rawEffort !== undefined && (typeof rawEffort !== "string" || !isValidClaudeEffort(rawEffort))) {
-    output.error(`Invalid Claude effort "${String(rawEffort)}". Valid values: ${CLAUDE_EFFORT_LEVELS.join(", ")}`);
-    return 1;
+  let effort: ClaudeEffort | undefined;
+  if (rawEffort !== undefined) {
+    if (typeof rawEffort !== "string" || !isValidClaudeEffort(rawEffort)) {
+      output.error(`Invalid Claude effort "${String(rawEffort)}". Valid values: ${CLAUDE_EFFORT_LEVELS.join(", ")}`);
+      return 1;
+    }
+    effort = rawEffort;
   }
-  const effort: ClaudeEffort | undefined = rawEffort as ClaudeEffort | undefined;
   const auth = flags["claude-auth"] === undefined ? "login" : flags["claude-auth"];
   if (typeof auth !== "string" || !isValidClaudeAuthMode(auth)) {
     output.error(`Invalid auth mode "${String(auth)}". Valid values: ${CLAUDE_AUTH_MODES.join(", ")}`);

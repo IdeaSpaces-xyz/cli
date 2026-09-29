@@ -643,6 +643,8 @@ process.stdin.on("data", (chunk) => {
       ext: "/fake/ext", context: dir }, JSON_GLOBAL)).toBe(1);
     expect(await conversationCmd.run(["send"], { local: true, runtime: "claude", message: "hi", "pi-trust": "saved",
       context: dir }, JSON_GLOBAL)).toBe(1);
+    expect(await conversationCmd.run(["send"], { local: true, runtime: "claude", message: "hi", "pi-thinking": "high",
+      context: dir }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("unavailable under Claude");
   });
 
