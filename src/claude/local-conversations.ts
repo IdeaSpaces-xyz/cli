@@ -24,10 +24,11 @@
  * subagent transcripts live in their own files under the session's subdirectory.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { isContained } from "../local/contained-path.js";
 import type {
   ConversationDetail,
   ConversationHistoryMessage,
@@ -216,6 +217,41 @@ export function parseClaudeSessionJsonl(text: string, fallbackTs: string): Parse
   }
 
   return { id, name, messages, messageCount: count, preview, updatedAt: lastTs, modelTier };
+}
+
+/** A resumed agent turn requires an exact transcript at this POV, not just a UUID-shaped filename. */
+export function canResumeClaudeConversation(contextRoot: string, convId: string): boolean {
+  const file = claudeSessionFile(contextRoot, convId);
+  if (!file) return false;
+  try {
+    if (!isContained(realpathSync(claudeProjectDir(contextRoot)), realpathSync(file))) return false;
+    const text = readFileSync(file, "utf8");
+    let sawIdentity = false;
+    let sawRoot = false;
+    const root = realpathSync(contextRoot);
+    const lines = text.split("\n").filter((line) => line.trim());
+    for (const [index, line] of lines.entries()) {
+      let entry: { sessionId?: string; cwd?: string };
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        // Claude may leave a partially flushed final JSONL record. Keep the
+        // earlier complete history, but refuse corruption in the middle.
+        if (index === lines.length - 1) break;
+        return false;
+      }
+      if (entry.sessionId && entry.sessionId !== convId) return false;
+      if (entry.cwd) {
+        const cwd = realpathSync(entry.cwd);
+        if (!isContained(root, cwd)) return false;
+        if (cwd === root) sawRoot = true;
+      }
+      if (entry.sessionId === convId) sawIdentity = true;
+    }
+    return sawIdentity && sawRoot && parseClaudeSessionJsonl(text, "").messages.some((m) => m.role === "user");
+  } catch {
+    return false;
+  }
 }
 
 /** A Claude-backed conversation's detail, in the remote `ConversationDetail` shape. */

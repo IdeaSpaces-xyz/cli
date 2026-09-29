@@ -10,7 +10,7 @@ import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
 import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
-import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
+import { canResumePiConversation, getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapNoteOrientation } from "../local/map-note.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
 
@@ -20,10 +20,7 @@ type Flags = Record<string, string | boolean>;
  * empties. Used by the local turn's `--ext` and `--skill` resource-dir lists. */
 function parseCommaList(flag: string | boolean | undefined, envFallback: string | undefined): string[] {
   const raw = typeof flag === "string" ? flag : envFallback;
-  return (raw ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 /** Local turns don't hit the remote auth path, so a plain message + exit-1 is the
@@ -47,9 +44,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error("Claude read-only, effort, and permission mode are unavailable under Pi; choose --runtime claude or omit them.");
     return 1;
   }
+  const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
   // distribution bundles them, the caller supplies the paths.
-  const extensionPaths = parseCommaList(flags.ext, process.env.IDEASPACES_PI_EXTENSIONS);
+  const extensionPaths = options?.extensionPaths ?? parseCommaList(flags.ext, process.env.IDEASPACES_PI_EXTENSIONS);
   if (!extensionPaths.length) {
     output.error(
       "Extensions are required: --ext <pi-is-space,pi-local-context> (or set IDEASPACES_PI_EXTENSIONS)",
@@ -59,15 +57,19 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   // Skill dirs — optional. `--extension` loads extension code but not the
   // package's skills, so a shipped app forwards them here. Empty in dev when the
   // user has `pi install`ed the extensions (skills already in `~/.pi/settings`).
-  const skillPaths = parseCommaList(flags.skill, process.env.IDEASPACES_PI_SKILLS);
+  const skillPaths = options?.skillPaths ?? parseCommaList(flags.skill, process.env.IDEASPACES_PI_SKILLS);
 
-  const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   const sessionDir =
     typeof flags["session-dir"] === "string" ? flags["session-dir"] : join(repoPath, ".pi", "sessions");
   // Id via --conversation (a flag), not a bare positional: the arg parser has no
   // command-scoped booleans, so `--local <id>` would swallow the id.
   const conversationId =
     typeof flags.conversation === "string" ? flags.conversation : `local-${Date.now().toString(36)}`;
+  // Recheck at send: the selected transcript may have moved since agent run preflight.
+  if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
+    output.error(`Pi conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
+    return 1;
+  }
   const modelTier = typeof flags["model-tier"] === "string" ? flags["model-tier"] : "local";
   const piModel = typeof flags["pi-model"] === "string" ? flags["pi-model"] : undefined;
   // Thinking level — validated here (the public seam) so a bad value fails fast
@@ -219,4 +221,4 @@ function list(flags: Flags, output: Output): number {
 
 /** The Pi implementation of the local-conversation seam, injected into the core
  * `conversation`/`conversations` commands by the router. */
-export const localConversationOps: LocalConversationOps = { send, createNew, get, list };
+export const localConversationOps: LocalConversationOps = { send, createNew, get, list, canResume: canResumePiConversation };

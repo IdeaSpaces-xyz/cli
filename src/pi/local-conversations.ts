@@ -20,9 +20,10 @@
  * is a later refinement.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { isContained } from "../local/contained-path.js";
 import type {
   ConversationDetail,
   ConversationHistoryMessage,
@@ -140,6 +141,25 @@ function findSessionFile(dir: string, convId: string): string | null {
     }
   }
   return null;
+}
+
+/** An agent resume must point to a real, nonempty transcript under this POV, not a minted id. */
+export function canResumePiConversation(contextRoot: string, convId: string): boolean {
+  if (!convId || /[/\\\0]/u.test(convId)) return false;
+  const dir = localSessionDir(contextRoot);
+  const file = findSessionFile(dir, convId);
+  if (!file) return false;
+  try {
+    if (!isContained(realpathSync(contextRoot), realpathSync(dir)) ||
+        !isContained(realpathSync(dir), realpathSync(file))) return false;
+    const text = readFileSync(file, "utf8");
+    const header = JSON.parse(text.split("\n", 1)[0] ?? "") as { type?: string; id?: string; cwd?: string };
+    if (header.type !== "session" || header.id !== convId ||
+        !header.cwd || realpathSync(header.cwd) !== realpathSync(contextRoot)) return false;
+    return getLocalConversation(contextRoot, convId).history.some((m) => m.role === "user");
+  } catch {
+    return false;
+  }
 }
 
 /** A local conversation's detail, in the remote `ConversationDetail` shape. */

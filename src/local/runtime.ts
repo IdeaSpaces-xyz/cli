@@ -41,6 +41,7 @@ export function composeLocalConversationOps(runtimes: Record<LocalRuntime, Local
     createNew: (flags, output) => pick(flags, output)?.createNew(flags, output) ?? 1,
     get: (flags, output) => pick(flags, output)?.get(flags, output) ?? 1,
     list: (flags, output) => pick(flags, output)?.list(flags, output) ?? 1,
+    canResume: (root, id, runtime) => isLocalRuntime(runtime) && (runtimes[runtime].canResume?.(root, id, runtime) ?? false),
     compact: async (flags, output) => {
       const ops = pick(flags, output);
       if (!ops) return 1;

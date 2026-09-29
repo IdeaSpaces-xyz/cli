@@ -26,6 +26,8 @@ export interface LocalConversationOps {
   /** `conversations --local` (the plural list command shares this seam). */
   list(flags: Flags, output: Output): number;
   compact?(flags: Flags, output: Output): Promise<number>;
+  /** Exact, nonempty transcript at this runtime and context; never mints an id. */
+  canResume?(contextRoot: string, conversationId: string, runtime: string): boolean;
 }
 
 // `conversations` (plural) lists a repo's conversations; `conversation`

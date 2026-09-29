@@ -1,8 +1,9 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
+import { enteredThroughRoot, isContained } from "../local/contained-path.js";
 import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
@@ -51,7 +52,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
@@ -132,7 +133,7 @@ async function cmdRun(
     output.error(povResult.message);
     return 1;
   }
-  const povPath = povResult.path;
+  const povPath = povResult.path; // validateAgentPov returns the realpath, including symlinked ancestors
   // The selected contract, not the caller's SessionStart, owns this child POV.
   // Child hooks may also run, but launch must be grounded even when that
   // other harness has no IdeaSpaces plugin installed yet.
@@ -214,6 +215,64 @@ async function cmdRun(
     model = defaults.claude_model;
   }
 
+  const selectedPaths: { ext: string[]; skill: string[] } = { ext: [], skill: [] };
+  if (runtime === "claude" && (flags.ext !== undefined || flags.skill !== undefined)) {
+    output.error("Pi --ext and --skill paths are unavailable under Claude; choose --runtime pi or omit them.");
+    return 1;
+  }
+  if (runtime === "pi") {
+    if (typeof flags.ext !== "string" || !flags.ext.split(",").some((path) => path.trim())) {
+      output.error("Pi child launch needs explicit trusted extension paths; no child was started.\nPass --ext <pi-is-space-path,pi-local-context-path> (and --skill <dirs> if needed). Relative paths resolve from the selected POV. Installed packages and IDEASPACES_PI_EXTENSIONS do not authorize an agent run.");
+      return 1;
+    }
+    if (flags.skill !== undefined && typeof flags.skill !== "string") {
+      output.error("Pi child skills require --skill <comma-separated-dirs>; a bare flag selects nothing.");
+      return 1;
+    }
+    // A path selected from inside the child repo cannot smuggle executable code
+    // through a symlink outside it. Explicit external paths are caller-selected,
+    // never inferred from the repo's declarations.
+    for (const key of ["ext", "skill"] as const) {
+      if (typeof flags[key] !== "string") continue;
+      for (const raw of flags[key].split(",").map((s) => s.trim()).filter(Boolean)) {
+        const path = isAbsolute(raw) ? raw : resolve(povPath, raw);
+        if (!existsSync(path)) {
+          output.error(`Refusing ${key} path ${raw}: path not found. Select an installed, reviewed path before launch.`);
+          return 1;
+        }
+        try {
+          const canonical = realpathSync(path);
+          if (enteredThroughRoot(povPath, path) && !isContained(povPath, canonical)) {
+            throw new Error("escapes the selected POV");
+          }
+          selectedPaths[key].push(canonical);
+        } catch (err) {
+          output.error(`Refusing ${key} path ${raw}: ${err instanceof Error ? err.message : String(err)}. Select an explicit reviewed path instead.`);
+          return 1;
+        }
+      }
+    }
+  }
+  if (flags["session-dir"] !== undefined) {
+    output.error("agent run uses the selected POV's session directory; --session-dir cannot redirect its transcript.");
+    return 1;
+  }
+  if (flags.conversation !== undefined) {
+    if (typeof flags.conversation !== "string" || !flags.conversation.trim()) {
+      output.error("Resume requires --conversation <existing-id> at the selected POV.");
+      return 1;
+    }
+    if (!local.canResume?.(povPath, flags.conversation, runtime)) {
+      output.error(`No verified nonempty ${runtime} conversation ${flags.conversation} at the selected POV (${povPath}). Start a new turn without --conversation, or use an id from conversations --local --runtime ${runtime} --context <pov>.`);
+      return 1;
+    }
+    const resumePov = revalidateAgentPov(povPath);
+    if (!resumePov.valid || resumePov.contractPath !== povResult.contractPath) {
+      output.error("Selected POV contract changed before resume; select it again.");
+      return 1;
+    }
+  }
+
   const forwardFlags: Flags = {
     ...flags,
     local: true,
@@ -242,9 +301,16 @@ async function cmdRun(
     }
   }
 
-  if (!thread) return local.send(forwardFlags, output, { extraOrientation: povOrientation });
+  // Pass the vetted realpaths, not names or symlinks that could move before spawn.
+  const launchOptions = {
+    extensionPaths: [...new Set(selectedPaths.ext)],
+    skillPaths: [...new Set(selectedPaths.skill)],
+    resumeOnly: flags.conversation !== undefined,
+  };
+  if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
   let snapshotWritten = false;
   return local.send(forwardFlags, output, {
+    ...launchOptions,
     extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
     onEvent(event) {
       if (event.type !== "turn_complete") return event;
@@ -292,15 +358,15 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
+    description: "Run or list local POVs. Pi runs require explicit --ext paths relative to the selected POV (or absolute); --skill dirs are optional. --conversation resumes an existing nonempty POV transcript; --session-dir is refused. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
-      "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --pi-trust saved --pi-thinking high",
-      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
-      "ideaspaces agent run agents/scout --message 'Resume turn' --conversation c_123",
+      "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts --pi-trust saved --pi-thinking high",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
+      "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
     ],
