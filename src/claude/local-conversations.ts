@@ -229,18 +229,28 @@ export function canResumeClaudeConversation(contextRoot: string, convId: string)
     let sawUser = false;
     let sawIdentity = false;
     let sawRoot = false;
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      const entry = JSON.parse(line) as { sessionId?: string; cwd?: string; type?: string; isSidechain?: boolean; isMeta?: boolean; message?: { role?: string } };
+    const root = realpathSync(contextRoot);
+    const lines = text.split("\n").filter((line) => line.trim());
+    for (const [index, line] of lines.entries()) {
+      let entry: { sessionId?: string; cwd?: string; type?: string; isSidechain?: boolean; isMeta?: boolean; message?: { role?: string } };
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        // Claude may leave a partially flushed final JSONL record. Keep the
+        // earlier complete history, but refuse corruption in the middle.
+        if (index === lines.length - 1) break;
+        return false;
+      }
       if (entry.sessionId && entry.sessionId !== convId) return false;
       if (entry.cwd) {
-        if (realpathSync(entry.cwd) !== realpathSync(contextRoot)) return false;
-        sawRoot = true;
+        const cwd = realpathSync(entry.cwd);
+        if (!isContained(root, cwd)) return false;
+        if (cwd === root) sawRoot = true;
       }
       if (entry.sessionId === convId) sawIdentity = true;
       if (entry.type === "user" && entry.isSidechain !== true && entry.isMeta !== true && entry.message?.role === "user") sawUser = true;
     }
-    return sawIdentity && sawRoot && sawUser && getClaudeConversation(contextRoot, convId).history.length > 0;
+    return sawIdentity && sawRoot && sawUser && parseClaudeSessionJsonl(text, "").messages.some((m) => m.role === "user");
   } catch {
     return false;
   }

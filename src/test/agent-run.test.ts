@@ -14,7 +14,7 @@ import { saveSpace } from "../auth/spaces.js";
 import { claudeConversationOps } from "../claude/local-conversation-ops.js";
 import { localConversationOps as piConversationOps } from "../pi/local-conversation-ops.js";
 import { composeLocalConversationOps } from "../local/runtime.js";
-import { claudeProjectDir } from "../claude/local-conversations.js";
+import { canResumeClaudeConversation, claudeProjectDir } from "../claude/local-conversations.js";
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
 const ROOT_A = "n_0123456789abcdef01234567";
@@ -794,6 +794,17 @@ process.stdin.on("data", (chunk) => {
     mkdirSync(canonicalProject, { recursive: true });
     writeFileSync(join(canonicalProject, `${claudeId}.jsonl`), `${JSON.stringify({ type: "user", sessionId: claudeId, cwd: foreign, message: { role: "user", content: "foreign" } })}\n`);
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "must not run", conversation: claudeId }, JSON_GLOBAL)).toBe(1);
+    const validId = "66666666-6666-4666-8666-666666666666";
+    const sub = join(dir, "sub");
+    mkdirSync(sub);
+    const validFile = join(canonicalProject, `${validId}.jsonl`);
+    const initial = JSON.stringify({ type: "user", sessionId: validId, cwd: dir, message: { role: "user", content: "before" } });
+    writeFileSync(validFile, `${initial}\n${JSON.stringify({ type: "assistant", sessionId: validId, cwd: sub, message: { role: "assistant", id: "m1", content: [{ type: "text", text: "reply" }] } })}\n{"type":"user"`);
+    expect(canResumeClaudeConversation(realpathSync.native(dir), validId)).toBe(true); // torn final line, child cwd
+    writeFileSync(validFile, `${initial}\n{"type":"user"\n${JSON.stringify({ type: "user", sessionId: validId, cwd: dir, message: { role: "user", content: "after" } })}\n`);
+    expect(canResumeClaudeConversation(realpathSync.native(dir), validId)).toBe(false); // corruption in the middle
+    writeFileSync(validFile, `${JSON.stringify({ type: "user", sessionId: validId, cwd: dir, isSidechain: true, message: { role: "user", content: "sidechain" } })}\n`);
+    expect(canResumeClaudeConversation(realpathSync.native(dir), validId)).toBe(false);
     expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: true }, JSON_GLOBAL)).toBe(1);
     expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", "session-dir": foreign }, JSON_GLOBAL)).toBe(1);
   });
