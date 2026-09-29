@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { stringify } from "yaml";
+import { appendPost, createThread, initWorktree, loadThread } from "../local/threads.js";
+import { prepareThreadLaunch } from "../local/thread-launch.js";
+import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov } from "../commands/agent.js";
@@ -197,6 +202,14 @@ describe("agent run — command options & validation", () => {
     expect(stderr()).toContain("A message is required: --message <text>");
   });
 
+  it("refuses a path-only Thread launch before invoking the runtime", async () => {
+    const dir = tempDir();
+    const code = await agentCmd.run(["run", dir], { message: "hi", thread: "_threads/decision" }, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("a path alone has no pin");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
   it("refuses unknown runtime", async () => {
     const dir = tempDir();
     const code = await agentCmd.run(
@@ -322,12 +335,98 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "response", command: "prompt", success: true }));
       console.log(JSON.stringify({ type: "agent_start" }));
       console.log(JSON.stringify({ type: "turn_start" }));
-      console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "pi:" + command.message } }));
+      const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
+      const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
+      console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "pi:" + command.message + frame } }));
       console.log(JSON.stringify({ type: "agent_end" }));
     }
   }
 });
 `;
+
+  it("launches at an authored Thread member, appends a named snapshot, and a fresh reader opens it", async () => {
+    const root = tempDir();
+    const pov = tempDir();
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "-b", "main"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.test");
+    mkdirSync(join(root, "_agent"));
+    const rootId = "n_0123456789abcdef01234567";
+    writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Local Space\nroot_node_id: ${rootId}\n---\n# Space\n`);
+    mkdirSync(join(pov, "_agent"));
+    writeFileSync(join(pov, "_agent", "agreement.md"), "---\nname: Agreement — Scout\n---\n# Scout\n");
+    const thread = createThread("decision", "Pinned decision", root);
+    const first = appendPost(thread.path, { body: "First body at pin", summary: "First authored summary" });
+    git("add", "_agent", "_threads"); git("commit", "-m", "pin");
+    const pin = git("rev-parse", "HEAD");
+    appendPost(thread.path, { body: "Later unpinned post", summary: "HEAD only" });
+    writeFileSync(join(thread.path, "_agent", "agreement.md"), "---\nname: Wrong HEAD frame\n---\n# Changed after pin\n");
+    const map = join(root, "handoff.map.md");
+    const member = `_threads/decision/${first.post.path}`;
+    writeFileSync(map, `---\n${stringify({ name: "Handoff", map: { roots: [{ root_node_id: rootId, sha: pin }], members: [{ root: 0, position: member, depth: "summary" }] } })}---\n`);
+    const fakeBin = join(pov, "fake-pi");
+    writeFileSync(join(pov, "fake-pi.cjs"), FAKE_PI);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(pov, "fake-pi.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+    const previous = process.cwd(); process.chdir(root);
+    try {
+      const missing = join(root, "missing.map.md");
+      writeFileSync(missing, `---\n${stringify({ map: { roots: [{ root_node_id: rootId, sha: "a".repeat(40) }], members: [{ root: 0, position: member, depth: "summary" }] } })}---\n`);
+      const invalid = { runtime: "pi", message: "Pinned question", thread: thread.path, "thread-map": missing, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin };
+      expect(await agentCmd.run(["run", pov], invalid, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("refusing working-tree HEAD fallback");
+      expect(loadThread(thread.path).posts).toHaveLength(2);
+      const code = await agentCmd.run(["run", pov], { runtime: "pi", message: "Pinned question", thread: thread.path,
+        "thread-map": map, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      expect(stdout()).toContain('"type":"turn_complete"');
+      const posts = loadThread(thread.path).posts;
+      const snapshot = posts.find((post) => post.kind === "snapshot");
+      expect(snapshot).toMatchObject({ frontmatter: { author: "Scout", name: "Snapshot — Scout" }, inReplyTo: [first.post.id] });
+      expect(snapshot?.body.trim()).toBe("pi:Pinned question|pinned-frame");
+      expect(snapshot?.frontmatter.map).toMatchObject({ roots: [{ sha: pin }], members: [{ position: member }] });
+      // No cursor state or same-process buffer: a fresh CLI read sees the durable snapshot.
+      stdoutChunks = [];
+      expect(await threadsCommand.run(["open", thread.path], { depth: "full" }, JSON_GLOBAL)).toBe(0);
+      expect(stdout()).toContain("pi:Pinned question");
+      stdoutChunks = [];
+      expect(await agentCmd.run(["run", pov], { message: "No pin", thread: thread.path }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("a path alone has no pin");
+    } finally { process.chdir(previous); }
+  });
+
+  it("resolves a private orphan Threads worktree at its authored commit", () => {
+    const root = tempDir();
+    const pov = tempDir();
+    const git = (cwd: string, ...args: string[]) => {
+      const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout.trim();
+    };
+    git(root, "init", "-b", "main"); git(root, "config", "user.name", "Test"); git(root, "config", "user.email", "test@example.test");
+    mkdirSync(join(root, "_agent")); mkdirSync(join(pov, "_agent"));
+    const rootId = "n_0123456789abcdef01234567";
+    writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Root\nroot_node_id: ${rootId}\n---\n`);
+    writeFileSync(join(pov, "_agent", "agreement.md"), "---\nname: Agreement — Scout\n---\n");
+    git(root, "add", "_agent"); git(root, "commit", "-m", "root");
+    const worktree = initWorktree(root);
+    const thread = createThread("decision", "Decision", root);
+    const post = appendPost(thread.path, { body: "Private pin", summary: "Private summary" });
+    git(worktree, "add", "decision"); git(worktree, "commit", "-m", "pin");
+    const pin = git(worktree, "rev-parse", "HEAD");
+    const map = join(root, "private.json");
+    writeFileSync(map, JSON.stringify({ map: { roots: [{ root_node_id: rootId, sha: pin }],
+      members: [{ root: 0, position: `_threads/decision/${post.post.path}`, depth: "summary" }] } }));
+    const previous = process.cwd(); process.chdir(root);
+    try {
+      const frame = prepareThreadLaunch(pov, thread.path, map, "0");
+      expect(frame.orientation).toContain("Private summary");
+      expect(frame.parentId).toBe(post.post.id);
+    } finally { process.chdir(previous); }
+  });
 
   it("agent run with claude runtime streams and resumes by --conversation", async () => {
     const dir = tempDir();

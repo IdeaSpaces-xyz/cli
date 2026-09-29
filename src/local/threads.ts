@@ -198,7 +198,7 @@ export function acknowledge(thread: LocalThread, posts: ThreadPost[]): void {
 /** Resolve only against the authored commit. Never use HEAD as a fallback. */
 export function readPinnedThreadMember(repo: string, pin: string, position: string): string {
   if (!SHA.test(pin)) throw new Error("A full 40-character authored commit pin is required.");
-  if (!/^_threads\/[a-z0-9-]+\/[A-Za-z0-9._-]+\.md$/.test(position) || position.includes("..")) throw new Error("Invalid _threads/ Map position.");
+  if (!/^_threads\/[a-z0-9-]+\/(?:[A-Za-z0-9._-]+\.md|_agent\/agreement\.md)$/.test(position) || position.includes("..")) throw new Error("Invalid _threads/ Map position.");
   const availability = gitAvailability();
   if (availability.state !== "usable") throw new Error(availability.hint);
   const path = resolveThreadGitPath(position, (candidate) => {

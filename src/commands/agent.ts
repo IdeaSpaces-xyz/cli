@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { listClones } from "../auth/spaces.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
+import { prepareThreadLaunch } from "../local/thread-launch.js";
+import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { createOutput, type Output } from "../output.js";
 import type { LocalConversationOps } from "./conversation.js";
@@ -23,13 +25,13 @@ function flagString(flags: Flags, name: string): string | undefined {
 }
 
 export const RUN_USAGE =
-  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--json]";
+  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
 
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const USAGE =
-  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--json]; list --map <file> [--json])";
+  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]; list --map <file> [--json])";
 
 /**
  * Resolve a point-of-view locator to an absolute directory path on the local machine.
@@ -158,6 +160,23 @@ async function cmdRun(
     return 1;
   }
 
+  let thread: ReturnType<typeof prepareThreadLaunch> | undefined;
+  if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
+    const path = flagString(flags, "thread");
+    const map = flagString(flags, "thread-map");
+    const member = flagString(flags, "thread-member");
+    if (!path || !map || member === undefined) {
+      output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin.");
+      return 1;
+    }
+    try {
+      thread = prepareThreadLaunch(povPath, path, map, member);
+    } catch (err) {
+      output.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+  }
+
   const defaults = readAgentDefaults(povPath);
 
   let runtime: LocalRuntime;
@@ -206,7 +225,28 @@ async function cmdRun(
     }
   }
 
-  return local.send(forwardFlags, output);
+  if (!thread) return local.send(forwardFlags, output);
+  let response: string | undefined;
+  const code = await local.send(forwardFlags, output, (event) => {
+    if (event.type === "turn_complete") response = event.result.response;
+  }, thread.orientation);
+  if (code !== 0) return code;
+  if (!response?.trim()) {
+    output.error("Agent completed without a closing response; no Thread snapshot was appended.");
+    return 1;
+  }
+  try {
+    const { path } = appendPost(thread.directory, {
+      body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
+      summary: response.trim().split("\n").find(Boolean)?.slice(0, 200),
+      kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+    });
+    process.stderr.write(`Thread snapshot: ${path}\n`);
+    return 0;
+  } catch (err) {
+    output.error(`Run completed but Thread snapshot was not appended: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
 }
 
 function cmdList(
@@ -246,6 +286,8 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation c_123",
+      "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
+      "ideaspaces agent run agents/scout --thread _threads/decision --message 'No pin'  # refused",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
     ],
     async run(args, flags, global: GlobalFlags) {

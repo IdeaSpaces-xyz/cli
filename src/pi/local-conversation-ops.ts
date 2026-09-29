@@ -6,6 +6,7 @@
 
 import { join } from "node:path";
 import type { Output } from "../output.js";
+import type { KeeperStreamEvent } from "@ideaspaces/sdk";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
@@ -35,7 +36,7 @@ function reportLocalError(err: unknown, output: Output): number {
 // Keeper), context-rooted at cwd (a workspace that may mount repos), resuming
 // the conversation's pi session. Emits the same Keeper JSON-lines contract as
 // remote `send`, so any client renders it identically.
-async function send(flags: Flags, output: Output): Promise<number> {
+async function send(flags: Flags, output: Output, onEvent?: (event: KeeperStreamEvent) => void, threadOrientation?: string): Promise<number> {
   const message = typeof flags.message === "string" ? flags.message : undefined;
   if (!message) {
     output.error("A message is required: --message <text>");
@@ -134,13 +135,14 @@ async function send(flags: Flags, output: Output): Promise<number> {
       sessionDir,
       modelTier,
       mapOrientation,
-      launchOrientation,
+      launchOrientation: [launchOrientation, threadOrientation].filter(Boolean).join("\n\n"),
       piModel,
       thinkingLevel: piThinking,
       piBin,
       signal: controller.signal,
     })) {
       process.stdout.write(`${JSON.stringify(event)}\n`);
+      onEvent?.(event);
       if (event.type === "error") {
         hadError = true;
       }

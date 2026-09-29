@@ -10,6 +10,7 @@ import {
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
+import type { KeeperStreamEvent } from "@ideaspaces/sdk";
 
 type Flags = Record<string, string | boolean>;
 
@@ -19,7 +20,7 @@ type Flags = Record<string, string | boolean>;
  * Core dispatches `--local` here and never imports the Pi runtime itself.
  */
 export interface LocalConversationOps {
-  send(flags: Flags, output: Output): Promise<number>;
+  send(flags: Flags, output: Output, onEvent?: (event: KeeperStreamEvent) => void, threadOrientation?: string): Promise<number>;
   createNew(flags: Flags, output: Output): number;
   get(flags: Flags, output: Output): number;
   /** `conversations --local` (the plural list command shares this seam). */

@@ -3,6 +3,7 @@
 // (`src/pi/local-conversation-ops.ts`); the router picks one by `--runtime`.
 
 import type { Output } from "../output.js";
+import type { KeeperStreamEvent } from "@ideaspaces/sdk";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { loadMapNoteOrientation } from "../local/map-note.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
@@ -31,7 +32,7 @@ function reportLocalError(err: unknown, output: Output): number {
 // `send --local --runtime=claude` runs a turn on the user's own Claude Code,
 // context-rooted at --context, resuming (or creating) the conversation's Claude
 // session. Emits the same Keeper JSON-lines contract as the pi and remote sends.
-async function send(flags: Flags, output: Output): Promise<number> {
+async function send(flags: Flags, output: Output, onEvent?: (event: KeeperStreamEvent) => void, threadOrientation?: string): Promise<number> {
   const message = typeof flags.message === "string" ? flags.message : undefined;
   if (!message) {
     output.error("A message is required: --message <text>");
@@ -117,7 +118,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
       conversationId,
       modelTier,
       mapOrientation,
-      launchOrientation,
+      launchOrientation: [launchOrientation, threadOrientation].filter(Boolean).join("\n\n"),
       model,
       permissionMode,
       auth,
@@ -126,6 +127,7 @@ async function send(flags: Flags, output: Output): Promise<number> {
       signal: controller.signal,
     })) {
       process.stdout.write(`${JSON.stringify(event)}\n`);
+      onEvent?.(event);
       if (event.type === "error") {
         hadError = true;
       }
