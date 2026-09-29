@@ -1,6 +1,6 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
 import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
@@ -227,10 +227,10 @@ async function cmdRun(
       for (const raw of flags[key].split(",").map((s) => s.trim()).filter(Boolean)) {
         const path = isAbsolute(raw) ? raw : resolve(povPath, raw);
         const within = relative(povPath, path);
-        if (within.startsWith("..") || isAbsolute(within)) continue;
+        if (within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) continue;
         try {
           const actual = relative(povPath, realpathSync(path));
-          if (actual.startsWith("..") || isAbsolute(actual)) throw new Error("escapes the selected POV");
+          if (actual === ".." || actual.startsWith(`..${sep}`) || isAbsolute(actual)) throw new Error("escapes the selected POV");
         } catch (err) {
           output.error(`Refusing ${key} path ${raw}: ${err instanceof Error ? err.message : String(err)}. Select an explicit reviewed path instead.`);
           return 1;

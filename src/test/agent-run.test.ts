@@ -714,7 +714,7 @@ process.stdin.on("data", (chunk) => {
     writeFileSync(extension, "export default () => {};\n");
     symlinkSync(extension, join(dir, "duplicate.ts"));
     writeFileSync(join(outside, "foreign.ts"), "export default () => {};\n");
-    symlinkSync(join(outside, "foreign.ts"), join(dir, "escaping.ts"));
+    symlinkSync(join(outside, "foreign.ts"), join(dir, "..escaping.ts"));
     const fakeBin = join(dir, "fake-pi");
     writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
     writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
@@ -725,8 +725,8 @@ process.stdin.on("data", (chunk) => {
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("explicit trusted extension paths");
       expect(stdout()).toBe("");
-      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "escaping.ts" }, JSON_GLOBAL)).toBe(1);
-      expect(stderr()).toContain("Refusing ext path escaping.ts");
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "..escaping.ts" }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Refusing ext path ..escaping.ts");
       expect(stdout()).toBe("");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},${extension}` }, JSON_GLOBAL)).toBe(0);
       const done = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
