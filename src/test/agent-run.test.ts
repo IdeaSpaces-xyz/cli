@@ -279,9 +279,9 @@ describe("agent run — command options & validation", () => {
   });
 
   it("bounds the injected Agreement before any runtime spawn", async () => {
-    const dir = makeAgentDir("large-agreement-", "x".repeat(64 * 1024 + 1));
+    const dir = makeAgentDir("large-agreement-", "x".repeat(16 * 1024 + 1));
     expect(await agentCmd.run(["run", dir], { message: "Hi" }, JSON_GLOBAL)).toBe(1);
-    expect(stderr()).toContain("Agreement exceeds 64 KiB");
+    expect(stderr()).toContain("Agreement exceeds 16 KiB");
     expect(mockSend).not.toHaveBeenCalled();
   });
 
@@ -417,7 +417,9 @@ process.stdin.on("end", () => {
   }
   out({ type: "stream_event", event: { type: "message_start" } });
   const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
-  const response = prompt.trim() === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no") : "claude:" + prompt.trim();
+  const response = prompt.trim() === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
+    : prompt.trim() === "policy_probe" ? JSON.stringify({ readOnly: args.includes("--tools") && args.includes("--strict-mcp-config"), effort: args[args.indexOf("--effort") + 1] })
+    : "claude:" + prompt.trim();
   out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: response } } });
   out({ type: "result", subtype: "success", is_error: false, result: response, num_turns: 1, total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 2 } });
 });
@@ -447,7 +449,9 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
       const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
-      const answer = command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no") : "pi:" + command.message + frame;
+      const answer = command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
+        : command.message === "policy_probe" ? JSON.stringify({ approved: args.includes("-a"), thinking: args[args.indexOf("--thinking") + 1] })
+        : "pi:" + command.message + frame;
       if (command.message !== "empty_response") console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: answer } }));
       console.log(JSON.stringify({ type: "agent_end" }));
     }
@@ -603,11 +607,18 @@ process.stdin.on("data", (chunk) => {
     writeFileSync(pi, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "pi-test-bin.cjs")}" "$@"\n`);
     writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "claude-test-bin.cjs")}" "$@"\n`);
     chmodSync(pi, 0o755); chmodSync(claude, 0o755);
-    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", ext: "/fake/ext", "pi-bin": pi, "pi-trust": "saved" }, JSON_GLOBAL)).toBe(0);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: "/fake/ext", "pi-bin": pi, "pi-thinking": "high" }, JSON_GLOBAL)).toBe(0);
+    const piDone = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    expect(JSON.parse(piDone.result.response)).toEqual({ approved: false, thinking: "high" });
     stdoutChunks = [];
-    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "claude-bin": claude,
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: "/fake/ext", "pi-bin": pi, "pi-trust": "explicit" }, JSON_GLOBAL)).toBe(0);
+    const approved = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    expect(JSON.parse(approved.result.response).approved).toBe(true);
+    stdoutChunks = [];
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "policy_probe", "claude-bin": claude,
       "claude-effort": "high", "read-only": true, "permission-mode": "dontAsk" }, JSON_GLOBAL)).toBe(0);
-    expect(stdout()).toContain('"turn_complete"');
+    const claudeDone = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    expect(JSON.parse(claudeDone.result.response)).toEqual({ readOnly: true, effort: "high" });
   });
 
   it("loads the selected Agreement into both child runtimes rather than relying on parent hooks", async () => {

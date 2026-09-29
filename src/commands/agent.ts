@@ -1,5 +1,5 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
@@ -115,6 +115,10 @@ async function cmdRun(
     output.error("A message is required: --message <text>");
     return 1;
   }
+  if (Buffer.byteLength(message) > 8 * 1024) {
+    output.error("Agent launch message exceeds 8 KiB; use a shorter instruction or point to a local Note.");
+    return 1;
+  }
 
   const povResult = validateAgentPov(povArg);
   if (!povResult.valid) {
@@ -127,12 +131,16 @@ async function cmdRun(
   // other harness has no IdeaSpaces plugin installed yet.
   let povOrientation: string;
   try {
-    const contract = readFileSync(povResult.contractPath, "utf8");
-    if (Buffer.byteLength(contract) > 64 * 1024) {
-      output.error("Selected POV Agreement exceeds 64 KiB; shorten it before launch.");
+    if (statSync(povResult.contractPath).size > 16 * 1024) {
+      output.error("Selected POV Agreement exceeds 16 KiB; shorten it before launch.");
       return 1;
     }
+    const contract = readFileSync(povResult.contractPath, "utf8");
     povOrientation = `[Selected ${povResult.contractType} POV: ${povPath}]\n${contract}`;
+    if (Buffer.byteLength(povOrientation) > 16 * 1024) {
+      output.error("Selected POV orientation exceeds 16 KiB; shorten the Agreement before launch.");
+      return 1;
+    }
   } catch (err) {
     output.error(`Could not read the selected POV contract: ${err instanceof Error ? err.message : String(err)}`);
     return 1;
@@ -154,6 +162,16 @@ async function cmdRun(
       output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
       return 1;
     }
+  }
+
+  if (thread && Buffer.byteLength(`${povOrientation}\n\n${thread.orientation}`) > 16 * 1024) {
+    output.error("Combined Agreement and Thread orientation exceeds 16 KiB; shorten the selected frame before launch.");
+    return 1;
+  }
+  const currentPov = revalidateAgentPov(povPath);
+  if (!currentPov.valid || currentPov.contractPath !== povResult.contractPath) {
+    output.error("Selected POV contract changed before launch; select it again.");
+    return 1;
   }
 
   const defaults = readAgentDefaults(povPath);
