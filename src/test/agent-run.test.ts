@@ -226,7 +226,7 @@ describe("agent run — command options & validation", () => {
 
     const code = await agentCmd.run(
       ["run", dir],
-      { message: "Analyze data", ext: "/approved/connector" },
+      { message: "Analyze data", ext: join(dir, "_agent", "agreement.md") },
       JSON_GLOBAL,
     );
 
@@ -241,7 +241,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extraOrientation: expect.stringContaining("# Agreement") },
+      { explicitLaunch: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -374,7 +374,7 @@ describe("agent run — command options & validation", () => {
         message: "Help with analysis",
       }),
       expect.anything(),
-      { extraOrientation: expect.stringContaining("# Specialist Agreement") },
+      { explicitLaunch: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
     );
   });
 
@@ -401,7 +401,7 @@ describe("agent run — command options & validation", () => {
         conversation: "11111111-1111-4111-8111-111111111111",
       }),
       expect.anything(),
-      { extraOrientation: expect.stringContaining("# Agreement") },
+      { explicitLaunch: true, resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -413,7 +413,7 @@ describe("agent run — command options & validation", () => {
 
     const code = await agentCmd.run(
       ["run", dir],
-      { message: "Analyze data", runtime: "pi", model: "gpt-4o", ext: "/approved/connector" },
+      { message: "Analyze data", runtime: "pi", model: "gpt-4o", ext: join(dir, "_agent", "agreement.md") },
       JSON_GLOBAL,
     );
 
@@ -427,7 +427,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extraOrientation: expect.stringContaining("# Agreement") },
+      { explicitLaunch: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 });
@@ -547,12 +547,12 @@ process.stdin.on("data", (chunk) => {
       mkdirSync(join(missingPov, "_agent"));
       writeFileSync(join(missingPov, "_agent", "agreement.md"), "---\nsummary: no name\n---\n");
       expect(() => prepareThreadLaunch(missingPov, thread.path, map, "0")).toThrow(/needs a name/);
-      const invalid = { runtime: "pi", message: "Pinned question", thread: thread.path, "thread-map": missing, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin };
+      const invalid = { runtime: "pi", message: "Pinned question", thread: thread.path, "thread-map": missing, "thread-member": "0", ext: fakeBin, "pi-bin": fakeBin };
       expect(await agentCmd.run(["run", pov], invalid, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("refusing working-tree HEAD fallback");
       expect(loadThread(thread.path).posts).toHaveLength(2);
       const code = await agentCmd.run(["run", pov], { runtime: "pi", message: "Pinned question", thread: thread.path,
-        "thread-map": map, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin }, JSON_GLOBAL);
+        "thread-map": map, "thread-member": "0", ext: fakeBin, "pi-bin": fakeBin }, JSON_GLOBAL);
       expect(code).toBe(0);
       const completed = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
       expect(completed.result.thread_snapshot.path).toContain("_threads/decision/");
@@ -575,7 +575,7 @@ process.stdin.on("data", (chunk) => {
       expect(await threadsCommand.run(["open", thread.path], { depth: "full" }, JSON_GLOBAL)).toBe(0);
       expect(stdout()).toContain("pi:Pinned question");
       stdoutChunks = [];
-      const pinnedFlags = { runtime: "pi", thread: thread.path, "thread-map": map, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin };
+      const pinnedFlags = { runtime: "pi", thread: thread.path, "thread-map": map, "thread-member": "0", ext: fakeBin, "pi-bin": fakeBin };
       expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "empty_response" }, JSON_GLOBAL)).toBe(1);
       expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
       expect(stdout()).not.toContain('"type":"turn_complete"');
@@ -658,11 +658,11 @@ process.stdin.on("data", (chunk) => {
     writeFileSync(pi, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "pi-test-bin.cjs")}" "$@"\n`);
     writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "claude-test-bin.cjs")}" "$@"\n`);
     chmodSync(pi, 0o755); chmodSync(claude, 0o755);
-    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: "/fake/ext", "pi-bin": pi, "pi-thinking": "high" }, JSON_GLOBAL)).toBe(0);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: pi, "pi-bin": pi, "pi-thinking": "high" }, JSON_GLOBAL)).toBe(0);
     const piDone = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
     expect(JSON.parse(piDone.result.response)).toEqual({ approved: false, thinking: "high" });
     stdoutChunks = [];
-    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: "/fake/ext", "pi-bin": pi, "pi-trust": "explicit" }, JSON_GLOBAL)).toBe(0);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: pi, "pi-bin": pi, "pi-trust": "explicit" }, JSON_GLOBAL)).toBe(0);
     const approved = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
     expect(JSON.parse(approved.result.response).approved).toBe(true);
     stdoutChunks = [];
@@ -680,7 +680,7 @@ process.stdin.on("data", (chunk) => {
       writeFileSync(join(dir, `fake-${runtime}.cjs`), source);
       writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, `fake-${runtime}.cjs`)}" "$@"\n`);
       chmodSync(fakeBin, 0o755);
-      const flags = runtime === "pi" ? { ext: "/fake/ext", "pi-bin": fakeBin } : { "claude-bin": fakeBin };
+      const flags = runtime === "pi" ? { ext: fakeBin, "pi-bin": fakeBin } : { "claude-bin": fakeBin };
       const code = await agentCmd.run(["run", dir], { runtime, message: "orientation_probe", ...flags }, JSON_GLOBAL);
       expect(code).toBe(0);
       const events = stdout().trim().split("\n").map((line) => JSON.parse(line));
@@ -691,7 +691,7 @@ process.stdin.on("data", (chunk) => {
 
   it("rejects invalid Pi trust and Claude effort values before starting a child", async () => {
     const dir = makeAgentDir();
-    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", ext: "/fake/ext", "pi-trust": "unsafe" }, JSON_GLOBAL)).toBe(1);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", ext: join(dir, "_agent", "agreement.md"), "pi-trust": "unsafe" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("Invalid Pi trust policy");
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "claude-effort": "infinite" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("Invalid Claude effort");
@@ -699,7 +699,7 @@ process.stdin.on("data", (chunk) => {
 
   it("refuses runtime-incompatible controls before spawning", async () => {
     const dir = makeAgentDir();
-    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", "read-only": true, ext: "/fake/ext" }, JSON_GLOBAL)).toBe(1);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", "read-only": true, ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("unavailable under Pi");
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "pi-trust": "saved" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("unavailable under Claude");
@@ -725,12 +725,22 @@ process.stdin.on("data", (chunk) => {
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("explicit trusted extension paths");
       expect(stdout()).toBe("");
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "missing.ts" }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("path not found");
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: extension, skill: "..escaping.ts" }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Refusing skill path ..escaping.ts");
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: extension, skill: true }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("a bare flag selects nothing");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "..escaping.ts" }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("Refusing ext path ..escaping.ts");
       expect(stdout()).toBe("");
-      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},${extension}` }, JSON_GLOBAL)).toBe(0);
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},approved.ts,./approved.ts` }, JSON_GLOBAL)).toBe(0);
       const done = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
       expect(JSON.parse(done.result.response)).toEqual({ ext: 1, skill: 0, noDiscovery: true });
+      stdoutChunks = [];
+      expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", context: dir, message: "selection_probe", "pi-bin": fakeBin, "explicit-launch": true, "resume-only": true }, JSON_GLOBAL)).toBe(0);
+      const direct = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
+      expect(JSON.parse(direct.result.response).ext).toBe(1); // public flags cannot disable the legacy env fallback
     } finally {
       if (oldAmbient === undefined) delete process.env.IDEASPACES_PI_EXTENSIONS;
       else process.env.IDEASPACES_PI_EXTENSIONS = oldAmbient;
@@ -747,17 +757,17 @@ process.stdin.on("data", (chunk) => {
     mkdirSync(claudeProjectDir(foreign), { recursive: true });
     writeFileSync(join(claudeProjectDir(foreign), `${claudeId}.jsonl`), `${JSON.stringify({ type: "user", sessionId: claudeId, cwd: foreign, message: { role: "user", content: "foreign" } })}\n`);
     for (const [runtime, id] of [["pi", piId], ["claude", claudeId]] as const) {
-      const ext = runtime === "pi" ? { ext: "/approved/connector" } : {};
+      const ext = runtime === "pi" ? { ext: join(dir, "_agent", "agreement.md") } : {};
       expect(await agentCmd.run(["run", dir], { runtime, message: "must not run", conversation: id, ...ext }, JSON_GLOBAL)).toBe(1);
-      expect(stderr()).toContain(`No nonempty ${runtime} conversation`);
+      expect(stderr()).toContain(`No verified nonempty ${runtime} conversation`);
       expect(await agentCmd.run(["run", foreign], { runtime, message: "must not run", conversation: "typo", ...ext }, JSON_GLOBAL)).toBe(1);
     }
     expect(stdout()).toBe("");
     mkdirSync(join(dir, ".pi", "sessions"), { recursive: true });
     writeFileSync(join(dir, ".pi", "sessions", "2026_local-empty.jsonl"), `${JSON.stringify({ type: "session", id: "local-empty", cwd: dir })}\n`);
-    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: "local-empty", ext: "/approved/connector" }, JSON_GLOBAL)).toBe(1);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: "local-empty", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
     writeFileSync(join(dir, ".pi", "sessions", "2026_local-foreign-root.jsonl"), `${JSON.stringify({ type: "session", id: "local-foreign-root", cwd: foreign })}\n${JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: "foreign" }] } })}\n`);
-    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: "local-foreign-root", ext: "/approved/connector" }, JSON_GLOBAL)).toBe(1);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: "local-foreign-root", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
     const canonicalProject = claudeProjectDir(realpathSync.native(dir));
     mkdirSync(canonicalProject, { recursive: true });
     writeFileSync(join(canonicalProject, `${claudeId}.jsonl`), `${JSON.stringify({ type: "user", sessionId: claudeId, cwd: foreign, message: { role: "user", content: "foreign" } })}\n`);
@@ -815,7 +825,7 @@ process.stdin.on("data", (chunk) => {
         model: "sonnet",
         message: "hello pi",
         conversation: convId,
-        ext: "/fake/ext1,/fake/ext2",
+        ext: `${fakeBin},${fakeBin}`,
         "pi-bin": fakeBin,
       },
       JSON_GLOBAL,
@@ -868,7 +878,7 @@ process.stdin.on("data", (chunk) => {
         runtime: "pi",
         model: "sonnet",
         message: "auth_fail trigger",
-        ext: "/fake/ext1,/fake/ext2",
+        ext: `${fakeBin},${fakeBin}`,
         "pi-bin": fakeBin,
       },
       JSON_GLOBAL,

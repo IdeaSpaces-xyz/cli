@@ -4,7 +4,7 @@
 // only the composition root (router) wires the two together. See src/pi/index.ts
 // for the boundary rule.
 
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { existsSync, realpathSync } from "node:fs";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
@@ -19,12 +19,14 @@ type Flags = Record<string, string | boolean>;
 
 /** A flag's comma-separated value with an env fallback → split, trim, drop
  * empties. Used by the local turn's `--ext` and `--skill` resource-dir lists. */
-function parseCommaList(flag: string | boolean | undefined, envFallback: string | undefined): string[] {
+function parseCommaList(flag: string | boolean | undefined, envFallback: string | undefined, base: string, dedupe: boolean): string[] {
   const raw = typeof flag === "string" ? flag : envFallback;
   const paths = (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!dedupe) return paths; // legacy conversation send keeps its original argv
   const seen = new Set<string>();
   return paths.filter((path) => {
-    const key = existsSync(path) ? realpathSync(path) : path;
+    const candidate = isAbsolute(path) ? path : resolve(base, path);
+    const key = existsSync(candidate) ? realpathSync(candidate) : candidate;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -52,9 +54,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error("Claude read-only, effort, and permission mode are unavailable under Pi; choose --runtime claude or omit them.");
     return 1;
   }
+  const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
   // distribution bundles them, the caller supplies the paths.
-  const extensionPaths = parseCommaList(flags.ext, flags["explicit-launch"] === true ? undefined : process.env.IDEASPACES_PI_EXTENSIONS);
+  const extensionPaths = parseCommaList(flags.ext, options?.explicitLaunch ? undefined : process.env.IDEASPACES_PI_EXTENSIONS, repoPath, options?.explicitLaunch === true);
   if (!extensionPaths.length) {
     output.error(
       "Extensions are required: --ext <pi-is-space,pi-local-context> (or set IDEASPACES_PI_EXTENSIONS)",
@@ -64,16 +67,16 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   // Skill dirs — optional. `--extension` loads extension code but not the
   // package's skills, so a shipped app forwards them here. Empty in dev when the
   // user has `pi install`ed the extensions (skills already in `~/.pi/settings`).
-  const skillPaths = parseCommaList(flags.skill, flags["explicit-launch"] === true ? undefined : process.env.IDEASPACES_PI_SKILLS);
+  const skillPaths = parseCommaList(flags.skill, options?.explicitLaunch ? undefined : process.env.IDEASPACES_PI_SKILLS, repoPath, options?.explicitLaunch === true);
 
-  const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   const sessionDir =
     typeof flags["session-dir"] === "string" ? flags["session-dir"] : join(repoPath, ".pi", "sessions");
   // Id via --conversation (a flag), not a bare positional: the arg parser has no
   // command-scoped booleans, so `--local <id>` would swallow the id.
   const conversationId =
     typeof flags.conversation === "string" ? flags.conversation : `local-${Date.now().toString(36)}`;
-  if (flags["resume-only"] === true && !canResumePiConversation(repoPath, conversationId)) {
+  // Recheck at send: the selected transcript may have moved since agent run preflight.
+  if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
     output.error(`Pi conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
     return 1;
   }

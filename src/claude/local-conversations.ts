@@ -27,7 +27,8 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { isContained } from "../local/contained-path.js";
 import type {
   ConversationDetail,
   ConversationHistoryMessage,
@@ -223,8 +224,7 @@ export function canResumeClaudeConversation(contextRoot: string, convId: string)
   const file = claudeSessionFile(contextRoot, convId);
   if (!file) return false;
   try {
-    const actual = relative(realpathSync(claudeProjectDir(contextRoot)), realpathSync(file));
-    if (actual.startsWith("..") || actual.startsWith("/") || actual === "") return false;
+    if (!isContained(realpathSync(claudeProjectDir(contextRoot)), realpathSync(file))) return false;
     const text = readFileSync(file, "utf8");
     let sawUser = false;
     let sawIdentity = false;

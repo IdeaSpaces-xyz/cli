@@ -55,7 +55,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error(`A Claude Code conversation id is a UUID; got "${conversationId}"`);
     return 1;
   }
-  if (flags["resume-only"] === true && !canResumeClaudeConversation(repoPath, conversationId)) {
+  // Recheck at send: the selected transcript may have moved since agent run preflight.
+  if (options?.resumeOnly && !canResumeClaudeConversation(repoPath, conversationId)) {
     output.error(`Claude conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
     return 1;
   }

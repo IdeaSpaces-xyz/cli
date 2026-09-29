@@ -1,8 +1,9 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
+import { isContained } from "../local/contained-path.js";
 import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
@@ -51,7 +52,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--ext <paths> --skill <dirs> (Pi)] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
@@ -215,7 +216,7 @@ async function cmdRun(
   }
 
   if (runtime === "pi" && (typeof flags.ext !== "string" || !flags.ext.split(",").some((path) => path.trim()))) {
-    output.error("Pi child launch needs explicit trusted extension paths: pass --ext <pi-is-space-path,pi-local-context-path> and --skill <skill-dirs> if needed. This CLI does not approve paths for you; installed packages and IDEASPACES_PI_EXTENSIONS do not authorize agent run. CLI >=0.1.53 is required for adapter policy flags. No child was started.");
+    output.error("Pi child launch needs explicit trusted extension paths; no child was started.\nPass --ext <pi-is-space-path,pi-local-context-path> (and --skill <dirs> if needed). Installed packages and IDEASPACES_PI_EXTENSIONS do not authorize an agent run. Adapters using --pi-trust/--claude-effort need CLI 0.1.53 or newer.");
     return 1;
   }
   // A path selected from inside the child repo cannot smuggle executable code
@@ -226,11 +227,14 @@ async function cmdRun(
       if (typeof flags[key] !== "string") continue;
       for (const raw of flags[key].split(",").map((s) => s.trim()).filter(Boolean)) {
         const path = isAbsolute(raw) ? raw : resolve(povPath, raw);
-        const within = relative(povPath, path);
-        if (within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) continue;
+        if (!existsSync(path)) {
+          output.error(`Refusing ${key} path ${raw}: path not found. Select an installed, reviewed path before launch.`);
+          return 1;
+        }
         try {
-          const actual = relative(povPath, realpathSync(path));
-          if (actual === ".." || actual.startsWith(`..${sep}`) || isAbsolute(actual)) throw new Error("escapes the selected POV");
+          if (isContained(povPath, path) && !isContained(povPath, realpathSync(path))) {
+            throw new Error("escapes the selected POV");
+          }
         } catch (err) {
           output.error(`Refusing ${key} path ${raw}: ${err instanceof Error ? err.message : String(err)}. Select an explicit reviewed path instead.`);
           return 1;
@@ -252,7 +256,7 @@ async function cmdRun(
       return 1;
     }
     if (!local.canResume?.(povPath, flags.conversation, runtime)) {
-      output.error(`No nonempty ${runtime} conversation ${flags.conversation} at the selected POV (${povPath}). Start a new turn without --conversation, or use an id from conversations --local --runtime ${runtime} --context <pov>.`);
+      output.error(`No verified nonempty ${runtime} conversation ${flags.conversation} at the selected POV (${povPath}). Start a new turn without --conversation, or use an id from conversations --local --runtime ${runtime} --context <pov>.`);
       return 1;
     }
     const resumePov = revalidateAgentPov(povPath);
@@ -268,9 +272,7 @@ async function cmdRun(
     context: povPath,
     runtime,
     message,
-    "explicit-launch": true,
   };
-  if (flags.conversation !== undefined) forwardFlags["resume-only"] = true;
   // Keep Desktop's legacy conversation-send default intact, but never approve
   // an agent run's Pi project resources merely because the CLI was invoked.
   if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";
@@ -292,9 +294,11 @@ async function cmdRun(
     }
   }
 
-  if (!thread) return local.send(forwardFlags, output, { extraOrientation: povOrientation });
+  const launchOptions = { explicitLaunch: true, resumeOnly: flags.conversation !== undefined };
+  if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
   let snapshotWritten = false;
   return local.send(forwardFlags, output, {
+    ...launchOptions,
     extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
     onEvent(event) {
       if (event.type !== "turn_complete") return event;
@@ -342,14 +346,14 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
+    description: "Run or list local POVs. Pi runs require explicit --ext paths; --skill dirs are optional. --conversation resumes an existing nonempty POV transcript; --session-dir is refused. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
-      "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --pi-trust saved --pi-thinking high",
-      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
+      "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts --pi-trust saved --pi-thinking high",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
