@@ -1,6 +1,6 @@
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
@@ -58,16 +58,42 @@ function localText(thread: LocalThread, posts: LocalThread["posts"], rung: strin
     : `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}`),
   ].join("\n");
 }
-function writerName(explicit?: string, requireAgent = false): string {
+function selectedWriterName(): string {
+  const cwd = realpathSync(process.cwd());
+  const gitRoot = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  // An ancestor Space is not the caller's POV. Never cross the current checkout's root.
+  const boundary = gitRoot.status === 0 ? realpathSync(gitRoot.stdout.trim()) : cwd;
+  let at = cwd;
+  while (true) {
+    const pathFromRoot = relative(boundary, at);
+    if (pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot)) break;
+    const agentDir = join(at, "_agent");
+    const agreement = join(agentDir, "agreement.md");
+    if (existsSync(agentDir) || existsSync(agreement)) {
+      if (!existsSync(agentDir) || lstatSync(agentDir).isSymbolicLink() || !lstatSync(agentDir).isDirectory() ||
+          !existsSync(agreement) || lstatSync(agreement).isSymbolicLink() || !lstatSync(agreement).isFile()) {
+        throw new Error("Caller POV needs a regular _agent/agreement.md with a name to author a selected Thread post.");
+      }
+      const fm = parseFrontmatter(readFileSync(agreement, "utf8"));
+      if (typeof fm?.name !== "string" || !fm.name.trim() ||
+          (fm.agreement !== undefined && (typeof fm.agreement !== "string" || !fm.agreement.startsWith("agent:repo:")))) {
+        throw new Error("Caller POV _agent/agreement.md needs an agent name (and agent:repo: kind if declared) to author a selected Thread post.");
+      }
+      const name = fm.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
+      if (!name || name.length > 900 || /[\r\n]/.test(name)) throw new Error("Caller Agreement name must be a single line of at most 900 characters.");
+      return name;
+    }
+    if (at === boundary) break;
+    at = dirname(at);
+  }
+  throw new Error("Selected Thread posts require the caller's own _agent/agreement.md with a name; no git-author fallback.");
+}
+function writerName(explicit?: string): string {
   if (explicit) return explicit;
   let at = resolve(process.cwd());
   while (true) {
     const agreement = join(at, "_agent", "agreement.md");
     if (existsSync(agreement)) {
-      if (requireAgent) {
-        const entry = lstatSync(agreement);
-        if (entry.isSymbolicLink() || !entry.isFile()) throw new Error("Caller Agent Agreement must be a regular file.");
-      }
       const fm = parseFrontmatter(readFileSync(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
@@ -76,7 +102,6 @@ function writerName(explicit?: string, requireAgent = false): string {
     if (dirname(at) === at) break;
     at = dirname(at);
   }
-  if (requireAgent) throw new Error("Selected Thread posts require the caller's Agent Agreement name; no git-author fallback.");
   const result = spawnSync("git", ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
@@ -259,7 +284,7 @@ export const threadsCommand: CommandDef = {
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
         const body = str(flags, "message") ?? await stdin();
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
-          summary: str(flags, "summary"), author: writerName(target ? undefined : str(flags, "author"), Boolean(target)), replyTo: parents,
+          summary: str(flags, "summary"), author: target ? selectedWriterName() : writerName(str(flags, "author")), replyTo: parents,
           kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map,
           verifyTarget: target?.verifyWrite });
         output.result({ id: post.id, path, kind: post.kind }, `Appended ${post.kind}: ${path}`); return 0;
