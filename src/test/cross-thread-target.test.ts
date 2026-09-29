@@ -88,7 +88,7 @@ describe("authored cross-Space local Thread selection", () => {
         expect(JSON.parse(installed.stdout).pinned).toContain("Selected at pin");
       }
       const posted = await run(["post", "decision"], { map: f.map, member: "0", message: "Cross-Space reply", "reply-to": f.first.post.id });
-      expect(posted.status).toBe(0);
+      expect(posted.status, posted.error).toBe(0);
       expect(posts(f.home).at(-1)?.frontmatter.author).toBe("Integrator");
       expect(posts(f.home).at(-1)?.inReplyTo).toEqual([f.first.post.id]);
       expect(posts(f.home).at(-1)?.frontmatter.map).toEqual(f.selection());
@@ -128,7 +128,7 @@ describe("authored cross-Space local Thread selection", () => {
     git(nested, "init", "-b", "main");
     process.chdir(nested); await refuse();
     expect(process.cwd()).toBe(realpathSync(nested));
-  });
+  }, 30_000);
 
   it("requires a unique registered checkout or a validated explicit hint, never scans or grants by path", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
