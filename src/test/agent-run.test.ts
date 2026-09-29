@@ -742,6 +742,12 @@ process.stdin.on("data", (chunk) => {
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},approved.ts,./approved.ts` }, JSON_GLOBAL)).toBe(0);
       const done = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
       expect(JSON.parse(done.result.response)).toEqual({ ext: 1, paths: [realpathSync.native(extension)], skill: 0, noDiscovery: true });
+      const skills = join(dir, "skills");
+      mkdirSync(skills);
+      stdoutChunks = [];
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: extension, skill: `${skills},./skills` }, JSON_GLOBAL)).toBe(0);
+      const withSkills = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
+      expect(JSON.parse(withSkills.result.response).skill).toBe(1);
       const alias = join(outside, "agent-alias");
       symlinkSync(dir, alias);
       stdoutChunks = [];

@@ -52,7 +52,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--ext <paths> --skill <dirs> (Pi)] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
