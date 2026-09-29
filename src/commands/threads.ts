@@ -89,7 +89,9 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
     "ideaspaces threads new <slug> --about 'What we are deciding'",
+    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2] [--map selection.json]",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
+    "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
     "ideaspaces threads open <slug|path> --pin <40-hex-sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads close <slug|path> --message 'Closing rationale'",
@@ -260,6 +262,7 @@ export const threadsCommand: CommandDef = {
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
         const body = str(flags, "message") ?? await stdin();
         const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
+        if (parents?.some((id) => !id)) throw new Error("--reply-to must name non-empty post ids, separated by commas.");
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
           summary: str(flags, "summary"), author: writerName(target ? undefined : str(flags, "author"), Boolean(target)), replyTo: parents,
           kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map,

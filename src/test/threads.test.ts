@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
@@ -76,6 +76,9 @@ describe("local Threads", () => {
     expect(() => resolveLocalThread("escape", root)).toThrow(/symlink/);
     symlinkSync(first.path, join(t.path, "linked.md"));
     expect(() => loadThread(t.path)).toThrow(/Unexpected thread entry/);
+    renameSync(join(root, "_threads"), join(root, "physical-threads"));
+    symlinkSync("physical-threads", join(root, "_threads"));
+    expect(() => resolveLocalThread("decision", root)).toThrow(/symlink/);
   });
 
   it("cold CLI read respects the rung and advances the cursor only on explicit ack", async () => {

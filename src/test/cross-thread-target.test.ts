@@ -160,6 +160,7 @@ describe("authored cross-Space local Thread selection", () => {
       expect(posts(f.agent)).toHaveLength(1);
     };
     await refuse();
+    await refuse({ "reply-to": "" });
     await refuse({ "reply-to": "msg_missing" });
     await refuse({ "reply-to": f.later.post.id }); // only exists after the pin
     await refuse({ "reply-to": f.first.post.id, author: "Impersonator" });

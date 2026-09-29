@@ -43,8 +43,8 @@ function locate(root: MapRoot, hint?: string): string {
   const id = rootId(root);
   if (hint) {
     // A stale registry path must not prevent a different explicit physical
-    // choice. That hint is still checked against declaration/origin/registry.
-    return validatedCheckout(physical(hint), id);
+    // choice. validatedCheckout reconciles the hint's own identity evidence.
+    return validatedCheckout(hint, id);
   }
   const matches = listClones().filter(({ record }) => record.root_node_id === id);
   const paths = new Set(matches.map(({ path }) => physical(path)));
@@ -73,6 +73,7 @@ export interface SelectedThreadTarget {
 
 export function selectLocalThreadTarget(input: string, root: MapRoot, member: MapPositionMember, checkoutHint?: string): SelectedThreadTarget {
   const checkout = locate(root, checkoutHint);
+  if (!/^[0-9a-f]{40}$/.test(root.sha)) throw new Error("Selected authored pin must be a full 40-character commit SHA.");
   const commit = spawnSync("git", ["cat-file", "-t", root.sha], {
     cwd: checkout, encoding: "utf8", env: sanitizedGitEnvironment(),
   });
