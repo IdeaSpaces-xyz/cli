@@ -253,10 +253,11 @@ export const threadsCommand: CommandDef = {
         if (!selected && flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         if (selected && flags.author !== undefined) throw new Error("Selected Thread posts use the caller's Agreement name; omit --author.");
         if (selected && kind === "closure") throw new Error("Selected cross-Space closure is not supported; use the local Space's close verb.");
-        const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
-        const body = str(flags, "message") ?? await stdin();
         const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
         if (parents?.some((id) => !id)) throw new Error("--reply-to must name non-empty post ids, separated by commas.");
+        if (selected && !parents?.length) throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
+        const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
+        const body = str(flags, "message") ?? await stdin();
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
           summary: str(flags, "summary"), author: writerName(target ? undefined : str(flags, "author"), Boolean(target)), replyTo: parents,
           kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map,
