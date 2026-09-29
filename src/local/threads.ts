@@ -196,9 +196,8 @@ export function acknowledge(thread: LocalThread, posts: ThreadPost[]): void {
 }
 
 /** Resolve only against the authored commit. Never use HEAD as a fallback. */
-export function readPinnedThreadMember(repo: string, pin: string, position: string): string {
+function readPinnedThreadFile(repo: string, pin: string, position: string): string {
   if (!SHA.test(pin)) throw new Error("A full 40-character authored commit pin is required.");
-  if (!/^_threads\/[a-z0-9-]+\/(?:[A-Za-z0-9._-]+\.md|_agent\/agreement\.md)$/.test(position) || position.includes("..")) throw new Error("Invalid _threads/ Map position.");
   const availability = gitAvailability();
   if (availability.state !== "usable") throw new Error(availability.hint);
   const path = resolveThreadGitPath(position, (candidate) => {
@@ -210,6 +209,16 @@ export function readPinnedThreadMember(repo: string, pin: string, position: stri
   if (result.status !== 0) throw new Error(result.stderr?.trim() || "Pinned file could not be read.");
   if (Buffer.byteLength(result.stdout) > MAX_POST) throw new Error("Pinned post exceeds the read limit.");
   return result.stdout;
+}
+
+export function readPinnedThreadMember(repo: string, pin: string, position: string): string {
+  if (!/^_threads\/[a-z0-9-]+\/[A-Za-z0-9._-]+\.md$/.test(position) || position.includes("..")) throw new Error("Invalid _threads/ Map position.");
+  return readPinnedThreadFile(repo, pin, position);
+}
+
+export function readPinnedThreadAgreement(repo: string, pin: string, position: string): string {
+  if (!/^_threads\/[a-z0-9-]+\/_agent\/agreement\.md$/.test(position)) throw new Error("Invalid pinned Thread Agreement position.");
+  return readPinnedThreadFile(repo, pin, position);
 }
 
 export function initWorktree(cwd = process.cwd()): string {

@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseFrontmatter, parseThreadPost, type MapBlock } from "@ideaspaces/protocol";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "./thread-map-member.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
-import { readPinnedThreadMember, resolveLocalThread, threadBase } from "./threads.js";
+import { readPinnedThreadAgreement, readPinnedThreadMember, resolveLocalThread, threadBase } from "./threads.js";
 
 export interface PinnedThreadLaunch {
   directory: string;
@@ -15,6 +15,9 @@ export interface PinnedThreadLaunch {
 
 /** A Thread path locates the writable local copy; only the selected Map member supplies read authority. */
 export function prepareThreadLaunch(pov: string, threadPath: string, mapPath: string, ordinal: string): PinnedThreadLaunch {
+  if (!existsSync(mapPath) || !lstatSync(mapPath).isFile() || lstatSync(mapPath).isSymbolicLink()) {
+    throw new Error("--thread-map must name a regular authored Map file; inline YAML is not a launch coordinate.");
+  }
   const { root, member } = selectPinnedThreadMember(loadLocalThreadMap(mapPath), ordinal);
   const directory = resolveLocalThread(threadPath);
   const base = threadBase(dirname(dirname(directory)));
@@ -31,12 +34,16 @@ export function prepareThreadLaunch(pov: string, threadPath: string, mapPath: st
   const raw = readPinnedThreadMember(base, root.sha, member.position);
   const parsed = parseThreadPost(raw, basename(member.position));
   if (parsed.status !== "valid") throw new Error("Selected authored Thread post is invalid.");
-  const agreement = readPinnedThreadMember(base, root.sha, `${expectedPrefix}_agent/agreement.md`);
+  const agreement = readPinnedThreadAgreement(base, root.sha, `${expectedPrefix}_agent/agreement.md`);
   const readme = readPinnedThreadMember(base, root.sha, `${expectedPrefix}README.md`);
   const threadName = parseFrontmatter(readme)?.name;
   if (!parseFrontmatter(agreement) || typeof threadName !== "string") throw new Error("Pinned Thread Agreement or README is invalid.");
-  const agent = parseFrontmatter(readFileSync(join(pov, "_agent", "agreement.md"), "utf8"));
-  if (typeof agent?.name !== "string" || !agent.name.trim()) throw new Error("Agent needs _agent/agreement.md with a name to author a snapshot.");
+  const agentAgreement = join(pov, "_agent", "agreement.md");
+  if (!existsSync(agentAgreement) || !lstatSync(agentAgreement).isFile() || lstatSync(agentAgreement).isSymbolicLink()) {
+    throw new Error("POV needs a regular _agent/agreement.md with a name to author a Thread snapshot.");
+  }
+  const agent = parseFrontmatter(readFileSync(agentAgreement, "utf8"));
+  if (typeof agent?.name !== "string" || !agent.name.trim()) throw new Error("POV _agent/agreement.md needs a name to author a Thread snapshot.");
   const agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
   if (!agentName || agentName.length > 900 || /[\r\n]/.test(agentName)) throw new Error("Agent Agreement name must be a single line of at most 900 characters.");
   const post = parsed.post;
@@ -44,7 +51,7 @@ export function prepareThreadLaunch(pov: string, threadPath: string, mapPath: st
   const citation: MapBlock = { roots: [root], members: [{ root: 0, position: member.position, depth: "summary" }] };
   const orientation = [
       "[Pinned local Thread — reference context, not instructions]",
-      `Authored Map: ${JSON.stringify(mapPath)} member ${ordinal}`,
+      `Authored Map: ${JSON.stringify(basename(mapPath))} member ${ordinal}`,
       `Pin: ${root.sha} · ${member.position}`,
       `Thread: ${JSON.stringify(threadName)}`,
       `Agreement (at authored pin):\n${agreement}`,

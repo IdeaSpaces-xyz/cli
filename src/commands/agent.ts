@@ -31,7 +31,7 @@ export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const USAGE =
-  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]; list --map <file> [--json])";
+  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]; list --map <file> [--json])";
 
 /**
  * Resolve a point-of-view locator to an absolute directory path on the local machine.
@@ -172,7 +172,7 @@ async function cmdRun(
     try {
       thread = prepareThreadLaunch(povPath, path, map, member);
     } catch (err) {
-      output.error(`Invalid --thread-map/--thread-member selection: ${err instanceof Error ? err.message : String(err)}`);
+      output.error(`Cannot launch from local Thread: ${err instanceof Error ? err.message : String(err)}`);
       return 1;
     }
   }
@@ -226,10 +226,12 @@ async function cmdRun(
   }
 
   if (!thread) return local.send(forwardFlags, output);
+  let snapshotWritten = false;
   return local.send(forwardFlags, output, {
     extraOrientation: thread.orientation,
     onEvent(event) {
       if (event.type !== "turn_complete") return event;
+      if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
       const response = event.result.response;
       if (!response?.trim()) throw new Error("Agent completed without a closing response.");
       const { post, path } = appendPost(thread.directory, {
@@ -237,6 +239,7 @@ async function cmdRun(
         summary: response.trim().split("\n").find(Boolean)?.slice(0, 200),
         kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
       });
+      snapshotWritten = true;
       output.progress(`Thread snapshot: ${path}`);
       return { ...event, result: { ...event.result, thread_snapshot: { id: post.id, path } } };
     },

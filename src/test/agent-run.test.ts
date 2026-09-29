@@ -375,6 +375,21 @@ process.stdin.on("data", (chunk) => {
     try {
       const missing = join(root, "missing.map.md");
       writeFileSync(missing, `---\n${stringify({ map: { roots: [{ root_node_id: rootId, sha: "a".repeat(40) }], members: [{ root: 0, position: member, depth: "summary" }] } })}---\n`);
+      expect(() => prepareThreadLaunch(pov, thread.path, map, "-1")).toThrow(/zero-based ordinal/);
+      expect(() => prepareThreadLaunch(pov, thread.path, map, "nope")).toThrow(/zero-based ordinal/);
+      const wrongRoot = join(root, "wrong-root.map.md");
+      writeFileSync(wrongRoot, `---\n${stringify({ map: { roots: [{ root_node_id: "n_aaaaaaaaaaaaaaaaaaaaaaaa", sha: pin }], members: [{ root: 0, position: member, depth: "summary" }] } })}---\n`);
+      expect(() => prepareThreadLaunch(pov, thread.path, wrongRoot, "0")).toThrow(/does not identify/);
+      const nameOnly = join(root, "name-only.map.md");
+      writeFileSync(nameOnly, `---\n${stringify({ map: { roots: [{ root_node_id: rootId, sha: pin }], members: [{ root: 0, position: member, depth: "name" }] } })}---\n`);
+      expect(() => prepareThreadLaunch(pov, thread.path, nameOnly, "0")).toThrow(/summary-or-full/);
+      const other = createThread("other", "Another Thread", root);
+      expect(() => prepareThreadLaunch(pov, other.path, map, "0")).toThrow(/hinted local Thread/);
+      const readmeMap = join(root, "readme.map.md");
+      writeFileSync(readmeMap, `---\n${stringify({ map: { roots: [{ root_node_id: rootId, sha: pin }], members: [{ root: 0, position: "_threads/decision/README.md", depth: "summary" }] } })}---\n`);
+      expect(() => prepareThreadLaunch(pov, thread.path, readmeMap, "0")).toThrow(/post in the hinted/);
+      const missingPov = tempDir();
+      expect(() => prepareThreadLaunch(missingPov, thread.path, map, "0")).toThrow(/POV needs a regular/);
       const invalid = { runtime: "pi", message: "Pinned question", thread: thread.path, "thread-map": missing, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin };
       expect(await agentCmd.run(["run", pov], invalid, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("refusing working-tree HEAD fallback");
@@ -413,6 +428,13 @@ process.stdin.on("data", (chunk) => {
       stdoutChunks = [];
       expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "After close" }, JSON_GLOBAL)).toBe(1);
       expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot", message: expect.stringContaining("Thread is closed") });
+      expect(stdout()).not.toContain('"type":"turn_complete"');
+      expect(loadThread(thread.path).posts).toHaveLength(5);
+      stdoutChunks = [];
+      expect(await agentCmd.run(["run", pov], { runtime: "claude", message: "Claude after close", thread: thread.path,
+        "thread-map": map, "thread-member": "0", "claude-bin": claudeBin,
+        conversation: "33333333-3333-4333-8333-333333333333" }, JSON_GLOBAL)).toBe(1);
+      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
       expect(stdout()).not.toContain('"type":"turn_complete"');
       expect(loadThread(thread.path).posts).toHaveLength(5);
       stdoutChunks = [];

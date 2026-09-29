@@ -6,6 +6,6 @@ export function observedEvent(event: KeeperStreamEvent, options?: LocalSendOptio
   try {
     return options?.onEvent?.(event) ?? event;
   } catch (err) {
-    return { type: "error", error_type: "thread_snapshot", message: `Run completed but Thread snapshot was not appended: ${err instanceof Error ? err.message : String(err)}` };
+    return { type: "error", error_type: "thread_snapshot", message: `Run completed but Thread snapshot was not appended (the response was streamed, not saved): ${err instanceof Error ? err.message : String(err)}` };
   }
 }
