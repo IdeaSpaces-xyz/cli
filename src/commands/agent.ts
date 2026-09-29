@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { listClones } from "../auth/spaces.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
-import { prepareThreadLaunch } from "../local/thread-launch.js";
+import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { createOutput, type Output } from "../output.js";
@@ -172,7 +172,8 @@ async function cmdRun(
     try {
       thread = prepareThreadLaunch(povPath, path, map, member);
     } catch (err) {
-      output.error(`Cannot launch from local Thread: ${err instanceof Error ? err.message : String(err)}`);
+      const detail = err instanceof Error ? err.message : String(err);
+      output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
       return 1;
     }
   }
@@ -241,7 +242,7 @@ async function cmdRun(
       });
       snapshotWritten = true;
       output.progress(`Thread snapshot: ${path}`);
-      return { ...event, result: { ...event.result, thread_snapshot: { id: post.id, path } } };
+      return withThreadSnapshot(event, post.id, path);
     },
   });
 }

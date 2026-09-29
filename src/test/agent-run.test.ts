@@ -430,24 +430,31 @@ process.stdin.on("data", (chunk) => {
       expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
       expect(stdout()).not.toContain('"type":"turn_complete"');
       expect(loadThread(thread.path).posts).toHaveLength(4);
+      chmodSync(thread.path, 0o500);
+      try {
+        stdoutChunks = [];
+        expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "Cannot write" }, JSON_GLOBAL)).toBe(1);
+        expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
+        expect(stdout()).not.toContain('"type":"turn_complete"');
+        stdoutChunks = [];
+        expect(await agentCmd.run(["run", pov], { runtime: "claude", message: "Cannot write Claude", thread: thread.path,
+          "thread-map": map, "thread-member": "0", "claude-bin": claudeBin,
+          conversation: "33333333-3333-4333-8333-333333333333" }, JSON_GLOBAL)).toBe(1);
+        expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
+        expect(stdout()).not.toContain('"type":"turn_complete"');
+      } finally { chmodSync(thread.path, 0o700); }
+      expect(loadThread(thread.path).posts).toHaveLength(4);
       appendPost(thread.path, { body: "Closed now", kind: "closure" });
       stdoutChunks = [];
       expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "After close" }, JSON_GLOBAL)).toBe(1);
-      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot", message: expect.stringContaining("Thread is closed") });
-      expect(stdout()).not.toContain('"type":"turn_complete"');
-      expect(loadThread(thread.path).posts).toHaveLength(5);
-      stdoutChunks = [];
-      expect(await agentCmd.run(["run", pov], { runtime: "claude", message: "Claude after close", thread: thread.path,
-        "thread-map": map, "thread-member": "0", "claude-bin": claudeBin,
-        conversation: "33333333-3333-4333-8333-333333333333" }, JSON_GLOBAL)).toBe(1);
-      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
-      expect(stdout()).not.toContain('"type":"turn_complete"');
+      expect(stdout()).toBe(""); // refused before spawning the runtime
+      expect(stderr()).toContain("Thread is closed; no agent was launched");
       expect(loadThread(thread.path).posts).toHaveLength(5);
       stdoutChunks = [];
       expect(await agentCmd.run(["run", pov], { message: "No pin", thread: thread.path }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("a path alone has no pin");
     } finally { process.chdir(previous); }
-  });
+  }, 20_000);
 
   it("resolves a private orphan Threads worktree at its authored commit", () => {
     const root = tempDir();

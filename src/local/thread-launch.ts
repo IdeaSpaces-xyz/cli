@@ -1,9 +1,19 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseFrontmatter, parseThreadPost, type MapBlock } from "@ideaspaces/protocol";
+import type { KeeperTurnCompleteEvent } from "@ideaspaces/sdk";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "./thread-map-member.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
-import { readPinnedThreadAgreement, readPinnedThreadMember, resolveLocalThread, threadBase } from "./threads.js";
+import { loadThread, readPinnedThreadAgreement, readPinnedThreadMember, resolveLocalThread, threadBase } from "./threads.js";
+
+/** CLI-local result extension; the SDK's generic Keeper turn does not own Thread writes. */
+export type LocalThreadCompletion = KeeperTurnCompleteEvent & {
+  result: KeeperTurnCompleteEvent["result"] & { thread_snapshot: { id: string; path: string } };
+};
+
+export function withThreadSnapshot(event: KeeperTurnCompleteEvent, id: string, path: string): LocalThreadCompletion {
+  return { ...event, result: { ...event.result, thread_snapshot: { id, path } } };
+}
 
 export interface PinnedThreadLaunch {
   directory: string;
@@ -20,6 +30,8 @@ export function prepareThreadLaunch(pov: string, threadPath: string, mapPath: st
   }
   const { root, member } = selectPinnedThreadMember(loadLocalThreadMap(mapPath), ordinal);
   const directory = resolveLocalThread(threadPath);
+  // Live state is checked only for write eligibility. Orientation still reads solely at the authored pin.
+  if (loadThread(directory).closed) throw new Error("Thread is closed; no agent was launched or snapshot written.");
   const base = threadBase(dirname(dirname(directory)));
   const rootId = inspectLocalRootIdentity(base).root_node_id;
   const authoredId = root.root_node_id ?? /\/repos\/(n_[0-9a-f]{12}(?:[0-9a-f]{12})?)(?:\/|$)/.exec(root.repo ?? "")?.[1];
