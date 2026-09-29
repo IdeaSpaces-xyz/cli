@@ -8,7 +8,7 @@ import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
-import type { LocalConversationOps } from "../commands/conversation.js";
+import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
 import { saveSpace } from "../auth/spaces.js";
 import { claudeConversationOps } from "../claude/local-conversation-ops.js";
@@ -437,8 +437,9 @@ describe.skipIf(process.platform === "win32")("agent run — end-to-end streamin
     claude: claudeConversationOps,
   });
   const agentCmd = makeAgentCommand(localOps);
+  const conversationCmd = makeConversationCommand(localOps);
 
-  const FAKE_CLAUDE = `
+  const FAKE_CLAUDE = `;
 const args = process.argv.slice(2);
 const id = args[args.indexOf("--resume") + 1] || args[args.indexOf("--session-id") + 1];
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
@@ -631,6 +632,18 @@ process.stdin.on("data", (chunk) => {
       expect(frame.orientation).toContain("Private summary");
       expect(frame.parentId).toBe(post.post.id);
     } finally { process.chdir(previous); }
+  });
+
+  it("conversation send refuses wrong-runtime flags instead of silently ignoring safety policy", async () => {
+    const dir = makeAgentDir();
+    expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", message: "hi", "read-only": true,
+      ext: "/fake/ext", context: dir }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("unavailable under Pi");
+    expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", message: "hi", "permission-mode": "bypassPermissions",
+      ext: "/fake/ext", context: dir }, JSON_GLOBAL)).toBe(1);
+    expect(await conversationCmd.run(["send"], { local: true, runtime: "claude", message: "hi", "pi-trust": "saved",
+      context: dir }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("unavailable under Claude");
   });
 
   it("forwards explicit Pi trust and Claude effort/read-only flags to the selected runtime", async () => {

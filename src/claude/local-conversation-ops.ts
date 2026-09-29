@@ -42,6 +42,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error("A message is required: --message <text>");
     return 1;
   }
+  if (flags["pi-trust"] !== undefined || flags["pi-thinking"] !== undefined) {
+    output.error("Pi trust and thinking are unavailable under Claude; choose --runtime pi or omit them.");
+    return 1;
+  }
   const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   // Claude Code requires a UUID session id; a fresh one is minted when absent,
   // which is the `new` step folded into the first send.

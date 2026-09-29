@@ -49,14 +49,14 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-export const RUN_USAGE =
-  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const USAGE =
-  `ideaspaces agent <run|list> … (run ${RUN_USAGE.slice("ideaspaces agent run ".length)}; list --map <file> [--json])`;
+  `ideaspaces agent <run|list> … (run ${RUN_ARGS}; list --map <file> [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -290,7 +290,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox); pinned Thread runs append a named snapshot.",
+    description: "Run or list local POVs. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox); pinned Thread runs append a named snapshot.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",

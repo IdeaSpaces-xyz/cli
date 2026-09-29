@@ -43,6 +43,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error("A message is required: --message <text>");
     return 1;
   }
+  if (flags["read-only"] !== undefined || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined) {
+    output.error("Claude read-only, effort, and permission mode are unavailable under Pi; choose --runtime claude or omit them.");
+    return 1;
+  }
   // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
   // distribution bundles them, the caller supplies the paths.
   const extensionPaths = parseCommaList(flags.ext, process.env.IDEASPACES_PI_EXTENSIONS);
