@@ -1,5 +1,7 @@
 import type { GlobalFlags } from "./types.js";
 
+const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
+
 export interface ParsedArgs {
   global: GlobalFlags;
   command: string | undefined;
@@ -52,7 +54,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const key = arg.slice(2);
       // This flag has no value on any command. Handle it before positional
       // discovery too (`--read-only agent run …` must not swallow `agent`).
-      if (key === "read-only") { flags[key] = true; continue; }
+      if (BOOLEAN_COMMAND_FLAGS.has(key)) { flags[key] = true; continue; }
       // Global flags are boolean
       if (key === "json") { global.json = true; continue; }
       if (key === "quiet") { global.quiet = true; continue; }
