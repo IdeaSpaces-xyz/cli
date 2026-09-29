@@ -7,7 +7,7 @@ import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeAgentCommand, readAgentDefaults, resolveAgentPov } from "../commands/agent.js";
+import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
 import { saveSpace } from "../auth/spaces.js";
@@ -22,6 +22,13 @@ const roots: string[] = [];
 function tempDir(prefix = "agent-run-test-"): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   roots.push(dir);
+  return dir;
+}
+
+function makeAgentDir(prefix = "agent-run-test-", content = "# Agreement\n"): string {
+  const dir = tempDir(prefix);
+  mkdirSync(join(dir, "_agent"), { recursive: true });
+  writeFileSync(join(dir, "_agent", "agreement.md"), content);
   return dir;
 }
 
@@ -62,14 +69,14 @@ const stdout = () => stdoutChunks.join("");
 const stderr = () => stderrChunks.join("");
 
 describe("agent run — point of view resolution", () => {
-  it("resolves an existing directory path", () => {
-    const dir = tempDir();
+  it("resolves an existing directory path carrying an Agreement", () => {
+    const dir = makeAgentDir();
     const resolved = resolveAgentPov(dir);
     expect(resolved ? realpathSync.native(resolved) : null).toBe(realpathSync.native(dir));
   });
 
   it("resolves a registered Space by root_node_id and kind URI", () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     saveSpace(dir, {
       repo_id: "repo_agent",
       slug: "scout",
@@ -85,7 +92,7 @@ describe("agent run — point of view resolution", () => {
   });
 
   it("resolves a registered Space by legacy 12-hex root_node_id URL", () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     const shortId = "n_0123456789ab";
     saveSpace(dir, {
       repo_id: "repo_agent_short",
@@ -102,6 +109,53 @@ describe("agent run — point of view resolution", () => {
   it("returns null for unknown paths or unregistered ids", () => {
     expect(resolveAgentPov("/nonexistent/agent/path")).toBeNull();
     expect(resolveAgentPov("n_999999999999999999999999")).toBeNull();
+  });
+
+  it("refuses a directory with no Agreement or Foundation contract", () => {
+    const dir = tempDir();
+    expect(resolveAgentPov(dir)).toBeNull();
+    const res = validateAgentPov(dir);
+    expect(res.valid).toBe(false);
+    if (!res.valid) {
+      expect(res.code).toBe("missing_contract");
+      expect(res.message).toContain("has no _agent/agreement.md contract");
+    }
+  });
+
+  it("refuses a contract that is a symlink escaping the repo root", () => {
+    const dir = tempDir();
+    const outside = tempDir("outside-");
+    const outsideFile = join(outside, "secret.md");
+    writeFileSync(outsideFile, "# Leaked\n");
+
+    mkdirSync(join(dir, "_agent"), { recursive: true });
+    // symlink _agent/agreement.md to an outside file
+    const { symlinkSync } = require("node:fs");
+    symlinkSync(outsideFile, join(dir, "_agent", "agreement.md"));
+
+    expect(resolveAgentPov(dir)).toBeNull();
+    const res = validateAgentPov(dir);
+    expect(res.valid).toBe(false);
+    if (!res.valid) {
+      expect(res.code).toBe("symlink_escape");
+      expect(res.message).toContain("escapes the repository root");
+    }
+  });
+
+  it("revalidates a valid POV and detects subsequent contract removal", () => {
+    const dir = makeAgentDir();
+    const initial = validateAgentPov(dir);
+    expect(initial.valid).toBe(true);
+    if (initial.valid) {
+      const reval = revalidateAgentPov(initial.path);
+      expect(reval.valid).toBe(true);
+      expect(reval.path).toBe(initial.path);
+
+      // Remove the contract
+      rmSync(join(dir, "_agent", "agreement.md"));
+      const revalAfter = revalidateAgentPov(initial.path);
+      expect(revalAfter.valid).toBe(false);
+    }
   });
 });
 
@@ -163,10 +217,8 @@ describe("agent run — command options & validation", () => {
   });
 
   it("honors pi_model fallback when runtime is omitted and defaults to pi", async () => {
-    const dir = tempDir();
-    mkdirSync(join(dir, "_agent"), { recursive: true });
-    writeFileSync(
-      join(dir, "_agent", "agreement.md"),
+    const dir = makeAgentDir(
+      "agent-run-test-",
       `---\nname: Scout\npi_model: openai/gpt-4o\n---\n# Agreement\n`,
     );
 
@@ -180,7 +232,7 @@ describe("agent run — command options & validation", () => {
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
         local: true,
-        context: dir,
+        context: realpathSync.native(dir),
         runtime: "pi",
         "pi-model": "openai/gpt-4o",
         message: "Analyze data",
@@ -196,14 +248,14 @@ describe("agent run — command options & validation", () => {
   });
 
   it("refuses invocation without --message", async () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     const code = await agentCmd.run(["run", dir], {}, JSON_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("A message is required: --message <text>");
   });
 
   it("refuses a path-only Thread launch before invoking the runtime", async () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     const code = await agentCmd.run(["run", dir], { message: "hi", thread: "_threads/decision" }, JSON_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("a path alone has no pin");
@@ -214,7 +266,7 @@ describe("agent run — command options & validation", () => {
   });
 
   it("refuses unknown runtime", async () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     const code = await agentCmd.run(
       ["run", dir],
       { message: "hi", runtime: "unsupported" },
@@ -224,21 +276,64 @@ describe("agent run — command options & validation", () => {
     expect(stderr()).toContain('Unknown local runtime "unsupported"');
   });
 
-  it("refuses unresolvable POV", async () => {
+  it("refuses launch when target has missing Agreement contract", async () => {
+    const emptyDir = tempDir();
     const code = await agentCmd.run(
-      ["run", "agents/nonexistent"],
+      ["run", emptyDir],
       { message: "hi" },
       JSON_GLOBAL,
     );
     expect(code).toBe(1);
-    expect(stderr()).toContain('Agent point of view "agents/nonexistent" could not be resolved');
+    expect(stderr()).toContain("has no _agent/agreement.md contract");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("refuses launch when target contract escapes repository root via symlink", async () => {
+    const dir = tempDir();
+    const outside = tempDir("outside-");
+    const outsideFile = join(outside, "secret.md");
+    writeFileSync(outsideFile, "# Leaked\n");
+
+    mkdirSync(join(dir, "_agent"), { recursive: true });
+    const { symlinkSync } = require("node:fs");
+    symlinkSync(outsideFile, join(dir, "_agent", "agreement.md"));
+
+    const code = await agentCmd.run(
+      ["run", dir],
+      { message: "hi" },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+    expect(stderr()).toContain("contract escapes the repository root");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("launches an explicit local path to a different unregistered IdeaSpace repo with _agent/agreement.md", async () => {
+    const targetDir = makeAgentDir(
+      "different-space-",
+      `---\nname: Specialist\nruntime: claude\n---\n# Specialist Agreement\n`,
+    );
+
+    const code = await agentCmd.run(
+      ["run", targetDir],
+      { message: "Help with analysis" },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: true,
+        context: realpathSync.native(targetDir),
+        runtime: "claude",
+        message: "Help with analysis",
+      }),
+      expect.anything(),
+    );
   });
 
   it("forwards flags with Agreement defaults to local.send", async () => {
-    const dir = tempDir();
-    mkdirSync(join(dir, "_agent"), { recursive: true });
-    writeFileSync(
-      join(dir, "_agent", "agreement.md"),
+    const dir = makeAgentDir(
+      "agent-run-test-",
       `---\nname: Scout\nruntime: claude\nmodel: claude-3-5-sonnet\n---\n# Agreement\n`,
     );
 
@@ -252,7 +347,7 @@ describe("agent run — command options & validation", () => {
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
         local: true,
-        context: dir,
+        context: realpathSync.native(dir),
         runtime: "claude",
         "claude-model": "claude-3-5-sonnet",
         message: "Analyze data",
@@ -263,10 +358,8 @@ describe("agent run — command options & validation", () => {
   });
 
   it("CLI flags override Agreement defaults", async () => {
-    const dir = tempDir();
-    mkdirSync(join(dir, "_agent"), { recursive: true });
-    writeFileSync(
-      join(dir, "_agent", "agreement.md"),
+    const dir = makeAgentDir(
+      "agent-run-test-",
       `---\nname: Scout\nruntime: claude\nmodel: claude-3-5-sonnet\n---\n# Agreement\n`,
     );
 
@@ -280,7 +373,7 @@ describe("agent run — command options & validation", () => {
     expect(mockSend).toHaveBeenCalledWith(
       expect.objectContaining({
         local: true,
-        context: dir,
+        context: realpathSync.native(dir),
         runtime: "pi",
         "pi-model": "gpt-4o",
         message: "Analyze data",
@@ -487,7 +580,7 @@ process.stdin.on("data", (chunk) => {
   });
 
   it("agent run with claude runtime streams and resumes by --conversation", async () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     const fakeBin = join(dir, "fake-claude");
     writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
     writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
@@ -516,7 +609,7 @@ process.stdin.on("data", (chunk) => {
   });
 
   it("agent run with pi runtime streams and resumes by --conversation", async () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     const fakeBin = join(dir, "fake-pi");
     writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
     writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
@@ -546,7 +639,7 @@ process.stdin.on("data", (chunk) => {
   });
 
   it("reports child auth failure as failure (exit code 1) for claude", async () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     const fakeBin = join(dir, "fake-claude");
     writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
     writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
@@ -573,7 +666,7 @@ process.stdin.on("data", (chunk) => {
   });
 
   it("reports child failure as failure (exit code 1) for pi", async () => {
-    const dir = tempDir();
+    const dir = makeAgentDir();
     const fakeBin = join(dir, "fake-pi");
     writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
     writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);

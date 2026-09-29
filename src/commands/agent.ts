@@ -1,12 +1,21 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { listClones } from "../auth/spaces.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
 import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
+import {
+  resolveAgentPov,
+  revalidateAgentPov,
+  validateAgentPov,
+  type AgentPovErrorCode,
+  type AgentPovResult,
+  type InvalidAgentPov,
+  type ValidAgentPov,
+  type ValidateAgentPovOptions,
+} from "../local/agent-pov.js";
 import { createOutput, type Output } from "../output.js";
 import type { LocalConversationOps } from "./conversation.js";
 import {
@@ -16,6 +25,17 @@ import {
   type LocalRuntime,
 } from "../local/runtime.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
+
+export {
+  resolveAgentPov,
+  revalidateAgentPov,
+  validateAgentPov,
+  type AgentPovErrorCode,
+  type AgentPovResult,
+  type InvalidAgentPov,
+  type ValidAgentPov,
+  type ValidateAgentPovOptions,
+};
 
 type Flags = Record<string, string | boolean>;
 
@@ -32,64 +52,6 @@ export const LIST_USAGE =
 
 export const USAGE =
   "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]; list --map <file> [--json])";
-
-/**
- * Resolve a point-of-view locator to an absolute directory path on the local machine.
- *
- * Checks:
- * 1. Direct path (relative or absolute folder).
- * 2. Registered local space by root_node_id (12-hex or 24-hex), repo_id, or slug.
- */
-export function resolveAgentPov(pov: string): string | null {
-  const trimmed = pov.trim();
-  if (!trimmed) return null;
-
-  // 1. Direct path check (relative to cwd or absolute)
-  const candidatePath = resolve(process.cwd(), trimmed);
-  if (existsSync(candidatePath)) {
-    try {
-      if (statSync(candidatePath).isDirectory()) {
-        return candidatePath;
-      }
-    } catch {
-      /* inaccessible path */
-    }
-  }
-
-  // 2. Extract potential root node id (12-hex or 24-hex) or address
-  let candidateId = trimmed;
-  if (candidateId.startsWith("agent:repo:")) {
-    candidateId = candidateId.slice("agent:repo:".length);
-  } else if (candidateId.startsWith("knowledge:repo:")) {
-    candidateId = candidateId.slice("knowledge:repo:".length);
-  } else if (candidateId.startsWith("repo:")) {
-    candidateId = candidateId.slice("repo:".length);
-  } else if (candidateId.includes("/repos/")) {
-    const match = /\/repos\/(n_(?:[0-9a-f]{24}|[0-9a-f]{12}))(?:\.git|\/|\?|#|$)/.exec(candidateId);
-    if (match) candidateId = match[1];
-  }
-
-  // 3. Search local registered spaces
-  const clones = listClones();
-  const found = clones.find((c) => {
-    if (c.record.root_node_id && c.record.root_node_id === candidateId) return true;
-    if ("repo_id" in c.record && c.record.repo_id === candidateId) return true;
-    if ("slug" in c.record && c.record.slug === candidateId) return true;
-    return false;
-  });
-
-  if (found && existsSync(found.path)) {
-    try {
-      if (statSync(found.path).isDirectory()) {
-        return found.path;
-      }
-    } catch {
-      /* inaccessible path */
-    }
-  }
-
-  return null;
-}
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -154,11 +116,12 @@ async function cmdRun(
     return 1;
   }
 
-  const povPath = resolveAgentPov(povArg);
-  if (!povPath) {
-    output.error(`Agent point of view "${povArg}" could not be resolved to a local directory or registered Space.`);
+  const povResult = validateAgentPov(povArg);
+  if (!povResult.valid) {
+    output.error(povResult.message);
     return 1;
   }
+  const povPath = povResult.path;
 
   let thread: ReturnType<typeof prepareThreadLaunch> | undefined;
   if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
