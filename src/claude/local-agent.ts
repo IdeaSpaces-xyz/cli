@@ -41,6 +41,11 @@ import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
  * a tool and close the turn, they do not wait — so the mode is the whole approval
  * policy for the turn. */
 export const CLAUDE_PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const;
+export const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type ClaudeEffort = (typeof CLAUDE_EFFORT_LEVELS)[number];
+export function isValidClaudeEffort(value: string): value is ClaudeEffort {
+  return (CLAUDE_EFFORT_LEVELS as readonly string[]).includes(value);
+}
 export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
 
 export function isValidClaudePermissionMode(mode: string): mode is ClaudePermissionMode {
@@ -99,6 +104,10 @@ export interface ClaudeTurnOptions {
   model?: string;
   /** Approval policy for the headless turn. Default `acceptEdits`. */
   permissionMode?: ClaudePermissionMode;
+  /** Restrict the headless child to built-in read tools, with no plugin MCP tools. */
+  readOnly?: boolean;
+  /** Claude Code's --effort, if supported by the installed version. */
+  effort?: ClaudeEffort;
   /** Auth path. Default `login` — scrubs API-key variables from the child env. */
   auth?: ClaudeAuthMode;
   /** Claude Code executable. Default "claude" (from PATH). */
@@ -123,6 +132,8 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
   ];
   if (opts.workingRoot && opts.workingRoot !== opts.repoPath) args.push("--add-dir", opts.workingRoot);
   if (opts.model) args.push("--model", opts.model);
+  if (opts.effort) args.push("--effort", opts.effort);
+  if (opts.readOnly) args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
   if (opts.autocompact) args.push("--autocompact", opts.autocompact);
   const orientation = [opts.mapOrientation, opts.launchOrientation].filter(Boolean).join("\n\n");
   if (orientation) args.push("--append-system-prompt", orientation);

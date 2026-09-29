@@ -45,13 +45,13 @@ function flagString(flags: Flags, name: string): string | undefined {
 }
 
 export const RUN_USAGE =
-  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
 
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const USAGE =
-  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]; list --map <file> [--json])";
+  `ideaspaces agent <run|list> … (run ${RUN_USAGE.slice("ideaspaces agent run ".length)}; list --map <file> [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -122,6 +122,21 @@ async function cmdRun(
     return 1;
   }
   const povPath = povResult.path;
+  // The selected contract, not the caller's SessionStart, owns this child POV.
+  // Child hooks may also run, but launch must be grounded even when that
+  // other harness has no IdeaSpaces plugin installed yet.
+  let povOrientation: string;
+  try {
+    const contract = readFileSync(povResult.contractPath, "utf8");
+    if (Buffer.byteLength(contract) > 64 * 1024) {
+      output.error("Selected POV Agreement exceeds 64 KiB; shorten it before launch.");
+      return 1;
+    }
+    povOrientation = `[Selected ${povResult.contractType} POV: ${povPath}]\n${contract}`;
+  } catch (err) {
+    output.error(`Could not read the selected POV contract: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
 
   let thread: ReturnType<typeof prepareThreadLaunch> | undefined;
   if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
@@ -181,6 +196,15 @@ async function cmdRun(
     message,
   };
 
+  if (runtime === "pi" && (flags["read-only"] || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined)) {
+    output.error("Claude read-only, effort, and permission mode are unavailable under Pi. Choose --runtime claude or omit them.");
+    return 1;
+  }
+  if (runtime === "claude" && (flags["pi-thinking"] !== undefined || flags["pi-trust"] !== undefined)) {
+    output.error("Pi thinking and trust policy are unavailable under Claude; use --claude-effort if supported.");
+    return 1;
+  }
+
   if (model) {
     if (runtime === "pi") {
       forwardFlags["pi-model"] = model;
@@ -189,10 +213,10 @@ async function cmdRun(
     }
   }
 
-  if (!thread) return local.send(forwardFlags, output);
+  if (!thread) return local.send(forwardFlags, output, { extraOrientation: povOrientation });
   let snapshotWritten = false;
   return local.send(forwardFlags, output, {
-    extraOrientation: thread.orientation,
+    extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
     onEvent(event) {
       if (event.type !== "turn_complete") return event;
       if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");

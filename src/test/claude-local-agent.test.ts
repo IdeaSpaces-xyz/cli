@@ -5,6 +5,7 @@ import {
   isValidClaudeAuthMode,
   isValidClaudeAutocompact,
   isValidClaudePermissionMode,
+  isValidClaudeEffort,
   type ClaudeTurnOptions,
 } from "../claude/local-agent.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "../claude/tool-names.js";
@@ -52,6 +53,12 @@ describe("buildClaudeArgs", () => {
     expect(args[args.indexOf("--append-system-prompt") + 1]).toBe("MAP\n\nLAUNCH");
   });
 
+  it("limits available tools for read-only independently of permission mode and forwards supported effort", () => {
+    const args = buildClaudeArgs({ ...base, readOnly: true, effort: "high", permissionMode: "dontAsk" });
+    expect(args).toEqual(expect.arrayContaining(["--tools", "Read,Grep,Glob", "--strict-mcp-config", "--effort", "high", "--permission-mode", "dontAsk"]));
+    expect(args).not.toContain("--allowedTools");
+  });
+
   it("never carries the prompt — it rides stdin", () => {
     expect(buildClaudeArgs({ ...base, message: "a very long message" })).not.toContain("a very long message");
   });
@@ -82,6 +89,8 @@ describe("validators", () => {
     expect(isValidClaudeAuthMode("login")).toBe(true);
     expect(isValidClaudeAuthMode("api-key")).toBe(true);
     expect(isValidClaudeAuthMode("oauth")).toBe(false);
+    expect(isValidClaudeEffort("high")).toBe(true);
+    expect(isValidClaudeEffort("off")).toBe(false);
   });
 
   it("validates autocompact values (auto or 100k-1M)", () => {

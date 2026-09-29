@@ -74,6 +74,11 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error(`Invalid thinking level "${piThinking}". Valid values: ${PI_THINKING_LEVELS.join(", ")}`);
     return 1;
   }
+  const trust = flags["pi-trust"] === undefined ? "explicit" : flags["pi-trust"];
+  if (trust !== "saved" && trust !== "explicit") {
+    output.error(`Invalid Pi trust policy "${String(trust)}". Valid values: saved, explicit`);
+    return 1;
+  }
   // The pi binary to spawn — the desktop passes its bundled sidecar here. Absent
   // → runLocalTurn falls back to PATH `pi` (dev). Without this the bundled pi is
   // never used, silently falling back to a globally-installed pi.
@@ -139,6 +144,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       piModel,
       thinkingLevel: piThinking,
+      trust,
       piBin,
       signal: controller.signal,
     })) {

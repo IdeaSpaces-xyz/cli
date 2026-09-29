@@ -11,6 +11,8 @@ import { localLaunchOrientation } from "../local/launch-orientation.js";
 import {
   CLAUDE_AUTH_MODES,
   CLAUDE_PERMISSION_MODES,
+  CLAUDE_EFFORT_LEVELS,
+  isValidClaudeEffort,
   isValidClaudeAuthMode,
   isValidClaudeAutocompact,
   isValidClaudePermissionMode,
@@ -54,6 +56,20 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   const permissionMode = flags["permission-mode"] === undefined ? "acceptEdits" : flags["permission-mode"];
   if (typeof permissionMode !== "string" || !isValidClaudePermissionMode(permissionMode)) {
     output.error(`Invalid permission mode "${String(permissionMode)}". Valid values: ${CLAUDE_PERMISSION_MODES.join(", ")}`);
+    return 1;
+  }
+  const readOnly = flags["read-only"] === true;
+  if (flags["read-only"] !== undefined && flags["read-only"] !== true && flags["read-only"] !== false) {
+    output.error("--read-only is a boolean flag");
+    return 1;
+  }
+  if (readOnly && permissionMode === "bypassPermissions") {
+    output.error("--read-only cannot be combined with --permission-mode bypassPermissions");
+    return 1;
+  }
+  const effort = flags["claude-effort"];
+  if (effort !== undefined && (typeof effort !== "string" || !isValidClaudeEffort(effort))) {
+    output.error(`Invalid Claude effort "${String(effort)}". Valid values: ${CLAUDE_EFFORT_LEVELS.join(", ")}`);
     return 1;
   }
   const auth = flags["claude-auth"] === undefined ? "login" : flags["claude-auth"];
@@ -122,6 +138,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       model,
       permissionMode,
+      readOnly,
+      effort: effort as (typeof CLAUDE_EFFORT_LEVELS)[number] | undefined,
       auth,
       claudeBin,
       autocompact,

@@ -50,6 +50,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
 
       const key = arg.slice(2);
+      // Read-only is a command-specific boolean: never swallow the next positional.
+      if (key === "read-only") { flags[key] = true; continue; }
       // Global flags are boolean
       if (key === "json") { global.json = true; continue; }
       if (key === "quiet") { global.quiet = true; continue; }

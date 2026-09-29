@@ -238,6 +238,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
+      { extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -328,6 +329,7 @@ describe("agent run — command options & validation", () => {
         message: "Help with analysis",
       }),
       expect.anything(),
+      { extraOrientation: expect.stringContaining("# Specialist Agreement") },
     );
   });
 
@@ -354,6 +356,7 @@ describe("agent run — command options & validation", () => {
         conversation: "11111111-1111-4111-8111-111111111111",
       }),
       expect.anything(),
+      { extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -379,6 +382,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
+      { extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 });
@@ -404,8 +408,10 @@ process.stdin.on("end", () => {
     return;
   }
   out({ type: "stream_event", event: { type: "message_start" } });
-  out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "claude:" + prompt.trim() } } });
-  out({ type: "result", subtype: "success", is_error: false, result: "claude:" + prompt.trim(), num_turns: 1, total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 2 } });
+  const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
+  const response = prompt.trim() === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no") : "claude:" + prompt.trim();
+  out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: response } } });
+  out({ type: "result", subtype: "success", is_error: false, result: response, num_turns: 1, total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 2 } });
 });
 `;
 
@@ -433,7 +439,8 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
       const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
-      if (command.message !== "empty_response") console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "pi:" + command.message + frame } }));
+      const answer = command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no") : "pi:" + command.message + frame;
+      if (command.message !== "empty_response") console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: answer } }));
       console.log(JSON.stringify({ type: "agent_end" }));
     }
   }
@@ -577,6 +584,33 @@ process.stdin.on("data", (chunk) => {
       expect(frame.orientation).toContain("Private summary");
       expect(frame.parentId).toBe(post.post.id);
     } finally { process.chdir(previous); }
+  });
+
+  it("loads the selected Agreement into both child runtimes rather than relying on parent hooks", async () => {
+    const dir = makeAgentDir("agent-run-orientation-", "# Distinct Agreement POV\n");
+    for (const runtime of ["pi", "claude"] as const) {
+      const fakeBin = join(dir, `fake-${runtime}`);
+      const source = runtime === "pi" ? FAKE_PI : FAKE_CLAUDE;
+      writeFileSync(join(dir, `fake-${runtime}.cjs`), source);
+      writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, `fake-${runtime}.cjs`)}" "$@"\n`);
+      chmodSync(fakeBin, 0o755);
+      const flags = runtime === "pi" ? { ext: "/fake/ext", "pi-bin": fakeBin } : { "claude-bin": fakeBin };
+      const code = await agentCmd.run(["run", dir], { runtime, message: "orientation_probe", ...flags }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      const events = stdout().trim().split("\n").map((line) => JSON.parse(line));
+      expect(events.find((e) => e.type === "turn_complete")?.result.response).toBe("contract:yes");
+      stdoutChunks = [];
+    }
+  });
+
+  it("refuses runtime-incompatible controls before spawning", async () => {
+    const dir = makeAgentDir();
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", "read-only": true, ext: "/fake/ext" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("unavailable under Pi");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "pi-trust": "saved" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("unavailable under Claude");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "read-only": true, "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("cannot be combined");
   });
 
   it("agent run with claude runtime streams and resumes by --conversation", async () => {
