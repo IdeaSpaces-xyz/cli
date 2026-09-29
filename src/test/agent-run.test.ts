@@ -703,6 +703,9 @@ process.stdin.on("data", (chunk) => {
     expect(stderr()).toContain("unavailable under Pi");
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "pi-trust": "saved" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("unavailable under Claude");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Pi --ext and --skill paths are unavailable under Claude");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", skill: true }, JSON_GLOBAL)).toBe(1);
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "read-only": true, "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("cannot be combined");
   });

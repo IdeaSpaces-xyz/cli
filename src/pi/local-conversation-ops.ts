@@ -19,10 +19,13 @@ type Flags = Record<string, string | boolean>;
 
 /** A flag's comma-separated value with an env fallback → split, trim, drop
  * empties. Used by the local turn's `--ext` and `--skill` resource-dir lists. */
-function parseCommaList(flag: string | boolean | undefined, envFallback: string | undefined, base: string, dedupe: boolean): string[] {
+function parseCommaList(flag: string | boolean | undefined, envFallback: string | undefined): string[] {
   const raw = typeof flag === "string" ? flag : envFallback;
-  const paths = (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!dedupe) return paths; // legacy conversation send keeps its original argv
+  return (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** Only agent launches canonicalize repeated selections; legacy send keeps its argv. */
+function dedupeResolvedPaths(paths: string[], base: string): string[] {
   const seen = new Set<string>();
   return paths.filter((path) => {
     const candidate = isAbsolute(path) ? path : resolve(base, path);
@@ -57,7 +60,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
   // distribution bundles them, the caller supplies the paths.
-  const extensionPaths = parseCommaList(flags.ext, options?.explicitLaunch ? undefined : process.env.IDEASPACES_PI_EXTENSIONS, repoPath, options?.explicitLaunch === true);
+  const extensions = parseCommaList(flags.ext, options?.explicitLaunch ? undefined : process.env.IDEASPACES_PI_EXTENSIONS);
+  const extensionPaths = options?.explicitLaunch ? dedupeResolvedPaths(extensions, repoPath) : extensions;
   if (!extensionPaths.length) {
     output.error(
       "Extensions are required: --ext <pi-is-space,pi-local-context> (or set IDEASPACES_PI_EXTENSIONS)",
@@ -67,7 +71,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   // Skill dirs — optional. `--extension` loads extension code but not the
   // package's skills, so a shipped app forwards them here. Empty in dev when the
   // user has `pi install`ed the extensions (skills already in `~/.pi/settings`).
-  const skillPaths = parseCommaList(flags.skill, options?.explicitLaunch ? undefined : process.env.IDEASPACES_PI_SKILLS, repoPath, options?.explicitLaunch === true);
+  const skills = parseCommaList(flags.skill, options?.explicitLaunch ? undefined : process.env.IDEASPACES_PI_SKILLS);
+  const skillPaths = options?.explicitLaunch ? dedupeResolvedPaths(skills, repoPath) : skills;
 
   const sessionDir =
     typeof flags["session-dir"] === "string" ? flags["session-dir"] : join(repoPath, ".pi", "sessions");

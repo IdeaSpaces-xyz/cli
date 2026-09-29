@@ -215,14 +215,22 @@ async function cmdRun(
     model = defaults.claude_model;
   }
 
-  if (runtime === "pi" && (typeof flags.ext !== "string" || !flags.ext.split(",").some((path) => path.trim()))) {
-    output.error("Pi child launch needs explicit trusted extension paths; no child was started.\nPass --ext <pi-is-space-path,pi-local-context-path> (and --skill <dirs> if needed). Relative paths resolve from the selected POV. Installed packages and IDEASPACES_PI_EXTENSIONS do not authorize an agent run.");
+  if (runtime === "claude" && (flags.ext !== undefined || flags.skill !== undefined)) {
+    output.error("Pi --ext and --skill paths are unavailable under Claude; choose --runtime pi or omit them.");
     return 1;
   }
-  // A path selected from inside the child repo cannot smuggle executable code
-  // through a symlink to somewhere outside it. External paths must be named
-  // explicitly by the caller; the repo's declarations grant nothing here.
   if (runtime === "pi") {
+    if (typeof flags.ext !== "string" || !flags.ext.split(",").some((path) => path.trim())) {
+      output.error("Pi child launch needs explicit trusted extension paths; no child was started.\nPass --ext <pi-is-space-path,pi-local-context-path> (and --skill <dirs> if needed). Relative paths resolve from the selected POV. Installed packages and IDEASPACES_PI_EXTENSIONS do not authorize an agent run.");
+      return 1;
+    }
+    if (flags.skill !== undefined && typeof flags.skill !== "string") {
+      output.error("Pi child skills require --skill <comma-separated-dirs>; a bare flag selects nothing.");
+      return 1;
+    }
+    // A path selected from inside the child repo cannot smuggle executable code
+    // through a symlink outside it. Explicit external paths are caller-selected,
+    // never inferred from the repo's declarations.
     for (const key of ["ext", "skill"] as const) {
       if (typeof flags[key] !== "string") continue;
       for (const raw of flags[key].split(",").map((s) => s.trim()).filter(Boolean)) {
@@ -241,10 +249,6 @@ async function cmdRun(
         }
       }
     }
-  }
-  if (runtime === "pi" && flags.skill !== undefined && typeof flags.skill !== "string") {
-    output.error("Pi child skills require --skill <comma-separated-dirs>; a bare flag selects nothing.");
-    return 1;
   }
   if (flags["session-dir"] !== undefined) {
     output.error("agent run uses the selected POV's session directory; --session-dir cannot redirect its transcript.");
