@@ -64,6 +64,9 @@ export interface SelectedThreadTarget {
   pin: string;
   position: string;
   pinned: string;
+  post: ThreadPost;
+  name: string;
+  summary: string;
   /** Recheck the selected bytes, Thread identity and explicit parents immediately before a write. */
   verifyWrite: (live: LocalThread, parents: string[]) => void;
 }
@@ -93,7 +96,10 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
   const prefix = `_threads/${slug}/`;
   const agreement = readPinnedThreadAgreement(checkout, root.sha, `${prefix}_agent/agreement.md`);
   const readme = readPinnedThreadMember(checkout, root.sha, `${prefix}README.md`);
-  if (!parseFrontmatter(agreement) || !parseFrontmatter(readme)) throw new Error("Pinned Thread Agreement or README is invalid.");
+  const frontmatter = parseFrontmatter(readme);
+  if (!parseFrontmatter(agreement) || !frontmatter) throw new Error("Pinned Thread Agreement or README is invalid.");
+  const name = typeof frontmatter.name === "string" ? frontmatter.name : slug;
+  const summary = typeof frontmatter.summary === "string" ? frontmatter.summary : "";
   const verifyWrite = (live: LocalThread, parents: string[]) => {
     if (live.path !== directory || live.slug !== slug || live.closed) throw new Error("Selected live Thread changed or closed; refusing append.");
     const selectedPath = join(directory, basename(position));
@@ -115,5 +121,5 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
       }
     }
   };
-  return { checkout, thread, pin: root.sha, position, pinned, verifyWrite };
+  return { checkout, thread, pin: root.sha, position, pinned, post: parsed.post, name, summary, verifyWrite };
 }

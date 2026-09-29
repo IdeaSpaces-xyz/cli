@@ -191,24 +191,21 @@ export const threadsCommand: CommandDef = {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|full] [--new] [--ack]");
         if (HOSTED.test(rest[0])) return hostedThreadsCommand.run(["read", rest[0]], flags, global);
         selectionFlags(flags);
+        if (flags.map !== undefined && flags.member === undefined) throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");
         if (flags.map !== undefined && flags.member !== undefined) {
           if (flags.pin !== undefined || flags.position !== undefined) throw new Error("Use either --map with --member or --pin with --position, not both.");
           if (flags.new !== undefined || flags.ack !== undefined) throw new Error("Selected pinned reads cannot use live --new or --ack.");
           const { root, member } = selectPinnedThreadMember(loadLocalThreadMap(str(flags, "map") ?? ""), str(flags, "member") ?? "");
           const target = selectLocalThreadTarget(rest[0], root, member, str(flags, "checkout"));
           const rung = depth(flags, "summary");
-          const parsed = parseThreadPost(target.pinned);
-          if (parsed.status !== "valid") throw new Error("Selected pinned post is invalid.");
-          const post = parsed.post;
+          const post = target.post;
+          const postName = post.frontmatter.name ?? post.id;
+          const postSummary = post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? "";
           const posts = rung === "name" ? [] : rung === "summary" ? [{ id: post.id, path: post.path, kind: post.kind,
-            name: post.frontmatter.name ?? post.id, summary: post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? "", in_reply_to: post.inReplyTo }] : [post];
-          const pinnedReadme = readPinnedThreadMember(target.checkout, target.pin, `_threads/${target.thread.slug}/README.md`);
-          const frontmatter = parseFrontmatter(pinnedReadme);
-          const name = typeof frontmatter?.name === "string" ? frontmatter.name : target.thread.slug;
-          const summary = typeof frontmatter?.summary === "string" ? frontmatter.summary : "";
-          output.result({ thread: { path: target.thread.path, name, summary: rung === "name" ? undefined : summary },
+            name: postName, summary: postSummary, in_reply_to: post.inReplyTo }] : [post];
+          output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
             posts, ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
-            rung === "full" ? target.pinned : rung === "name" ? name : `${name}\n${post.frontmatter.name ?? post.id} — ${post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? ""}`);
+            rung === "full" ? target.pinned : rung === "name" ? target.name : `${target.name}\n${postName} — ${postSummary}`);
           return 0;
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
@@ -259,6 +256,7 @@ export const threadsCommand: CommandDef = {
           ? selectPinnedThreadMember(map, str(flags, "member") ?? "") : undefined;
         if (!selected && flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         if (selected && flags.author !== undefined) throw new Error("Selected Thread posts use the caller's Agreement name; omit --author.");
+        if (selected && kind === "closure") throw new Error("Selected cross-Space closure is not supported; use the local Space's close verb.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
         const body = str(flags, "message") ?? await stdin();
         const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());

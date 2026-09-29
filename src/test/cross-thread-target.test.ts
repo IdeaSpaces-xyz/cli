@@ -74,7 +74,10 @@ describe("authored cross-Space local Thread selection", () => {
       expect(JSON.stringify(summarized.data)).not.toContain("Newer live post");
       expect(JSON.stringify(summarized.data)).not.toContain("Selected at pin");
       expect((await run(["close", "decision"], { map: f.map, member: "0", message: "No" })).status).toBe(1);
+      expect((await run(["post", "decision"], { map: f.map, member: "0", kind: "closure", message: "No", "reply-to": f.first.post.id })).status).toBe(1);
+      expect((await run(["open", "decision"], { map: f.map })).error).toMatch(/requires --member/);
       expect(posts(f.home)).toHaveLength(2);
+      expect(posts(f.agent)).toHaveLength(1);
       // Unit tests also run without a build. When the package entrypoint exists,
       // exercise its actual flag parser (the package check builds it in CI).
       const bundle = join(initialCwd, "bundle", "ideaspaces.js");
