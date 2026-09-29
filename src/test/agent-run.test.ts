@@ -8,7 +8,7 @@ import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
-import type { LocalConversationOps } from "../commands/conversation.js";
+import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
 import { saveSpace } from "../auth/spaces.js";
 import { claudeConversationOps } from "../claude/local-conversation-ops.js";
@@ -235,9 +235,11 @@ describe("agent run — command options & validation", () => {
         context: realpathSync.native(dir),
         runtime: "pi",
         "pi-model": "openai/gpt-4o",
+        "pi-trust": "saved",
         message: "Analyze data",
       }),
       expect.anything(),
+      { extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -252,6 +254,34 @@ describe("agent run — command options & validation", () => {
     const code = await agentCmd.run(["run", dir], {}, JSON_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("A message is required: --message <text>");
+  });
+
+  it("bounds the combined Agreement and pinned Thread orientation before spawn", async () => {
+    const root = tempDir();
+    const pov = makeAgentDir("large-combined-pov-", `---\nname: Agreement — Fellow\n---\n# Fellow\n${"a".repeat(9_000)}`);
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+      if (result.status !== 0) throw new Error(result.stderr);
+      return result.stdout.trim();
+    };
+    git("init", "-b", "main"); git("config", "user.name", "Test"); git("config", "user.email", "test@example.test");
+    mkdirSync(join(root, "_agent"));
+    writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Root\nroot_node_id: ${ROOT_A}\n---\n`);
+    const thread = createThread("decision", "Decision", root);
+    writeFileSync(join(thread.path, "_agent", "agreement.md"), `---\nname: Thread agreement\n---\n# Thread\n${"b".repeat(9_000)}`);
+    const post = appendPost(thread.path, { body: "A decision", summary: "Decision summary" });
+    git("add", "_agent", "_threads"); git("commit", "-m", "pin");
+    const map = join(root, "handoff.json");
+    writeFileSync(map, JSON.stringify({ map: { roots: [{ root_node_id: ROOT_A, sha: git("rev-parse", "HEAD") }],
+      members: [{ root: 0, position: `_threads/decision/${post.post.path}`, depth: "summary" }] } }));
+    const previous = process.cwd(); process.chdir(root);
+    try {
+      const code = await agentCmd.run(["run", pov], { message: "Read this", thread: thread.path,
+        "thread-map": map, "thread-member": "0" }, JSON_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("Combined Agreement and Thread orientation exceeds 16 KiB");
+    } finally { process.chdir(previous); }
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
   it("refuses a path-only Thread launch before invoking the runtime", async () => {
@@ -274,6 +304,20 @@ describe("agent run — command options & validation", () => {
     );
     expect(code).toBe(1);
     expect(stderr()).toContain('Unknown local runtime "unsupported"');
+  });
+
+  it("bounds the message before any runtime spawn", async () => {
+    const dir = makeAgentDir();
+    expect(await agentCmd.run(["run", dir], { message: "x".repeat(8 * 1024 + 1) }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("message exceeds 8 KiB");
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("bounds the injected Agreement before any runtime spawn", async () => {
+    const dir = makeAgentDir("large-agreement-", "x".repeat(16 * 1024 + 1));
+    expect(await agentCmd.run(["run", dir], { message: "Hi" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Agreement exceeds 16 KiB");
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
   it("refuses launch when target has missing Agreement contract", async () => {
@@ -328,6 +372,7 @@ describe("agent run — command options & validation", () => {
         message: "Help with analysis",
       }),
       expect.anything(),
+      { extraOrientation: expect.stringContaining("# Specialist Agreement") },
     );
   });
 
@@ -354,6 +399,7 @@ describe("agent run — command options & validation", () => {
         conversation: "11111111-1111-4111-8111-111111111111",
       }),
       expect.anything(),
+      { extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -379,6 +425,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
+      { extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 });
@@ -390,8 +437,9 @@ describe.skipIf(process.platform === "win32")("agent run — end-to-end streamin
     claude: claudeConversationOps,
   });
   const agentCmd = makeAgentCommand(localOps);
+  const conversationCmd = makeConversationCommand(localOps);
 
-  const FAKE_CLAUDE = `
+  const FAKE_CLAUDE = `;
 const args = process.argv.slice(2);
 const id = args[args.indexOf("--resume") + 1] || args[args.indexOf("--session-id") + 1];
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");
@@ -404,8 +452,12 @@ process.stdin.on("end", () => {
     return;
   }
   out({ type: "stream_event", event: { type: "message_start" } });
-  out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "claude:" + prompt.trim() } } });
-  out({ type: "result", subtype: "success", is_error: false, result: "claude:" + prompt.trim(), num_turns: 1, total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 2 } });
+  const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
+  const response = prompt.trim() === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
+    : prompt.trim() === "policy_probe" ? JSON.stringify({ readOnly: args.includes("--tools") && args.includes("--strict-mcp-config"), effort: args[args.indexOf("--effort") + 1] })
+    : "claude:" + prompt.trim();
+  out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: response } } });
+  out({ type: "result", subtype: "success", is_error: false, result: response, num_turns: 1, total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 2 } });
 });
 `;
 
@@ -433,7 +485,10 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
       const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
-      if (command.message !== "empty_response") console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "pi:" + command.message + frame } }));
+      const answer = command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
+        : command.message === "policy_probe" ? JSON.stringify({ approved: args.includes("-a"), thinking: args[args.indexOf("--thinking") + 1] })
+        : "pi:" + command.message + frame;
+      if (command.message !== "empty_response") console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: answer } }));
       console.log(JSON.stringify({ type: "agent_end" }));
     }
   }
@@ -577,6 +632,78 @@ process.stdin.on("data", (chunk) => {
       expect(frame.orientation).toContain("Private summary");
       expect(frame.parentId).toBe(post.post.id);
     } finally { process.chdir(previous); }
+  });
+
+  it("conversation send refuses wrong-runtime flags instead of silently ignoring safety policy", async () => {
+    const dir = makeAgentDir();
+    expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", message: "hi", "read-only": true,
+      ext: "/fake/ext", context: dir }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("unavailable under Pi");
+    expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", message: "hi", "permission-mode": "bypassPermissions",
+      ext: "/fake/ext", context: dir }, JSON_GLOBAL)).toBe(1);
+    expect(await conversationCmd.run(["send"], { local: true, runtime: "claude", message: "hi", "pi-trust": "saved",
+      context: dir }, JSON_GLOBAL)).toBe(1);
+    expect(await conversationCmd.run(["send"], { local: true, runtime: "claude", message: "hi", "pi-thinking": "high",
+      context: dir }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("unavailable under Claude");
+  });
+
+  it("forwards explicit Pi trust and Claude effort/read-only flags to the selected runtime", async () => {
+    const dir = makeAgentDir();
+    const pi = join(dir, "pi-test-bin");
+    const claude = join(dir, "claude-test-bin");
+    writeFileSync(join(dir, "pi-test-bin.cjs"), FAKE_PI);
+    writeFileSync(join(dir, "claude-test-bin.cjs"), FAKE_CLAUDE);
+    writeFileSync(pi, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "pi-test-bin.cjs")}" "$@"\n`);
+    writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "claude-test-bin.cjs")}" "$@"\n`);
+    chmodSync(pi, 0o755); chmodSync(claude, 0o755);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: "/fake/ext", "pi-bin": pi, "pi-thinking": "high" }, JSON_GLOBAL)).toBe(0);
+    const piDone = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    expect(JSON.parse(piDone.result.response)).toEqual({ approved: false, thinking: "high" });
+    stdoutChunks = [];
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: "/fake/ext", "pi-bin": pi, "pi-trust": "explicit" }, JSON_GLOBAL)).toBe(0);
+    const approved = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    expect(JSON.parse(approved.result.response).approved).toBe(true);
+    stdoutChunks = [];
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "policy_probe", "claude-bin": claude,
+      "claude-effort": "high", "read-only": true, "permission-mode": "dontAsk" }, JSON_GLOBAL)).toBe(0);
+    const claudeDone = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    expect(JSON.parse(claudeDone.result.response)).toEqual({ readOnly: true, effort: "high" });
+  });
+
+  it("loads the selected Agreement into both child runtimes rather than relying on parent hooks", async () => {
+    const dir = makeAgentDir("agent-run-orientation-", "# Distinct Agreement POV\n");
+    for (const runtime of ["pi", "claude"] as const) {
+      const fakeBin = join(dir, `fake-${runtime}`);
+      const source = runtime === "pi" ? FAKE_PI : FAKE_CLAUDE;
+      writeFileSync(join(dir, `fake-${runtime}.cjs`), source);
+      writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, `fake-${runtime}.cjs`)}" "$@"\n`);
+      chmodSync(fakeBin, 0o755);
+      const flags = runtime === "pi" ? { ext: "/fake/ext", "pi-bin": fakeBin } : { "claude-bin": fakeBin };
+      const code = await agentCmd.run(["run", dir], { runtime, message: "orientation_probe", ...flags }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      const events = stdout().trim().split("\n").map((line) => JSON.parse(line));
+      expect(events.find((e) => e.type === "turn_complete")?.result.response).toBe("contract:yes");
+      stdoutChunks = [];
+    }
+  });
+
+  it("rejects invalid Pi trust and Claude effort values before starting a child", async () => {
+    const dir = makeAgentDir();
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", ext: "/fake/ext", "pi-trust": "unsafe" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid Pi trust policy");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "claude-effort": "infinite" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid Claude effort");
+  });
+
+  it("refuses runtime-incompatible controls before spawning", async () => {
+    const dir = makeAgentDir();
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", "read-only": true, ext: "/fake/ext" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("unavailable under Pi");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "pi-trust": "saved" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("unavailable under Claude");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "read-only": true, "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("cannot be combined");
   });
 
   it("agent run with claude runtime streams and resumes by --conversation", async () => {

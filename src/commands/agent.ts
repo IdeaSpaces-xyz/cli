@@ -1,5 +1,5 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
@@ -39,19 +39,26 @@ export {
 
 type Flags = Record<string, string | boolean>;
 
+// Both child Pi RPC and Claude Code receive orientation via
+// --append-system-prompt argv; both adapters pass the message to this CLI on
+// --message argv before the CLI relays it to the child via RPC/stdin. Reserve
+// room for executable paths and runtime flags on Windows.
+const MAX_MESSAGE_BYTES = 8 * 1024;
+const MAX_ORIENTATION_BYTES = 16 * 1024;
+
 function flagString(flags: Flags, name: string): string | undefined {
   const value = flags[name];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-export const RUN_USAGE =
-  "ideaspaces agent run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const USAGE =
-  "ideaspaces agent <run|list> … (run <pov> --message <text> [--runtime pi|claude] [--model <name>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]; list --map <file> [--json])";
+  `ideaspaces agent <run|list> … (run ${RUN_ARGS}; list --map <file> [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -115,6 +122,10 @@ async function cmdRun(
     output.error("A message is required: --message <text>");
     return 1;
   }
+  if (Buffer.byteLength(message) > MAX_MESSAGE_BYTES) {
+    output.error("Agent launch message exceeds 8 KiB; use a shorter instruction or point to a local Note.");
+    return 1;
+  }
 
   const povResult = validateAgentPov(povArg);
   if (!povResult.valid) {
@@ -122,6 +133,26 @@ async function cmdRun(
     return 1;
   }
   const povPath = povResult.path;
+  // The selected contract, not the caller's SessionStart, owns this child POV.
+  // Child hooks may also run, but launch must be grounded even when that
+  // other harness has no IdeaSpaces plugin installed yet.
+  let povOrientation: string;
+  try {
+    // Preflight before reading a possibly huge Agreement into memory.
+    if (statSync(povResult.contractPath).size > MAX_ORIENTATION_BYTES) {
+      output.error("Selected POV Agreement exceeds 16 KiB; shorten it before launch.");
+      return 1;
+    }
+    const contract = readFileSync(povResult.contractPath, "utf8");
+    povOrientation = `[Selected ${povResult.contractType} POV: ${povPath}]\n${contract}`;
+    if (Buffer.byteLength(povOrientation) > MAX_ORIENTATION_BYTES) {
+      output.error("Selected POV orientation exceeds 16 KiB; shorten the Agreement before launch.");
+      return 1;
+    }
+  } catch (err) {
+    output.error(`Could not read the selected POV contract: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
 
   let thread: ReturnType<typeof prepareThreadLaunch> | undefined;
   if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
@@ -139,6 +170,16 @@ async function cmdRun(
       output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
       return 1;
     }
+  }
+
+  if (thread && Buffer.byteLength(`${povOrientation}\n\n${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
+    output.error("Combined Agreement and Thread orientation exceeds 16 KiB; shorten the selected frame before launch.");
+    return 1;
+  }
+  const currentPov = revalidateAgentPov(povPath);
+  if (!currentPov.valid || currentPov.contractPath !== povResult.contractPath) {
+    output.error("Selected POV contract moved or became invalid before launch; select it again.");
+    return 1;
   }
 
   const defaults = readAgentDefaults(povPath);
@@ -180,6 +221,18 @@ async function cmdRun(
     runtime,
     message,
   };
+  // Keep Desktop's legacy conversation-send default intact, but never approve
+  // an agent run's Pi project resources merely because the CLI was invoked.
+  if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";
+
+  if (runtime === "pi" && (flags["read-only"] === true || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined)) {
+    output.error("Claude read-only, effort, and permission mode are unavailable under Pi. Choose --runtime claude or omit them.");
+    return 1;
+  }
+  if (runtime === "claude" && (flags["pi-thinking"] !== undefined || flags["pi-trust"] !== undefined)) {
+    output.error("Pi thinking and trust policy are unavailable under Claude; use --claude-effort if supported.");
+    return 1;
+  }
 
   if (model) {
     if (runtime === "pi") {
@@ -189,10 +242,10 @@ async function cmdRun(
     }
   }
 
-  if (!thread) return local.send(forwardFlags, output);
+  if (!thread) return local.send(forwardFlags, output, { extraOrientation: povOrientation });
   let snapshotWritten = false;
   return local.send(forwardFlags, output, {
-    extraOrientation: thread.orientation,
+    extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
     onEvent(event) {
       if (event.type !== "turn_complete") return event;
       if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
@@ -239,12 +292,13 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list agents; a pinned local Thread run appends a named snapshot on success",
+    description: "Run or list local POVs. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
-      "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
+      "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --pi-trust saved --pi-thinking high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation c_123",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",

@@ -47,6 +47,14 @@ export function isValidClaudePermissionMode(mode: string): mode is ClaudePermiss
   return (CLAUDE_PERMISSION_MODES as readonly string[]).includes(mode);
 }
 
+/** `--effort` choices verified against Claude Code 2.1.284's --help. Older
+ * versions may not support the flag; their rejection is surfaced as a failed run. */
+export const CLAUDE_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type ClaudeEffort = (typeof CLAUDE_EFFORT_LEVELS)[number];
+export function isValidClaudeEffort(value: string): value is ClaudeEffort {
+  return (CLAUDE_EFFORT_LEVELS as readonly string[]).includes(value);
+}
+
 /** How the spawned Claude Code authenticates. `login` is the user's own Claude
  * sign-in (the default, and the only path the desktop offers); `api-key` lets an
  * `ANTHROPIC_API_KEY` in the environment through. */
@@ -99,6 +107,10 @@ export interface ClaudeTurnOptions {
   model?: string;
   /** Approval policy for the headless turn. Default `acceptEdits`. */
   permissionMode?: ClaudePermissionMode;
+  /** Restrict the headless child to built-in read tools, with no plugin MCP tools. */
+  readOnly?: boolean;
+  /** Claude Code's --effort, if supported by the installed version. */
+  effort?: ClaudeEffort;
   /** Auth path. Default `login` — scrubs API-key variables from the child env. */
   auth?: ClaudeAuthMode;
   /** Claude Code executable. Default "claude" (from PATH). */
@@ -123,6 +135,8 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
   ];
   if (opts.workingRoot && opts.workingRoot !== opts.repoPath) args.push("--add-dir", opts.workingRoot);
   if (opts.model) args.push("--model", opts.model);
+  if (opts.effort) args.push("--effort", opts.effort);
+  if (opts.readOnly) args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
   if (opts.autocompact) args.push("--autocompact", opts.autocompact);
   const orientation = [opts.mapOrientation, opts.launchOrientation].filter(Boolean).join("\n\n");
   if (orientation) args.push("--append-system-prompt", orientation);

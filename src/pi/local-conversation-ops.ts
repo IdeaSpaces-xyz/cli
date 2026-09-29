@@ -43,6 +43,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error("A message is required: --message <text>");
     return 1;
   }
+  if (flags["read-only"] !== undefined || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined) {
+    output.error("Claude read-only, effort, and permission mode are unavailable under Pi; choose --runtime claude or omit them.");
+    return 1;
+  }
   // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
   // distribution bundles them, the caller supplies the paths.
   const extensionPaths = parseCommaList(flags.ext, process.env.IDEASPACES_PI_EXTENSIONS);
@@ -72,6 +76,11 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   const piThinking = typeof flags["pi-thinking"] === "string" ? flags["pi-thinking"] : undefined;
   if (piThinking !== undefined && !isValidPiThinkingLevel(piThinking)) {
     output.error(`Invalid thinking level "${piThinking}". Valid values: ${PI_THINKING_LEVELS.join(", ")}`);
+    return 1;
+  }
+  const trust = flags["pi-trust"] === undefined ? "explicit" : flags["pi-trust"];
+  if (trust !== "saved" && trust !== "explicit") {
+    output.error(`Invalid Pi trust policy "${String(trust)}". Valid values: saved, explicit`);
     return 1;
   }
   // The pi binary to spawn — the desktop passes its bundled sidecar here. Absent
@@ -139,6 +148,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       piModel,
       thinkingLevel: piThinking,
+      trust,
       piBin,
       signal: controller.signal,
     })) {

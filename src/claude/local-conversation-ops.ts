@@ -11,6 +11,9 @@ import { localLaunchOrientation } from "../local/launch-orientation.js";
 import {
   CLAUDE_AUTH_MODES,
   CLAUDE_PERMISSION_MODES,
+  CLAUDE_EFFORT_LEVELS,
+  isValidClaudeEffort,
+  type ClaudeEffort,
   isValidClaudeAuthMode,
   isValidClaudeAutocompact,
   isValidClaudePermissionMode,
@@ -39,6 +42,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error("A message is required: --message <text>");
     return 1;
   }
+  if (flags["pi-trust"] !== undefined || flags["pi-thinking"] !== undefined) {
+    output.error("Pi trust and thinking are unavailable under Claude; choose --runtime pi or omit them.");
+    return 1;
+  }
   const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   // Claude Code requires a UUID session id; a fresh one is minted when absent,
   // which is the `new` step folded into the first send.
@@ -55,6 +62,20 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   if (typeof permissionMode !== "string" || !isValidClaudePermissionMode(permissionMode)) {
     output.error(`Invalid permission mode "${String(permissionMode)}". Valid values: ${CLAUDE_PERMISSION_MODES.join(", ")}`);
     return 1;
+  }
+  const readOnly = flags["read-only"] === true;
+  if (readOnly && permissionMode === "bypassPermissions") {
+    output.error("--read-only cannot be combined with --permission-mode bypassPermissions: bypass changes project authority. Use --permission-mode dontAsk for a read-only turn, or omit --read-only if bypass is intended.");
+    return 1;
+  }
+  const rawEffort = flags["claude-effort"];
+  let effort: ClaudeEffort | undefined;
+  if (rawEffort !== undefined) {
+    if (typeof rawEffort !== "string" || !isValidClaudeEffort(rawEffort)) {
+      output.error(`Invalid Claude effort "${String(rawEffort)}". Valid values: ${CLAUDE_EFFORT_LEVELS.join(", ")}`);
+      return 1;
+    }
+    effort = rawEffort;
   }
   const auth = flags["claude-auth"] === undefined ? "login" : flags["claude-auth"];
   if (typeof auth !== "string" || !isValidClaudeAuthMode(auth)) {
@@ -122,6 +143,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       model,
       permissionMode,
+      readOnly,
+      effort,
       auth,
       claudeBin,
       autocompact,
