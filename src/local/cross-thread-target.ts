@@ -70,7 +70,7 @@ export interface SelectedThreadTarget {
   name: string;
   summary: string;
   /** Recheck the selected bytes, Thread identity and explicit parents immediately before a write. */
-  verifyWrite: (live: LocalThread, parents: string[]) => void;
+  verifyWrite: (live: LocalThread, parents: string[], supersedes?: string) => void;
 }
 
 export function selectLocalThreadTarget(input: string, root: MapRoot, member: MapPositionMember, checkoutHint?: string): SelectedThreadTarget {
@@ -103,7 +103,7 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
   if (!parseFrontmatter(agreement) || !frontmatter) throw new Error("Pinned Thread Agreement or README is invalid.");
   const name = typeof frontmatter.name === "string" ? frontmatter.name : slug;
   const summary = typeof frontmatter.summary === "string" ? frontmatter.summary : "";
-  const verifyWrite = (live: LocalThread, parents: string[]) => {
+  const verifyWrite = (live: LocalThread, parents: string[], supersedes?: string) => {
     if (live.path !== directory || live.slug !== slug || live.closed) throw new Error("Selected live Thread changed or closed; refusing append.");
     const selectedPath = join(directory, basename(position));
     const safeEqual = (path: string, content: string) => {
@@ -117,10 +117,10 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
       throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
     }
     if (!parents.length || new Set(parents).size !== parents.length) throw new Error("Selected cross-Space post requires distinct explicit --reply-to ids; no implicit HEAD parent.");
-    for (const id of parents) {
+    for (const id of [...parents, ...(supersedes ? [supersedes] : [])]) {
       const parent: ThreadPost | undefined = live.posts.find((post) => post.id === id);
       if (!parent || !safeEqual(join(directory, parent.path), readPinnedThreadMember(checkout, root.sha, `${prefix}${parent.path}`))) {
-        throw new Error(`Selected parent ${id} is missing or changed since the authored pin.`);
+        throw new Error(`Selected parent or superseded post ${id} is missing or changed since the authored pin.`);
       }
     }
   };

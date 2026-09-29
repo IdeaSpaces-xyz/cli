@@ -154,15 +154,18 @@ describe("authored cross-Space local Thread selection", () => {
   it("refuses symlinks, changed or closed live targets, missing parents and implicit HEAD parent without writes", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
     const base = { map: f.map, member: "0", checkout: f.home, message: "Never" };
-    const refuse = async (extra: Record<string, string> = {}) => {
+    const refuse = async (extra: Record<string, string | boolean> = {}) => {
       expect((await run(["post", "decision"], { ...base, ...extra })).status).toBe(1);
       expect(posts(f.home)).toHaveLength(2);
       expect(posts(f.agent)).toHaveLength(1);
     };
     await refuse();
     await refuse({ "reply-to": "" });
+    await refuse({ "reply-to": `${f.first.post.id},,${f.later.post.id}` });
+    await refuse({ "reply-to": f.first.post.id, checkout: true });
     await refuse({ "reply-to": "msg_missing" });
     await refuse({ "reply-to": f.later.post.id }); // only exists after the pin
+    await refuse({ "reply-to": f.first.post.id, kind: "correction", supersedes: f.later.post.id });
     await refuse({ "reply-to": f.first.post.id, author: "Impersonator" });
     const link = join(f.agent, "alias"); symlinkSync(f.home, link);
     await refuse({ checkout: link, "reply-to": f.first.post.id });
