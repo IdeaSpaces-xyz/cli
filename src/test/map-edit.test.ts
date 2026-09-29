@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { promises as fs } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { existsSync, promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -132,6 +132,19 @@ describe("map authoring", () => {
     expect(content).toContain("---\r\n\r\n# Legend\r\n");
   }, 10_000);
 
+  it("reports success rather than inviting a duplicate add when lock cleanup fails", async () => {
+    const dir = await directory();
+    const file = join(dir, "team.map.md");
+    expect((await run(["create", file], { name: "Team", summary: "T" })).code).toBe(0);
+    const removeLock = vi.spyOn(fs, "rmdir").mockRejectedValueOnce(new Error("permission denied"));
+    try {
+      const result = await run(["add", file, "thread:x_0123456789abcdef01234567"]);
+      expect(result.code).toBe(0);
+      expect(result.error).toContain("edit succeeded, but could not release");
+      expect((await run([file])).data.members).toHaveLength(1);
+    } finally { removeLock.mockRestore(); }
+  });
+
   it("does not hide an invalid README Map by deriving a tree", async () => {
     const dir = await directory();
     await fs.writeFile(join(dir, "README.md"), "---\nname: Broken\nmap: [\n---\n# Still a Note\n");
@@ -140,7 +153,9 @@ describe("map authoring", () => {
     expect(result.error).toContain("Could not open Space Map");
   });
 
-  it("serializes independent CLI processes: neither add is silently lost", async () => {
+  // CI's npm ci runs prepare/build before tests. Direct Vitest on an unbuilt
+  // checkout can still exercise every unit test; build before the process race.
+  it.skipIf(!existsSync(resolve("bundle/ideaspaces.js")))("serializes independent CLI processes (requires npm run build): neither add is silently lost", async () => {
     const dir = await directory();
     const file = join(dir, "team.map.md");
     expect((await run(["create", file], { name: "Team", summary: "Two writers" })).code).toBe(0);

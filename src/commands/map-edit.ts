@@ -20,7 +20,7 @@ function errorMessage(error: unknown): string { return error instanceof Error ? 
 // An exclusive directory lock serializes cooperating CLI processes. A timeout is a
 // refusal, never permission to steal a possibly live lock. Atomic rename keeps
 // readers from observing half a frontmatter write.
-async function locked<T>(file: string, action: () => Promise<T>): Promise<T> {
+async function locked<T>(file: string, action: () => Promise<T>, warn: (message: string) => void): Promise<T> {
   const lock = `${file}.lock`;
   const deadline = Date.now() + 4000;
   for (;;) {
@@ -42,7 +42,10 @@ async function locked<T>(file: string, action: () => Promise<T>): Promise<T> {
     await fs.rmdir(lock).catch(() => {});
     throw error;
   }
-  await fs.rmdir(lock); // On success, surface cleanup failure to the caller.
+  // The write has already landed. A failed cleanup is a warning, not a failed
+  // add: an agent retrying after a false failure would duplicate the member.
+  try { await fs.rmdir(lock); }
+  catch (error) { warn(`Map edit succeeded, but could not release ${lock}: ${errorMessage(error)}. Confirm no writer is running before removing the lock.`); }
   return result;
 }
 
@@ -157,7 +160,7 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       if (hash(await fs.readFile(file, "utf8")) !== hash(original)) throw new Error(`Map base moved while editing ${file}. Re-read and retry.`);
       await replace(file, next);
       return { index, sha: hash(next) };
-    });
+    }, output.error);
     output.result({ path: file, member_index: changed.index, sha: changed.sha }, `${verb === "add" ? "Added" : "Removed"} member ${changed.index}: ${file}`);
     return 0;
   } catch (error) {
