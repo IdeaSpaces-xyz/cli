@@ -20,12 +20,13 @@ import {
   type ProjectedContentTreeMember,
 } from "@ideaspaces/protocol";
 import { realpathSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { inspectPortableLocalRoot } from "../local-map-root.js";
 import { inspectSpaceMap } from "../local/space-map.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
+import { MAP_EDIT_USAGE, runMapEdit } from "./map-edit.js";
 
 function parseDepth(value: string | boolean | undefined): ContentTreeDepth | null {
   if (value === undefined) return 1;
@@ -49,9 +50,12 @@ function emptyTree(): ContentAwarenessTree {
 export const mapCommand: CommandDef = {
   name: "map",
   description: "Display a curated Space Map (*.map.md) or derive a local Content Map",
-  usage: `ideaspaces map [<repo>] [--depth <1..4|full>] [--json]\n       ${MAP_SELECT_USAGE}`,
+  usage: `ideaspaces map [<folder|map-note>] [--depth <1..4|full>] [--json]\n       ${MAP_EDIT_USAGE}\n       ${MAP_SELECT_USAGE}`,
   examples: [
     "ideaspaces map . --json",
+    "ideaspaces map create team.map.md --name Team --summary 'Team space'",
+    "ideaspaces map add team.map.md thread:x_0123456789abcdef01234567 --depth summary",
+    "ideaspaces map remove team.map.md 0",
     "ideaspaces map select notes/finding.md --hostname example.com --note-depth surface --json",
     "ideaspaces map ../research --depth 2 --json",
     "ideaspaces map ../research --depth full --json  # complete local Content tree",
@@ -61,6 +65,9 @@ export const mapCommand: CommandDef = {
     if (args[0] === "select") {
       return runMapSelection(args.slice(1), flags, global, output);
     }
+    if (["create", "add", "remove"].includes(args[0])) {
+      return runMapEdit(args, flags, global);
+    }
     const depth = parseDepth(flags.depth);
     if (depth === null) {
       output.error("Map depth must be 1, 2, 3, 4, or full: --depth <1..4|full>");
@@ -69,12 +76,17 @@ export const mapCommand: CommandDef = {
 
     const requested = resolve((args[0] ?? ".").trim() || ".");
     let target: string;
+    let selectedFile: string | undefined;
     try {
-      if (!statSync(requested).isDirectory()) {
-        output.error(`Not a directory: ${requested}`);
+      if (statSync(requested).isFile() && (basename(requested).endsWith(".map.md") || basename(requested) === "README.md")) {
+        selectedFile = basename(requested);
+        target = realpathSync.native(dirname(requested));
+      } else if (statSync(requested).isDirectory()) {
+        target = realpathSync.native(requested);
+      } else {
+        output.error(`Not a Map note or directory: ${requested}`);
         return 1;
       }
-      target = realpathSync.native(requested);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       output.error(
@@ -88,7 +100,7 @@ export const mapCommand: CommandDef = {
     // 1. Check for a curated Space Map (*.map.md) at the target position
     let spaceMap: ReturnType<typeof inspectSpaceMap>;
     try {
-      spaceMap = inspectSpaceMap(target);
+      spaceMap = inspectSpaceMap(target, selectedFile);
     } catch (error) {
       output.error(`Could not open Space Map: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
