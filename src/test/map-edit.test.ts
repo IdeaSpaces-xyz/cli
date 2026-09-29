@@ -88,6 +88,58 @@ describe("map authoring", () => {
     expect((await run(["add", file, "not-an-address"])).code).toBe(1);
   });
 
+  it("refuses ambiguous addresses, stale adds and invalid inputs without changing the file", async () => {
+    const dir = await directory();
+    const file = join(dir, "team.map.md");
+    expect((await run(["create", join(dir, "missing", "team.map.md")], { name: "Team", summary: "T" })).error).toContain("check the map path");
+    await fs.writeFile(file, "---\nname: Team\nmap:\n  roots: []\n  members: []\n---\n# Team\n");
+    const initial = await fs.readFile(file, "utf8");
+    expect((await run(["add", file], { position: ".", depth: "summary", root: "0" })).error).toContain("Map has no roots");
+    expect((await run(["add", file, "bad"])).error).toContain("Invalid member");
+    expect((await run(["add", file, "thread:x_0123456789abcdef01234567"], { "if-match": "0".repeat(64) })).error).toContain("Map base moved");
+    expect(await fs.readFile(file, "utf8")).toBe(initial);
+    const address = "thread:x_0123456789abcdef01234567";
+    expect((await run(["add", file, address])).code).toBe(0);
+    expect((await run(["add", file, address])).code).toBe(0);
+    expect((await run(["remove", file, address])).error).toContain("matches multiple members");
+    expect((await run(["remove", file, "1"])).code).toBe(0);
+    expect((await run(["remove", file, address])).code).toBe(0);
+    expect((await run([file])).data.members).toEqual([]);
+    await fs.writeFile(file, "---\nname: Broken\nmap: [\n---\n# Still a Note\n");
+    expect((await run(["add", file, address])).error).toContain("Invalid YAML");
+    expect((await run([dir])).error).toContain("Could not open Space Map");
+    await fs.writeFile(file, "# No frontmatter\n");
+    expect((await run(["add", file, address])).error).toContain("No valid YAML frontmatter");
+    await fs.mkdir(join(dir, "folder.map.md"));
+    expect((await run(["add", join(dir, "folder.map.md"), address])).code).toBe(1);
+  });
+
+  it("preserves CRLF notes and refuses a held lock without stealing it", async () => {
+    const dir = await directory();
+    const file = join(dir, "team.map.md");
+    await fs.writeFile(file, "---\r\nname: Team\r\nmap:\r\n  roots: []\r\n  members: []\r\n---\r\n\r\n# Legend\r\n");
+    const lock = `${await fs.realpath(file)}.lock`;
+    await fs.mkdir(lock);
+    const refused = await run(["add", file, "thread:x_0123456789abcdef01234567"]);
+    expect(refused.code).toBe(1);
+    expect(refused.error).toContain("Map is locked");
+    expect(refused.error).toContain("confirm no writer is running");
+    expect((await run([file])).data.members).toEqual([]);
+    await fs.rmdir(lock);
+    expect((await run(["add", file, "thread:x_0123456789abcdef01234567"])).code).toBe(0);
+    const content = await fs.readFile(file, "utf8");
+    expect(content.replace(/\r\n/g, "")).not.toContain("\n");
+    expect(content).toContain("---\r\n\r\n# Legend\r\n");
+  }, 10_000);
+
+  it("does not hide an invalid README Map by deriving a tree", async () => {
+    const dir = await directory();
+    await fs.writeFile(join(dir, "README.md"), "---\nname: Broken\nmap: [\n---\n# Still a Note\n");
+    const result = await run([dir]);
+    expect(result.code).toBe(1);
+    expect(result.error).toContain("Could not open Space Map");
+  });
+
   it("serializes independent CLI processes: neither add is silently lost", async () => {
     const dir = await directory();
     const file = join(dir, "team.map.md");

@@ -84,8 +84,12 @@ export function discoverSpaceMapFiles(dir: string): SpaceMapDiscovery | null {
     // declared Map remains visible to the reader as an error, not a fallback.
     const readme = join(dir, "README.md");
     if (existsSync(readme) && statSync(readme).isFile()) {
-      const fm = parseFrontmatter(readFileSync(readme, "utf8"));
-      if (fm && Object.hasOwn(fm, "map")) mapFiles.push("README.md");
+      const content = readFileSync(readme, "utf8");
+      const fm = parseFrontmatter(content);
+      // Even when YAML is malformed, a declared map must fail visibly rather
+      // than silently falling back to the derived tree.
+      const front = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/.exec(content);
+      if ((fm && Object.hasOwn(fm, "map")) || (front && /^map\s*:/m.test(front[1]))) mapFiles.push("README.md");
     }
     if (!mapFiles.length) return null;
     const chosen = mapFiles.includes("home.map.md") ? "home.map.md" : mapFiles.includes("README.md") ? "README.md" : mapFiles[0];

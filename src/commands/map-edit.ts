@@ -27,12 +27,23 @@ async function locked<T>(file: string, action: () => Promise<T>): Promise<T> {
     try { await fs.mkdir(lock); break; }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (Date.now() >= deadline) throw new Error(`Map is locked: ${lock}. Retry after the writer finishes; inspect a stale lock before removing it.`);
+      if (Date.now() >= deadline) {
+        const age = await fs.stat(lock).then((stat) => `${Math.round((Date.now() - stat.mtimeMs) / 1000)}s old`, () => "age unknown");
+        throw new Error(`Map is locked: ${lock} (${age}). Retry after the writer finishes. If the writer crashed, confirm no writer is running, then remove the empty lock directory with rmdir.`);
+      }
       await new Promise((done) => setTimeout(done, 30));
     }
   }
-  try { return await action(); }
-  finally { await fs.rmdir(lock); }
+  let result: T;
+  try {
+    result = await action();
+  } catch (error) {
+    // A cleanup failure must not hide the original edit refusal.
+    await fs.rmdir(lock).catch(() => {});
+    throw error;
+  }
+  await fs.rmdir(lock); // On success, surface cleanup failure to the caller.
+  return result;
 }
 
 async function replace(file: string, content: string): Promise<void> {
@@ -59,7 +70,9 @@ function memberFrom(args: string[], flags: Record<string, string | boolean>, roo
     }
     const root = existingRoot === undefined ? roots.length : Number(existingRoot);
     if (!Number.isInteger(root) || root < 0 || root > roots.length || (existingRoot !== undefined && root === roots.length)) {
-      throw new Error(`Root index ${existingRoot} is not in this Map (0..${roots.length - 1}).`);
+      throw new Error(roots.length === 0
+        ? "Map has no roots. Supply --root-node-id <id> --sha <commit> to add one."
+        : `Root index ${existingRoot} is not in this Map (0..${roots.length - 1}).`);
     }
     const member = { root, position, depth, ...(value(flags, "name") ? { name: value(flags, "name") } : {}),
       ...(value(flags, "summary") ? { summary: value(flags, "summary") } : {}) } as MapMember;
@@ -97,7 +110,7 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
     // Resolve aliases before locking: two paths to the same existing file must
     // serialize on the same lock, not write two competing snapshots.
     const file = await fs.realpath(requested);
-    return await locked(file, async () => {
+    const changed = await locked(file, async () => {
       const original = await fs.readFile(file, "utf8");
       const match = value(flags, "if-match");
       if (match && match !== hash(original)) throw new Error(`Map base moved: expected ${match}, current ${hash(original)}. Re-read ${file} and retry.`);
@@ -126,17 +139,27 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       } else {
         if (members.length !== 1) throw new Error("map remove needs one member index or address.");
         const requested = members[0];
-        index = /^(0|[1-9]\d*)$/.test(requested) ? Number(requested) : parsed.map.members.findIndex((m) => "address" in m && m.address === requested);
+        if (/^(0|[1-9]\d*)$/.test(requested)) {
+          index = Number(requested);
+        } else {
+          const matches = parsed.map.members.flatMap((member, i) => "address" in member && member.address === requested ? [i] : []);
+          if (matches.length > 1) throw new Error(`Address ${requested} matches multiple members (${matches.join(", ")}); remove by index.`);
+          index = matches[0] ?? -1;
+        }
         if (!Number.isSafeInteger(index) || index < 0 || index >= seq.items.length) throw new Error(`Member ${requested} was not found; run map ${file} --json to see indices.`);
         seq.items.splice(index, 1);
       }
-      const next = `---\n${doc.toString()}---${original.slice(front[0].length)}`;
+      // Keep the source's line endings, including delimiters. YAML's Document
+      // API preserves comments but may reflow a long scalar when it is edited.
+      const newline = front[0].startsWith("---\r\n") ? "\r\n" : "\n";
+      const next = `---${newline}${doc.toString().replace(/\n/g, newline)}---${original.slice(front[0].length)}`;
       // Refuse edits made by non-cooperating writers while this command worked.
       if (hash(await fs.readFile(file, "utf8")) !== hash(original)) throw new Error(`Map base moved while editing ${file}. Re-read and retry.`);
       await replace(file, next);
-      output.result({ path: file, member_index: index, sha: hash(next) }, `${verb === "add" ? "Added" : "Removed"} member ${index}: ${file}`);
-      return 0;
+      return { index, sha: hash(next) };
     });
+    output.result({ path: file, member_index: changed.index, sha: changed.sha }, `${verb === "add" ? "Added" : "Removed"} member ${changed.index}: ${file}`);
+    return 0;
   } catch (error) {
     output.error(`${errorMessage(error)}${(error as NodeJS.ErrnoException).code === "ENOENT" ? " (check the map path and its parent directory)" : ""}`);
     return 1;
