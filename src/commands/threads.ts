@@ -250,11 +250,9 @@ export const threadsCommand: CommandDef = {
           if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
         }
         if (sub === "close" && flags.kind !== undefined && flags.kind !== "closure") throw new Error("threads close always appends a closure post; omit --kind.");
+        selectionFlags(flags);
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
         if (!KINDS.has(kind)) throw new Error("--kind must be post, snapshot, reframe, correction or closure.");
-        const body = str(flags, "message") ?? await stdin();
-        const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
-        selectionFlags(flags);
         if (sub === "close" && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         const selected = flags.member !== undefined
@@ -262,6 +260,8 @@ export const threadsCommand: CommandDef = {
         if (!selected && flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         if (selected && flags.author !== undefined) throw new Error("Selected Thread posts use the caller's Agreement name; omit --author.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
+        const body = str(flags, "message") ?? await stdin();
+        const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
           summary: str(flags, "summary"), author: writerName(target ? undefined : str(flags, "author"), Boolean(target)), replyTo: parents,
           kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map,

@@ -8,10 +8,12 @@ import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadThread, readPinnedThreadAgreement, readPinnedThreadMember, resolveLocalThread, threadBase, type LocalThread } from "./threads.js";
 
 function physical(path: string): string {
-  if (!isAbsolute(path) || !existsSync(path) || lstatSync(path).isSymbolicLink() || !lstatSync(path).isDirectory()) {
-    throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
-  }
-  return realpathSync.native(path);
+  if (!isAbsolute(path)) throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
+  try {
+    const entry = lstatSync(path);
+    if (!entry.isSymbolicLink() && entry.isDirectory()) return realpathSync.native(path);
+  } catch { /* Missing or inaccessible is a refusal, not a locator fallback. */ }
+  throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
 }
 
 function rootId(root: MapRoot): string {

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,7 +29,7 @@ function fixture(orphan = false) {
   appendPost(own.path, { body: "agent only" });
   const worktree = orphan ? initWorktree(home) : home;
   const thread = createThread("decision", "Home Thread", home);
-  const first = appendPost(thread.path, { body: "Selected at pin", name: "Selected" });
+  const first = appendPost(thread.path, { body: "Selected at pin", name: "Selected", summary: "Pinned abstract" });
   git(worktree, "add", orphan ? "decision" : "_threads/decision"); git(worktree, "commit", "-m", "pin");
   const pin = git(worktree, "rev-parse", "HEAD");
   const later = appendPost(thread.path, { body: "Newer live post" });
@@ -66,26 +66,41 @@ describe("authored cross-Space local Thread selection", () => {
       expect(opened.data.pinned).toContain("Selected at pin");
       expect(opened.data.posts).toHaveLength(1);
       expect(JSON.stringify(opened.data)).not.toContain("Newer live post");
-      // The packaged entrypoint must parse and forward the same selection flags.
-      const installed = spawnSync(process.execPath, [join(initialCwd, "bundle", "ideaspaces.js"), "--json", "threads", "open", "decision", "--map", f.map, "--member", "0", "--checkout", f.home, "--depth", "full"],
-        { cwd: f.agent, encoding: "utf8", env: { ...process.env, HOME: f.agent } });
-      expect(installed.status, installed.stderr).toBe(0);
-      expect(JSON.parse(installed.stdout).pinned).toContain("Selected at pin");
+      const named = await run(["open", "decision"], { map: f.map, member: "0", depth: "name" });
+      expect(named.data.posts).toEqual([]);
+      expect(JSON.stringify(named.data)).not.toContain("Selected at pin");
+      const summarized = await run(["open", "decision"], { map: f.map, member: "0", depth: "summary" });
+      expect(summarized.data.posts).toHaveLength(1);
+      expect(JSON.stringify(summarized.data)).not.toContain("Newer live post");
+      expect(JSON.stringify(summarized.data)).not.toContain("Selected at pin");
+      expect((await run(["close", "decision"], { map: f.map, member: "0", message: "No" })).status).toBe(1);
+      expect(posts(f.home)).toHaveLength(2);
+      // Unit tests also run without a build. When the package entrypoint exists,
+      // exercise its actual flag parser (the package check builds it in CI).
+      const bundle = join(initialCwd, "bundle", "ideaspaces.js");
+      if (existsSync(bundle)) {
+        const installed = spawnSync(process.execPath, [bundle, "--json", "threads", "open", "decision", "--map", f.map, "--member", "0", "--checkout", f.home, "--depth", "full"],
+          { cwd: f.agent, encoding: "utf8", env: { ...process.env, HOME: f.agent } });
+        expect(installed.status, installed.stderr).toBe(0);
+        expect(JSON.parse(installed.stdout).pinned).toContain("Selected at pin");
+      }
       const posted = await run(["post", "decision"], { map: f.map, member: "0", message: "Cross-Space reply", "reply-to": f.first.post.id });
       expect(posted.status).toBe(0);
       expect(posts(f.home).at(-1)?.frontmatter.author).toBe("Integrator");
       expect(posts(f.home).at(-1)?.inReplyTo).toEqual([f.first.post.id]);
       expect(posts(f.home).at(-1)?.frontmatter.map).toEqual(f.selection());
-      const installedPost = spawnSync(process.execPath, [join(initialCwd, "bundle", "ideaspaces.js"), "--json", "threads", "post", "decision",
-        "--map", f.map, "--member", "0", "--checkout", f.home, "--message", "Installed reply", "--reply-to", f.first.post.id],
-        { cwd: f.agent, encoding: "utf8", env: { ...process.env, HOME: f.agent } });
-      expect(installedPost.status, installedPost.stderr).toBe(0);
-      expect(posts(f.home).at(-1)?.frontmatter.author).toBe("Integrator");
-      expect(posts(f.home).at(-1)?.body).toContain("Installed reply");
+      if (existsSync(bundle)) {
+        const installedPost = spawnSync(process.execPath, [bundle, "--json", "threads", "post", "decision",
+          "--map", f.map, "--member", "0", "--checkout", f.home, "--message", "Installed reply", "--reply-to", f.first.post.id],
+          { cwd: f.agent, encoding: "utf8", env: { ...process.env, HOME: f.agent } });
+        expect(installedPost.status, installedPost.stderr).toBe(0);
+        expect(posts(f.home).at(-1)?.frontmatter.author).toBe("Integrator");
+        expect(posts(f.home).at(-1)?.body).toContain("Installed reply");
+      }
       expect(posts(f.agent)).toHaveLength(1);
       if (orphan) expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: f.worktree })).status).toBe(1);
       expect(process.cwd()).toBe(realpathSync(f.agent));
-    });
+    }, 15_000);
   }
 
   it("requires a unique registered checkout or a validated explicit hint, never scans or grants by path", async () => {
