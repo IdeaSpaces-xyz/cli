@@ -1,6 +1,6 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type MapMember, type MapRoot } from "@ideaspaces/protocol";
+import { parseFrontmatter, type MapMember, type MapRoot } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
 import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
 import { headSha } from "../git.js";
@@ -80,8 +80,19 @@ export function discoverSpaceMapFiles(dir: string): SpaceMapDiscovery | null {
       .filter((e) => e.isFile() && e.name.endsWith(".map.md") && !e.name.startsWith("."))
       .map((e) => e.name)
       .sort();
+    // README is a Space only when its frontmatter declares a Map. An invalid
+    // declared Map remains visible to the reader as an error, not a fallback.
+    const readme = join(dir, "README.md");
+    if (existsSync(readme) && statSync(readme).isFile()) {
+      const content = readFileSync(readme, "utf8");
+      const fm = parseFrontmatter(content);
+      // Even when YAML is malformed, a declared map must fail visibly rather
+      // than silently falling back to the derived tree.
+      const front = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/.exec(content);
+      if ((fm && Object.hasOwn(fm, "map")) || (front && /^map\s*:/m.test(front[1]))) mapFiles.push("README.md");
+    }
     if (!mapFiles.length) return null;
-    const chosen = mapFiles.includes("home.map.md") ? "home.map.md" : mapFiles[0];
+    const chosen = mapFiles.includes("home.map.md") ? "home.map.md" : mapFiles.includes("README.md") ? "README.md" : mapFiles[0];
     const otherFiles = mapFiles.filter((f) => f !== chosen);
     return { file: chosen, otherFiles };
   } catch {
@@ -89,7 +100,7 @@ export function discoverSpaceMapFiles(dir: string): SpaceMapDiscovery | null {
   }
 }
 
-/** Find a curated `*.map.md` in the target directory (prefers `home.map.md` if present). */
+/** Find a curated Map note, including a README that declares a Map. */
 export function findSpaceMapFile(dir: string): string | null {
   return discoverSpaceMapFiles(dir)?.file ?? null;
 }
