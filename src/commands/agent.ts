@@ -166,13 +166,13 @@ async function cmdRun(
     const map = flagString(flags, "thread-map");
     const member = flagString(flags, "thread-member");
     if (!path || !map || member === undefined) {
-      output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin.");
+      output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
       return 1;
     }
     try {
       thread = prepareThreadLaunch(povPath, path, map, member);
     } catch (err) {
-      output.error(err instanceof Error ? err.message : String(err));
+      output.error(`Invalid --thread-map/--thread-member selection: ${err instanceof Error ? err.message : String(err)}`);
       return 1;
     }
   }
@@ -226,27 +226,21 @@ async function cmdRun(
   }
 
   if (!thread) return local.send(forwardFlags, output);
-  let response: string | undefined;
-  const code = await local.send(forwardFlags, output, (event) => {
-    if (event.type === "turn_complete") response = event.result.response;
-  }, thread.orientation);
-  if (code !== 0) return code;
-  if (!response?.trim()) {
-    output.error("Agent completed without a closing response; no Thread snapshot was appended.");
-    return 1;
-  }
-  try {
-    const { path } = appendPost(thread.directory, {
-      body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
-      summary: response.trim().split("\n").find(Boolean)?.slice(0, 200),
-      kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
-    });
-    process.stderr.write(`Thread snapshot: ${path}\n`);
-    return 0;
-  } catch (err) {
-    output.error(`Run completed but Thread snapshot was not appended: ${err instanceof Error ? err.message : String(err)}`);
-    return 1;
-  }
+  return local.send(forwardFlags, output, {
+    extraOrientation: thread.orientation,
+    onEvent(event) {
+      if (event.type !== "turn_complete") return event;
+      const response = event.result.response;
+      if (!response?.trim()) throw new Error("Agent completed without a closing response.");
+      const { post, path } = appendPost(thread.directory, {
+        body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
+        summary: response.trim().split("\n").find(Boolean)?.slice(0, 200),
+        kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+      });
+      output.progress(`Thread snapshot: ${path}`);
+      return { ...event, result: { ...event.result, thread_snapshot: { id: post.id, path } } };
+    },
+  });
 }
 
 function cmdList(
@@ -278,7 +272,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list agents in a Space or point of view",
+    description: "Run or list agents; a pinned local Thread run appends a named snapshot on success",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",

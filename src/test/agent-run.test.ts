@@ -337,7 +337,7 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
       const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
-      console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "pi:" + command.message + frame } }));
+      if (command.message !== "empty_response") console.log(JSON.stringify({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "pi:" + command.message + frame } }));
       console.log(JSON.stringify({ type: "agent_end" }));
     }
   }
@@ -382,16 +382,39 @@ process.stdin.on("data", (chunk) => {
       const code = await agentCmd.run(["run", pov], { runtime: "pi", message: "Pinned question", thread: thread.path,
         "thread-map": map, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin }, JSON_GLOBAL);
       expect(code).toBe(0);
-      expect(stdout()).toContain('"type":"turn_complete"');
+      const completed = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
+      expect(completed.result.thread_snapshot.path).toContain("_threads/decision/");
       const posts = loadThread(thread.path).posts;
       const snapshot = posts.find((post) => post.kind === "snapshot");
       expect(snapshot).toMatchObject({ frontmatter: { author: "Scout", name: "Snapshot — Scout" }, inReplyTo: [first.post.id] });
       expect(snapshot?.body.trim()).toBe("pi:Pinned question|pinned-frame");
       expect(snapshot?.frontmatter.map).toMatchObject({ roots: [{ sha: pin }], members: [{ position: member }] });
+      const claudeBin = join(pov, "fake-claude");
+      writeFileSync(join(pov, "fake-claude.cjs"), FAKE_CLAUDE);
+      writeFileSync(claudeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(pov, "fake-claude.cjs")}" "$@"\n`);
+      chmodSync(claudeBin, 0o755);
+      stdoutChunks = [];
+      expect(await agentCmd.run(["run", pov], { runtime: "claude", message: "Second runtime", thread: thread.path,
+        "thread-map": map, "thread-member": "0", "claude-bin": claudeBin,
+        conversation: "22222222-2222-4222-8222-222222222222" }, JSON_GLOBAL)).toBe(0);
+      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete")?.result.thread_snapshot.path).toContain("_threads/decision/");
+      expect(loadThread(thread.path).posts.filter((post) => post.kind === "snapshot")).toHaveLength(2);
       // No cursor state or same-process buffer: a fresh CLI read sees the durable snapshot.
       stdoutChunks = [];
       expect(await threadsCommand.run(["open", thread.path], { depth: "full" }, JSON_GLOBAL)).toBe(0);
       expect(stdout()).toContain("pi:Pinned question");
+      stdoutChunks = [];
+      const pinnedFlags = { runtime: "pi", thread: thread.path, "thread-map": map, "thread-member": "0", ext: "/fake/extension", "pi-bin": fakeBin };
+      expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "empty_response" }, JSON_GLOBAL)).toBe(1);
+      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
+      expect(stdout()).not.toContain('"type":"turn_complete"');
+      expect(loadThread(thread.path).posts).toHaveLength(4);
+      appendPost(thread.path, { body: "Closed now", kind: "closure" });
+      stdoutChunks = [];
+      expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "After close" }, JSON_GLOBAL)).toBe(1);
+      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot", message: expect.stringContaining("Thread is closed") });
+      expect(stdout()).not.toContain('"type":"turn_complete"');
+      expect(loadThread(thread.path).posts).toHaveLength(5);
       stdoutChunks = [];
       expect(await agentCmd.run(["run", pov], { message: "No pin", thread: thread.path }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("a path alone has no pin");

@@ -197,6 +197,7 @@ export const threadsCommand: CommandDef = {
         }
         if (flags.pin === true || flags.position === true) throw new Error("--pin and --position require values.");
         if (!!pin !== !!position) throw new Error("Pinned open requires both --pin <authored SHA> and --position <_threads/...md>.");
+        if (position?.endsWith("/_agent/agreement.md")) throw new Error("threads open cannot pin a Thread Agreement as a post.");
         if (position && !position.startsWith(`_threads/${thread.slug}/`)) {
           throw new Error(`Pinned member ${position} belongs to another Thread; open its own local path instead.`);
         }

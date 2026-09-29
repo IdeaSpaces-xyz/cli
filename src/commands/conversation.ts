@@ -19,8 +19,13 @@ type Flags = Record<string, string | boolean>;
  * core command stays Pi-free. The Pi module implements this; the router wires it.
  * Core dispatches `--local` here and never imports the Pi runtime itself.
  */
+export interface LocalSendOptions {
+  onEvent?: (event: KeeperStreamEvent) => KeeperStreamEvent;
+  extraOrientation?: string;
+}
+
 export interface LocalConversationOps {
-  send(flags: Flags, output: Output, onEvent?: (event: KeeperStreamEvent) => void, threadOrientation?: string): Promise<number>;
+  send(flags: Flags, output: Output, options?: LocalSendOptions): Promise<number>;
   createNew(flags: Flags, output: Output): number;
   get(flags: Flags, output: Output): number;
   /** `conversations --local` (the plural list command shares this seam). */

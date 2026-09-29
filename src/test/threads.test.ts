@@ -186,6 +186,8 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["open", "decision"], { map, member: "0", depth: "full" }, flags)).toBe(0);
       expect(JSON.parse(output).pinned).toContain("At pin");
       output = "";
+      expect(await threadsCommand.run(["open", "decision"], { pin, position: "_threads/decision/_agent/agreement.md" }, flags)).toBe(1);
+      output = "";
       expect(await threadsCommand.run(["open", "decision"], { pin, position: `_threads/decision/${one.post.path}`, depth: "full" }, flags)).toBe(0);
       expect(JSON.parse(output).pinned).toContain("At pin");
       createThread("other", "Other", root);
