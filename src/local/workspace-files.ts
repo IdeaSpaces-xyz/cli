@@ -1,6 +1,7 @@
-import { existsSync, statSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, statSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { repoRoot } from "../git.js";
+import { resolveLocalThread } from "./threads.js";
 import { emptyWorkspaceSurface, type KeeperWorkspaceSurface, type ToolInvocation } from "@ideaspaces/sdk";
 
 export interface LocalFileCoordinate {
@@ -32,6 +33,37 @@ const READ_TOOLS = new Set([
   "grep",
   "find",
 ]);
+
+const THREAD_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure"]);
+
+/** Only the successful CLI `threads post` JSON envelope names the written file.
+ * Pi returns {content:[{type:"text",text:json}]}; Claude's structured MCP
+ * result is the content array itself. Never infer a post from the Thread dir. */
+function writtenThreadPost(tool: ToolInvocation, cwd: string): string | undefined {
+  if (tool.name !== "is_threads" || tool.args.action !== "post" || tool.isError) return undefined;
+  const result = tool.result;
+  const blocks = Array.isArray(result) ? result
+    : result && typeof result === "object" && "content" in result ? (result as { content: unknown }).content : null;
+  if (!Array.isArray(blocks) || blocks.length !== 1) return undefined;
+  const block: unknown = blocks[0];
+  if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "text" || typeof (block as { text?: unknown }).text !== "string") return undefined;
+  try {
+    const post: unknown = JSON.parse((block as { text: string }).text);
+    if (!post || typeof post !== "object") return undefined;
+    const { id, path, kind } = post as Record<string, unknown>;
+    if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) ||
+        typeof path !== "string" || !isAbsolute(path) || typeof kind !== "string" || !THREAD_POST_KINDS.has(kind) ||
+        typeof tool.args.path !== "string" || !tool.args.path.trim()) return undefined;
+    const file = lstatSync(path);
+    if (!file.isFile() || file.isSymbolicLink()) return undefined;
+    const actual = realpathSync.native(path);
+    if (dirname(actual) !== resolveLocalThread(tool.args.path, cwd) || !actual.endsWith(`-${id}.md`)) return undefined;
+    return actual;
+  } catch {
+    // A failed/malformed result, vanished file, or wrong Thread is not a write.
+    return undefined;
+  }
+}
 
 const EXPLORATION_FALLBACK_TOOLS = new Set([
   "is_navigate",
@@ -65,12 +97,15 @@ export function harvestLocalFiles(
       // root (launchCwd); any other string is a mounted repo path or basename to resolve under.
       cwd = isAbsolute(tool.args.root) ? resolve(tool.args.root) : resolve(launchCwd, tool.args.root);
     }
-    const kind = MODIFIED_TOOLS.has(tool.name) ? "modified"
+    const postPath = writtenThreadPost(tool, cwd);
+    const kind = postPath || MODIFIED_TOOLS.has(tool.name) ? "modified"
       : READ_TOOLS.has(tool.name) ? "read" : undefined;
     if (!kind) continue;
     let paths: unknown[];
     const hasExplicitPath = typeof tool.args.path === "string" && tool.args.path.trim() !== "";
-    if (tool.name === "is_commit" && Array.isArray(tool.args.paths)) {
+    if (postPath) {
+      paths = [postPath];
+    } else if (tool.name === "is_commit" && Array.isArray(tool.args.paths)) {
       paths = tool.args.paths;
     } else if (tool.name === "is_get") {
       // is_get targets `dir`, `path`, or local `address` (remote URLs fail statSync and are skipped)

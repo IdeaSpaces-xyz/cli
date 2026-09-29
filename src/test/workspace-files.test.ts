@@ -192,6 +192,51 @@ it("defaults navigation/ls with omitted path to . while unscoped search tools sk
   expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo", kind: "directory" });
 });
 
+it("harvests only successful local is_threads post result files for Pi and normalized Claude", () => {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-thread-post-"))); dirs.push(dir);
+  execFileSync("git", ["init", "-q", dir]);
+  mkdirSync(join(dir, "_agent"));
+  writeFileSync(join(dir, "_agent/agreement.md"), "---\nname: Agreement — Test\n---\n# Test\n");
+  const cli = join(process.cwd(), "bundle/ideaspaces.js");
+  const run = (...args: string[]) => JSON.parse(execFileSync(process.execPath, [cli, "--json", "threads", ...args],
+    { cwd: dir, encoding: "utf8" })) as { id: string; path: string; kind: string };
+  run("new", "probe", "--about", "Disposable proof");
+  const piPost = run("post", "probe", "--message", "Pi wrote this", "--author", "Pi Probe");
+  const claudePost = run("post", "probe", "--message", "Claude wrote this", "--author", "Claude Probe", "--kind", "snapshot");
+  const closure = run("close", "probe", "--message", "Done", "--author", "Claude Probe");
+  const piResult = { content: [{ type: "text", text: JSON.stringify(piPost) }], details: {} };
+  const claudeResult = [{ type: "text", text: JSON.stringify(claudePost) }];
+  const invocations = [
+    { name: "is_threads", args: { action: "post", path: "probe" }, result: piResult, isError: false },
+    normalizeClaudeInvocation({ name: "mcp__plugin_ideaspaces_core__is_threads", args: { action: "post", path: "probe" }, result: claudeResult, isError: false }),
+    { name: "is_threads", args: { action: "close", path: "probe" }, result: { content: [{ type: "text", text: JSON.stringify(closure) }] }, isError: false },
+  ];
+  const ws = harvestLocalFiles(invocations, dir);
+  expect(ws.modified).toEqual([piPost.path, claudePost.path]);
+  expect(ws.deleted).toEqual([]);
+  for (const path of [piPost.path, claudePost.path]) {
+    expect(ws.file_coordinates[path]).toEqual({ root: dir, root_kind: "repo", path: `_threads/probe/${basename(path)}`, kind: "file" });
+  }
+  expect(ws.file_coordinates[closure.path]).toBeUndefined();
+
+  const bad = [
+    tool("is_threads", { action: "list", path: "probe" }),
+    { ...invocations[0], args: { action: "open", path: "probe" } },
+    { ...invocations[0], isError: true },
+    { ...invocations[0], result: { content: [{ type: "text", text: "not json" }] } },
+    { ...invocations[0], result: { content: [{ type: "text", text: JSON.stringify({ ...piPost, id: claudePost.id }) }] } },
+    { ...invocations[0], result: { content: [{ type: "text", text: JSON.stringify({ ...piPost, path: join(dir, "_threads/probe/missing.md") }) }] } },
+    { ...invocations[0], args: { action: "post", path: "another" } },
+  ];
+  expect(harvestLocalFiles(bad, dir).modified).toEqual([]);
+  expect(harvestLocalFiles(bad, dir).deleted).toEqual([]);
+  // A nested cwd names the same Thread; the result, never the directory arg,
+  // is the modified coordinate.
+  mkdirSync(join(dir, "nested"));
+  const nested = harvestLocalFiles([{ ...invocations[0], args: { action: "post", path: "probe", cwd: join(dir, "nested") } }], dir);
+  expect(nested.modified).toEqual([piPost.path]);
+});
+
 it.skipIf(process.platform === "win32")("skips a path whose file state cannot be read", () => {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-unreadable-"))); dirs.push(root);
   const loop = join(root, "loop.md"); symlinkSync("loop.md", loop);
