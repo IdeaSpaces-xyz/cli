@@ -4,8 +4,7 @@
 // only the composition root (router) wires the two together. See src/pi/index.ts
 // for the boundary rule.
 
-import { isAbsolute, join, resolve } from "node:path";
-import { existsSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
@@ -22,18 +21,6 @@ type Flags = Record<string, string | boolean>;
 function parseCommaList(flag: string | boolean | undefined, envFallback: string | undefined): string[] {
   const raw = typeof flag === "string" ? flag : envFallback;
   return (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-}
-
-/** Only agent launches canonicalize repeated selections; legacy send keeps its argv. */
-function dedupeResolvedPaths(paths: string[], base: string): string[] {
-  const seen = new Set<string>();
-  return paths.filter((path) => {
-    const candidate = isAbsolute(path) ? path : resolve(base, path);
-    const key = existsSync(candidate) ? realpathSync(candidate) : candidate;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 /** Local turns don't hit the remote auth path, so a plain message + exit-1 is the
@@ -60,8 +47,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   const repoPath = typeof flags.context === "string" ? flags.context : process.cwd();
   // Both extensions: pi-is-space (Space) + pi-local-context (conversation). Until
   // distribution bundles them, the caller supplies the paths.
-  const extensions = parseCommaList(flags.ext, options?.explicitLaunch ? undefined : process.env.IDEASPACES_PI_EXTENSIONS);
-  const extensionPaths = options?.explicitLaunch ? dedupeResolvedPaths(extensions, repoPath) : extensions;
+  const extensionPaths = options?.extensionPaths ?? parseCommaList(flags.ext, process.env.IDEASPACES_PI_EXTENSIONS);
   if (!extensionPaths.length) {
     output.error(
       "Extensions are required: --ext <pi-is-space,pi-local-context> (or set IDEASPACES_PI_EXTENSIONS)",
@@ -71,8 +57,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   // Skill dirs — optional. `--extension` loads extension code but not the
   // package's skills, so a shipped app forwards them here. Empty in dev when the
   // user has `pi install`ed the extensions (skills already in `~/.pi/settings`).
-  const skills = parseCommaList(flags.skill, options?.explicitLaunch ? undefined : process.env.IDEASPACES_PI_SKILLS);
-  const skillPaths = options?.explicitLaunch ? dedupeResolvedPaths(skills, repoPath) : skills;
+  const skillPaths = options?.skillPaths ?? parseCommaList(flags.skill, process.env.IDEASPACES_PI_SKILLS);
 
   const sessionDir =
     typeof flags["session-dir"] === "string" ? flags["session-dir"] : join(repoPath, ".pi", "sessions");

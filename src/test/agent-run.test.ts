@@ -241,7 +241,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { explicitLaunch: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -374,7 +374,7 @@ describe("agent run — command options & validation", () => {
         message: "Help with analysis",
       }),
       expect.anything(),
-      { explicitLaunch: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
+      { extensionPaths: [], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
     );
   });
 
@@ -401,7 +401,7 @@ describe("agent run — command options & validation", () => {
         conversation: "11111111-1111-4111-8111-111111111111",
       }),
       expect.anything(),
-      { explicitLaunch: true, resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [], skillPaths: [], resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -427,7 +427,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { explicitLaunch: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 });
@@ -487,7 +487,7 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
       const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
-      const answer = command.message === "selection_probe" ? JSON.stringify({ ext: args.filter((arg) => arg === "--extension").length, skill: args.filter((arg) => arg === "--skill").length, noDiscovery: args.includes("--no-extensions") })
+      const answer = command.message === "selection_probe" ? JSON.stringify({ ext: args.filter((arg) => arg === "--extension").length, paths: args.flatMap((arg, i) => arg === "--extension" ? [args[i + 1]] : []), skill: args.filter((arg) => arg === "--skill").length, noDiscovery: args.includes("--no-extensions") })
         : command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
         : command.message === "policy_probe" ? JSON.stringify({ approved: args.includes("-a"), thinking: args[args.indexOf("--thinking") + 1] })
         : "pi:" + command.message + frame;
@@ -727,6 +727,8 @@ process.stdin.on("data", (chunk) => {
     try {
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("explicit trusted extension paths");
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: " , " }, JSON_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("explicit trusted extension paths");
       expect(stdout()).toBe("");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "missing.ts" }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("path not found");
@@ -739,7 +741,7 @@ process.stdin.on("data", (chunk) => {
       expect(stdout()).toBe("");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},approved.ts,./approved.ts` }, JSON_GLOBAL)).toBe(0);
       const done = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
-      expect(JSON.parse(done.result.response)).toEqual({ ext: 1, skill: 0, noDiscovery: true });
+      expect(JSON.parse(done.result.response)).toEqual({ ext: 1, paths: [realpathSync.native(extension)], skill: 0, noDiscovery: true });
       const alias = join(outside, "agent-alias");
       symlinkSync(dir, alias);
       stdoutChunks = [];

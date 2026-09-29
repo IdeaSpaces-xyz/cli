@@ -215,6 +215,7 @@ async function cmdRun(
     model = defaults.claude_model;
   }
 
+  const selectedPaths: { ext: string[]; skill: string[] } = { ext: [], skill: [] };
   if (runtime === "claude" && (flags.ext !== undefined || flags.skill !== undefined)) {
     output.error("Pi --ext and --skill paths are unavailable under Claude; choose --runtime pi or omit them.");
     return 1;
@@ -240,9 +241,11 @@ async function cmdRun(
           return 1;
         }
         try {
-          if (enteredThroughRoot(povPath, path) && !isContained(povPath, realpathSync(path))) {
+          const canonical = realpathSync(path);
+          if (enteredThroughRoot(povPath, path) && !isContained(povPath, canonical)) {
             throw new Error("escapes the selected POV");
           }
+          selectedPaths[key].push(canonical);
         } catch (err) {
           output.error(`Refusing ${key} path ${raw}: ${err instanceof Error ? err.message : String(err)}. Select an explicit reviewed path instead.`);
           return 1;
@@ -298,7 +301,12 @@ async function cmdRun(
     }
   }
 
-  const launchOptions = { explicitLaunch: true, resumeOnly: flags.conversation !== undefined };
+  // Pass the vetted realpaths, not names or symlinks that could move before spawn.
+  const launchOptions = {
+    extensionPaths: [...new Set(selectedPaths.ext)],
+    skillPaths: [...new Set(selectedPaths.skill)],
+    resumeOnly: flags.conversation !== undefined,
+  };
   if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
   let snapshotWritten = false;
   return local.send(forwardFlags, output, {

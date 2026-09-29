@@ -226,13 +226,12 @@ export function canResumeClaudeConversation(contextRoot: string, convId: string)
   try {
     if (!isContained(realpathSync(claudeProjectDir(contextRoot)), realpathSync(file))) return false;
     const text = readFileSync(file, "utf8");
-    let sawUser = false;
     let sawIdentity = false;
     let sawRoot = false;
     const root = realpathSync(contextRoot);
     const lines = text.split("\n").filter((line) => line.trim());
     for (const [index, line] of lines.entries()) {
-      let entry: { sessionId?: string; cwd?: string; type?: string; isSidechain?: boolean; isMeta?: boolean; message?: { role?: string } };
+      let entry: { sessionId?: string; cwd?: string };
       try {
         entry = JSON.parse(line);
       } catch {
@@ -248,9 +247,8 @@ export function canResumeClaudeConversation(contextRoot: string, convId: string)
         if (cwd === root) sawRoot = true;
       }
       if (entry.sessionId === convId) sawIdentity = true;
-      if (entry.type === "user" && entry.isSidechain !== true && entry.isMeta !== true && entry.message?.role === "user") sawUser = true;
     }
-    return sawIdentity && sawRoot && sawUser && parseClaudeSessionJsonl(text, "").messages.some((m) => m.role === "user");
+    return sawIdentity && sawRoot && parseClaudeSessionJsonl(text, "").messages.some((m) => m.role === "user");
   } catch {
     return false;
   }

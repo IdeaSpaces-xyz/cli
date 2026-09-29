@@ -3,8 +3,9 @@ import type { KeeperStreamEvent } from "@ideaspaces/sdk";
 export interface LocalSendOptions {
   onEvent?: (event: KeeperStreamEvent) => KeeperStreamEvent;
   extraOrientation?: string;
-  /** Agent-run only: do not inherit executable paths from the parent environment. */
-  explicitLaunch?: boolean;
+  /** Agent-run only: vetted canonical Pi paths. Empty is intentional; never fall back to ambient. */
+  extensionPaths?: string[];
+  skillPaths?: string[];
   /** Agent-run only: recheck the transcript before invoking the child. */
   resumeOnly?: boolean;
 }
