@@ -106,6 +106,17 @@ describe("authored cross-Space local Thread selection", () => {
     }, 15_000);
   }
 
+  it("finds the caller's untyped Agreement from a checkout subdirectory without borrowing Home", async () => {
+    const f = fixture(false, false); process.env.HOME = f.agent;
+    const child = join(f.agent, "notes"); mkdirSync(child); process.chdir(child);
+    const result = await run(["post", "decision"], { map: f.map, member: "0", checkout: f.home,
+      message: "From a child of the caller POV", "reply-to": f.first.post.id });
+    expect(result.status, result.error).toBe(0);
+    expect(posts(f.home).at(-1)?.frontmatter.author).toBe("Integrator");
+    expect(posts(f.home).at(-1)?.frontmatter.map).toEqual(f.selection());
+    expect(posts(f.agent)).toHaveLength(1);
+  }, 15_000);
+
   it("refuses absent, malformed or borrowed caller Agreements without writing or using git/Home identity", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
     const caller = join(f.agent, "_agent", "agreement.md");
@@ -128,7 +139,7 @@ describe("authored cross-Space local Thread selection", () => {
     git(nested, "init", "-b", "main");
     process.chdir(nested); await refuse();
     expect(process.cwd()).toBe(realpathSync(nested));
-  }, 30_000);
+  }, 30_000); // Windows Git process startup can exceed Vitest's 5s default for this refusal matrix.
 
   it("requires a unique registered checkout or a validated explicit hint, never scans or grants by path", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);

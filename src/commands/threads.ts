@@ -60,15 +60,17 @@ function localText(thread: LocalThread, posts: LocalThread["posts"], rung: strin
 }
 function selectedWriterName(): string {
   const cwd = realpathSync(process.cwd());
-  const gitRoot = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
-  // An ancestor Space is not the caller's POV. Never cross the current checkout's root.
-  const boundary = gitRoot.status === 0 ? realpathSync(gitRoot.stdout.trim()) : cwd;
+  const prefix = spawnSync("git", ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  // Derive the checkout root from native cwd, not Git's differently spelled
+  // --show-toplevel (Windows). Never ascend into a parent checkout's Agreement.
+  const boundary = prefix.status === 0
+    ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at) => dirname(at), cwd)
+    : cwd;
   let at = cwd;
   while (true) {
     const pathFromRoot = relative(boundary, at);
     const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot);
-    // Inspect cwd even when Git reports a differently canonicalized root (Windows).
-    if (at !== cwd && outsideRoot) break;
+    if (outsideRoot) break;
     const agentDir = join(at, "_agent");
     const agreement = join(agentDir, "agreement.md");
     if (existsSync(agentDir) || existsSync(agreement)) {
@@ -85,7 +87,7 @@ function selectedWriterName(): string {
       if (!name || name.length > 900 || /[\r\n]/.test(name)) throw new Error("Caller Agreement name must be a single line of at most 900 characters.");
       return name;
     }
-    if (at === boundary || outsideRoot) break;
+    if (at === boundary) break;
     at = dirname(at);
   }
   throw new Error("Selected Thread posts require the caller's own _agent/agreement.md with a name; no git-author fallback.");
