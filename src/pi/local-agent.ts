@@ -76,6 +76,8 @@ export interface LocalTurnOptions {
    * them explicitly so the intent-layer skills reach pi. Empty in dev when the
    * user has already `pi install`ed the extensions. */
   skillPaths?: string[];
+  /** Child agent launches may load only explicitly forwarded skills, not Pi discovery. */
+  disableSkillDiscovery?: boolean;
   /** Conversation id = pi session id; reported in `message_start`, resumed each turn. */
   conversationId: string;
   /** Where pi stores/looks up sessions — the context's gitignored session dir. */
@@ -138,6 +140,9 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
   // provide extensions — otherwise we'd suppress everything and load none.
   if (opts.extensionPaths.length) args.push("--no-extensions");
   for (const ext of opts.extensionPaths) args.push("--extension", ext);
+  // Pi --no-skills suppresses user and target-project discovery while explicit
+  // --skill paths still load. A child must not gain skills its parent did not pass.
+  if (opts.disableSkillDiscovery) args.push("--no-skills");
   for (const skill of opts.skillPaths ?? []) args.push("--skill", skill);
   const orientation = [opts.mapOrientation, opts.launchOrientation].filter(Boolean).join("\n\n");
   if (orientation) args.push("--append-system-prompt", orientation);

@@ -143,6 +143,9 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       message,
       extensionPaths,
       skillPaths,
+      // Agent run always supplies a selected array (including empty); only
+      // that child path suppresses ambient user/target skill discovery.
+      disableSkillDiscovery: options?.skillPaths !== undefined,
       conversationId,
       sessionDir,
       modelTier,

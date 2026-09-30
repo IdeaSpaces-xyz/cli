@@ -487,7 +487,7 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
       const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
-      const answer = command.message === "selection_probe" ? JSON.stringify({ ext: args.filter((arg) => arg === "--extension").length, paths: args.flatMap((arg, i) => arg === "--extension" ? [args[i + 1]] : []), skill: args.filter((arg) => arg === "--skill").length, noDiscovery: args.includes("--no-extensions") })
+      const answer = command.message === "selection_probe" ? JSON.stringify({ ext: args.filter((arg) => arg === "--extension").length, paths: args.flatMap((arg, i) => arg === "--extension" ? [args[i + 1]] : []), skill: args.filter((arg) => arg === "--skill").length, noDiscovery: args.includes("--no-extensions"), noSkillsDiscovery: args.includes("--no-skills") })
         : command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
         : command.message === "policy_probe" ? JSON.stringify({ approved: args.includes("-a"), thinking: args[args.indexOf("--thinking") + 1] })
         : "pi:" + command.message + frame;
@@ -741,13 +741,13 @@ process.stdin.on("data", (chunk) => {
       expect(stdout()).toBe("");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},approved.ts,./approved.ts` }, JSON_GLOBAL)).toBe(0);
       const done = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
-      expect(JSON.parse(done.result.response)).toEqual({ ext: 1, paths: [realpathSync.native(extension)], skill: 0, noDiscovery: true });
+      expect(JSON.parse(done.result.response)).toEqual({ ext: 1, paths: [realpathSync.native(extension)], skill: 0, noDiscovery: true, noSkillsDiscovery: true });
       const skills = join(dir, "skills");
       mkdirSync(skills);
       stdoutChunks = [];
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: extension, skill: `${skills},./skills` }, JSON_GLOBAL)).toBe(0);
       const withSkills = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
-      expect(JSON.parse(withSkills.result.response).skill).toBe(1);
+      expect(JSON.parse(withSkills.result.response)).toMatchObject({ skill: 1, noSkillsDiscovery: true });
       const alias = join(outside, "agent-alias");
       symlinkSync(dir, alias);
       stdoutChunks = [];
@@ -758,7 +758,7 @@ process.stdin.on("data", (chunk) => {
       stdoutChunks = [];
       expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", context: dir, message: "selection_probe", "pi-bin": fakeBin, "explicit-launch": true, "resume-only": true }, JSON_GLOBAL)).toBe(0);
       const direct = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
-      expect(JSON.parse(direct.result.response).ext).toBe(1); // public flags cannot disable the legacy env fallback
+      expect(JSON.parse(direct.result.response)).toMatchObject({ ext: 1, noSkillsDiscovery: false }); // legacy send keeps discovery
     } finally {
       if (oldAmbient === undefined) delete process.env.IDEASPACES_PI_EXTENSIONS;
       else process.env.IDEASPACES_PI_EXTENSIONS = oldAmbient;
