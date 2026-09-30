@@ -13,6 +13,7 @@ import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./loca
 import { canResumePiConversation, getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapNoteOrientation } from "../local/map-note.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { selectApprovedLaunch } from "../local/child-launch-approval.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -58,6 +59,16 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   // package's skills, so a shipped app forwards them here. Empty in dev when the
   // user has `pi install`ed the extensions (skills already in `~/.pi/settings`).
   const skillPaths = options?.skillPaths ?? parseCommaList(flags.skill, process.env.IDEASPACES_PI_SKILLS);
+  if (options?.approvalName) {
+    try {
+      const checked = selectApprovedLaunch(options.approvalName, [], []).set;
+      if (JSON.stringify(checked.extensions) !== JSON.stringify(extensionPaths) ||
+          JSON.stringify(checked.skills) !== JSON.stringify(skillPaths)) {
+        output.error("Approved child resources changed before Pi spawn; select the set again.");
+        return 1;
+      }
+    } catch (error) { return reportLocalError(error, output); }
+  }
 
   const sessionDir =
     typeof flags["session-dir"] === "string" ? flags["session-dir"] : join(repoPath, ".pi", "sessions");

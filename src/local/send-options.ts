@@ -6,6 +6,8 @@ export interface LocalSendOptions {
   /** Agent-run only: vetted canonical Pi paths. Empty is intentional; never fall back to ambient. */
   extensionPaths?: string[];
   skillPaths?: string[];
+  /** Agent-run only: reverify the named per-user approval immediately before Pi spawn. */
+  approvalName?: string;
   /** Agent-run only: recheck the transcript before invoking the child. */
   resumeOnly?: boolean;
 }

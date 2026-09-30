@@ -14,6 +14,19 @@ import { saveSpace } from "../auth/spaces.js";
 import { claudeConversationOps } from "../claude/local-conversation-ops.js";
 import { localConversationOps as piConversationOps } from "../pi/local-conversation-ops.js";
 import { composeLocalConversationOps } from "../local/runtime.js";
+
+// This suite exercises the existing POV/stream contract; approval-record and
+// integrity vectors live in child-launch-approval.test.ts with the real store.
+vi.mock("../local/child-launch-approval.js", async (load) => {
+  let selected = { extensions: [] as string[], skills: [] as string[], packages: [] };
+  return {
+    ...await load<typeof import("../local/child-launch-approval.js")>(),
+    selectApprovedLaunch: (name: string | undefined, extensions: string[], skills: string[]) => {
+      if (!name) selected = { extensions: [...new Set(extensions)].sort(), skills: [...new Set(skills)].sort(), packages: [] };
+      return { name: name ?? "test", set: selected };
+    },
+  };
+});
 import { canResumeClaudeConversation, claudeProjectDir } from "../claude/local-conversations.js";
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
@@ -241,7 +254,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], approvalName: "test", resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -374,7 +387,7 @@ describe("agent run — command options & validation", () => {
         message: "Help with analysis",
       }),
       expect.anything(),
-      { extensionPaths: [], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
+      { extensionPaths: [], skillPaths: [], approvalName: undefined, resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
     );
   });
 
@@ -401,7 +414,7 @@ describe("agent run — command options & validation", () => {
         conversation: "11111111-1111-4111-8111-111111111111",
       }),
       expect.anything(),
-      { extensionPaths: [], skillPaths: [], resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [], skillPaths: [], approvalName: undefined, resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -427,7 +440,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], approvalName: "test", resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 });
@@ -704,7 +717,7 @@ process.stdin.on("data", (chunk) => {
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "pi-trust": "saved" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("unavailable under Claude");
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
-    expect(stderr()).toContain("Pi --ext and --skill paths are unavailable under Claude");
+    expect(stderr()).toContain("Pi --launch-set, --ext and --skill are unavailable under Claude");
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", skill: true }, JSON_GLOBAL)).toBe(1);
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "read-only": true, "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("cannot be combined");
@@ -726,9 +739,9 @@ process.stdin.on("data", (chunk) => {
     process.env.IDEASPACES_PI_EXTENSIONS = extension;
     try {
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin }, JSON_GLOBAL)).toBe(1);
-      expect(stderr()).toContain("explicit trusted extension paths");
+      expect(stderr()).toContain("approved named set");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: " , " }, JSON_GLOBAL)).toBe(1);
-      expect(stderr()).toContain("explicit trusted extension paths");
+      expect(stderr()).toContain("approved named set");
       expect(stdout()).toBe("");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "missing.ts" }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("path not found");
