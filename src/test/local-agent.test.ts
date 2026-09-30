@@ -73,8 +73,16 @@ describe("buildPiArgs (pi rpc argv)", () => {
     expect(pairs(args, "--skill")).toEqual(["/ext/pi-is-space/skills", "/ext/pi-local-context/skills"]);
   });
 
-  it("emits no --skill when skillPaths is absent (dev: pi-install'ed)", () => {
+  it("agent child skill selection suppresses discovery but keeps explicitly forwarded dirs", () => {
+    const args = buildPiArgs({ ...baseOpts, disableSkillDiscovery: true, skillPaths: ["/trusted/skill"] });
+    expect(args).toContain("--no-skills");
+    expect(pairs(args, "--skill")).toEqual(["/trusted/skill"]);
+    expect(buildPiArgs({ ...baseOpts, disableSkillDiscovery: true, skillPaths: [] })).toContain("--no-skills");
+  });
+
+  it("direct conversation send retains Pi skill discovery unless selected by agent run", () => {
     expect(buildPiArgs(baseOpts)).not.toContain("--skill");
+    expect(buildPiArgs(baseOpts)).not.toContain("--no-skills");
   });
 
   it("appends Map orientation only when a map-note was selected", () => {

@@ -143,6 +143,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       message,
       extensionPaths,
       skillPaths,
+      disableSkillDiscovery: options?.skillPaths !== undefined,
       conversationId,
       sessionDir,
       modelTier,
