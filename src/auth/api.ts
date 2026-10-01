@@ -71,7 +71,8 @@ export interface CreateRepoResult {
 }
 
 export interface PublicSpaceResult {
-  kind: "space";
+  /** The canonical `/public/repos/{id}` route answers `repo`; older routes answered `space`. */
+  kind: "space" | "repo";
   node_id: string;
   container_node_id: string;
   name: string;

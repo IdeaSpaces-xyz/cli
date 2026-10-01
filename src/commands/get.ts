@@ -49,6 +49,8 @@ export interface GetPlan {
     link?: { available: boolean; origin: string | null; reason?: string };
   };
   logged_in: boolean;
+  /** What the reader can do when the plan offers no mode, or no clone, in the access words. */
+  next?: string;
 }
 
 const USAGE = "ideaspaces get <space-url> [dest-dir] [--yes --as clone|fork] [--name <local-name>] | ideaspaces get <dir> [space] [--yes --as link] [--json]";
@@ -111,9 +113,11 @@ async function planSpace(address: string, output: Output): Promise<GetPlan | nul
     if (!/→ (?:401|403|404):/.test(err instanceof Error ? err.message : String(err))) throw err;
   }
 
-  // Clone truth comes from the account catalog; a known-link collaborator
-  // without a catalog row still has git as the authority, so "unknown" is
-  // honest there rather than "not allowed".
+  // Clone truth comes from the account catalog. The catalog lists every root
+  // the account reaches as owner, direct person or organization, the same
+  // relationships that grant git fetch; public reach never includes clone.
+  // So with no catalog row the reach stays "unknown" and clone is not offered:
+  // running it would end in git's own "repository not found".
   const fetch: Truth = catalog ? (hasRootAction(catalog, "clone") ? "allowed" : "not allowed") : loggedIn ? "unknown" : "login required";
   const push: Truth = catalog ? (hasRootAction(catalog, "collaborate") ? "allowed" : "not allowed") : loggedIn ? "unknown" : "login required";
   const copy: Truth = source
@@ -124,6 +128,12 @@ async function planSpace(address: string, output: Output): Promise<GetPlan | nul
       : "not allowed"
     : "not allowed";
 
+  const cloneAvailable = fetch === "allowed";
+  const forkAvailable = copy === "allowed";
+  const next = loggedIn && !cloneAvailable
+    ? nextStep({ reachable: Boolean(catalog || source), canOpen: Boolean(source) || (catalog ? hasRootAction(catalog, "open") : false), forkAvailable })
+    : undefined;
+
   return {
     address,
     kind: "space",
@@ -131,11 +141,23 @@ async function planSpace(address: string, output: Output): Promise<GetPlan | nul
     ...(source?.name ? { name: source.name } : catalog?.name ? { name: catalog.name } : {}),
     canonical_url: canonicalRepoUrl(auth.apiUrl, rootNodeId),
     modes: {
-      clone: { available: fetch === "allowed" || fetch === "unknown", fetch, push, history: "full" },
-      fork: { available: copy === "allowed", copy, history: "none" },
+      clone: { available: cloneAvailable, fetch, push, history: "full" },
+      fork: { available: forkAvailable, copy, history: "none" },
     },
     logged_in: loggedIn,
+    ...(next ? { next } : {}),
   };
+}
+
+/** What a logged-in reader without clone can do, in the access words: Viewer, Allow copying, Editor, Request access. */
+function nextStep(reach: { reachable: boolean; canOpen: boolean; forkAvailable: boolean }): string {
+  if (!reach.reachable) {
+    return "Not found, or not shared with you. Request access from its owner: Viewer to look around, Allow copying to take your own copy (fork), Editor to work on it together (clone).";
+  }
+  if (reach.forkAvailable) {
+    return "To work on this Space itself (clone), request Editor from its owner.";
+  }
+  return `${reach.canOpen ? "You can look around on its page. " : ""}Request access from its owner: Allow copying to take your own copy (fork), Editor to work on it together (clone).`;
 }
 
 function renderPlan(plan: GetPlan): string {
@@ -156,6 +178,7 @@ function renderPlan(plan: GetPlan): string {
       `  copy:  ${f.copy}`,
     );
     if (!plan.logged_in) lines.push("", "Not logged in: `ideaspaces login` reveals what your account may clone.");
+    if (plan.next) lines.push("", plan.next);
   } else {
     const l = plan.modes.link!;
     lines.push(`Folder: ${plan.address}`);
