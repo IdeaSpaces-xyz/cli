@@ -15,7 +15,10 @@ import {
 export const MAX_MAP_ORIENTATION_LENGTH = 12_000;
 
 export interface LoadedMapNote {
+  /** For display: relative to the context it was loaded from when inside it. */
   path: string;
+  /** Where the note is on disk; a Map's roots are looked for from its folder. */
+  absolutePath: string;
   fileSha: string;
   name?: string;
   summary?: string;
@@ -76,6 +79,7 @@ export function loadMapNote(reference: string, contextRoot: string): LoadedMapNo
   const summary = scalar(frontmatter.summary);
   return {
     path: displayPath(absolutePath, resolve(contextRoot), reference),
+    absolutePath,
     fileSha: createHash("sha256").update(content).digest("hex"),
     ...(name ? { name } : {}),
     ...(summary ? { summary } : {}),

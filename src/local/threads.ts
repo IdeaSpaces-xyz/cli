@@ -3,9 +3,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, resolveThreadGitPath, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
+import { readCheckoutAt } from "./map-resolve.js";
 
 const MAX_POST = 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
@@ -207,15 +208,16 @@ function readPinnedThreadFile(repo: string, pin: string, position: string): stri
   if (!SHA.test(pin)) throw new Error("A full 40-character authored commit pin is required.");
   const availability = gitAvailability();
   if (availability.state !== "usable") throw new Error(availability.hint);
-  const path = resolveThreadGitPath(position, (candidate) => {
-    const probe = spawnSync("git", ["cat-file", "-e", `${pin}:${candidate}`], { cwd: repo, env: sanitizedGitEnvironment() });
-    return probe.status === 0;
-  });
-  if (!path) throw new Error(`Authored pin ${pin} does not contain ${position}; refusing working-tree HEAD fallback.`);
-  const result = spawnSync("git", ["show", `${pin}:${path}`], { cwd: repo, encoding: "utf8", env: sanitizedGitEnvironment(), maxBuffer: MAX_POST + 1 });
-  if (result.status !== 0) throw new Error(result.stderr?.trim() || "Pinned file could not be read.");
-  if (Buffer.byteLength(result.stdout) > MAX_POST) throw new Error("Pinned post exceeds the read limit.");
-  return result.stdout;
+  const read = readCheckoutAt(repo, pin, position, MAX_POST);
+  if (read.status === "read") {
+    if (read.kind !== "file") throw new Error(`${position} is a directory at pin ${pin}, not a post.`);
+    return read.content;
+  }
+  if (read.status === "pin_absent" || read.status === "missing_path") {
+    throw new Error(`Authored pin ${pin} does not contain ${position}; refusing working-tree HEAD fallback.`);
+  }
+  if (read.status === "too_large") throw new Error("Pinned post exceeds the read limit.");
+  throw new Error(read.reason || "Pinned file could not be read.");
 }
 
 export function readPinnedThreadMember(repo: string, pin: string, position: string): string {
