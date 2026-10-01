@@ -240,6 +240,8 @@ export function readCheckoutAt(
     gitUsable = true;
   }
   if (!SHA.test(commit)) return { status: "pin_absent", reason: `${commit} is not a full commit id.` };
+  // Probe output is matched to inputs by line; a newline in a position would misalign it.
+  if (position.includes("\n")) return { status: "missing_path", reason: "A position cannot contain a newline." };
 
   const git = (args: string[], buffer = 64 * 1024, input?: string) =>
     spawnSync("git", ["-C", checkoutPath, ...args], {
@@ -251,7 +253,9 @@ export function readCheckoutAt(
 
   const objectAt = (path: string) => (path === "." || path === "" ? `${commit}^{tree}` : `${commit}:${path}`);
   const isThreads = position === "_threads" || position.startsWith("_threads/");
-  // Every path this read could need, probed in one process: Windows pays per spawn.
+  // Every path this read could need, probed in one process: Windows pays per spawn. These are
+  // exactly the paths resolveThreadGitPath asks about: the authored position, then the same
+  // position relative to a threads branch rooted at `_threads/` ("" for the root itself).
   const candidates = [position, ...(isThreads ? [position === "_threads" ? "." : position.slice("_threads/".length)] : [])];
   const probe = git(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
   if (probe.error) return { status: "git_error", reason: probe.error.message };
@@ -265,9 +269,9 @@ export function readCheckoutAt(
   const found = new Map<string, { type: string; size: number }>();
   candidates.forEach((candidate, index) => {
     const match = / (blob|tree|commit) (\d+)$/.exec(lines[index] ?? "");
-    if (match) found.set(candidate, { type: match[1], size: Number(match[2]) });
+    if (match) found.set(candidate || ".", { type: match[1], size: Number(match[2]) });
   });
-  const has = (candidate: string) => found.has(candidate || ".") || (candidate === "" && found.has("."));
+  const has = (candidate: string) => found.has(candidate || ".");
   const path = isThreads ? resolveThreadGitPath(position, has) : has(position) ? position : null;
   const object = path === null ? undefined : found.get(path || ".");
   if (path === null || !object || (object.type !== "blob" && object.type !== "tree")) {

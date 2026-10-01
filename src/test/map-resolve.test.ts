@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { saveSpace } from "../auth/spaces.js";
 import { loadMapNote } from "../local/map-note.js";
-import { mapKindOf, resolveMapAddress } from "../local/map-resolve.js";
+import { mapKindOf, readCheckoutAt, resolveMapAddress } from "../local/map-resolve.js";
 import { CHECKOUT_SEARCH_LIMIT, inspectSpaceMapRoots } from "../local/space-map.js";
 
 const ID_RESEARCH = "n_111111111111111111111111";
@@ -277,5 +277,54 @@ describe("resolveMapAddress — one resolver reads a Map member", { timeout: 30_
     const result = resolveMapAddress(loadMapNote(mapPath, home), "@research//");
     expect(result.status).toBe("invalid_address");
     expect(result.reason).toMatch(/more than one root by name/);
+  });
+});
+
+describe("readCheckoutAt — one commit of one checkout", { timeout: 30_000 }, () => {
+  let base: string;
+
+  beforeEach(() => {
+    base = realpathSync.native(mkdtempSync(join(tmpdir(), "is-checkout-read-")));
+  });
+
+  afterEach(() => {
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it("finds _threads positions as authored and on a branch rooted at _threads/", () => {
+    const unified = repo(join(base, "unified"));
+    const unifiedSha = commit(unified, "_threads/t/README.md", "# unified\n");
+    expect(readCheckoutAt(unified, unifiedSha, "_threads/t/README.md")).toMatchObject({
+      status: "read",
+      path: "_threads/t/README.md",
+      content: "# unified\n",
+    });
+
+    const branch = repo(join(base, "branch"));
+    const branchSha = commit(branch, "t/README.md", "# branch\n");
+    expect(readCheckoutAt(branch, branchSha, "_threads/t/README.md")).toMatchObject({
+      status: "read",
+      path: "t/README.md",
+      content: "# branch\n",
+    });
+    // The branch's own root answers for `_threads/` itself.
+    expect(readCheckoutAt(branch, branchSha, "_threads/")).toMatchObject({ status: "read", kind: "directory", path: "." });
+    expect(readCheckoutAt(branch, branchSha, "_threads")).toMatchObject({
+      status: "read",
+      kind: "directory",
+      path: ".",
+      entries: [{ name: "t", type: "directory" }],
+    });
+  });
+
+  it("reports the batch-probed size, a missing commit, a newline, and a folder that is not a repository", () => {
+    const dir = repo(join(base, "r"));
+    const sha = commit(dir, "a.md", "12345\n");
+    expect(readCheckoutAt(dir, sha, "a.md", 3)).toMatchObject({ status: "too_large", reason: expect.stringContaining("6 bytes") });
+    expect(readCheckoutAt(dir, "f".repeat(40), "a.md")).toMatchObject({ status: "pin_absent" });
+    expect(readCheckoutAt(dir, sha, "a\nb.md")).toMatchObject({ status: "missing_path" });
+    const plain = join(base, "plain");
+    mkdirSync(plain);
+    expect(readCheckoutAt(plain, sha, "a.md")).toMatchObject({ status: "git_error" });
   });
 });
