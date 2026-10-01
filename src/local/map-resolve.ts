@@ -11,10 +11,9 @@ import {
   type MapRoot,
 } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
-import { gitAvailability, sanitizedGitEnvironment } from "../git.js";
-import { inspectLocalRootIdentity } from "../root-identity.js";
+import { gitAvailability, repoRoot, sanitizedGitEnvironment } from "../git.js";
 import type { LoadedMapNote } from "./map-note.js";
-import { inspectSpaceMapRoots, type SpaceMapRootDrift } from "./space-map.js";
+import { CHECKOUT_SEARCH_LIMIT, checkoutRootNodeId, inspectSpaceMapRoots, type SpaceMapRootDrift } from "./space-map.js";
 
 /** Which commit a member is read at: the root's pin, or its checkout's HEAD. */
 export type MapReadAt = "pin" | "head";
@@ -51,8 +50,8 @@ export interface MapTreeEntry {
 
 export interface MapReadResult {
   status: MapReadStatus;
-  /** The address as given. */
-  address: string;
+  /** The address as given; absent when a caller read a located root directly. */
+  address?: string;
   /** The identity form of the address, when the root and its identity are known. */
   canonical?: string;
   rootIndex?: number;
@@ -131,8 +130,9 @@ export function resolveMapAddress(
   const inspectAll = () => (inspected ??= inspectSpaceMapRoots(roots, contextDir));
   const self = (): string | undefined => {
     if (options.self) return options.self;
+    // The same identity rules discovery uses, so a checkout found as a root is also its own `//`.
     try {
-      return inspectLocalRootIdentity(process.cwd()).root_node_id ?? undefined;
+      return checkoutRootNodeId(repoRoot(process.cwd())) ?? undefined;
     } catch {
       return undefined;
     }
@@ -171,7 +171,6 @@ export function readMapRoot(
   const { root, rootIndex, rootNodeId, checkoutPath, headSha, drift } = located;
   const base: MapReadResult = {
     status: "unreachable",
-    address: "",
     ...(rootNodeId ? { canonical: formatMapPositionAddress({ root: { kind: "identity", rootNodeId }, position }) } : {}),
     rootIndex,
     root,
@@ -187,7 +186,9 @@ export function readMapRoot(
     return {
       ...base,
       reason: rootNodeId
-        ? `No local checkout of ${rootNodeId} below the Map's folder or in the local registry.`
+        ? located.searchCapped
+          ? `No local checkout of ${rootNodeId} in the local registry, and the search below the Map's folder stopped after ${CHECKOUT_SEARCH_LIMIT} folders; read the Map from a narrower folder or register the checkout.`
+          : `No local checkout of ${rootNodeId} below the Map's folder or in the local registry.`
         : root.repo
           ? `The root's repo URL (${root.repo}) is not on this CLI's configured host; it is not trusted as a local binding.`
           : "The root carries no identity this reader can match to a checkout.",

@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { saveSpace } from "../auth/spaces.js";
 import { loadMapNote } from "../local/map-note.js";
 import { mapKindOf, resolveMapAddress } from "../local/map-resolve.js";
-import { inspectSpaceMapRoots } from "../local/space-map.js";
+import { CHECKOUT_SEARCH_LIMIT, inspectSpaceMapRoots } from "../local/space-map.js";
 
 const ID_RESEARCH = "n_111111111111111111111111";
 const ID_OPS = "n_222222222222222222222222";
@@ -225,5 +225,56 @@ describe("resolveMapAddress — one resolver reads a Map member", () => {
     // The same identity pinned twice is ambiguous by identity; its name still reaches it.
     expect(resolveMapAddress(map, `@${ID_RESEARCH}//x.md`).reason).toMatch(/more than one/);
     expect(resolveMapAddress(map, "frictions/x.md").status).toBe("invalid_address");
+  });
+  it("refuses a file over the read limit as a result", () => {
+    const { map } = spaceWithResearch();
+    expect(resolveMapAddress(map, "@research//frictions/x.md", { at: "pin", maxBytes: 3 })).toMatchObject({
+      status: "too_large",
+      reason: expect.stringContaining("read limit is 3"),
+    });
+  });
+
+  it("stops at checkout boundaries, skips tooling folders, and searches three levels down", () => {
+    const { pin } = spaceWithResearch();
+    const id = (n: number) => `n_${String(n).repeat(24)}`;
+    const shas: string[] = [];
+    const place = (path: string, n: number) => {
+      const dir = repo(join(home, path), agreement(`Agreement — R${n}`, id(n)));
+      shas.push(git(dir, ["rev-parse", "HEAD"]));
+    };
+    place("notes/research/nested", 4); // inside another checkout: belongs to it
+    place("node_modules/pkg", 5);
+    place("a/b/c", 6); // three levels: found
+    place("a/b/c2/d", 7); // four levels: not searched
+    const mapPath = writeMap(home, "space.map.md", [
+      { root_node_id: ID_RESEARCH, sha: pin },
+      ...[4, 5, 6, 7].map((n, i) => ({ root_node_id: id(n), sha: shas[i] })),
+    ]);
+    const located = inspectSpaceMapRoots(loadMapNote(mapPath, home).map.roots, home);
+    expect(located.map((root) => root.checkoutPath !== null)).toEqual([true, false, false, true, false]);
+  });
+
+  it("says when the folder search was capped", () => {
+    const { pin } = spaceWithResearch();
+    for (let i = 0; i <= CHECKOUT_SEARCH_LIMIT; i++) mkdirSync(join(home, `f${String(i).padStart(4, "0")}`));
+    const mapPath = writeMap(home, "space.map.md", [
+      { root_node_id: ID_RESEARCH, sha: pin },
+      { root_node_id: ID_ELSEWHERE, sha: pin },
+    ]);
+    const result = resolveMapAddress(loadMapNote(mapPath, home), `@${ID_ELSEWHERE}//x.md`);
+    expect(result.status).toBe("unreachable");
+    expect(result.reason).toContain(`stopped after ${CHECKOUT_SEARCH_LIMIT} folders`);
+  });
+
+  it("reports two roots answering to one Agreement name as ambiguous", () => {
+    const { pin } = spaceWithResearch();
+    const twin = repo(join(home, "notes", "twin"), agreement("Agreement — Research", ID_OPS));
+    const mapPath = writeMap(home, "space.map.md", [
+      { root_node_id: ID_RESEARCH, sha: pin },
+      { root_node_id: ID_OPS, sha: git(twin, ["rev-parse", "HEAD"]) },
+    ]);
+    const result = resolveMapAddress(loadMapNote(mapPath, home), "@research//");
+    expect(result.status).toBe("invalid_address");
+    expect(result.reason).toMatch(/more than one root by name/);
   });
 });

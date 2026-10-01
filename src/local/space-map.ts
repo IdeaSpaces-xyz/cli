@@ -21,6 +21,8 @@ export interface SpaceMapRootDrift {
   drift: boolean;
   headSha: string | null;
   checkoutPath: string | null;
+  /** The folder walk below the context hit its cap before this unresolved root was found. */
+  searchCapped?: boolean;
 }
 
 export interface SpaceMapDiscovery {
@@ -63,9 +65,9 @@ function parseNamespaceAndSlugFromRepoUrl(url: string | undefined, apiUrl: strin
 }
 
 /** Folder levels below the context searched for checkouts; a grouped `<group>/<name>` is two. */
-const CHECKOUT_SEARCH_DEPTH = 3;
+export const CHECKOUT_SEARCH_DEPTH = 3;
 /** Bound on folders visited, so a Map read from inside a large tree stays cheap. */
-const CHECKOUT_SEARCH_LIMIT = 2_000;
+export const CHECKOUT_SEARCH_LIMIT = 2_000;
 const SKIPPED_FOLDERS = new Set(["node_modules"]);
 
 function getRepoRootNodeId(dir: string, apiUrl: string, spaces: () => SpacesMap): string | null {
@@ -150,6 +152,7 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
   let knownSpaces: SpacesMap | null = null;
   let selfId: string | null | undefined;
   let childPaths: Map<string, string> | null = null;
+  let capped = false;
   const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
   const spaces = (): SpacesMap => {
     if (!knownSpaces) {
@@ -182,7 +185,11 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
           }
           for (const dirent of entries.sort((a, b) => a.name.localeCompare(b.name))) {
             if (!dirent.isDirectory() || dirent.name.startsWith(".") || dirent.name.startsWith("_")) continue;
-            if (SKIPPED_FOLDERS.has(dirent.name) || ++visited > CHECKOUT_SEARCH_LIMIT) continue;
+            if (SKIPPED_FOLDERS.has(dirent.name)) continue;
+            if (++visited > CHECKOUT_SEARCH_LIMIT) {
+              capped = true;
+              continue;
+            }
             const candidate = join(parent, dirent.name);
             if (existsSync(join(candidate, ".git"))) {
               const id = getRepoRootNodeId(candidate, apiUrl, spaces);
@@ -279,7 +286,24 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
       drift,
       headSha: head,
       checkoutPath,
+      ...(!checkoutPath && capped ? { searchCapped: true } : {}),
     };
+  });
+}
+
+/** The root identity of one checkout, by declaration, canonical origin, or registry route. */
+export function checkoutRootNodeId(dir: string): string | null {
+  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  let spaces: SpacesMap | null = null;
+  return getRepoRootNodeId(dir, apiUrl, () => {
+    if (!spaces) {
+      try {
+        spaces = loadSpaces();
+      } catch {
+        spaces = {};
+      }
+    }
+    return spaces;
   });
 }
 
