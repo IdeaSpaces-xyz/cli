@@ -212,5 +212,5 @@ describe("authored cross-Space local Thread selection", () => {
     expect((await run(["post", "decision"], { ...base, "reply-to": f.first.post.id })).status).toBe(1);
     expect(posts(f.home)).toHaveLength(3);
     expect(readdirSync(target).filter((name) => name.endsWith(".md"))).toHaveLength(4);
-  });
+  }, 30_000); // Windows Git process startup can exceed Vitest's 5s default for this many repositories.
 });

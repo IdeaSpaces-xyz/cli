@@ -61,7 +61,8 @@ function writeMap(home: string, file: string, roots: object[], members: object[]
   return join(home, file);
 }
 
-describe("resolveMapAddress — one resolver reads a Map member", () => {
+// Every test builds several Git repositories; Windows process startup exceeds the 5s default.
+describe("resolveMapAddress — one resolver reads a Map member", { timeout: 30_000 }, () => {
   let base: string;
   let home: string;
   let originalHome: string | undefined;

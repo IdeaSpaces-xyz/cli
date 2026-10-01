@@ -234,42 +234,48 @@ export function readCheckoutAt(
   position: string,
   maxBytes = MAP_READ_MAX_BYTES,
 ): CheckoutRead {
-  const availability = gitAvailability();
-  if (availability.state !== "usable") return { status: "git_error", reason: availability.hint };
+  if (!gitUsable) {
+    const availability = gitAvailability();
+    if (availability.state !== "usable") return { status: "git_error", reason: availability.hint };
+    gitUsable = true;
+  }
   if (!SHA.test(commit)) return { status: "pin_absent", reason: `${commit} is not a full commit id.` };
 
-  const git = (args: string[], buffer = 64 * 1024) =>
+  const git = (args: string[], buffer = 64 * 1024, input?: string) =>
     spawnSync("git", ["-C", checkoutPath, ...args], {
       encoding: "utf8",
       env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
       maxBuffer: buffer,
+      ...(input === undefined ? {} : { input }),
     });
 
-  const exists = git(["cat-file", "-e", `${commit}^{commit}`]);
-  if (exists.error) return { status: "git_error", reason: exists.error.message };
-  if (exists.status !== 0) {
-    const stderr = (exists.stderr ?? "").trim();
-    if (/not a git repository/i.test(stderr)) return { status: "git_error", reason: stderr };
+  const objectAt = (path: string) => (path === "." || path === "" ? `${commit}^{tree}` : `${commit}:${path}`);
+  const isThreads = position === "_threads" || position.startsWith("_threads/");
+  // Every path this read could need, probed in one process: Windows pays per spawn.
+  const candidates = [position, ...(isThreads ? [position === "_threads" ? "." : position.slice("_threads/".length)] : [])];
+  const probe = git(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
+  if (probe.error) return { status: "git_error", reason: probe.error.message };
+  if (probe.status !== 0) {
+    return { status: "git_error", reason: (probe.stderr ?? "").trim() || `git cat-file failed in ${checkoutPath}` };
+  }
+  const [commitLine, ...lines] = probe.stdout.split("\n");
+  if (!/ commit \d+$/.test(commitLine ?? "")) {
     return { status: "pin_absent", reason: `Commit ${commit} is not in the checkout at ${checkoutPath}.` };
   }
-
-  const objectAt = (path: string) => (path === "." ? `${commit}^{tree}` : `${commit}:${path}`);
-  const typeOf = (path: string): string | null => {
-    const probe = git(["cat-file", "-t", objectAt(path)]);
-    return probe.status === 0 ? probe.stdout.trim() : null;
-  };
-  const path = position === "_threads" || position.startsWith("_threads/")
-    ? resolveThreadGitPath(position, (candidate) => typeOf(candidate || ".") !== null)
-    : typeOf(position) !== null
-      ? position
-      : null;
-  const type = path === null ? null : typeOf(path || ".");
-  if (path === null || (type !== "blob" && type !== "tree")) {
+  const found = new Map<string, { type: string; size: number }>();
+  candidates.forEach((candidate, index) => {
+    const match = / (blob|tree|commit) (\d+)$/.exec(lines[index] ?? "");
+    if (match) found.set(candidate, { type: match[1], size: Number(match[2]) });
+  });
+  const has = (candidate: string) => found.has(candidate || ".") || (candidate === "" && found.has("."));
+  const path = isThreads ? resolveThreadGitPath(position, has) : has(position) ? position : null;
+  const object = path === null ? undefined : found.get(path || ".");
+  if (path === null || !object || (object.type !== "blob" && object.type !== "tree")) {
     return { status: "missing_path", reason: `${position} is not in commit ${commit}.` };
   }
 
-  if (type === "tree") {
-    const listing = git(["ls-tree", "-z", objectAt(path || ".")], 16 * 1024 * 1024);
+  if (object.type === "tree") {
+    const listing = git(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
     if (listing.status !== 0) return { status: "git_error", reason: (listing.stderr ?? "").trim() || "git ls-tree failed" };
     const entries: MapTreeEntry[] = [];
     for (const line of listing.stdout.split("\0")) {
@@ -279,9 +285,8 @@ export function readCheckoutAt(
     return { status: "read", kind: "directory", entries, path: path || "." };
   }
 
-  const size = Number(git(["cat-file", "-s", objectAt(path)]).stdout.trim());
-  if (Number.isFinite(size) && size > maxBytes) {
-    return { status: "too_large", reason: `${position} is ${size} bytes; the read limit is ${maxBytes}.` };
+  if (object.size > maxBytes) {
+    return { status: "too_large", reason: `${position} is ${object.size} bytes; the read limit is ${maxBytes}.` };
   }
   const shown = git(["cat-file", "blob", objectAt(path)], maxBytes + 1);
   if (shown.status !== 0 || shown.error) {
@@ -289,6 +294,9 @@ export function readCheckoutAt(
   }
   return { status: "read", kind: "file", content: shown.stdout, path };
 }
+
+/** Git presence is a fact of the machine; probe it once per process, not per read. */
+let gitUsable = false;
 
 /**
  * This CLI's convenience, not protocol shape: other readers may supply other defaults, so an
