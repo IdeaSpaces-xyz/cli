@@ -256,7 +256,7 @@ Space map legend.
       mockGlobal,
     );
     expect(exitCode).toBe(0);
-  });
+  }, 30_000); // Windows Git process startup can exceed Vitest's 5s default for this many repositories.
 
   it("dynamically changes the agent list when the Map selection changes without editing a second roster", () => {
     const repoA = makeRepo("agent-a");
