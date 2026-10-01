@@ -31,7 +31,8 @@ export type MapKind = "space" | "thread";
  * - `pin_absent` — a checkout exists but does not hold the pinned commit (shallow, rewritten, not fetched);
  * - `missing_path` — the commit holds no such position;
  * - `too_large` — the file exceeds the read limit;
- * - `unreachable` — the root is in the Map but no usable checkout was found;
+ * - `unreachable` — the root is in the Map but cannot be read here. `checkoutPath` tells the two
+ *   causes apart: null when no checkout was found, set when one was found but Git failed on it;
  * - `invalid_address` — the address does not parse or names no single root of this Map.
  */
 export type MapReadStatus =
@@ -120,7 +121,7 @@ export function resolveMapAddress(
   options: MapResolveOptions = {},
 ): MapReadResult {
   const map = isLoadedMapNote(input) ? input.map : input;
-  const notePath = isLoadedMapNote(input) ? input.absolutePath ?? input.path : undefined;
+  const notePath = isLoadedMapNote(input) ? input.absolutePath : undefined;
   const kind = options.kind ?? mapKindOf(notePath);
   const at = options.at ?? defaultReadAt(kind);
   const contextDir = options.contextDir ?? (notePath ? dirname(notePath) : process.cwd());
@@ -272,7 +273,7 @@ export function readCheckoutAt(
     if (listing.status !== 0) return { status: "git_error", reason: (listing.stderr ?? "").trim() || "git ls-tree failed" };
     const entries: MapTreeEntry[] = [];
     for (const line of listing.stdout.split("\0")) {
-      const match = /^\d+ (blob|tree|commit) [0-9a-f]+\t(.+)$/.exec(line);
+      const match = /^\d+ (blob|tree|commit) [0-9a-f]+\t([\s\S]+)$/.exec(line);
       if (match) entries.push({ name: match[2], type: match[1] === "tree" ? "directory" : "file" });
     }
     return { status: "read", kind: "directory", entries, path: path || "." };
@@ -290,6 +291,9 @@ export function readCheckoutAt(
 }
 
 /**
+ * This CLI's convenience, not protocol shape: other readers may supply other defaults, so an
+ * address stored for later uses the identity form (`canonical`), never a default name.
+ *
  * The names roots answer to when the Map gives them none: the hosted slug the local registry
  * holds for the identity, else the root's Agreement name as a token ("Agreement — Product" →
  * `product`). Read at the checkout's HEAD: a name is a local handle, not pinned content.
