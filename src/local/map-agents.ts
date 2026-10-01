@@ -1,18 +1,12 @@
-import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename } from "node:path";
 import {
   inspectFrontmatterSyntax,
   parseFrontmatter,
   type MapBlock,
-  type MapRoot,
 } from "@ideaspaces/protocol";
-import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
-import { loadSpaces, type SpaceRecord } from "../auth/spaces.js";
-import { sanitizedGitEnvironment } from "../git.js";
 import type { LoadedMapNote } from "./map-note.js";
-import { canonicalRepoUrl, rootNodeIdFromGitUrl } from "../repo-locator.js";
-import { inspectLocalRootIdentity } from "../root-identity.js";
+import { readMapRoot } from "./map-resolve.js";
+import { inspectSpaceMapRoots } from "./space-map.js";
 
 export interface MapAgentListing {
   name: string;
@@ -39,97 +33,8 @@ export interface MapAgentsResult {
 }
 
 export interface CheckoutResolverOptions {
+  /** Where root checkouts are looked for: the folder, folders below it, then the registry. */
   cwd?: string;
-  apiUrl?: string;
-  spacesMap?: Record<string, SpaceRecord>;
-  localCheckouts?: Record<string, string>;
-}
-
-function resolveLocalCheckout(
-  root: MapRoot,
-  options?: CheckoutResolverOptions,
-): string | null {
-  if (options?.localCheckouts) {
-    if (root.root_node_id && options.localCheckouts[root.root_node_id]) {
-      const p = options.localCheckouts[root.root_node_id];
-      if (existsSync(p)) return p;
-    }
-    if (root.repo && options.localCheckouts[root.repo]) {
-      const p = options.localCheckouts[root.repo];
-      if (existsSync(p)) return p;
-    }
-  }
-
-  const spaces = options?.spacesMap ?? loadSpaces();
-  const apiUrl = options?.apiUrl ?? loadConfig()?.apiUrl ?? getDefaultApiUrl();
-
-  for (const [folderPath, record] of Object.entries(spaces)) {
-    if (root.root_node_id && record.root_node_id === root.root_node_id) {
-      if (existsSync(folderPath)) return folderPath;
-    }
-    if (root.repo) {
-      if (record.root_node_id && canonicalRepoUrl(apiUrl, record.root_node_id) === root.repo) {
-        if (existsSync(folderPath)) return folderPath;
-      }
-      if (record.canonical_path && root.repo.endsWith(record.canonical_path)) {
-        if (existsSync(folderPath)) return folderPath;
-      }
-    }
-  }
-
-  const cwd = options?.cwd ? resolve(options.cwd) : process.cwd();
-  if (existsSync(cwd)) {
-    const identity = inspectLocalRootIdentity(cwd, apiUrl);
-    if (root.root_node_id && identity.root_node_id === root.root_node_id) {
-      return cwd;
-    }
-    if (
-      root.repo &&
-      identity.canonical_origin &&
-      canonicalRepoUrl(apiUrl, identity.canonical_origin) === root.repo
-    ) {
-      return cwd;
-    }
-  }
-
-  return null;
-}
-
-function readGitBlobAtCommit(
-  repoPath: string,
-  sha: string,
-  relativePath: string,
-): { ok: boolean; content?: string; reason?: "unavailable_pin" | "missing_path" | "git_error"; detail?: string } {
-  const commitCheck = spawnSync("git", ["-C", repoPath, "cat-file", "-e", `${sha}^{commit}`], {
-    encoding: "utf-8",
-    env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
-  });
-  if (commitCheck.error) {
-    return { ok: false, reason: "git_error", detail: commitCheck.error.message };
-  }
-  if (commitCheck.status !== 0) {
-    const stderr = (commitCheck.stderr ?? "").trim();
-    if (stderr.includes("fatal: not a git repository")) {
-      return { ok: false, reason: "git_error", detail: stderr };
-    }
-    return { ok: false, reason: "unavailable_pin" };
-  }
-
-  const show = spawnSync("git", ["-C", repoPath, "show", `${sha}:${relativePath}`], {
-    encoding: "utf-8",
-    env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
-  });
-  if (show.error) {
-    return { ok: false, reason: "git_error", detail: show.error.message };
-  }
-  if (show.status !== 0) {
-    const stderr = (show.stderr ?? "").trim();
-    if (stderr.includes("fatal: bad object") || stderr.includes("fatal: not a git repository")) {
-      return { ok: false, reason: "git_error", detail: stderr };
-    }
-    return { ok: false, reason: "missing_path" };
-  }
-  return { ok: true, content: show.stdout };
 }
 
 function isMapBlock(value: unknown): value is MapBlock {
@@ -140,8 +45,8 @@ function isMapBlock(value: unknown): value is MapBlock {
  * Project the agent-kind roots included in a Space Map selection.
  *
  * Inspects author-declared `agreement` at the exact Map pin commit in each
- * resolved local checkout without network access, folder scanning, or HEAD
- * substitution.
+ * root's local checkout, located by identity through the shared Map reader,
+ * without network access or HEAD substitution.
  */
 export function projectMapAgents(
   mapInput: LoadedMapNote | MapBlock,
@@ -151,13 +56,7 @@ export function projectMapAgents(
   const roots = mapBlock.roots ?? [];
   const members = mapBlock.members ?? [];
 
-  const spacesMap = options?.spacesMap ?? loadSpaces();
-  const apiUrl = options?.apiUrl ?? loadConfig()?.apiUrl ?? getDefaultApiUrl();
-  const effectiveOptions: CheckoutResolverOptions = {
-    ...options,
-    spacesMap,
-    apiUrl,
-  };
+  const located = inspectSpaceMapRoots(roots, options?.cwd ?? process.cwd());
 
   const agents: MapAgentListing[] = [];
   const unresolved: MapUnresolvedRoot[] = [];
@@ -178,44 +77,41 @@ export function projectMapAgents(
 
     const root = roots[rootIndex];
     if (!root) continue;
+    const identity = {
+      ...(root.root_node_id ? { root_node_id: root.root_node_id } : {}),
+      ...(root.repo ? { repo: root.repo } : {}),
+      sha: root.sha,
+    };
 
-    const checkoutPath = resolveLocalCheckout(root, effectiveOptions);
+    const read = readMapRoot(located[rootIndex], "_agent/agreement.md", "pin");
+    const checkoutPath = read.checkoutPath;
     if (!checkoutPath) {
+      unresolved.push({ ...identity, reason: "unbound", detail: "No local checkout found" });
+      continue;
+    }
+    if (read.status === "pin_absent") {
       unresolved.push({
-        ...(root.root_node_id ? { root_node_id: root.root_node_id } : {}),
-        ...(root.repo ? { repo: root.repo } : {}),
-        sha: root.sha,
-        reason: "unbound",
-        detail: "No local checkout found",
+        ...identity,
+        path: checkoutPath,
+        reason: "unavailable_pin",
+        detail: `Pin ${root.sha} not found in local checkout`,
       });
       continue;
     }
-
-    const blobResult = readGitBlobAtCommit(checkoutPath, root.sha, "_agent/agreement.md");
-    if (!blobResult.ok) {
-      if (blobResult.reason === "unavailable_pin") {
-        unresolved.push({
-          ...(root.root_node_id ? { root_node_id: root.root_node_id } : {}),
-          ...(root.repo ? { repo: root.repo } : {}),
-          sha: root.sha,
-          path: checkoutPath,
-          reason: "unavailable_pin",
-          detail: `Pin ${root.sha} not found in local checkout`,
-        });
-      } else if (blobResult.reason === "git_error") {
-        unresolved.push({
-          ...(root.root_node_id ? { root_node_id: root.root_node_id } : {}),
-          ...(root.repo ? { repo: root.repo } : {}),
-          sha: root.sha,
-          path: checkoutPath,
-          reason: "git_error",
-          detail: blobResult.detail ?? "git command failed",
-        });
-      }
+    if (read.status === "unreachable") {
+      unresolved.push({
+        ...identity,
+        path: checkoutPath,
+        reason: "git_error",
+        detail: read.reason ?? "git command failed",
+      });
+      continue;
+    }
+    if (read.status !== "checkout_at_pin" || read.kind !== "file") {
       continue;
     }
 
-    const content = blobResult.content ?? "";
+    const content = read.content ?? "";
     const syntax = inspectFrontmatterSyntax(content);
     if (syntax.status !== "valid") {
       continue;
