@@ -54,7 +54,7 @@ function stringFlag(
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const SOURCE_KINDS: ReadonlySet<string> = new Set(["space", "repo"]);
+const SOURCE_KINDS: ReadonlySet<string> = new Set<PublicSpaceResult["kind"]>(["space", "repo"]);
 
 function validateSource(value: unknown, rootNodeId: string): PublicSpaceResult {
   if (

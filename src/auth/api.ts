@@ -81,7 +81,6 @@ export interface PublicSpaceResult {
   login_required_to_copy: boolean;
   summary: string | null;
   readme_markdown: string | null;
-  read_mode?: string;
 }
 
 export interface SpaceCopySnapshotFile {

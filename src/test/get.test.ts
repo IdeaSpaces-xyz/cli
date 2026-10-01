@@ -137,6 +137,16 @@ describe("get plans a Space URL", () => {
     expect(cloneRunMock).not.toHaveBeenCalled();
   });
 
+  it("tells a reader of a public Space without copy that they can look around", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: API, apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({ user_id: 1, username: "me", email: null, name: null, onboarding_complete: true, repos: [] });
+    getSpaceMock.mockResolvedValue(publicSpace({ copy_enabled: false }));
+    const { json } = await captureJson(() => getCommand.run([URL], {}, J));
+    expect(json.modes.clone).toMatchObject({ available: false, fetch: "unknown" });
+    expect(json.modes.fork).toMatchObject({ available: false, copy: "not allowed" });
+    expect(json.next).toBe("You can look around on its page. Request access from its owner: Allow copying to take your own copy (fork), Editor to work on it together (clone).");
+  });
+
   it("tells a Viewer what Allow copying and Editor would add", async () => {
     loadConfigMock.mockReturnValue({ apiUrl: API, apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({

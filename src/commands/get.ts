@@ -113,9 +113,11 @@ async function planSpace(address: string, output: Output): Promise<GetPlan | nul
     if (!/→ (?:401|403|404):/.test(err instanceof Error ? err.message : String(err))) throw err;
   }
 
-  // Clone truth comes from the account catalog. Without a catalog row the
-  // account's reach stays "unknown", and unknown is not offered: a clone the
-  // reader cannot fetch ends in git's own "repository not found".
+  // Clone truth comes from the account catalog. The catalog lists every root
+  // the account reaches as owner, direct person or organization, the same
+  // relationships that grant git fetch; public reach never includes clone.
+  // So with no catalog row the reach stays "unknown" and clone is not offered:
+  // running it would end in git's own "repository not found".
   const fetch: Truth = catalog ? (hasRootAction(catalog, "clone") ? "allowed" : "not allowed") : loggedIn ? "unknown" : "login required";
   const push: Truth = catalog ? (hasRootAction(catalog, "collaborate") ? "allowed" : "not allowed") : loggedIn ? "unknown" : "login required";
   const copy: Truth = source
