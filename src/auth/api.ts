@@ -71,7 +71,8 @@ export interface CreateRepoResult {
 }
 
 export interface PublicSpaceResult {
-  kind: "space";
+  /** The canonical `/public/repos/{id}` route answers `repo`; older routes answered `space`. */
+  kind: "space" | "repo";
   node_id: string;
   container_node_id: string;
   name: string;
@@ -80,6 +81,7 @@ export interface PublicSpaceResult {
   login_required_to_copy: boolean;
   summary: string | null;
   readme_markdown: string | null;
+  read_mode?: string;
 }
 
 export interface SpaceCopySnapshotFile {

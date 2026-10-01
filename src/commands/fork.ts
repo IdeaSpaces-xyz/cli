@@ -54,11 +54,13 @@ function stringFlag(
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+const SOURCE_KINDS: ReadonlySet<string> = new Set(["space", "repo"]);
+
 function validateSource(value: unknown, rootNodeId: string): PublicSpaceResult {
   if (
     !value ||
     typeof value !== "object" ||
-    (value as PublicSpaceResult).kind !== "space" ||
+    !SOURCE_KINDS.has((value as PublicSpaceResult).kind) ||
     (value as PublicSpaceResult).node_id !== rootNodeId ||
     (value as PublicSpaceResult).container_node_id !== rootNodeId ||
     typeof (value as PublicSpaceResult).name !== "string" ||

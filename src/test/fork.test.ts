@@ -56,17 +56,19 @@ function md(nodeId: string, body: string, extra = ""): string {
   return `---\nnode_id: ${nodeId}\n${extra}---\n${body}\n`;
 }
 
-function sourceResult(copyEnabled = true) {
+// The shape `GET /api/v1/public/repos/{id}` answers live: kind `repo` on the canonical route.
+function sourceResult(copyEnabled = true, kind = "repo") {
   return {
-    kind: "space",
+    kind,
     node_id: SOURCE_ROOT,
     container_node_id: SOURCE_ROOT,
     name: "Public Guide",
-    canonical_url: `/spaces/${SOURCE_ROOT}`,
+    canonical_url: `/repos/${SOURCE_ROOT}`,
     copy_enabled: copyEnabled,
     login_required_to_copy: true,
     summary: null,
     readme_markdown: null,
+    read_mode: "authorized_read",
   };
 }
 
@@ -303,6 +305,17 @@ describe("account-free local fork", () => {
     expect(code).toBe(0);
     expect(findSpaceFor(destination)).toMatchObject({ name: "My local guide" });
     expect(getSpaceCopySnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts the legacy kind space and refuses a kind it does not know", async () => {
+    getSpaceMock.mockResolvedValueOnce(sourceResult(true, "space"));
+    expect(await forkCommand.run([SOURCE_URL, join(work, "legacy")], {}, JSON_GLOBAL)).toBe(0);
+
+    const unknown = join(work, "unknown");
+    getSpaceMock.mockResolvedValueOnce(sourceResult(true, "thread"));
+    expect(await forkCommand.run([SOURCE_URL, unknown], {}, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("The source returned an invalid Space description");
+    expect(existsSync(unknown)).toBe(false);
   });
 
   it("leaves no destination or temporary sibling for denied and malformed sources", async () => {

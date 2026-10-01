@@ -235,11 +235,11 @@ describe("repo locator and copy API", () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              kind: "space",
+              kind: "repo",
               node_id: "n_0123456789abcdef01234567",
               container_node_id: "n_0123456789abcdef01234567",
               name: "Manual",
-              canonical_url: "/spaces/n_0123456789abcdef01234567",
+              canonical_url: "/repos/n_0123456789abcdef01234567",
               copy_enabled: true,
               login_required_to_copy: false,
               summary: null,
@@ -325,11 +325,11 @@ describe("repo locator and copy API", () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              kind: "space",
+              kind: "repo",
               node_id: "n_0123456789abcdef01234567",
               container_node_id: "n_0123456789abcdef01234567",
               name: "Guide",
-              canonical_url: "/spaces/n_0123456789abcdef01234567",
+              canonical_url: "/repos/n_0123456789abcdef01234567",
               copy_enabled: true,
               login_required_to_copy: false,
               summary: null,

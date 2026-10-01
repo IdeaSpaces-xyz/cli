@@ -62,7 +62,7 @@ afterEach(async () => {
 
 function publicSpace(overrides: Partial<{ copy_enabled: boolean; login_required_to_copy: boolean }> = {}) {
   return {
-    kind: "space", node_id: ROOT, container_node_id: "n_c", name: "Field Notes", canonical_url: URL,
+    kind: "repo", node_id: ROOT, container_node_id: ROOT, name: "Field Notes", canonical_url: `/repos/${ROOT}`,
     copy_enabled: true, login_required_to_copy: false, summary: null, readme_markdown: null, ...overrides,
   };
 }
@@ -107,13 +107,47 @@ describe("get plans a Space URL", () => {
     expect(json.modes.fork).toEqual({ available: false, copy: "not allowed", history: "none" });
   });
 
-  it("keeps clone honest as unknown for a known-link collaborator without a catalog row", async () => {
+  it("does not offer clone when the account holds no catalog row, and names Editor", async () => {
     loadConfigMock.mockReturnValue({ apiUrl: API, apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({ user_id: 1, username: "me", email: null, name: null, onboarding_complete: true, repos: [] });
     getSpaceMock.mockResolvedValue(publicSpace({ login_required_to_copy: true }));
     const { json } = await captureJson(() => getCommand.run([URL], {}, J));
-    expect(json.modes.clone).toMatchObject({ available: true, fetch: "unknown", push: "unknown" });
+    expect(json.modes.clone).toMatchObject({ available: false, fetch: "unknown", push: "unknown" });
     expect(json.modes.fork).toMatchObject({ available: true, copy: "allowed" });
+    expect(json.next).toBe("To work on this Space itself (clone), request Editor from its owner.");
+
+    const { out } = await captureStdout(() => getCommand.run([URL], {}, T));
+    expect(out).toContain(`Choose one: ideaspaces get ${URL} --yes --as fork`);
+    expect(out).not.toContain("--as clone");
+  });
+
+  it("offers no move for a private Space not shared with the reader", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: API, apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({ user_id: 1, username: "me", email: null, name: null, onboarding_complete: true, repos: [] });
+    getSpaceMock.mockRejectedValue(new Error("GET /x → 404: not found"));
+    const { json } = await captureJson(() => getCommand.run([URL], {}, J));
+    expect(json.modes.clone).toMatchObject({ available: false, fetch: "unknown" });
+    expect(json.modes.fork).toMatchObject({ available: false, copy: "not allowed" });
+
+    const { out } = await captureStdout(() => getCommand.run([URL], {}, T));
+    expect(out).toContain("Not found, or not shared with you. Request access from its owner: Viewer to look around, Allow copying to take your own copy (fork), Editor to work on it together (clone).");
+    expect(out).not.toContain("Choose one");
+    expect(await getCommand.run([URL], { as: "clone" }, { ...J, yes: true })).toBe(1);
+    expect(stderr).toContain("clone is not available here");
+    expect(cloneRunMock).not.toHaveBeenCalled();
+  });
+
+  it("tells a Viewer what Allow copying and Editor would add", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: API, apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({
+      user_id: 1, username: "me", email: null, name: null, onboarding_complete: true,
+      repos: [{ repo_id: "r1", root_node_id: ROOT, name: "Field Notes", actions: ["open"] }],
+    });
+    getSpaceMock.mockResolvedValue(publicSpace({ copy_enabled: false }));
+    const { json } = await captureJson(() => getCommand.run([URL], {}, J));
+    expect(json.modes.clone).toMatchObject({ available: false, fetch: "not allowed" });
+    expect(json.modes.fork).toMatchObject({ available: false });
+    expect(json.next).toBe("You can look around on its page. Request access from its owner: Allow copying to take your own copy (fork), Editor to work on it together (clone).");
   });
 });
 
