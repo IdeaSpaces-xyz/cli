@@ -22,6 +22,9 @@ import { sanitizedGitEnvironment } from "../git.js";
  * filesystem. So the commit's Markdown and `_agent/` files under the target are written to a
  * private folder, the protocol's own look or focus runs there, and every path in the result is
  * relabelled. Nothing is read from, or written to, the checkout's working tree or index.
+ *
+ * TODO(protocol-reader): if the protocol's look, focus and tree take a reader instead of a
+ * filesystem, this module goes and the relabelling with it.
  */
 
 /** Total bytes one commit read may write out. */
@@ -190,6 +193,7 @@ function writeSnapshot(target: CommitReadTarget, wholeTree: boolean, dir: string
     if (!match) return { status: "git_error", reason: `git cat-file returned ${JSON.stringify(header)} for ${file.path}.` };
     const size = Number(match[1]);
     const start = newline + 1;
+    if (start + size > out.length) return { status: "git_error", reason: `git cat-file ended inside ${file.path} at ${commit}.` };
     const destination = join(dir, file.path);
     mkdirSync(dirname(destination), { recursive: true });
     writeFileSync(destination, out.subarray(start, start + size));
@@ -207,6 +211,8 @@ function initRepository(dir: string): void {
 /**
  * Swap the private folder for the label. A prefix swap, not a path match: the end of a path in
  * prose cannot be found (positions may hold spaces), and nothing after the prefix needs to be.
+ * Safe as a plain replace only because `dir` holds mkdtemp's random suffix; never pass a short,
+ * guessable folder here.
  */
 function relabeller(dir: string, label: { root: string; prefix: string }): (text: string) => string {
   return (text) =>

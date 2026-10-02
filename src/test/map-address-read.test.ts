@@ -207,6 +207,14 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
     }
   });
 
+  it("never reads a position that climbs out of its root or is absolute", async () => {
+    for (const address of ["@notes//../planner/plans/one.md", "@notes///etc/passwd", "@notes//ideas/../../x.md"]) {
+      const { exit, stderr } = await run(lookCommand, [address], { map: join(space, "space.map.md") }, TEXT_FLAGS);
+      expect(exit, address).toBe(1);
+      expect(stderr, address).toContain("status: invalid_address");
+    }
+  });
+
   it("says when an address names something that is not Content", async () => {
     const { exit, stderr } = await run(lookCommand, ["@notes//_agent/agreement.md"], { map: join(space, "space.map.md") }, TEXT_FLAGS);
     expect(exit).toBe(1);
