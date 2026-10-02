@@ -33,7 +33,8 @@ export function selectReadMap(flag: string | boolean | undefined, cwd = process.
   const launched = process.env[LAUNCH_MAP_ENV]?.trim();
   if (launched) {
     if (!isAbsolute(launched)) throw new Error(`${LAUNCH_MAP_ENV} must be an absolute path to a map note; it is ${JSON.stringify(launched)}.`);
-    return loadMapNote(launched, cwd);
+    // Shown as launched: a path relative to whatever cwd this read runs in says nothing.
+    return { ...loadMapNote(launched, cwd), path: launched };
   }
   throw new Error(
     "An address is read through a Map, and none was given: pass --map <note.md>, or launch the session with --map.",

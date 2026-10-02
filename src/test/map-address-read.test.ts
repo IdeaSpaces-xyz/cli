@@ -196,9 +196,11 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
 
   it("uses the launch Map when no Map is named", async () => {
     process.env[LAUNCH_MAP_ENV] = join(space, "space.map.md");
+    process.chdir("/");
     const { exit, data } = await run(lookCommand, ["@plans//plans/one.md"]);
     expect(exit).toBe(0);
     expect(data.root).toMatchObject({ name: "plans", root_node_id: ID_PLANS });
+    expect(data.map).toBe(join(space, "space.map.md"));
   });
 
   it("says how to give a Map when there is none", async () => {

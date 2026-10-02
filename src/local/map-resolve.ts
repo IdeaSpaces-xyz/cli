@@ -202,8 +202,8 @@ export function readMapRoot(
       ...base,
       reason: rootNodeId
         ? located.searchCapped
-          ? `No local checkout of ${rootNodeId} in the local registry, and the search below the Map's folder stopped after ${CHECKOUT_SEARCH_LIMIT} folders; read the Map from a narrower folder or register the checkout.`
-          : `No local checkout of ${rootNodeId} below the Map's folder or in the local registry.`
+          ? `No local checkout of ${rootNodeId} in the local registry, and the search below the Map's repository stopped after ${CHECKOUT_SEARCH_LIMIT} folders; read the Map from a narrower folder or register the checkout.`
+          : `No local checkout of ${rootNodeId} below the Map's repository or in the local registry.`
         : root.repo
           ? `The root's repo URL (${root.repo}) is not on this CLI's configured host; it is not trusted as a local binding.`
           : "The root carries no identity this reader can match to a checkout.",
