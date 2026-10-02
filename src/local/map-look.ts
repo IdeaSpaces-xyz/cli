@@ -170,8 +170,7 @@ function writeSnapshot(target: CommitReadTarget, wholeTree: boolean, dir: string
   // A directory is in the commit even when nothing below it is written out.
   if (kind === "directory") mkdirSync(join(dir, position), { recursive: true });
   if (!files.length) {
-    initRepository(dir);
-    return undefined;
+    return initRepository(dir);
   }
 
   const shown = git(checkoutPath, ["cat-file", "--batch"], {
@@ -199,13 +198,16 @@ function writeSnapshot(target: CommitReadTarget, wholeTree: boolean, dir: string
     writeFileSync(destination, out.subarray(start, start + size));
     offset = start + size + 1;
   }
-  initRepository(dir);
-  return undefined;
+  return initRepository(dir);
 }
 
-/** The protocol frames a position by its repository root; the snapshot is one, with no history. */
-function initRepository(dir: string): void {
-  git(dir, ["init", "-q"]);
+/**
+ * The protocol frames a position by its repository root; the snapshot is one, with no history.
+ * Without it the frame would silently move to the nearest `_agent/`, so a failure is an error.
+ */
+function initRepository(dir: string): CommitReadFailure | undefined {
+  const made = git(dir, ["init", "-q"]);
+  return made.error || made.status !== 0 ? gitFailure(made, "git init") : undefined;
 }
 
 /**
