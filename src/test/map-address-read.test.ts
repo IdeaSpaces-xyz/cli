@@ -335,6 +335,22 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       await expect(loadMapOrientation("long.map.md", space, { budget: 200 })).rejects.toThrow("every member at name");
     });
 
+    it("labels roots that share a default name by identity, as the resolver accepts them", async () => {
+      const twin = repo(join(space, "knowledge", "notes-copy"), "Notes", "n_444444444444444444444444");
+      const twinPin = commit(twin, "ideas/other.md", note("Other", "Another notes space."));
+      writeMap(join(space, "twins.map.md"), [
+        { root_node_id: ID_NOTES, sha: pin },
+        { root_node_id: "n_444444444444444444444444", sha: twinPin },
+      ], [
+        { root: 0, position: "ideas", depth: "name" },
+        { root: 1, position: "ideas", depth: "name" },
+      ]);
+      const { text } = await loadMapOrientation("twins.map.md", space);
+      expect(text).toContain(`[0] @${ID_NOTES}//ideas`);
+      expect(text).toContain("[1] @n_444444444444444444444444//ideas");
+      expect(text).not.toContain("@notes//");
+    });
+
     it("reads a Thread's Map at the pin", async () => {
       const { text } = await loadMapOrientation(join("_threads", "t", "_agent", "maps", "sent.md"), space);
       expect(text).toContain("a thread's Map: members read at the pin");

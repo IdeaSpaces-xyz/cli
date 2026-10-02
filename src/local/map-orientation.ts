@@ -61,9 +61,11 @@ export async function loadMapOrientation(
 
   const inspected = inspectSpaceMapRoots(note.map.roots, mapContextDir(note.absolutePath));
   const defaults = defaultRootNames(inspected);
+  const names = note.map.roots.map((root, index) => root.name ?? defaults[index]);
   const located: Located[] = inspected.map((drift, index) => ({
     drift,
-    name: note.map.roots[index]?.name ?? defaults[index],
+    // A name two roots share resolves to neither (ambiguous_name), so such roots go by identity.
+    name: names.filter((name) => name === names[index]).length > 1 ? undefined : names[index],
   }));
 
   const reads: MemberRead[] = [];
@@ -71,7 +73,7 @@ export async function loadMapOrientation(
     if (isAddressMember(member)) continue;
     const root = located[member.root];
     const prefix = `@${root?.name ?? note.map.roots[member.root]?.root_node_id ?? member.root}//`;
-    const label = member.position === "." ? prefix : `${prefix}${member.position}`;
+    const label = line(member.position === "." ? prefix : `${prefix}${member.position}`);
     const read = root
       ? readMapRoot({ ...root.drift, rootIndex: member.root }, member.position, at, 1)
       : ({ status: "unreachable", at, drift: false, reason: `Root ${member.root} is not in the Map.` } as MapReadResult);
@@ -169,7 +171,7 @@ function render(
         ? `checkout at ${found.drift.headSha ?? "no HEAD"}, drifted from pin ${root.sha}`
         : `checkout at pin ${root.sha}`
       : `unreachable here, pin ${root.sha}`;
-    lines.push(`  [${index}] @${found?.name ?? identity} — ${identity} — ${state_}`);
+    lines.push(`  [${index}] ${line(`@${found?.name ?? identity}`)} — ${line(identity)} — ${state_}`);
   }
 
   lines.push(`Members (${note.map.members.length}, ordered):`);
@@ -253,6 +255,11 @@ function isAddressMember(member: MapMember): member is MapAddressMember {
 
 function scalar(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.replace(/\s+/g, " ").trim() : undefined;
+}
+
+/** A Map-authored value printed bare, kept to one line: control characters escaped, never a line break. */
+function line(value: string): string {
+  return JSON.stringify(value).slice(1, -1);
 }
 
 function quoted(value: string): string {
