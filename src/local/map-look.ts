@@ -83,7 +83,7 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
     if (!looked) return { status: "not_content", reason: `${target.position} is not a Markdown Note or Content directory.` };
     const relabel = relabeller(dir, target.label);
     if (looked.status !== "ok") return { status: "diagnostic", text: relabel(renderContentLook(looked)) };
-    return { status: "ok", text: relabel(renderContentLook(looked)), result: relabelDeep(looked, relabel) };
+    return { status: "ok", text: relabel(renderContentLook(looked)), result: relabelDeep(looked, relabelValue(dir, target.label, relabel)) };
   });
 }
 
@@ -100,7 +100,7 @@ export async function focusAtCommit(target: CommitReadTarget, contractSource?: C
     if (!focus) return { status: "not_content", reason: `${target.position} is not a Content position.` };
     const relabel = relabeller(dir, target.label);
     if (focus.status !== "ok") return { status: "diagnostic", text: relabel(renderContentFocus(focus)) };
-    return { status: "ok", text: relabel(renderContentFocus(focus)), result: relabelDeep(focus, relabel) };
+    return { status: "ok", text: relabel(renderContentFocus(focus)), result: relabelDeep(focus, relabelValue(dir, target.label, relabel)) };
   });
 }
 
@@ -225,6 +225,26 @@ export function relabeller(dir: string, label: { root: string; prefix: string })
         out.split(`${spelling}/`).join(label.prefix).split(`${spelling}\\`).join(label.prefix).split(spelling).join(label.root),
       text,
     );
+}
+
+/**
+ * For structured results: a value that is itself a path under the folder is relabelled whole, and
+ * after an address prefix its separators become `/` — an address is never spelled with `\`.
+ * Anything else gets the text relabel.
+ */
+function relabelValue(
+  dir: string,
+  label: { root: string; prefix: string },
+  relabel: (text: string) => string,
+): (value: string) => string {
+  const spellings = [...new Set([dir, dir.split("\\").join("/")])];
+  return (value) => {
+    const spelling = spellings.find((candidate) => value === candidate || value.startsWith(`${candidate}/`) || value.startsWith(`${candidate}\\`));
+    if (!spelling) return relabel(value);
+    const rest = value.slice(spelling.length + 1);
+    if (!rest) return label.root;
+    return label.prefix + (label.prefix.startsWith("@") ? rest.split("\\").join("/") : rest);
+  };
 }
 
 function relabelDeep<T>(value: T, relabel: (text: string) => string): T {
