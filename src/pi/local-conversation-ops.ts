@@ -11,7 +11,7 @@ import { observedEvent } from "../local/observed-event.js";
 import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { canResumePiConversation, getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
-import { loadMapNoteOrientation } from "../local/map-note.js";
+import { loadMapOrientation } from "../local/map-orientation.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
 
 type Flags = Record<string, string | boolean>;
@@ -90,16 +90,19 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   // never used, silently falling back to a globally-installed pi.
   const piBin = typeof flags["pi-bin"] === "string" ? flags["pi-bin"] : undefined;
 
-  // A Map is a local map-note path in the file-first lane. Parse it before pi is
-  // spawned, append only the standard projection, and never resolve/fetch roots.
+  // A Map is a local map-note path in the file-first lane. Read its members
+  // through local checkouts before pi is spawned; never fetch or clone a root.
   if (flags.map === true || (typeof flags.map === "string" && !flags.map.trim())) {
     output.error("A map-note path is required: --map <file.md>");
     return 1;
   }
   let mapOrientation: string | undefined;
+  let mapPath: string | undefined;
   if (typeof flags.map === "string") {
     try {
-      mapOrientation = loadMapNoteOrientation(flags.map, repoPath);
+      const loaded = await loadMapOrientation(flags.map, repoPath);
+      mapOrientation = loaded.text;
+      mapPath = loaded.note.absolutePath;
     } catch (err) {
       return reportLocalError(err, output);
     }
@@ -150,6 +153,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       sessionDir,
       modelTier,
       mapOrientation,
+      mapPath,
       launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       piModel,
       thinkingLevel: piThinking,

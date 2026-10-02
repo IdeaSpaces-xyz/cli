@@ -6,7 +6,7 @@ import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
 import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
-import { loadMapNoteOrientation } from "../local/map-note.js";
+import { loadMapOrientation } from "../local/map-orientation.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
 import {
   CLAUDE_AUTH_MODES,
@@ -103,9 +103,12 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     return 1;
   }
   let mapOrientation: string | undefined;
+  let mapPath: string | undefined;
   if (typeof flags.map === "string") {
     try {
-      mapOrientation = loadMapNoteOrientation(flags.map, repoPath);
+      const loaded = await loadMapOrientation(flags.map, repoPath);
+      mapOrientation = loaded.text;
+      mapPath = loaded.note.absolutePath;
     } catch (err) {
       return reportLocalError(err, output);
     }
@@ -146,6 +149,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       conversationId,
       modelTier,
       mapOrientation,
+      mapPath,
       launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       model,
       permissionMode,

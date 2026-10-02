@@ -71,6 +71,12 @@ describe("buildClaudeEnv", () => {
     expect(buildClaudeEnv("login", ambient)).toEqual({ PATH: "/bin", HOME: "/h" });
   });
 
+  it("carries this launch's Map, and drops a launch Map inherited from the caller", () => {
+    expect(buildClaudeEnv("api-key", { ...ambient, IDEASPACES_MAP: "/parent.map.md" }, "/child.map.md"))
+      .toEqual({ ...ambient, IDEASPACES_MAP: "/child.map.md" });
+    expect(buildClaudeEnv("api-key", { ...ambient, IDEASPACES_MAP: "/parent.map.md" })).toEqual(ambient);
+  });
+
   it("lets the key through when api-key auth is asked for", () => {
     expect(buildClaudeEnv("api-key", ambient)).toEqual(ambient);
   });
