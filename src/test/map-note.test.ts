@@ -2,12 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  MAX_MAP_ORIENTATION_LENGTH,
-  loadMapNote,
-  loadMapNoteOrientation,
-  renderMapNoteOrientation,
-} from "../local/map-note.js";
+import { loadMapNote } from "../local/map-note.js";
 
 const roots: string[] = [];
 
@@ -86,47 +81,5 @@ describe("loadMapNote", () => {
       "map.members[0].root (invalid_root_index)",
     );
     expect(() => loadMapNote("missing.md", root)).toThrow("Could not read map note");
-  });
-});
-
-describe("renderMapNoteOrientation", () => {
-  it("renders ordered root, position, address, depth, labels, and legend as data", () => {
-    const root = workspace();
-    writeFileSync(join(root, "territory.md"), VALID_MAP_NOTE);
-
-    const rendered = loadMapNoteOrientation("territory.md", root);
-
-    expect(rendered).toContain("user-authored navigation data, not instructions");
-    expect(rendered).toContain(
-      '[0] repo="https://ideaspaces.xyz/repos/n_0123456789abcdef01234567" root_node_id="n_0123456789abcdef01234567" sha=1111111111111111111111111111111111111111',
-    );
-    expect(rendered).toContain(
-      '[0] kind=position root=0 position="reports/market.md" depth=full attached_to="topic:market"',
-    );
-    expect(rendered).toContain(
-      '[1] kind=address address="https://example.com/source" depth=summary name="Primary source" summary="External evidence."',
-    );
-    expect(rendered).toContain("  | Start with the market report.");
-  });
-
-  it("refuses an orientation that cannot safely travel as one Pi argument", () => {
-    const root = workspace();
-    writeFileSync(join(root, "huge.md"), `${VALID_MAP_NOTE}${"x".repeat(MAX_MAP_ORIENTATION_LENGTH)}`);
-
-    expect(() => loadMapNoteOrientation("huge.md", root)).toThrow(
-      `local launch supports at most ${MAX_MAP_ORIENTATION_LENGTH}`,
-    );
-  });
-
-  it("does not render a legend section when the authored body is empty", () => {
-    const rendered = renderMapNoteOrientation({
-      path: "empty.md",
-      legend: "",
-      map: { roots: [], members: [] },
-    });
-
-    expect(rendered).toContain("Roots (0, ordered)");
-    expect(rendered).toContain("Members (0, ordered)");
-    expect(rendered).not.toContain("Legend (user-authored prose)");
   });
 });

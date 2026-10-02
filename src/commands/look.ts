@@ -2,13 +2,18 @@
  * `ideaspaces look <path> [--depth <rung>]` — deepen exactly one local Content
  * target beneath its reference-only contract frame.
  *
+ * `look <address> [--map <note>] [--at pin|head]` reads a Map member instead:
+ * `@<root>//<position>` or `//<position>`, against the named Map or the
+ * session's launch Map, at a commit, with no filesystem path. `look <path>
+ * --pin <sha>` reads the caller's own checkout at an authored commit.
+ *
  * The protocol owns all five Note/directory rung semantics and canonical text.
  * This adapter applies the CLI's Agreement-first selection policy and adds a
  * portable Map only when the local root is clean, pinned, and identified.
  */
 
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import {
   MAP_DEPTHS,
   assembleContentLook,
@@ -26,11 +31,17 @@ import {
   inspectPortableLocalRoot,
   type LocalProjectionRoot,
 } from "../local-map-root.js";
-import { createOutput } from "../output.js";
+import { createOutput, type Output } from "../output.js";
+import { repoRoot } from "../git.js";
+import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap } from "../local/address-read.js";
+import { lookAtCommit } from "../local/map-look.js";
+import { readCheckoutAt } from "../local/map-resolve.js";
 import type { CommandDef } from "../types.js";
 
+const DEPTHS = "<name|summary|surface|children|full>";
 const USAGE =
-  "ideaspaces look <path> [--depth <name|summary|surface|children|full>] [--contract <foundation|agreement>] [--limit <n>] [--json]";
+  `ideaspaces look <path> [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--limit <n>] [--pin <sha>] [--json]\n` +
+  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--json]`;
 
 interface PortableProjection {
   root: LocalProjectionRoot;
@@ -66,6 +77,9 @@ export const lookCommand: CommandDef = {
   usage: USAGE,
   examples: [
     "ideaspaces look notes/decision.md",
+    "ideaspaces look @product//frictions --map home.map.md --depth children",
+    "ideaspaces look @n_0123456789abcdef01234567//gaps/plan.md --at pin   # against the launch Map",
+    "ideaspaces look notes/decision.md --pin 0123456789abcdef0123456789abcdef01234567",
     "ideaspaces look notes/decision.md --depth children",
     "ideaspaces look research --depth full --json",
     "ideaspaces look . --contract foundation --depth summary",
@@ -96,6 +110,43 @@ export const lookCommand: CommandDef = {
     if (selected.error) {
       output.error(selected.error);
       return 1;
+    }
+
+    if (looksLikeMapAddress(raw)) {
+      if (flags.pin !== undefined) {
+        output.error("--pin reads a path in this checkout; an address takes its pin from the Map. Use --at pin.");
+        return 1;
+      }
+      const at = parseReadAt(flags.at);
+      if (at === null) {
+        output.error("--at must be pin or head");
+        return 1;
+      }
+      let note;
+      try {
+        note = selectReadMap(flags.map);
+      } catch (error) {
+        output.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+      const read = await lookAtAddress(note, raw, {
+        depth,
+        ...(at ? { at } : {}),
+        ...(selected.source ? { contractSource: selected.source } : {}),
+        ...(limit !== undefined ? { maxChildren: limit } : {}),
+      });
+      return emit(output, read.ok, read.data, read.text);
+    }
+    if (flags.map !== undefined || flags.at !== undefined) {
+      output.error(`--map and --at read a Map address (@<root>//<position> or //<position>); ${JSON.stringify(raw)} is a path.`);
+      return 1;
+    }
+    if (flags.pin !== undefined) {
+      return lookAtPin(output, raw, flags.pin, {
+        depth,
+        ...(selected.source ? { contractSource: selected.source } : {}),
+        ...(limit !== undefined ? { maxChildren: limit } : {}),
+      });
     }
 
     const path = resolve(raw);
@@ -174,6 +225,65 @@ export const lookCommand: CommandDef = {
     return 0;
   },
 };
+
+function emit(output: Output, ok: boolean, data: Record<string, unknown>, text: string): number {
+  if (ok) {
+    output.result(data, text);
+    return 0;
+  }
+  output.error(text);
+  return 1;
+}
+
+const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** A path in the caller's own checkout, read at an authored commit — never HEAD, never the working tree. */
+async function lookAtPin(
+  output: Output,
+  raw: string,
+  pin: string | boolean,
+  options: Parameters<typeof lookAtCommit>[1],
+): Promise<number> {
+  if (typeof pin !== "string" || !FULL_SHA.test(pin)) {
+    output.error("--pin must be a full commit id (40 or 64 hex characters).");
+    return 1;
+  }
+  const path = resolve(raw);
+  let checkout: string;
+  try {
+    // The path may be gone from the working tree and still be in the commit.
+    let probe = path;
+    while (!existsSync(probe) || !statSync(probe).isDirectory()) probe = dirname(probe);
+    checkout = repoRoot(probe);
+  } catch {
+    output.error(`${path} is not inside a Git checkout; a pinned read needs one.`);
+    return 1;
+  }
+  const local = relative(checkout, path);
+  if (local === ".." || local.startsWith(`..${sep}`)) {
+    output.error(`${path} is outside the checkout at ${checkout}.`);
+    return 1;
+  }
+  const position = local.split(sep).join("/") || ".";
+  const found = readCheckoutAt(checkout, pin, position, 1);
+  const kind = found.status === "read" ? found.kind : found.status === "too_large" ? "file" : undefined;
+  const header = `Pinned read: ${position}\n  checkout: ${checkout}\n  at: pin ${pin}`;
+  if (!kind) {
+    output.error(`${header}\n  status: ${found.status} — ${"reason" in found ? found.reason : ""}`);
+    return 1;
+  }
+  const looked = await lookAtCommit(
+    { checkoutPath: checkout, commit: pin, position, kind, label: (p) => (p === "." ? checkout : join(checkout, p)) },
+    options,
+  );
+  const base = { source: "pin", checkout, position, at: "pin", commit: pin, kind };
+  if (looked.status === "ok") {
+    const { reference, target } = looked.result;
+    return emit(output, true, { ...base, text: looked.text, reference, target }, `${header}\n\n${looked.text}`);
+  }
+  const reason = "reason" in looked ? looked.reason : looked.text;
+  return emit(output, false, { ...base, status: looked.status, reason }, `${header}\n  status: ${looked.status} — ${reason}`);
+}
 
 export interface PortableProjectionDependencies {
   readGitState?: (repoRoot: string) => Promise<GitState>;

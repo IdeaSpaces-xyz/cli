@@ -34,6 +34,7 @@ import {
   type PiAgentEvent,
   type ToolInvocation,
 } from "@ideaspaces/sdk";
+import { launchMapEnv } from "../local/address-read.js";
 
 /** Non-agent stdout kinds we skip (command acks + fire-and-forget UI chrome). */
 const NON_AGENT_TYPES = new Set(["response", "extension_ui_request"]);
@@ -86,6 +87,8 @@ export interface LocalTurnOptions {
   modelTier?: string;
   /** File-first Map rendered as user-authored navigation data for this launch. */
   mapOrientation?: string;
+  /** The launch Map's absolute path: the default Map for address reads in the session. */
+  mapPath?: string;
   /** Validated local working coordinates; appended to orientation, never to user messages. */
   launchOrientation?: string;
   /** pi model pattern (`--model`), if overriding pi's configured default. */
@@ -177,7 +180,11 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
   ensureSessionDir(opts.sessionDir);
 
   const args = buildPiArgs(opts);
-  const pi = spawn(opts.piBin ?? "pi", args, { cwd: opts.repoPath, stdio: ["pipe", "pipe", "pipe"] });
+  const pi = spawn(opts.piBin ?? "pi", args, {
+    cwd: opts.repoPath,
+    env: launchMapEnv(process.env, opts.mapPath),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
 
   let stderr = "";
   pi.stderr.on("data", (d) => {

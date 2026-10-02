@@ -82,7 +82,7 @@ export interface MapResolveOptions {
   kind?: MapKind;
   /**
    * Where checkouts are looked for (the folder itself, folders below it, then the registry).
-   * Defaults to the Map note's folder, else the working directory.
+   * Defaults to the repository holding the Map note (see `mapContextDir`), else the working directory.
    */
   contextDir?: string;
   /** The reader's own root identity for `//…`. Defaults to the identity of the working directory's checkout. */
@@ -97,6 +97,20 @@ const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 function isLoadedMapNote(value: LoadedMapNote | MapBlock): value is LoadedMapNote {
   return typeof (value as LoadedMapNote).path === "string" && typeof (value as LoadedMapNote).map === "object";
+}
+
+/**
+ * Where a Map's roots are looked for: the repository holding the note, so a Thread's Map under
+ * `_threads/<thread>/_agent/maps/` finds the same checkouts as the Space's Map at the top.
+ * Outside a repository, the note's own folder.
+ */
+export function mapContextDir(notePath: string): string {
+  const folder = dirname(notePath);
+  try {
+    return repoRoot(folder);
+  } catch {
+    return folder;
+  }
 }
 
 /** The kind of a Map by where its note lives: anything under `_threads/` is a Thread's. */
@@ -124,7 +138,7 @@ export function resolveMapAddress(
   const notePath = isLoadedMapNote(input) ? input.absolutePath : undefined;
   const kind = options.kind ?? mapKindOf(notePath);
   const at = options.at ?? defaultReadAt(kind);
-  const contextDir = options.contextDir ?? (notePath ? dirname(notePath) : process.cwd());
+  const contextDir = options.contextDir ?? (notePath ? mapContextDir(notePath) : process.cwd());
   const roots = map.roots ?? [];
 
   let inspected: SpaceMapRootDrift[] | undefined;

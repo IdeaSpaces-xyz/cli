@@ -29,6 +29,10 @@
  *
  * `--mark-seen` persists HEAD as the "last seen" marker for lifecycle callers.
  * Ordinary `navigate` is read-only orientation and does not advance the baseline.
+ *
+ * `navigate <address> [--map <note>] [--at pin|head]` focuses on a Map member
+ * directory (`@<root>//<position>` or `//<position>`) at a commit, as bounded
+ * reference — the `--focus` representation, read without a filesystem path.
  */
 
 import { relative, resolve } from "node:path";
@@ -47,6 +51,7 @@ import { contractSourceFlag, preferredContractSource, MAX_DRIFT } from "../contr
 import { headSha } from "../git.js";
 import { floorHint, formatWorkingSetSection, planCatalog } from "../catalog.js";
 import { findSpaceMapFile } from "../local/space-map.js";
+import { focusAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap } from "../local/address-read.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -82,8 +87,10 @@ function gitRef(cwd: string, args: string[]): string | null {
 export const navigateCommand: CommandDef = {
   name: "navigate",
   description: "Orient here, or read another position as bounded reference",
-  usage: "ideaspaces navigate [<path>] [--focus] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]",
+  usage: "ideaspaces navigate [<path>] [--focus] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]\n" +
+    "       ideaspaces navigate <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--contract <foundation|agreement>]",
   examples: [
+    "ideaspaces navigate @product//gaps --map home.map.md   # focus on a Map member, no path",
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate docs --json       # orient at a branch",
     "ideaspaces navigate docs --focus --json  # read a branch as history reference",
@@ -101,6 +108,40 @@ export const navigateCommand: CommandDef = {
     }
 
     const raw = (args[0] ?? ".").trim();
+    if (looksLikeMapAddress(raw)) {
+      const incompatible = ["focus", "depth", "mark-seen", "workspace", "mount", "pullable", "no-git"]
+        .filter((name) => flags[name] !== undefined);
+      if (incompatible.length) {
+        output.error(`An address is read as focus at a commit; drop ${incompatible.map((name) => `--${name}`).join(", ")}.`);
+        return 1;
+      }
+      const at = parseReadAt(flags.at);
+      if (at === null) {
+        output.error("--at must be pin or head");
+        return 1;
+      }
+      let note;
+      try {
+        note = selectReadMap(flags.map);
+      } catch (error) {
+        output.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+      const read = await focusAtAddress(note, raw, {
+        ...(at ? { at } : {}),
+        ...(selected.source ? { contractSource: selected.source } : {}),
+      });
+      if (!read.ok) {
+        output.error(read.text);
+        return 1;
+      }
+      output.result(read.data, read.text);
+      return 0;
+    }
+    if (flags.map !== undefined || flags.at !== undefined) {
+      output.error(`--map and --at read a Map address (@<root>//<position> or //<position>); ${JSON.stringify(raw)} is a path.`);
+      return 1;
+    }
     const target = resolve(raw === "" ? "." : raw);
     // Distinguish "doesn't exist" from "exists but isn't a directory" for a
     // useful hint. Flags follow the path (`navigate <path> --mark-seen`); the

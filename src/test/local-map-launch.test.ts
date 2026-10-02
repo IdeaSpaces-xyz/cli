@@ -36,8 +36,9 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "response", command: "get_state", success: true, data: { sessionName: "Map test" } }));
     }
     if (command.type === "prompt") {
-      const complete = orientation.includes('kind=position root=0 position="reports/market.md" depth=full')
-        && orientation.includes('kind=address address="https://example.com/source" depth=summary');
+      const complete = orientation.includes("[0] @n_0123456789abcdef01234567//reports/market.md — unreachable")
+        && orientation.includes('kind=address address="https://example.com/source" depth=summary')
+        && (process.env.IDEASPACES_MAP ?? "").endsWith("territory.md");
       const text = complete ? "position and address territory available" : "map orientation missing";
       console.log(JSON.stringify({ type: "response", command: "prompt", success: true }));
       console.log(JSON.stringify({ type: "agent_start" }));
@@ -98,9 +99,12 @@ describe("conversation send --local --map", () => {
   });
 
   it.skipIf(process.platform === "win32")(
-    "places the validated Map in Pi's first-turn orientation without any root checkout",
+    "places the validated Map in Pi's first-turn orientation, and in its environment, without any root checkout",
     async () => {
       const root = workspace();
+      // The resolver reads the local registry under HOME; never the real one.
+      const originalHome = process.env.HOME;
+      process.env.HOME = root;
       writeFileSync(join(root, "territory.md"), MAP_NOTE);
       const piBin = fakePi(root);
       let stdout = "";
@@ -134,6 +138,7 @@ describe("conversation send --local --map", () => {
         expect(code).toBe(0);
       } finally {
         process.stdout.write = originalWrite;
+        process.env.HOME = originalHome;
       }
 
       expect(errors).toEqual([]);

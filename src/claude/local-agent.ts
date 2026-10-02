@@ -35,6 +35,7 @@ import { readJsonLines } from "../local/jsonl.js";
 import { harvestLocalFiles } from "../local/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
+import { launchMapEnv } from "../local/address-read.js";
 
 /** Claude Code's `--permission-mode` choices (`claude --help`, 2.1.270). Headless
  * runs never prompt — checked live: `manual` and `dontAsk` under `-p` run or deny
@@ -101,6 +102,8 @@ export interface ClaudeTurnOptions {
   modelTier?: string;
   /** File-first Map rendered as user-authored navigation data for this launch. */
   mapOrientation?: string;
+  /** The launch Map's absolute path: the default Map for address reads in the session. */
+  mapPath?: string;
   /** Validated local working coordinates; appended to the system prompt, never to user messages. */
   launchOrientation?: string;
   /** Claude model alias or id (`--model`), if overriding the user's default. */
@@ -143,9 +146,12 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
   return args;
 }
 
-/** The child environment: the caller's, minus the direct API-key variables unless `api-key` was asked for. */
-export function buildClaudeEnv(auth: ClaudeAuthMode, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  const env = { ...base };
+/**
+ * The child environment: the caller's, minus the direct API-key variables unless `api-key` was
+ * asked for, with this launch's Map — and never a launch Map inherited from the caller's own.
+ */
+export function buildClaudeEnv(auth: ClaudeAuthMode, base: NodeJS.ProcessEnv = process.env, mapPath?: string): NodeJS.ProcessEnv {
+  const env = launchMapEnv(base, mapPath);
   if (auth === "login") for (const key of API_KEY_ENV) delete env[key];
   return env;
 }
@@ -181,7 +187,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
   const args = buildClaudeArgs({ ...opts, sessionExists });
   const claude = spawn(opts.claudeBin ?? "claude", args, {
     cwd: opts.repoPath,
-    env: buildClaudeEnv(opts.auth ?? "login"),
+    env: buildClaudeEnv(opts.auth ?? "login", process.env, opts.mapPath),
     stdio: ["pipe", "pipe", "pipe"],
   });
 
