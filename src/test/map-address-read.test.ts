@@ -7,6 +7,7 @@ import { lookCommand } from "../commands/look.js";
 import { navigateCommand } from "../commands/navigate.js";
 import { LAUNCH_MAP_ENV, launchMapEnv, looksLikeMapAddress } from "../local/address-read.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
+import { relabeller } from "../local/map-look.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
 const ID_NOTES = "n_111111111111111111111111";
@@ -142,6 +143,12 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
     if (originalMap === undefined) delete process.env[LAUNCH_MAP_ENV];
     else process.env[LAUNCH_MAP_ENV] = originalMap;
     rmSync(base, { recursive: true, force: true });
+  });
+
+  it("relabels the private folder however a reader spells it, Windows included", () => {
+    const relabel = relabeller("C:\\Temp\\ideaspaces-commit-read-Ab12\\notes", { root: "@notes//", prefix: "@notes//" });
+    expect(relabel("repo: C:/Temp/ideaspaces-commit-read-Ab12/notes\ntarget: C:\\Temp\\ideaspaces-commit-read-Ab12\\notes\\ideas\\a b.md"))
+      .toBe("repo: @notes//\ntarget: @notes//ideas\\a b.md");
   });
 
   it("tells an address from a path", () => {

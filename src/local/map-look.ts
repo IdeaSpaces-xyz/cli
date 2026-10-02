@@ -216,9 +216,15 @@ function initRepository(dir: string): CommitReadFailure | undefined {
  * Safe as a plain replace only because `dir` holds mkdtemp's random suffix; never pass a short,
  * guessable folder here.
  */
-function relabeller(dir: string, label: { root: string; prefix: string }): (text: string) => string {
+export function relabeller(dir: string, label: { root: string; prefix: string }): (text: string) => string {
+  // On Windows the protocol reports the folder both as Node spells it (C:\…) and as Git does (C:/…).
+  const spellings = [...new Set([dir, dir.split("\\").join("/")])];
   return (text) =>
-    text.split(`${dir}/`).join(label.prefix).split(`${dir}\\`).join(label.prefix).split(dir).join(label.root);
+    spellings.reduce(
+      (out, spelling) =>
+        out.split(`${spelling}/`).join(label.prefix).split(`${spelling}\\`).join(label.prefix).split(spelling).join(label.root),
+      text,
+    );
 }
 
 function relabelDeep<T>(value: T, relabel: (text: string) => string): T {
