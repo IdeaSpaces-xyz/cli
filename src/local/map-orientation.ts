@@ -128,7 +128,7 @@ async function ensureLook(entry: MemberRead, depth: MapDepth): Promise<void> {
       commit: read.commit,
       position: entry.member.position,
       kind: read.kind ?? "file",
-      label: (position) => (position === "." ? prefix : `${prefix}${position}`),
+      label: { root: prefix, prefix },
     },
     { depth },
   );

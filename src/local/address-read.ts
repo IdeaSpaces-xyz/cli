@@ -100,7 +100,7 @@ async function readAddress(
     commit: resolved.commit!,
     position: resolved.position!,
     kind: resolved.kind!,
-    label: (position) => (position === "." ? prefix : `${prefix}${position}`),
+    label: { root: prefix, prefix },
   });
   if (read_.status === "ok") {
     return {

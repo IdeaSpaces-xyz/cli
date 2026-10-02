@@ -194,6 +194,34 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
     expect(focus.stdout).toContain("repo: @plans//");
   });
 
+  it("relabels a position with spaces whole, leaving no private path behind", async () => {
+    commit(notes, "my drafts/a first draft.md", note("A first draft", "Spaces in the path."));
+    const map = join(space, "space.map.md");
+    const looked = await run(lookCommand, ["@notes//my drafts/a first draft.md"], { map, depth: "full" });
+    expect(looked.exit).toBe(0);
+    expect(looked.data.target.path).toBe("@notes//my drafts/a first draft.md");
+    const listed = await run(lookCommand, ["@notes//my drafts"], { map, depth: "children" }, TEXT_FLAGS);
+    expect(listed.stdout).toContain("my drafts/a first draft.md — Spaces in the path.");
+    for (const output of [JSON.stringify(looked.data), listed.stdout]) {
+      expect(output).not.toContain("ideaspaces-commit-read-");
+    }
+  });
+
+  it("says when an address names something that is not Content", async () => {
+    const { exit, stderr } = await run(lookCommand, ["@notes//_agent/agreement.md"], { map: join(space, "space.map.md") }, TEXT_FLAGS);
+    expect(exit).toBe(1);
+    expect(stderr).toContain("status: not_content — _agent/agreement.md is not a Markdown Note or Content directory.");
+  });
+
+  it("gives navigate by address one JSON shape: where it read, then the focus", async () => {
+    const { exit, data } = await run(navigateCommand, ["@plans//plans"], { map: join(space, "space.map.md") });
+    expect(exit).toBe(0);
+    expect(Object.keys(data).sort()).toEqual(
+      ["address", "at", "canonical", "commit", "drift", "focus", "head_sha", "kind", "map", "pinned_sha", "position", "root", "source", "status", "text"].sort(),
+    );
+    expect(data.focus.position.path).toBe("@plans//plans");
+  });
+
   it("uses the launch Map when no Map is named", async () => {
     process.env[LAUNCH_MAP_ENV] = join(space, "space.map.md");
     process.chdir("/");

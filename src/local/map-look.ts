@@ -48,10 +48,11 @@ export interface CommitReadTarget {
   position: string;
   kind: "file" | "directory";
   /**
-   * What stands in for the private folder in rendered text and JSON. Called with a
-   * repository-relative position (`.` for the root).
+   * What stands in for the private folder in rendered text and JSON: `root` for the folder
+   * itself, `prefix` before a path inside it (`@notes//` for both, or a checkout path and the
+   * same path with a separator).
    */
-  label: (position: string) => string;
+  label: { root: string; prefix: string };
 }
 
 export interface CommitLookOptions {
@@ -155,6 +156,8 @@ function writeSnapshot(target: CommitReadTarget, wholeTree: boolean, dir: string
 
   const files: { path: string; object: string }[] = [];
   for (const line of listed.stdout.toString("utf8").split("\0")) {
+    // Regular files only: a symlink (120000) or submodule (160000) is not Content and is not
+    // followed, so a symlinked `_agent/` frames nothing here, as it would not in a clone.
     const match = /^(100644|100755) blob ([0-9a-f]+)\t([\s\S]+)$/.exec(line);
     if (!match) continue;
     const path = match[3];
@@ -181,6 +184,7 @@ function writeSnapshot(target: CommitReadTarget, wholeTree: boolean, dir: string
   let offset = 0;
   for (const file of files) {
     const newline = out.indexOf(0x0a, offset);
+    if (newline === -1) return { status: "git_error", reason: `git cat-file ended before ${file.path}.` };
     const header = out.subarray(offset, newline).toString("utf8");
     const match = /^[0-9a-f]+ blob (\d+)$/.exec(header);
     if (!match) return { status: "git_error", reason: `git cat-file returned ${JSON.stringify(header)} for ${file.path}.` };
@@ -200,13 +204,13 @@ function initRepository(dir: string): void {
   git(dir, ["init", "-q"]);
 }
 
-function relabeller(dir: string, label: (position: string) => string): (text: string) => string {
-  const pattern = new RegExp(`${escapeRegExp(dir)}((?:[\\\\/][^\\s"'\`)\\]]*)?)`, "g");
+/**
+ * Swap the private folder for the label. A prefix swap, not a path match: the end of a path in
+ * prose cannot be found (positions may hold spaces), and nothing after the prefix needs to be.
+ */
+function relabeller(dir: string, label: { root: string; prefix: string }): (text: string) => string {
   return (text) =>
-    text.replace(pattern, (_match, rest: string) => {
-      const position = rest.replace(/^[\\/]/, "").split("\\").join("/");
-      return label(position || ".");
-    });
+    text.split(`${dir}/`).join(label.prefix).split(`${dir}\\`).join(label.prefix).split(dir).join(label.root);
 }
 
 function relabelDeep<T>(value: T, relabel: (text: string) => string): T {
@@ -218,6 +222,3 @@ function relabelDeep<T>(value: T, relabel: (text: string) => string): T {
   return value;
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}

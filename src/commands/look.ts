@@ -273,7 +273,7 @@ async function lookAtPin(
     return 1;
   }
   const looked = await lookAtCommit(
-    { checkoutPath: checkout, commit: pin, position, kind, label: (p) => (p === "." ? checkout : join(checkout, p)) },
+    { checkoutPath: checkout, commit: pin, position, kind, label: { root: checkout, prefix: `${checkout}${sep}` } },
     options,
   );
   const base = { source: "pin", checkout, position, at: "pin", commit: pin, kind };
