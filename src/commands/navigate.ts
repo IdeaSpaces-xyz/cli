@@ -109,7 +109,7 @@ export const navigateCommand: CommandDef = {
 
     const raw = (args[0] ?? ".").trim();
     if (looksLikeMapAddress(raw)) {
-      const incompatible = ["focus", "depth", "mark-seen", "workspace", "mount", "pullable", "no-git"]
+      const incompatible = ["focus", "depth", "pin", "mark-seen", "workspace", "mount", "pullable", "no-git"]
         .filter((name) => flags[name] !== undefined);
       if (incompatible.length) {
         output.error(`An address is read as focus at a commit; drop ${incompatible.map((name) => `--${name}`).join(", ")}.`);
@@ -131,12 +131,11 @@ export const navigateCommand: CommandDef = {
         ...(at ? { at } : {}),
         ...(selected.source ? { contractSource: selected.source } : {}),
       });
-      if (!read.ok) {
-        output.error(read.text);
-        return 1;
-      }
-      output.result(read.data, read.text);
-      return 0;
+      // A failed read still gives --json callers its structured status on stdout, and exits 1.
+      if (read.ok || global.json) output.result({ ...read.data, ok: read.ok }, read.text);
+      if (read.ok) return 0;
+      output.error(read.text);
+      return 1;
     }
     if (flags.map !== undefined || flags.at !== undefined) {
       output.error(`--map and --at read a Map address (@<root>//<position> or //<position>); ${JSON.stringify(raw)} is a path.`);

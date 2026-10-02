@@ -135,14 +135,14 @@ export const lookCommand: CommandDef = {
         ...(selected.source ? { contractSource: selected.source } : {}),
         ...(limit !== undefined ? { maxChildren: limit } : {}),
       });
-      return emit(output, read.ok, read.data, read.text);
+      return emit(output, global.json, read.ok, read.data, read.text);
     }
     if (flags.map !== undefined || flags.at !== undefined) {
       output.error(`--map and --at read a Map address (@<root>//<position> or //<position>); ${JSON.stringify(raw)} is a path.`);
       return 1;
     }
     if (flags.pin !== undefined) {
-      return lookAtPin(output, raw, flags.pin, {
+      return lookAtPin(output, global.json, raw, flags.pin, {
         depth,
         ...(selected.source ? { contractSource: selected.source } : {}),
         ...(limit !== undefined ? { maxChildren: limit } : {}),
@@ -226,11 +226,10 @@ export const lookCommand: CommandDef = {
   },
 };
 
-function emit(output: Output, ok: boolean, data: Record<string, unknown>, text: string): number {
-  if (ok) {
-    output.result(data, text);
-    return 0;
-  }
+/** A failed read still gives --json callers its structured status on stdout, and exits 1. */
+function emit(output: Output, json: boolean, ok: boolean, data: Record<string, unknown>, text: string): number {
+  if (ok || json) output.result({ ...data, ok }, text);
+  if (ok) return 0;
   output.error(text);
   return 1;
 }
@@ -240,6 +239,7 @@ const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 /** A path in the caller's own checkout, read at an authored commit — never HEAD, never the working tree. */
 async function lookAtPin(
   output: Output,
+  json: boolean,
   raw: string,
   pin: string | boolean,
   options: Parameters<typeof lookAtCommit>[1],
@@ -279,10 +279,10 @@ async function lookAtPin(
   const base = { source: "pin", checkout, position, at: "pin", commit: pin, kind };
   if (looked.status === "ok") {
     const { reference, target } = looked.result;
-    return emit(output, true, { ...base, text: looked.text, reference, target }, `${header}\n\n${looked.text}`);
+    return emit(output, json, true, { ...base, text: looked.text, reference, target }, `${header}\n\n${looked.text}`);
   }
   const reason = "reason" in looked ? looked.reason : looked.text;
-  return emit(output, false, { ...base, status: looked.status, reason }, `${header}\n  status: ${looked.status} — ${reason}`);
+  return emit(output, json, false, { ...base, status: looked.status, reason }, `${header}\n  status: ${looked.status} — ${reason}`);
 }
 
 export interface PortableProjectionDependencies {

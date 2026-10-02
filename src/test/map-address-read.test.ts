@@ -217,7 +217,7 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
     const { exit, data } = await run(navigateCommand, ["@plans//plans"], { map: join(space, "space.map.md") });
     expect(exit).toBe(0);
     expect(Object.keys(data).sort()).toEqual(
-      ["address", "at", "canonical", "commit", "drift", "focus", "head_sha", "kind", "map", "pinned_sha", "position", "root", "source", "status", "text"].sort(),
+      ["address", "at", "canonical", "commit", "drift", "focus", "head_sha", "kind", "map", "ok", "pinned_sha", "position", "root", "source", "status", "text"].sort(),
     );
     expect(data.focus.position.path).toBe("@plans//plans");
   });
@@ -243,6 +243,20 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
     expect(stderr).toContain(ID_ABSENT);
     expect(stderr).toContain("status: unreachable");
     expect(stderr).toContain("No local checkout");
+  });
+
+  it("gives --json callers a failed read's status on stdout, and still exits 1", async () => {
+    const { exit, data, stderr } = await run(lookCommand, [`@${ID_ABSENT}//`], { map: join(space, "space.map.md") });
+    expect(exit).toBe(1);
+    expect(data).toMatchObject({ ok: false, status: "unreachable", root: { index: 2, root_node_id: ID_ABSENT } });
+    expect(data.reason).toContain("No local checkout");
+    expect(stderr).toContain("status: unreachable");
+  });
+
+  it("refuses --pin on navigate by address rather than ignoring it", async () => {
+    const { exit, stderr } = await run(navigateCommand, ["@plans//plans"], { map: join(space, "space.map.md"), pin }, TEXT_FLAGS);
+    expect(exit).toBe(1);
+    expect(stderr).toContain("drop --pin");
   });
 
   it("refuses an address with --pin and a path with --at", async () => {
