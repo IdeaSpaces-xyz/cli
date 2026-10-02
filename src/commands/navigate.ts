@@ -90,7 +90,7 @@ export const navigateCommand: CommandDef = {
   usage: "ideaspaces navigate [<path>] [--focus] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]\n" +
     "       ideaspaces navigate <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--contract <foundation|agreement>]",
   examples: [
-    "ideaspaces navigate @product//gaps --map home.map.md   # focus on a Map member, no path",
+    "ideaspaces navigate @notes//ideas --map space.map.md   # focus on a Map member, no path",
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate docs --json       # orient at a branch",
     "ideaspaces navigate docs --focus --json  # read a branch as history reference",

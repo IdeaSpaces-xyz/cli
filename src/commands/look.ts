@@ -77,7 +77,7 @@ export const lookCommand: CommandDef = {
   usage: USAGE,
   examples: [
     "ideaspaces look notes/decision.md",
-    "ideaspaces look @product//frictions --map home.map.md --depth children",
+    "ideaspaces look @notes//ideas --map space.map.md --depth children",
     "ideaspaces look @n_0123456789abcdef01234567//gaps/plan.md --at pin   # against the launch Map",
     "ideaspaces look notes/decision.md --pin 0123456789abcdef0123456789abcdef01234567",
     "ideaspaces look notes/decision.md --depth children",
