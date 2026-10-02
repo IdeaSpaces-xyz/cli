@@ -221,11 +221,12 @@ function renderMember(entry: MemberRead, depth: MapDepth): string[] {
     lines.push("      children:");
     if (!look.children.length) lines.push("        (none)");
     for (const child of look.children) {
+      // Read from another repository, so quoted like every other value: one line, no framing escape.
       if (child.kind === "section") {
-        lines.push(`        ${"#".repeat(child.level)} ${child.name}`);
+        lines.push(`        ${"#".repeat(child.level)} ${quoted(child.name)}`);
       } else {
-        const summary = child.summary ? ` — ${child.summary}` : "";
-        lines.push(`        ${child.position}${child.kind === "directory" ? "/" : ""}${summary}`);
+        const summary = child.summary ? ` — ${quoted(child.summary)}` : "";
+        lines.push(`        ${quoted(`${child.position}${child.kind === "directory" ? "/" : ""}`)}${summary}`);
       }
     }
     if (look.omittedChildren) lines.push(`        … and ${look.omittedChildren} more`);

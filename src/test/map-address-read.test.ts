@@ -286,7 +286,7 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       expect(second.text).toBe(first.text);
       expect(first.text).toContain("Budget: 12000 characters");
       expect(first.text).toContain("[0] @notes//ideas — directory, children at head");
-      expect(first.text).toContain("ideas/first.md — The wording after the pin.");
+      expect(first.text).toContain('"ideas/first.md" — "The wording after the pin."');
       expect(first.text).toContain('map summary: "Ideas, by the curator."');
       expect(first.text).toContain("[1] @plans//plans/one.md — markdown, surface at head");
       expect(first.text).toContain("        | # Plan one");
