@@ -523,17 +523,60 @@ async function expand(rest: string[], output: Output): Promise<number> {
     return 1;
   }
   return runAuthenticated(output, async (config) => {
-    const [exchange, result] = await Promise.all([
-      fetchExchange(config, exchangeId),
-      fetchExchangeMapMember(config, exchangeId, memberOrdinal),
-    ]);
+    const exchange = await fetchExchange(config, exchangeId);
     const map = exchange.messages.find((message) => message.map)?.map;
-    if (!map || !map.members[result.member_ordinal]) {
-      throw new Error("Exchange Map reference is unavailable");
+    const member = map?.members?.[memberOrdinal];
+    const roots = map?.roots ?? [];
+
+    try {
+      const result = await fetchExchangeMapMember(config, exchangeId, memberOrdinal);
+      if (!map || !map.members[result.member_ordinal]) {
+        throw new Error("Exchange Map reference is unavailable");
+      }
+      const data = { ...result, map: { roots: map.roots, members: [result.member] } };
+      output.result(data, expansionText(result, exchange));
+      return 0;
+    } catch (err) {
+      if (err instanceof UnauthorizedError) throw err;
+      if (member) {
+        const targetNodeId =
+          "root" in member && typeof member.root === "number" && roots[member.root]
+            ? roots[member.root].root_node_id
+            : undefined;
+        const ref = memberReference(member, roots);
+        const name =
+          member.disclosure?.name ??
+          member.name ??
+          ("position" in member ? member.position : "member");
+        const summary = member.disclosure?.summary ?? member.summary ?? "";
+        const lines = [
+          "You need access to read this member.",
+          `Member [${memberOrdinal}] ${ref}`,
+          `Declared ceiling: ${member.depth ?? "summary"}`,
+          `Name: ${name}`,
+        ];
+        if (summary) lines.push(`Summary: ${summary}`);
+        if (targetNodeId) {
+          lines.push(
+            "",
+            "Request access with:",
+            `  ideaspaces request ${targetNodeId} --grade viewer`,
+          );
+        }
+        const data = {
+          ok: false,
+          status: "refused",
+          reason: "you_need_access",
+          member_ordinal: memberOrdinal,
+          member,
+          ...(targetNodeId ? { target_node_id: targetNodeId } : {}),
+          map: { roots, members: [member] },
+        };
+        output.result(data, lines.join("\n"));
+        return 0;
+      }
+      throw err;
     }
-    const data = { ...result, map: { roots: map.roots, members: [result.member] } };
-    output.result(data, expansionText(result, exchange));
-    return 0;
   });
 }
 
