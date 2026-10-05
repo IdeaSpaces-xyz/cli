@@ -4,6 +4,30 @@
   "calls": [
     {
       "method": "GET",
+      "path": "/api/v1/access-requests"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/access-requests/{requestId}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/access-requests/{requestId}/approve"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/access-requests/{requestId}/cancel"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/access-requests/{requestId}/deny"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/access-requests/incoming"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/agents"
     },
     {
@@ -57,6 +81,10 @@
     {
       "method": "PUT",
       "path": "/api/v1/nodes/{rootNodeId}/team-shares/{orgNodeId}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/nodes/{targetNodeId}/access-requests"
     },
     {
       "method": "GET",
