@@ -558,6 +558,35 @@ describe("inbox", () => {
     expect(stdout()).toContain("# Finding\n\nExact body.");
   });
 
+  it("handles a refused member expansion with You need access and request instructions", async () => {
+    fetchExchangeMock.mockResolvedValue({
+      mode: "direct",
+      exchange_id: "x_one",
+      target_node_id: TARGET,
+      participants: [participant(1, "One"), participant(2, "Two")],
+      messages: [{ ...message, markdown: "Question", map }],
+    });
+    fetchExchangeMapMemberMock.mockRejectedValue(new Error("Exchange or map source not found"));
+
+    const textCode = await inboxCommand.run(["expand", "x_one", "0"], {}, TEXT_GLOBAL);
+    expect(textCode).toBe(0);
+    expect(stdout()).toContain("You need access to read this member.");
+    expect(stdout()).toContain("Name: Finding");
+    expect(stdout()).toContain("Request access with:");
+    expect(stdout()).toContain(`ideaspaces request ${map.roots[0].root_node_id} --grade viewer`);
+
+    stdoutChunks = [];
+    const jsonCode = await inboxCommand.run(["expand", "x_one", "0"], {}, JSON_GLOBAL);
+    expect(jsonCode).toBe(0);
+    expect(JSON.parse(stdout())).toMatchObject({
+      ok: false,
+      status: "refused",
+      reason: "you_need_access",
+      member_ordinal: 0,
+      target_node_id: map.roots[0].root_node_id,
+    });
+  });
+
   it("sends an inquiry to a handle about one target", async () => {
     sendInquiryMock.mockResolvedValue(writeResult);
 

@@ -224,4 +224,181 @@ describe("ideaspaces map select", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("absent or ambiguous in the hosted index");
   });
+
+  it("builds a single Note selection without requiring --hostname", async () => {
+    stdoutChunks = [];
+    stderrChunks = [];
+    const code = await mapCommand.run(
+      ["select", "notes/finding.md"],
+      {
+        "note-depth": "summary",
+      },
+      GLOBAL,
+    );
+    expect(code).toBe(0);
+    const data = JSON.parse(stdoutChunks.join(""));
+    expect(data).toEqual({
+      kind: "exchange-map-selection",
+      target_node_id: TARGET_NODE_ID,
+      map: {
+        roots: [{
+          repo: `https://example.test/repos/${ROOT_NODE_ID}`,
+          root_node_id: ROOT_NODE_ID,
+          sha: git(["rev-parse", "HEAD"]),
+        }],
+        members: [
+          {
+            root: 0,
+            position: "notes/finding.md",
+            depth: "summary",
+            disclosure: { name: "Finding", summary: "Observed at the selected pin." },
+          },
+        ],
+      },
+    });
+  });
+
+  it("builds a selection from a curated *.map.md note", async () => {
+    const pinnedSha = git(["rev-parse", "HEAD"]);
+    writeFileSync(
+      join(root, "notes", "space.map.md"),
+      `---
+name: Space Map
+summary: Curated space map note
+map:
+  roots:
+    - root_node_id: ${ROOT_NODE_ID}
+      sha: ${pinnedSha}
+  members:
+    - root: 0
+      position: notes/finding.md
+      depth: summary
+      disclosure:
+        name: Finding
+        summary: Observed at the selected pin.
+---
+# Space Map
+`,
+    );
+    git(["add", "notes/space.map.md"]);
+    git(["commit", "-q", "-m", "add space map"]);
+    git(["push", "-q", "origin", "main"]);
+
+    fetchContentTreeMock.mockResolvedValue({
+      kind: "content_tree",
+      target_node_id: ROOT_NODE_ID,
+      target_type: "repo",
+      root_node_id: ROOT_NODE_ID,
+      hosted_history_available: true,
+      path: "notes",
+      node_id: null,
+      name: "Notes",
+      summary: null,
+      children: [
+        {
+          name: "finding.md",
+          type: "file",
+          path: "notes/finding.md",
+          node_id: TARGET_NODE_ID,
+          node_type: "note",
+          name_display: "Finding",
+          summary: "Observed at the selected pin.",
+        },
+        {
+          name: "space.map.md",
+          type: "file",
+          path: "notes/space.map.md",
+          node_id: "n_112233445566778899aabbcc",
+          node_type: "note",
+          name_display: "Space Map",
+          summary: "Curated space map note",
+        },
+      ],
+    });
+
+    stdoutChunks = [];
+    stderrChunks = [];
+    const code = await mapCommand.run(["select", "notes/space.map.md"], {}, GLOBAL);
+    expect(code).toBe(0);
+    const data = JSON.parse(stdoutChunks.join(""));
+    expect(data.target_node_id).toBe("n_112233445566778899aabbcc");
+    expect(data.map.roots).toEqual([
+      {
+        repo: `https://example.test/repos/${ROOT_NODE_ID}`,
+        root_node_id: ROOT_NODE_ID,
+        sha: pinnedSha,
+      },
+    ]);
+    expect(data.map.members).toEqual([
+      {
+        root: 0,
+        position: "notes/finding.md",
+        depth: "summary",
+        disclosure: { name: "Finding", summary: "Observed at the selected pin." },
+      },
+    ]);
+  });
+
+  it("builds a selection from a repository root directory", async () => {
+    fetchContentTreeMock.mockResolvedValue({
+      kind: "content_tree",
+      target_node_id: ROOT_NODE_ID,
+      target_type: "repo",
+      root_node_id: ROOT_NODE_ID,
+      hosted_history_available: true,
+      path: "",
+      node_id: null,
+      name: "Root",
+      summary: null,
+      children: [
+        {
+          name: "finding.md",
+          type: "file",
+          path: "notes/finding.md",
+          node_id: TARGET_NODE_ID,
+          node_type: "note",
+          name_display: "Finding",
+          summary: "Observed at the selected pin.",
+        },
+      ],
+    });
+
+    stdoutChunks = [];
+    stderrChunks = [];
+    const code = await mapCommand.run(["select", "."], { "note-depth": "summary" }, GLOBAL);
+    expect(code).toBe(0);
+    const data = JSON.parse(stdoutChunks.join(""));
+    expect(data.target_node_id).toBe(TARGET_NODE_ID);
+    expect(data.map.roots).toEqual([
+      {
+        repo: `https://example.test/repos/${ROOT_NODE_ID}`,
+        root_node_id: ROOT_NODE_ID,
+        sha: git(["rev-parse", "HEAD"]),
+      },
+    ]);
+    expect(data.map.members).toEqual([
+      {
+        root: 0,
+        position: "notes/finding.md",
+        depth: "summary",
+        disclosure: { name: "Finding", summary: "Observed at the selected pin." },
+      },
+    ]);
+  });
+
+  it("accepts --about <node_id> to explicitly override the target Node", async () => {
+    stdoutChunks = [];
+    stderrChunks = [];
+    const explicitTarget = "n_9876543210fedcba98765432";
+    const code = await mapCommand.run(
+      ["select", "notes/finding.md"],
+      {
+        about: explicitTarget,
+      },
+      GLOBAL,
+    );
+    expect(code).toBe(0);
+    const data = JSON.parse(stdoutChunks.join(""));
+    expect(data.target_node_id).toBe(explicitTarget);
+  });
 });

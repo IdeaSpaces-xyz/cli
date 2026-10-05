@@ -1,10 +1,13 @@
 import {
   buildMap,
+  classifyRepositoryPath,
   gitState,
   inspectFrontmatterSyntax,
   parseFrontmatter,
   resolveRepoRoot,
   type MapDepth,
+  type MapMember,
+  type MapRoot,
 } from "@ideaspaces/protocol";
 import { spawnSync } from "node:child_process";
 import { realpathSync, statSync } from "node:fs";
@@ -28,7 +31,7 @@ const NOTE_DEPTHS = new Set<MapDepth>(["name", "summary", "surface", "children",
 const HOSTNAME = /^(?:\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::[0-9]+)?$/;
 
 export const MAP_SELECT_USAGE =
-  "ideaspaces map select <note.md> --hostname <domain> [--note-depth <name|summary|surface|children|full>] [--entity-depth <name|summary>] [--note-name <label>] [--note-summary <context>] [--entity-name <label>] [--entity-summary <context>] [--json]";
+  "ideaspaces map select <note.md|map.map.md|dir> [--hostname <domain>] [--note-depth <name|summary|surface|children|full>] [--entity-depth <name|summary>] [--note-name <label>] [--note-summary <context>] [--entity-name <label>] [--entity-summary <context>] [--about <node_id>] [--json]";
 
 type Flags = Record<string, string | boolean>;
 
@@ -85,10 +88,10 @@ function exactRemoteHead(cwd: string, branch: string): string {
   return sha;
 }
 
-function relativePosition(repoRoot: string, notePath: string): string {
-  const path = relative(repoRoot, notePath).split(sep).join("/");
+function relativePosition(repoRoot: string, targetPath: string): string {
+  const path = relative(repoRoot, targetPath).split(sep).join("/");
   if (!path || path === ".." || path.startsWith("../") || isAbsolute(path)) {
-    throw new Error("The selected Note must be inside its repository root");
+    throw new Error("The selected target must be inside its repository root");
   }
   return path;
 }
@@ -122,9 +125,9 @@ function annotation(flags: Flags, prefix: "note" | "entity"): { name?: string; s
   };
 }
 
-function noteDepth(flags: Flags): MapDepth | null {
-  const value = flagString(flags, "note-depth") ?? "surface";
-  return NOTE_DEPTHS.has(value as MapDepth) ? value as MapDepth : null;
+function noteDepth(flags: Flags, defaultDepth: MapDepth = "surface"): MapDepth | null {
+  const value = flagString(flags, "note-depth") ?? defaultDepth;
+  return NOTE_DEPTHS.has(value as MapDepth) ? (value as MapDepth) : null;
 }
 
 function entityDepth(flags: Flags): "name" | "summary" | null {
@@ -145,18 +148,16 @@ export async function runMapSelection(
   _global: GlobalFlags,
   output: Output,
 ): Promise<number> {
-  const rawNote = args[0];
-  const selectedNoteDepth = noteDepth(flags);
-  const selectedEntityDepth = entityDepth(flags);
-  const hostname = canonicalHostname(flags);
-  if (!rawNote || args.length !== 1 || !hostname) {
+  const rawTarget = args[0];
+  if (!rawTarget || args.length !== 1) {
     output.error(`Usage: ${MAP_SELECT_USAGE}`);
     return 1;
   }
-  if (!selectedNoteDepth) {
-    output.error("--note-depth must be name, summary, surface, children, or full");
+  if (flags.hostname !== undefined && !canonicalHostname(flags)) {
+    output.error("Invalid --hostname: must be a canonical hostname.");
     return 1;
   }
+  const selectedEntityDepth = entityDepth(flags);
   if (!selectedEntityDepth) {
     output.error("--entity-depth must be name or summary");
     return 1;
@@ -168,37 +169,31 @@ export async function runMapSelection(
   }
 
   try {
-    const absoluteNote = realpathSync.native(resolve(rawNote));
-    if (!statSync(absoluteNote).isFile()) throw new Error("The selected Note is not a file");
-    const resolvedRoot = await resolveRepoRoot(dirname(absoluteNote));
-    if (!resolvedRoot) throw new Error("The selected Note is not inside a Git repository");
-    const repoRoot = realpathSync.native(resolvedRoot);
-    const position = relativePosition(repoRoot, absoluteNote);
-    if (!position.toLowerCase().endsWith(".md")) {
-      throw new Error("The selected context must be a Markdown Note");
+    const absoluteTarget = realpathSync.native(resolve(rawTarget));
+    const isDir = statSync(absoluteTarget).isDirectory();
+    const isFile = statSync(absoluteTarget).isFile();
+    if (!isDir && !isFile) {
+      throw new Error("The selected target does not exist or is not a file or directory");
     }
 
-    const selectedStatus = pathStatus(position, repoRoot);
-    if (!selectedStatus.inTracked) {
-      throw new Error("The selected Note is local-only. Commit and push it before sharing exact context.");
-    }
-    if (selectedStatus.modified || selectedStatus.inIndex) {
-      throw new Error("The selected Note differs from HEAD. Commit or restore it before sharing exact context.");
-    }
+    const resolvedRoot = await resolveRepoRoot(isDir ? absoluteTarget : dirname(absoluteTarget));
+    if (!resolvedRoot) throw new Error("The selected target is not inside a Git repository");
+    const repoRoot = realpathSync.native(resolvedRoot);
 
     const [state, binding] = await Promise.all([
       gitState(repoRoot),
       resolveSpaceBinding(repoRoot, config),
     ]);
     if (!state.headSha || !state.branch) {
-      throw new Error("The selected Note needs a committed branch before it can be shared");
+      throw new Error("The selected target needs a committed branch before it can be shared");
     }
+    const headSha: string = state.headSha;
     if (!("rootNodeId" in binding)) throw new Error(bindingFailure(binding.failure));
 
     const remoteHead = exactRemoteHead(repoRoot, state.branch);
     if (remoteHead !== state.headSha) {
       throw new Error(
-        `The selected Note's HEAD is not published at origin/${state.branch}. Push it without rewriting the selection, then retry.`,
+        `The selected target's HEAD is not published at origin/${state.branch}. Push it without rewriting the selection, then retry.`,
       );
     }
     const remote = originUrl(repoRoot);
@@ -211,64 +206,243 @@ export async function runMapSelection(
     }
     const repo = canonicalRepoUrl(config.apiUrl, binding.rootNodeId);
 
-    const parent = posix.dirname(position) === "." ? "" : posix.dirname(position);
-    const [tree, entity] = await Promise.all([
-      fetchContentTree(config, binding.rootNodeId, parent),
-      fetchEntity(config, "hostname", hostname),
-    ]);
-    if (tree.root_node_id !== binding.rootNodeId) {
-      throw new Error("The hosted Content tree returned a different root identity");
-    }
-    if (!tree.hosted_history_available) {
-      throw new Error("Hosted history is not available for this Space. Share history before selecting an exact Note.");
-    }
-    const matches = tree.children.filter(
-      (child) => child.path === position && child.type === "file" && child.node_type === "note" && child.node_id,
-    );
-    if (matches.length !== 1) {
-      throw new Error("The selected Note is absent or ambiguous in the hosted index. Push and wait for indexing, then retry.");
-    }
-    if (entity.entity_type !== "hostname" || entity.entity_key !== hostname) {
-      throw new Error("The hosted entity response does not match the selected hostname");
-    }
+    let targetNodeId = flagString(flags, "about");
+    let roots: MapRoot[];
+    let members: MapMember[];
 
-    const committed = gitRead(repoRoot, ["show", `${state.headSha}:${position}`]);
-    const observedNote = noteDisclosure(committed, position);
-    const noteObserved = selectedNoteDepth === "name"
-      ? { name: observedNote.name }
-      : observedNote;
-    const entityObserved = selectedEntityDepth === "name"
-      ? { name: entity.name }
-      : { name: entity.name, summary: entity.summary };
-    const built = buildMap({
-      roots: [{
+    if (isDir) {
+      if (repoRoot !== absoluteTarget) {
+        throw new Error(`Not a repository root: ${rawTarget} (root is ${repoRoot})`);
+      }
+      if (state.dirty) {
+        throw new Error("The selected repository differs from HEAD. Commit or restore it before sharing exact context.");
+      }
+      const selectedNoteDepth = noteDepth(flags, "summary");
+      if (!selectedNoteDepth) {
+        output.error("--note-depth must be name, summary, surface, children, or full");
+        return 1;
+      }
+      const rawFiles = gitRead(repoRoot, ["ls-tree", "-r", "--name-only", state.headSha])
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+      const markdownPaths = rawFiles.filter((p) => {
+        const c = classifyRepositoryPath(p, "file");
+        return c.status === "ok" && (c.role === "knowledge" || c.role === "agent-context");
+      });
+      const positionMembers: MapMember[] = [];
+      for (const pos of markdownPaths) {
+        const committed = gitRead(repoRoot, ["show", `${state.headSha}:${pos}`]);
+        const obs = noteDisclosure(committed, pos);
+        const disclosure = selectedNoteDepth === "name" ? { name: obs.name } : obs;
+        positionMembers.push({
+          root: 0,
+          position: pos,
+          depth: selectedNoteDepth,
+          disclosure,
+        });
+      }
+      roots = [{
         repo,
         root_node_id: binding.rootNodeId,
-        sha: state.headSha,
-      }],
-      members: [
-        {
-          root: 0,
-          position,
-          depth: selectedNoteDepth,
-          ...annotation(flags, "note"),
-          disclosure: noteObserved,
-        },
-        {
-          address: `hostname:${hostname}`,
-          depth: selectedEntityDepth,
-          ...annotation(flags, "entity"),
-          disclosure: entityObserved,
-        },
-      ],
-    });
+        sha: headSha,
+      }];
+      members = positionMembers;
+
+      if (!targetNodeId) {
+        const hostedTree = await fetchContentTree(config, binding.rootNodeId, "");
+        if (hostedTree.root_node_id !== binding.rootNodeId) {
+          throw new Error("The hosted Content tree returned a different root identity");
+        }
+        if (!hostedTree.hosted_history_available) {
+          throw new Error("Hosted history is not available for this Space. Share history before selecting context.");
+        }
+        // Look for entry note
+        const candidates = ["_agent/agreement.md", "_agent/foundation.md", "README.md"];
+        const match = hostedTree.children.find(
+          (child) => candidates.includes(child.path) && child.type === "file" && child.node_type === "note" && child.node_id,
+        ) ?? hostedTree.children.find(
+          (child) => child.type === "file" && child.node_type === "note" && child.node_id,
+        );
+        if (!match?.node_id) {
+          throw new Error("The repository has no indexed entry Note. Pass --about <node_id>.");
+        }
+        targetNodeId = match.node_id ?? undefined;
+      }
+    } else {
+      const position = relativePosition(repoRoot, absoluteTarget);
+      if (!position.toLowerCase().endsWith(".md")) {
+        throw new Error("The selected context must be a Markdown Note");
+      }
+      const selectedStatus = pathStatus(position, repoRoot);
+      if (!selectedStatus.inTracked) {
+        throw new Error("The selected Note is local-only. Commit and push it before sharing exact context.");
+      }
+      if (selectedStatus.modified || selectedStatus.inIndex) {
+        throw new Error("The selected Note differs from HEAD. Commit or restore it before sharing exact context.");
+      }
+
+      const committed = gitRead(repoRoot, ["show", `${state.headSha}:${position}`]);
+      const syntax = inspectFrontmatterSyntax(committed);
+      if (syntax.status === "malformed") {
+        throw new Error(`The committed Note has malformed frontmatter: ${syntax.message}`);
+      }
+      const frontmatter = parseFrontmatter(committed) ?? {};
+      const isMapNote = basename(position).endsWith(".map.md") || (basename(position) === "README.md" && frontmatter.map !== undefined);
+
+      if (isMapNote && frontmatter.map && typeof frontmatter.map === "object") {
+        const rawMap = frontmatter.map as { roots?: unknown[]; members?: unknown[] };
+        const rawRoots = Array.isArray(rawMap.roots) ? rawMap.roots : [];
+        const rawMembers = Array.isArray(rawMap.members) ? rawMap.members : [];
+
+        roots = rawRoots.map((r) => {
+          if (!r || typeof r !== "object") throw new Error("Map root must be an object");
+          const rObj = r as Record<string, unknown>;
+          const rNodeId = typeof rObj.root_node_id === "string" ? rObj.root_node_id : binding.rootNodeId;
+          const rSha = typeof rObj.sha === "string" ? rObj.sha : headSha;
+          const rRepo = typeof rObj.repo === "string" ? rObj.repo : canonicalRepoUrl(config.apiUrl, rNodeId);
+          return { repo: rRepo, root_node_id: rNodeId, sha: rSha };
+        });
+        if (roots.length === 0) {
+          roots = [{ repo, root_node_id: binding.rootNodeId, sha: headSha }];
+        }
+
+        members = rawMembers.map((m) => {
+          if (!m || typeof m !== "object") throw new Error("Map member must be an object");
+          const mObj = m as Record<string, unknown>;
+          if ("address" in mObj && typeof mObj.address === "string") {
+            const disc = mObj.disclosure && typeof mObj.disclosure === "object"
+              ? (mObj.disclosure as { name?: string; summary?: string })
+              : { name: typeof mObj.name === "string" ? mObj.name : mObj.address, summary: typeof mObj.summary === "string" ? mObj.summary : "" };
+            return {
+              address: mObj.address,
+              ...(mObj.depth ? { depth: mObj.depth as "name" | "summary" } : {}),
+              ...(mObj.name ? { name: String(mObj.name) } : {}),
+              ...(mObj.summary ? { summary: String(mObj.summary) } : {}),
+              disclosure: { name: disc.name || mObj.address, ...(disc.summary !== undefined ? { summary: disc.summary } : {}) },
+            };
+          }
+          const mPos = typeof mObj.position === "string" ? mObj.position : "";
+          const mRoot = typeof mObj.root === "number" ? mObj.root : 0;
+          const mDepth = (typeof mObj.depth === "string" && NOTE_DEPTHS.has(mObj.depth as MapDepth) ? mObj.depth : "summary") as MapDepth;
+          let disc = mObj.disclosure && typeof mObj.disclosure === "object"
+            ? (mObj.disclosure as { name?: string; summary?: string })
+            : undefined;
+          if (!disc) {
+            try {
+              const rootSha = roots[mRoot]?.sha ?? headSha;
+              const content = gitRead(repoRoot, ["show", `${rootSha}:${mPos}`]);
+              disc = noteDisclosure(content, mPos);
+            } catch {
+              disc = {
+                name: typeof mObj.name === "string" ? mObj.name : basename(mPos, posix.extname(mPos)),
+                summary: typeof mObj.summary === "string" ? mObj.summary : "",
+              };
+            }
+          }
+          return {
+            root: mRoot,
+            position: mPos,
+            depth: mDepth,
+            ...(mObj.name ? { name: String(mObj.name) } : {}),
+            ...(mObj.summary ? { summary: String(mObj.summary) } : {}),
+            disclosure: { name: disc.name || basename(mPos, posix.extname(mPos)), ...(mDepth === "name" ? {} : { summary: disc.summary || "" }) },
+          };
+        });
+
+        if (!targetNodeId) {
+          const parent = posix.dirname(position) === "." ? "" : posix.dirname(position);
+          const tree = await fetchContentTree(config, binding.rootNodeId, parent);
+          if (tree.root_node_id !== binding.rootNodeId) {
+            throw new Error("The hosted Content tree returned a different root identity");
+          }
+          const matches = tree.children.filter(
+            (child) => child.path === position && child.type === "file" && child.node_type === "note" && child.node_id,
+          );
+          if (matches.length === 1 && matches[0]!.node_id) {
+            targetNodeId = matches[0]!.node_id;
+          } else {
+            throw new Error("The selected Map Note is absent or ambiguous in the hosted index. Pass --about <node_id>.");
+          }
+        }
+      } else {
+        // Single Note selection
+        const selectedNoteDepth = noteDepth(flags, "surface");
+        if (!selectedNoteDepth) {
+          output.error("--note-depth must be name, summary, surface, children, or full");
+          return 1;
+        }
+        const hostname = canonicalHostname(flags);
+        const parent = posix.dirname(position) === "." ? "" : posix.dirname(position);
+        const [tree, entity] = await Promise.all([
+          fetchContentTree(config, binding.rootNodeId, parent),
+          hostname ? fetchEntity(config, "hostname", hostname) : Promise.resolve(null),
+        ]);
+        if (tree.root_node_id !== binding.rootNodeId) {
+          throw new Error("The hosted Content tree returned a different root identity");
+        }
+        if (!tree.hosted_history_available) {
+          throw new Error("Hosted history is not available for this Space. Share history before selecting an exact Note.");
+        }
+        const matches = tree.children.filter(
+          (child) => child.path === position && child.type === "file" && child.node_type === "note" && child.node_id,
+        );
+        if (matches.length !== 1) {
+          throw new Error("The selected Note is absent or ambiguous in the hosted index. Push and wait for indexing, then retry.");
+        }
+        if (entity && (entity.entity_type !== "hostname" || entity.entity_key !== hostname)) {
+          throw new Error("The hosted entity response does not match the selected hostname");
+        }
+
+        if (!targetNodeId) {
+          targetNodeId = matches[0]!.node_id ?? undefined;
+        }
+
+        const observedNote = noteDisclosure(committed, position);
+        const noteObserved = selectedNoteDepth === "name"
+          ? { name: observedNote.name }
+          : observedNote;
+
+        roots = [{
+          repo,
+          root_node_id: binding.rootNodeId,
+          sha: headSha,
+        }];
+        members = [
+          {
+            root: 0,
+            position,
+            depth: selectedNoteDepth,
+            ...annotation(flags, "note"),
+            disclosure: noteObserved,
+          },
+        ];
+        if (hostname && entity) {
+          const entityObserved = selectedEntityDepth === "name"
+            ? { name: entity.name }
+            : { name: entity.name, summary: entity.summary };
+          members.push({
+            address: `hostname:${hostname}`,
+            depth: selectedEntityDepth,
+            ...annotation(flags, "entity"),
+            disclosure: entityObserved,
+          });
+        }
+      }
+    }
+
+    if (!targetNodeId) {
+      throw new Error("Could not determine target Node identity. Pass --about <node_id>.");
+    }
+
+    const built = buildMap({ roots, members });
     if (built.status === "invalid") {
       const detail = built.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ");
       throw new Error(`Could not build the portable selection: ${detail}`);
     }
     const selection = parseExchangeMapSelection({
       kind: "exchange-map-selection",
-      target_node_id: matches[0]!.node_id,
+      target_node_id: targetNodeId,
       map: built.map,
     });
     output.result(
