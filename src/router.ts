@@ -38,6 +38,7 @@ import { searchCommand } from "./commands/search.js";
 import { lsCommand } from "./commands/ls.js";
 import { timesCommand } from "./commands/times.js";
 import { shareCommand } from "./commands/share.js";
+import { requestCommand } from "./commands/request.js";
 import { spacesCommand } from "./commands/spaces.js";
 import { inboxCommand } from "./commands/inbox.js";
 import { threadsCommand } from "./commands/threads.js";
@@ -106,6 +107,7 @@ const topLevel: CommandDef[] = [
   statusCommand,
   timesCommand,
   shareCommand,
+  requestCommand,
   spacesCommand,
   threadsCommand,
   inboxCommand,

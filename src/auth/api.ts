@@ -1410,6 +1410,141 @@ export async function removeTeamShare(
   );
 }
 
+export interface AccessRequestCreateBody {
+  grade?: "explore" | "fork" | "collaborate";
+  reason?: string;
+}
+
+export interface AccessRequestResponse {
+  id: string;
+  target_node_id: string;
+  requested_grade: "explore" | "fork" | "collaborate";
+  reason?: string | null;
+  state: "pending" | "expired" | "cancelled" | "denied" | "approved";
+  expires_at: string;
+  created_at: string;
+  cancelled_at?: string | null;
+  denied_at?: string | null;
+  approved_at?: string | null;
+  approved_grade?: "explore" | "fork" | "collaborate" | null;
+}
+
+export interface IncomingAccessRequestResponse extends AccessRequestResponse {
+  requester: string;
+  position: number;
+}
+
+export interface AccessRequestDecisionResponse extends AccessRequestResponse {
+  changed: boolean;
+}
+
+export async function createAccessRequest(
+  config: ApiConfig,
+  targetNodeId: string,
+  body: AccessRequestCreateBody,
+  opts?: RequestOptions,
+): Promise<AccessRequestResponse> {
+  return request<AccessRequestResponse>(
+    config,
+    "POST",
+    `${API_V1}/nodes/${encodeURIComponent(targetNodeId)}/access-requests`,
+    body,
+    opts,
+  );
+}
+
+export async function listAccessRequests(
+  config: ApiConfig,
+  options?: { includeTerminal?: boolean; limit?: number },
+  opts?: RequestOptions,
+): Promise<{ requests: AccessRequestResponse[] }> {
+  const query = new URLSearchParams();
+  if (options?.includeTerminal) query.set("include_terminal", "true");
+  if (options?.limit) query.set("limit", String(options.limit));
+  const queryString = query.toString() ? `?${query.toString()}` : "";
+  return request<{ requests: AccessRequestResponse[] }>(
+    config,
+    "GET",
+    `${API_V1}/access-requests${queryString}`,
+    undefined,
+    opts,
+  );
+}
+
+export async function listIncomingAccessRequests(
+  config: ApiConfig,
+  options?: { limit?: number },
+  opts?: RequestOptions,
+): Promise<{ requests: IncomingAccessRequestResponse[] }> {
+  const query = new URLSearchParams();
+  if (options?.limit) query.set("limit", String(options.limit));
+  const queryString = query.toString() ? `?${query.toString()}` : "";
+  return request<{ requests: IncomingAccessRequestResponse[] }>(
+    config,
+    "GET",
+    `${API_V1}/access-requests/incoming${queryString}`,
+    undefined,
+    opts,
+  );
+}
+
+export async function getAccessRequest(
+  config: ApiConfig,
+  requestId: string,
+  opts?: RequestOptions,
+): Promise<AccessRequestResponse> {
+  return request<AccessRequestResponse>(
+    config,
+    "GET",
+    `${API_V1}/access-requests/${encodeURIComponent(requestId)}`,
+    undefined,
+    opts,
+  );
+}
+
+export async function approveAccessRequest(
+  config: ApiConfig,
+  requestId: string,
+  body?: { grade?: "explore" | "fork" | "collaborate" },
+  opts?: RequestOptions,
+): Promise<AccessRequestDecisionResponse> {
+  return request<AccessRequestDecisionResponse>(
+    config,
+    "POST",
+    `${API_V1}/access-requests/${encodeURIComponent(requestId)}/approve`,
+    body ?? {},
+    opts,
+  );
+}
+
+export async function denyAccessRequest(
+  config: ApiConfig,
+  requestId: string,
+  opts?: RequestOptions,
+): Promise<AccessRequestDecisionResponse> {
+  return request<AccessRequestDecisionResponse>(
+    config,
+    "POST",
+    `${API_V1}/access-requests/${encodeURIComponent(requestId)}/deny`,
+    undefined,
+    opts,
+  );
+}
+
+export async function cancelAccessRequest(
+  config: ApiConfig,
+  requestId: string,
+  opts?: RequestOptions,
+): Promise<AccessRequestResponse> {
+  return request<AccessRequestResponse>(
+    config,
+    "POST",
+    `${API_V1}/access-requests/${encodeURIComponent(requestId)}/cancel`,
+    undefined,
+    opts,
+  );
+}
+
 export async function getSpaceAccess(
   config: ApiConfig,
   repoId: string,
