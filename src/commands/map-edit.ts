@@ -90,6 +90,44 @@ function memberFrom(args: string[], flags: Record<string, string | boolean>, roo
 }
 
 export const MAP_EDIT_USAGE = USAGE;
+
+export async function appendAddressMemberToMapFile(
+  rawPath: string,
+  address: string,
+  depth: string = "summary",
+): Promise<{ path: string; sha: string; index: number }> {
+  if (!validFile(rawPath)) {
+    throw new Error(`Invalid map file "${rawPath}". Space map files must be named README.md or *.map.md.`);
+  }
+  const requested = resolve(rawPath);
+  const file = await fs.realpath(requested);
+  return locked(file, async () => {
+    const original = await fs.readFile(file, "utf8");
+    const front = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/.exec(original);
+    if (!front) throw new Error(`No valid YAML frontmatter in ${file}.`);
+    const doc = parseDocument(front[1], { uniqueKeys: true });
+    if (doc.errors.length) throw new Error(`Invalid YAML in ${file}: ${doc.errors[0].message}`);
+    const parsed = parseMap((doc.toJS() as Record<string, unknown> | null)?.map);
+    if (parsed.status !== "valid") {
+      throw new Error(`Invalid or missing Map in ${file}: ${parsed.status === "invalid" ? parsed.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "no map block"}`);
+    }
+    let seq = doc.getIn(["map", "members"], true);
+    if (!seq) { doc.setIn(["map", "members"], []); seq = doc.getIn(["map", "members"], true); }
+    if (!(seq instanceof YAMLSeq)) throw new Error("Map members must be a sequence.");
+    const member = { address, depth };
+    const candidate = parseMap({ roots: parsed.map.roots, members: [...parsed.map.members, member] });
+    if (candidate.status !== "valid") {
+      throw new Error(`Invalid member: ${candidate.status === "invalid" ? candidate.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "missing map"}`);
+    }
+    const index = seq.items.length;
+    seq.add(member);
+    const newline = front[0].startsWith("---\r\n") ? "\r\n" : "\n";
+    const next = `---${newline}${doc.toString().replace(/\n/g, newline)}---${original.slice(front[0].length)}`;
+    if (hash(await fs.readFile(file, "utf8")) !== hash(original)) throw new Error(`Map base moved while editing ${file}. Re-read and retry.`);
+    await replace(file, next);
+    return { path: file, sha: hash(next), index };
+  }, () => {});
+}
 export async function runMapEdit(args: string[], flags: Record<string, string | boolean>, global: Parameters<CommandDef["run"]>[2]): Promise<number> {
   const output = createOutput(global);
   const [verb, raw, ...members] = args;

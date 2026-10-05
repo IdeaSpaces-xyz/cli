@@ -3,7 +3,9 @@ import { readFileSync, statSync } from "node:fs";
 
 import {
   acknowledgeSubscription,
+  addPersonShare,
   apiErrorDetail,
+  describeShareRefusal,
   fetchExchange,
   fetchExchangeMapMember,
   fetchInbox,
@@ -17,11 +19,14 @@ import {
   type ExchangeMessage,
   type ExchangeNoteWrite,
   type ExchangeReadResponse,
+  type ExchangeWriteResponse,
   type FollowEvent,
   type InboxItem,
   type InboxParticipant,
   type InquiryInboxItem,
   type InquirySendBody,
+  type PersonShareAddResult,
+  type ShareGrade,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import {
@@ -32,6 +37,8 @@ import {
 } from "../exchange-map-selection.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
+import { appendAddressMemberToMapFile } from "./map-edit.js";
+import { humanGrade, parseGrade } from "./request.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -43,11 +50,11 @@ const LIST_USAGE =
 const READ_USAGE =
   "ideaspaces threads read <thread_id> [--new|--since <position>] [--kind <message|reframe>] [--depth <name|summary|full>] [--ack]";
 const SEND_USAGE =
-  "ideaspaces threads send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces threads send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] [--share <viewer|copying|editor>] [--share-roots <node_id,...>] [--space-map <path.map.md>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 const EXPAND_USAGE = "ideaspaces threads expand <thread_id> <member_ordinal>";
 const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
-  "ideaspaces threads reply <thread_id> --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces threads reply <thread_id> [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 
 function flagString(flags: Flags, name: string): string | undefined {
   return typeof flags[name] === "string" ? flags[name] : undefined;
@@ -460,25 +467,151 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
     output.error("Invalid --space: must be a Space node_id (n_…).");
     return 1;
   }
+  const shareArg = flagString(flags, "share") ?? (flags.share === true ? "viewer" : undefined);
+  let parsedShareGrade: ShareGrade | undefined;
+  if (shareArg) {
+    const g = parseGrade(shareArg);
+    if (!g) {
+      output.error("Invalid --share grade: must be viewer (explore), copying (fork), or editor (collaborate).");
+      return 1;
+    }
+    parsedShareGrade = g;
+  }
+  if (parsedShareGrade && !recipientValue) {
+    output.error("Sharing requires an explicit recipient (@handle or email).");
+    return 1;
+  }
   if (rest.length > 1 || recipient === null || !target) {
     output.error(`Usage: ${SEND_USAGE}`);
     return 1;
   }
   const note = await writeBody(flags, output);
   if (!note) return 1;
+
   return runAuthenticated(output, async (config) => {
-    const result = await sendInquiry(config, {
-      ...note,
-      target_node_id: target,
-      ...(recipient ? { recipient } : {}),
-      ...(spaceId ? { space_id: spaceId } : {}),
-      ...(selection ? { map: selection.map } : {}),
-    });
+    const shareResults: Array<PersonShareAddResult & { root_node_id: string; message: string }> = [];
+    if (parsedShareGrade && recipient) {
+      const shareRootsFlag = flagString(flags, "share-roots");
+      let rootsToShare: string[] = [];
+      if (shareRootsFlag) {
+        rootsToShare = shareRootsFlag.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+      } else if (selection?.map?.roots && selection.map.roots.length > 0) {
+        rootsToShare = Array.from(
+          new Set(
+            selection.map.roots
+              .map((r) => r.root_node_id)
+              .filter((id): id is string => typeof id === "string" && Boolean(id)),
+          ),
+        );
+      } else if (target) {
+        rootsToShare = [target];
+      }
+
+      const email = recipient && "email" in recipient ? recipient.email : undefined;
+      const username = recipient && "username" in recipient ? recipient.username : undefined;
+
+      for (const rootNodeId of rootsToShare) {
+        try {
+          const shareRes = await addPersonShare(config, rootNodeId, {
+            ...(email ? { email, invite_if_no_match: true } : {}),
+            ...(username ? { username, invite_if_no_match: false } : {}),
+            grade: parsedShareGrade,
+          });
+          let shareMsg: string;
+          if (shareRes.status === "added") {
+            shareMsg = `Shared ${rootNodeId} with ${recipientValue} at ${humanGrade(parsedShareGrade)}.`;
+          } else if (shareRes.status === "already_direct") {
+            shareMsg = `${recipientValue} already has direct access to ${rootNodeId}.`;
+          } else if (shareRes.status === "invited" || shareRes.status === "already_pending") {
+            shareMsg = `No account yet — invited ${recipientValue} at ${humanGrade(parsedShareGrade)} for ${rootNodeId}. They get access when they accept.`;
+          } else if (shareRes.status === "self") {
+            shareMsg = `You own ${rootNodeId}.`;
+          } else {
+            shareMsg = `Share status for ${rootNodeId}: ${shareRes.status}.`;
+          }
+          shareResults.push({ ...shareRes, root_node_id: rootNodeId, message: shareMsg });
+        } catch (shareErr) {
+          const shareErrMsg = `Failed to share ${rootNodeId} with ${recipientValue}: ${describeShareRefusal(shareErr) ?? apiErrorDetail(shareErr)}`;
+          shareResults.push({
+            target_node_id: rootNodeId,
+            root_node_id: rootNodeId,
+            grade: parsedShareGrade,
+            status: "recipient_unavailable",
+            share_history: false,
+            recipient_route: "",
+            message: shareErrMsg,
+          });
+        }
+      }
+    }
+
+    let result: ExchangeWriteResponse;
+    try {
+      result = await sendInquiry(config, {
+        ...note,
+        target_node_id: target,
+        ...(recipient ? { recipient } : {}),
+        ...(spaceId ? { space_id: spaceId } : {}),
+        ...(selection ? { map: selection.map } : {}),
+      });
+    } catch (sendErr) {
+      const errDetail = apiErrorDetail(sendErr);
+      if (
+        errDetail.includes("recipient unavailable") ||
+        errDetail.includes("no routable person owner") ||
+        errDetail.includes("ExchangeRecipientUnavailableError")
+      ) {
+        const hasInvited = shareResults.some((r) => r.status === "invited" || r.status === "already_pending");
+        const nextSteps = hasInvited
+          ? `Next steps:\n- They must sign up at ideaspaces.xyz first; the invitation email has been sent for the shared root(s).\n- Once they sign up and accept, send the thread to them.`
+          : `Next steps:\n- Have them sign up at ideaspaces.xyz first, or\n- Share a space or repo with them (\`ideaspaces share person ${recipientValue} --grade viewer\`), which sends an invitation email.`;
+        const refusalMsg = `Cannot send thread to ${recipientValue}: ${recipientValue} does not have an IdeaSpaces account yet.\n${nextSteps}`;
+        const outputLines = [...shareResults.map((r) => r.message), refusalMsg];
+        output.error(outputLines.join("\n\n"));
+        return 1;
+      }
+      if (shareResults.length > 0) {
+        output.error([...shareResults.map((r) => r.message), errDetail].join("\n\n"));
+        return 1;
+      }
+      output.error(errDetail);
+      return 1;
+    }
+
+    let spaceMapAdded: { file: string; address: string } | undefined;
+    const spaceMapArg = flagString(flags, "space-map");
+    if (spaceMapArg) {
+      try {
+        await appendAddressMemberToMapFile(spaceMapArg, `thread:${result.exchange_id}`, "summary");
+        spaceMapAdded = { file: spaceMapArg, address: `thread:${result.exchange_id}` };
+      } catch (mapErr) {
+        output.error(
+          `Warning: Could not add thread to Space Map ${spaceMapArg}: ${mapErr instanceof Error ? mapErr.message : String(mapErr)}`,
+        );
+      }
+    }
+
+    const lines: string[] = [];
+    for (const sr of shareResults) {
+      lines.push(sr.message);
+    }
     const inSpace = result.space_id ? ` in Space ${result.space_id}` : "";
     const addressed = recipient
       ? `Sent${inSpace}. Thread ${result.exchange_id} is about ${result.target_node_id}.`
       : `Sent${inSpace} to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
-    output.result(result, addressed);
+    lines.push(addressed);
+    if (spaceMapAdded) {
+      lines.push(`Added ${spaceMapAdded.address} to Space Map ${spaceMapAdded.file}.`);
+    }
+
+    output.result(
+      {
+        ...result,
+        ...(shareResults.length ? { share_results: shareResults } : {}),
+        ...(spaceMapAdded ? { space_map_added: spaceMapAdded } : {}),
+      },
+      lines.join("\n\n"),
+    );
     return 0;
   });
 }
@@ -586,10 +719,15 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
     output.error(`Usage: ${REPLY_USAGE}`);
     return 1;
   }
+  const selection = loadMapSelection(flags, output);
+  if (selection === null) return 1;
   const note = await writeBody(flags, output);
   if (!note) return 1;
   return runAuthenticated(output, async (config) => {
-    const result = await replyToExchange(config, exchangeId, note);
+    const result = await replyToExchange(config, exchangeId, {
+      ...note,
+      ...(selection ? { map: selection.map } : {}),
+    });
     output.result(result, `Replied in thread ${result.exchange_id}.`);
     return 0;
   });
@@ -607,7 +745,9 @@ export const hostedThreadsCommand: CommandDef = {
     "ideaspaces threads send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
+    "ideaspaces threads send @owner --map selection.json --share viewer --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send --about n_0123456789abcdef01234567 --name 'Bug' --summary 'share invite 404s' --message '…'  # no recipient: goes to the Node's owner",
+    "ideaspaces threads reply x_example --map selection.json --name 'Answer' --summary 'A bounded answer' --message 'Here is the counter-proposal'",
     "printf '# Reply\\n\\nKeep it narrow.' | ideaspaces threads reply x_example --name 'Answer' --summary 'A bounded answer'",
   ],
   async run(args, flags, global: GlobalFlags) {

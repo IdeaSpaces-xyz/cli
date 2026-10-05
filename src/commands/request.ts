@@ -29,7 +29,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function parseGrade(grade?: string): "explore" | "fork" | "collaborate" | null {
+export function parseGrade(grade?: string): "explore" | "fork" | "collaborate" | null {
   if (!grade) return "explore";
   const normalized = grade.toLowerCase().trim();
   switch (normalized) {
@@ -49,7 +49,7 @@ function parseGrade(grade?: string): "explore" | "fork" | "collaborate" | null {
   }
 }
 
-function humanGrade(grade: string): string {
+export function humanGrade(grade: string): string {
   switch (grade) {
     case "explore":
       return "Viewer (explore)";
