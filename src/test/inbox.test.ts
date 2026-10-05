@@ -17,6 +17,7 @@ const {
   listSubscriptionsMock,
   sendInquiryMock,
   replyToExchangeMock,
+  addPersonShareMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   fetchInboxMock: vi.fn(),
@@ -28,6 +29,7 @@ const {
   listSubscriptionsMock: vi.fn(),
   sendInquiryMock: vi.fn(),
   replyToExchangeMock: vi.fn(),
+  addPersonShareMock: vi.fn(),
 }));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
@@ -44,6 +46,7 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     listSubscriptions: listSubscriptionsMock,
     sendInquiry: sendInquiryMock,
     replyToExchange: replyToExchangeMock,
+    addPersonShare: addPersonShareMock,
   };
 });
 
@@ -70,6 +73,7 @@ beforeEach(() => {
   listSubscriptionsMock.mockReset();
   sendInquiryMock.mockReset();
   replyToExchangeMock.mockReset();
+  addPersonShareMock.mockReset();
   stdoutChunks = [];
   stderrChunks = [];
   originalOut = process.stdout.write.bind(process.stdout);
@@ -868,5 +872,157 @@ describe("inbox", () => {
     const code = await inboxCommand.run(["read", "x_missing"], {}, TEXT_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("Exchange not found");
+  });
+
+  it("sends a thread and shares root access with --share viewer as two acts", async () => {
+    addPersonShareMock.mockResolvedValue({
+      target_node_id: TARGET,
+      grade: "explore",
+      share_history: false,
+      status: "added",
+      recipient_route: "user_2",
+    });
+    sendInquiryMock.mockResolvedValue({
+      exchange_id: "x_shared",
+      note_node_id: "n_note_1",
+      target_node_id: TARGET,
+      space_id: null,
+    });
+
+    const code = await inboxCommand.run(
+      ["send", "@colleague"],
+      {
+        about: TARGET,
+        share: "viewer",
+        name: "Joint review",
+        summary: "Review finding",
+        message: "Please check this note",
+      },
+      TEXT_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(addPersonShareMock).toHaveBeenCalledWith(CFG, TARGET, {
+      username: "colleague",
+      invite_if_no_match: false,
+      grade: "explore",
+    });
+    expect(sendInquiryMock).toHaveBeenCalledWith(CFG, {
+      send_id: expect.any(String),
+      name: "Joint review",
+      summary: "Review finding",
+      markdown: "Please check this note",
+      target_node_id: TARGET,
+      recipient: { username: "colleague" },
+    });
+    expect(stdout()).toContain(`Shared ${TARGET} with @colleague at Viewer (explore).`);
+    expect(stdout()).toContain(`Sent. Thread x_shared is about ${TARGET}.`);
+  });
+
+  it("refuses sending a thread when recipient has no account, naming why and next steps", async () => {
+    sendInquiryMock.mockRejectedValue(
+      new Error("POST /api/v1/inquiries → 409: recipient unavailable"),
+    );
+
+    const code = await inboxCommand.run(
+      ["send", "newuser@example.com"],
+      {
+        about: TARGET,
+        name: "Welcome",
+        summary: "Initial discussion",
+        message: "Let's talk",
+      },
+      TEXT_GLOBAL,
+    );
+
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Cannot send thread to newuser@example.com: newuser@example.com does not have an IdeaSpaces account yet.");
+    expect(stderr()).toContain("Next steps:");
+    expect(stderr()).toContain("Have them sign up at ideaspaces.xyz first");
+    expect(stderr()).toContain("ideaspaces share person newuser@example.com --grade viewer");
+  });
+
+  it("invites via share and explains refusal when sending thread to unregistered email with --share", async () => {
+    addPersonShareMock.mockResolvedValue({
+      target_node_id: TARGET,
+      grade: "explore",
+      share_history: false,
+      status: "invited",
+      recipient_route: "pending_invite",
+    });
+    sendInquiryMock.mockRejectedValue(
+      new Error("POST /api/v1/inquiries → 409: recipient unavailable"),
+    );
+
+    const code = await inboxCommand.run(
+      ["send", "stranger@example.com"],
+      {
+        about: TARGET,
+        share: "viewer",
+        name: "Invite note",
+        summary: "Summary",
+        message: "Message",
+      },
+      TEXT_GLOBAL,
+    );
+
+    expect(code).toBe(1);
+    expect(addPersonShareMock).toHaveBeenCalledWith(CFG, TARGET, {
+      email: "stranger@example.com",
+      invite_if_no_match: true,
+      grade: "explore",
+    });
+    expect(stderr()).toContain("No account yet — invited stranger@example.com at Viewer (explore) for n_0123456789abcdef01234567.");
+    expect(stderr()).toContain("Cannot send thread to stranger@example.com: stranger@example.com does not have an IdeaSpaces account yet.");
+    expect(stderr()).toContain("the invitation email has been sent for the shared root(s).");
+  });
+
+  it("replies carrying an attached Map selection with --map", async () => {
+    const selectionFile = join(tmpdir(), `selection-${Date.now()}.json`);
+    const selection = {
+      kind: "exchange-map-selection",
+      target_node_id: TARGET,
+      map: {
+        roots: [{ root_node_id: TARGET, sha: "a".repeat(40) }],
+        members: [
+          {
+            root: 0,
+            position: "reply.md",
+            depth: "summary",
+            disclosure: { name: "Reply note", summary: "Proposal summary" },
+          },
+        ],
+      },
+    };
+    writeFileSync(selectionFile, JSON.stringify(selection));
+
+    replyToExchangeMock.mockResolvedValue({
+      exchange_id: "x_target",
+      note_node_id: "n_reply_1",
+      target_node_id: TARGET,
+      space_id: null,
+    });
+
+    const code = await inboxCommand.run(
+      ["reply", "x_target"],
+      {
+        map: selectionFile,
+        name: "Counter proposal",
+        summary: "Alternative approach",
+        message: "Here is the map with my proposal",
+      },
+      TEXT_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(replyToExchangeMock).toHaveBeenCalledWith(CFG, "x_target", {
+      send_id: expect.any(String),
+      name: "Counter proposal",
+      summary: "Alternative approach",
+      markdown: "Here is the map with my proposal",
+      map: selection.map,
+    });
+    expect(stdout()).toContain("Replied in thread x_target.");
+    unlinkSync(selectionFile);
   });
 });

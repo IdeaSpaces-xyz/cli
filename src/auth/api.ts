@@ -645,6 +645,7 @@ export interface ExchangeNoteWrite {
   name: string;
   summary: string;
   markdown: string;
+  map?: MapBlock;
 }
 
 export interface InquirySendBody extends ExchangeNoteWrite {
