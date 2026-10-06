@@ -315,16 +315,19 @@ async function cmdRun(
     }
   }
 
+  const noReach = { addedDirs: [] as string[], errors: [] as string[], warnings: [] as string[] };
   const reachResult = runtime === "claude" ? discoverAgentReach({
     povPath,
     mapFlag: flagString(flags, "map"),
     reachFlag: Array.isArray(flags.reach) || typeof flags.reach === "string" ? flags.reach : undefined,
     cwd: process.cwd(),
-  }) : { addedDirs: [], errors: [] };
+  }) : noReach;
   if (reachResult.errors.length > 0) {
     for (const err of reachResult.errors) output.error(err);
     return 1;
   }
+  for (const warning of reachResult.warnings) output.log(`Reach warning: ${warning}`);
+  if (runtime === "claude") output.progress(`Claude reach: ${[povPath, ...reachResult.addedDirs].join(", ")}`);
 
   // Pass the vetted realpaths, not names or symlinks that could move before spawn.
   const launchOptions = {

@@ -20,6 +20,7 @@ describe("discoverAgentReach", () => {
   it("discovers enclosing space root for a sub-POV", () => {
     const space = tempDir("space-");
     spawnSync("git", ["init", "-q", "-b", "main", space]);
+    mkdirSync(join(space, "_threads"));
     const pov = join(space, "agents", "scout");
     mkdirSync(join(pov, "_agent"), { recursive: true });
     writeFileSync(join(pov, "_agent", "agreement.md"), "# Scout Agreement\n");
@@ -55,6 +56,7 @@ describe("discoverAgentReach", () => {
     spawnSync("git", ["init", "-q", "-b", "main", space]);
     spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: space });
     spawnSync("git", ["config", "user.name", "Test"], { cwd: space });
+    mkdirSync(join(space, "_threads"));
     const pov = join(space, "agents", "scout");
     mkdirSync(join(pov, "_agent"), { recursive: true });
     writeFileSync(join(pov, "_agent", "agreement.md"), "# Scout Agreement\n");

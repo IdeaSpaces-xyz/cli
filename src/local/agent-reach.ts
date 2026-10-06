@@ -14,6 +14,7 @@ export interface DiscoverAgentReachOptions {
 export interface AgentReachResult {
   addedDirs: string[];
   errors: string[];
+  warnings: string[];
 }
 
 /**
@@ -24,18 +25,19 @@ export interface AgentReachResult {
  */
 export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachResult {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const baseCwd = opts.cwd ?? process.cwd();
   let pov: string;
   try {
     pov = realpathSync(opts.povPath);
   } catch (err) {
-    return { addedDirs: [], errors: [`Cannot resolve POV ${opts.povPath}: ${err instanceof Error ? err.message : String(err)}`] };
+    return { addedDirs: [], warnings, errors: [`Cannot resolve POV ${opts.povPath}: ${err instanceof Error ? err.message : String(err)}`] };
   }
   let spaceRoot: string | undefined;
 
   try {
     const candidate = repoRoot(pov);
-    if (candidate !== pov) spaceRoot = candidate;
+    if (candidate !== pov && existsSync(join(candidate, "_threads"))) spaceRoot = candidate;
   } catch {
     // A standalone POV is valid without an enclosing git Space.
   }
@@ -76,19 +78,21 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
       const loaded = loadMapNote(item.path, item.context);
       const inspected = inspectSpaceMapRoots(loaded.map.roots, item.context);
       for (const root of inspected) {
-        if (root.checkoutPath && existsSync(root.checkoutPath) && statSync(root.checkoutPath).isDirectory()) {
-          try {
-            discoveredCheckouts.push(realpathSync(root.checkoutPath));
-          } catch {
-            discoveredCheckouts.push(root.checkoutPath);
-          }
+        if (!root.checkoutPath) {
+          warnings.push(`Map ${item.path}: no local checkout for ${root.rootNodeId ?? root.root.name ?? "unnamed root"}; not added to reach.`);
+          continue;
+        }
+        try {
+          if (!statSync(root.checkoutPath).isDirectory()) throw new Error("not a directory");
+          discoveredCheckouts.push(realpathSync(root.checkoutPath));
+        } catch (err) {
+          warnings.push(`Map ${item.path}: checkout ${root.checkoutPath} unavailable (${err instanceof Error ? err.message : String(err)}); not added to reach.`);
         }
       }
     } catch (err) {
-      if (item.path === opts.mapFlag) {
-        errors.push(`Cannot grant reach from --map ${item.path}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      // A broken optional discovered Map cannot authorize a checkout.
+      const reason = `Map ${item.path}: ${err instanceof Error ? err.message : String(err)}`;
+      if (item.path === opts.mapFlag) errors.push(`Cannot grant reach from --map ${item.path}: ${reason}`);
+      else warnings.push(`Could not discover reach from ${reason}`);
     }
   }
 
@@ -108,5 +112,5 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
 
   const allAdded = [spaceRoot, ...discoveredCheckouts, ...explicitReach];
   const uniqueAddedDirs = [...new Set(allAdded.filter((d): d is string => Boolean(d) && d !== pov))];
-  return { addedDirs: uniqueAddedDirs, errors };
+  return { addedDirs: uniqueAddedDirs, errors, warnings };
 }

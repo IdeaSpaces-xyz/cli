@@ -434,6 +434,7 @@ describe("agent run — command options & validation", () => {
   it("adds Space root when POV is in a subdirectory of a git repository", async () => {
     const space = tempDir("space-");
     spawnSync("git", ["init", "-q", "-b", "main", space]);
+    mkdirSync(join(space, "_threads"));
     const scoutDir = join(space, "agents", "scout");
     mkdirSync(join(scoutDir, "_agent"), { recursive: true });
     writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
@@ -468,6 +469,7 @@ describe("agent run — command options & validation", () => {
   it("accepts explicit --reach <dir> flag and adds to addedDirs", async () => {
     const space = tempDir("space-");
     spawnSync("git", ["init", "-q", "-b", "main", space]);
+    mkdirSync(join(space, "_threads"));
     const scoutDir = join(space, "agents", "scout");
     mkdirSync(join(scoutDir, "_agent"), { recursive: true });
     writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
@@ -548,6 +550,7 @@ describe("agent run — command options & validation", () => {
   it("combines --reach with --read-only on Claude", async () => {
     const space = tempDir("space-");
     spawnSync("git", ["init", "-q", "-b", "main", space]);
+    mkdirSync(join(space, "_threads"));
     const scoutDir = join(space, "agents", "scout");
     mkdirSync(join(scoutDir, "_agent"), { recursive: true });
     writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
