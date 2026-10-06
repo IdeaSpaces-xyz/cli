@@ -48,7 +48,9 @@ function localRows(threads: LocalThread[], newOnly: boolean) {
     const seen = readCursor(thread);
     return thread.posts.some((post) => !seen.has(post.id));
   }).map((thread) => ({ source: "local" as const, id: thread.path, slug: thread.slug, name: thread.name,
-    summary: thread.summary, count: thread.posts.length, closed: thread.closed }));
+    summary: thread.summary, count: thread.posts.length, closed: thread.closed,
+    latest_activity_at: thread.posts.reduce<string | null>((latest, post) =>
+      post.date && (!latest || Date.parse(post.date) > Date.parse(latest)) ? post.date : latest, null) }));
 }
 function localText(thread: LocalThread, posts: LocalThread["posts"], rung: string): string {
   if (rung === "name") return `${thread.slug}  ${thread.name}`;
@@ -135,7 +137,7 @@ export const threadsCommand: CommandDef = {
     try {
       if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand") {
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
-          output.error("For local Threads use `threads open <path>`; hosted `read` requires an x_ id."); return 1;
+          return threadsCommand.run(["open", rest[0]], flags, global);
         }
         return hostedThreadsCommand.run(args, flags, global);
       }
@@ -194,7 +196,8 @@ export const threadsCommand: CommandDef = {
           }));
         }
         const rows = [...local, ...hosted].map((row) => {
-          if (rung === "name") return { source: row.source, id: row.id, name: row.name };
+          if (rung === "name") return { source: row.source, id: row.id, name: row.name,
+            ...(row.source === "local" ? { latest_activity_at: row.latest_activity_at } : {}) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }
@@ -216,7 +219,9 @@ export const threadsCommand: CommandDef = {
       if (sub === "new") {
         if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title>");
         const thread = createThread(rest[0], str(flags, "about")!);
-        output.result({ path: thread.path, slug: thread.slug }, `Created local Thread: ${thread.path}`); return 0;
+        const opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary });
+        output.result({ path: thread.path, slug: thread.slug, opening_post_id: opening.post.id, date: opening.post.date },
+          `Created local Thread: ${thread.path}`); return 0;
       }
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|full] [--new] [--ack]");
@@ -233,7 +238,7 @@ export const threadsCommand: CommandDef = {
           const postName = post.frontmatter.name ?? post.id;
           const postSummary = post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? "";
           const posts = rung === "name" ? [] : rung === "summary" ? [{ id: post.id, path: post.path, kind: post.kind,
-            name: postName, summary: postSummary, in_reply_to: post.inReplyTo }] : [post];
+            date: post.date ?? null, name: postName, summary: postSummary, in_reply_to: post.inReplyTo }] : [post];
           output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
             posts, ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
             rung === "full" ? target.pinned : rung === "name" ? target.name : `${target.name}\n${postName} — ${postSummary}`);
@@ -258,7 +263,7 @@ export const threadsCommand: CommandDef = {
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
         if (ack) acknowledge(thread, posts);
         const projected = rung === "name" ? [] : posts.map((p) => rung === "summary"
-          ? { id: p.id, path: p.path, kind: p.kind, name: p.frontmatter.name ?? p.id,
+          ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
             summary: p.frontmatter.summary ?? p.body.split("\n").find(Boolean) ?? "", in_reply_to: p.inReplyTo }
           : p);
         output.result({ thread: { path: thread.path, name: thread.name, summary: rung === "name" ? undefined : thread.summary,
@@ -297,7 +302,7 @@ export const threadsCommand: CommandDef = {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");
         const thread = loadThread(resolveLocalThread(rest[0]));
         const timeline = thread.posts.map((post) => ({ id: post.id, name: post.frontmatter.name ?? post.id, kind: post.kind,
-          in_reply_to: post.inReplyTo, path: post.path }));
+          date: post.date ?? null, in_reply_to: post.inReplyTo, path: post.path }));
         output.result({ path: thread.path, readme: thread.readme, timeline },
           `${thread.readme.trim()}\n\nTimeline (derived; README not overwritten):\n${timeline.map((p) => `- ${p.name} (${p.kind}) ${p.path}${p.in_reply_to.length ? ` ← ${p.in_reply_to.join(", ")}` : ""}`).join("\n")}`); return 0;
       }

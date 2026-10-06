@@ -116,14 +116,20 @@ describe("local Threads", () => {
       text = ""; expect(await command.run(args, options, flags)).toBe(0); return JSON.parse(text);
     };
     try {
-      await run(threadsCommand, ["new", "decision"], { about: "Decision" });
+      const opened = await run(threadsCommand, ["new", "decision"], { about: "Decision" });
+      const opening = loadThread(join(root, "_threads", "decision")).posts[0];
+      expect(opened.opening_post_id).toBe(opening.id);
+      expect(opened.date).toBe(opening.date);
+      expect(readFileSync(join(root, "_threads", "decision", opening.path), "utf8")).toContain(`date: ${opening.date}`);
       const first = await run(threadsCommand, ["post", "decision"], { message: "Cold keyword", author: "Agent A" });
       const second = await run(threadsCommand, ["post", "decision"], { message: "Other", author: "Agent B", "reply-to": first.id });
       const joined = await run(threadsCommand, ["post", "decision"], { message: "Join", "reply-to": `${first.id},${second.id}` });
       expect(loadThread(join(root, "_threads", "decision")).posts.at(-1)?.inReplyTo).toEqual([first.id, second.id]);
       expect(joined.kind).toBe("post");
-      expect((await run(threadsCommand, ["list"])).threads[0].source).toBe("local");
-      expect((await run(threadsCommand, ["render", "decision"])).timeline).toHaveLength(3);
+      const listed = (await run(threadsCommand, ["list"])).threads[0];
+      expect(listed.source).toBe("local");
+      expect(listed.latest_activity_at).toBe(loadThread(join(root, "_threads", "decision")).posts.at(-1)?.date);
+      expect((await run(threadsCommand, ["render", "decision"])).timeline).toHaveLength(4);
       expect((await run(searchCommand, ["Cold"], { threads: true })).results[0].path).toContain("_threads/decision/");
       expect((await run(searchCommand, ["Cold"])).results).toHaveLength(0);
       await run(threadsCommand, ["close", "decision"], { message: "Closing" });
@@ -132,6 +138,27 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["list"], {}, flags)).toBe(1);
       expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(1);
     } finally { process.chdir(previous); process.stdout.write = old; }
+  });
+
+  it("threads read --json returns authored date and legacy filename fallback", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("legacy", "Legacy", root);
+    writeFileSync(join(thread.path, "2026-09-26T10-00-00Z-old.md"), "---\nid: msg_old\n---\nOld\n");
+    writeFileSync(join(thread.path, "2026-09-26T11-00-00Z-authored.md"),
+      "---\nid: msg_new\ndate: 2026-09-26T12:00:00.000Z\n---\nNew\n");
+    const previous = process.cwd(); process.chdir(root);
+    const write = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    try {
+      const flags = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["read", "legacy"], { depth: "full" }, flags)).toBe(0);
+      const posts = JSON.parse(out).posts;
+      expect(posts.find((p: { id: string }) => p.id === "msg_old").date).toBe("2026-09-26T10:00:00.000Z");
+      expect(posts.find((p: { id: string }) => p.id === "msg_new").date).toBe("2026-09-26T12:00:00.000Z");
+      out = "";
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      expect(JSON.parse(out).threads[0].latest_activity_at).toBe("2026-09-26T12:00:00.000Z");
+    } finally { process.stdout.write = write; process.chdir(previous); }
   });
 
   it("keeps the old inbox name as a noisy one-release alias", () => {

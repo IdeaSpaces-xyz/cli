@@ -120,7 +120,7 @@ export function createThread(slug: string, about: string, cwd = process.cwd()): 
   const dir = join(base, slug);
   mkdirSync(dir); // exclusive; never overwrite a Thread
   mkdirSync(join(dir, "_agent"));
-  writeFileSync(join(dir, "_agent", "agreement.md"), `---\nname: ${stringify(`Agreement — ${about.trim()}`).trim()}\nsummary: Local Thread entry schema and immutable posts.\n---\n# ${about.trim()}\n\nPosts are immutable. Each carries an id, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.\n`, { flag: "wx" });
+  writeFileSync(join(dir, "_agent", "agreement.md"), `---\nname: ${stringify(`Agreement — ${about.trim()}`).trim()}\nsummary: Local Thread entry schema and immutable posts.\n---\n# ${about.trim()}\n\nPosts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.\n`, { flag: "wx" });
   writeFileSync(join(dir, "README.md"), stringify({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
   return loadThread(dir);
 }
@@ -161,10 +161,11 @@ export function appendPost(dir: string, options: {
   // target as late as possible before writing, after all option validation.
   options.verifyTarget?.(thread, parentIds, options.supersedes);
   const id = `msg_${randomUUID()}`;
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const date = new Date().toISOString();
+  const stamp = date.replace(/[:.]/g, "-");
   const path = join(thread.path, `${stamp}-${id}.md`);
   const fields = {
-    id, kind: options.kind ?? "post", ...(parentIds.length ? { in_reply_to: parentIds.length === 1 ? parentIds[0] : parentIds } : {}),
+    id, date, kind: options.kind ?? "post", ...(parentIds.length ? { in_reply_to: parentIds.length === 1 ? parentIds[0] : parentIds } : {}),
     ...(parents.length ? { references: references(parents) } : {}),
     ...(options.supersedes ? { supersedes: options.supersedes } : {}),
     ...(options.name ? { name: options.name } : {}), ...(options.summary ? { summary: options.summary } : {}),
