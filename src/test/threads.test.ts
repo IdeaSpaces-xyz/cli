@@ -164,6 +164,36 @@ describe("local Threads", () => {
     } finally { process.stdout.write = write; process.chdir(previous); }
   });
 
+  it("orders date-only posts by filename, warns on malformed dates, and projects summary/render", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("legacy", "Legacy", root);
+    createThread("empty", "Empty", root);
+    writeFileSync(join(thread.path, "2026-09-27T09-20-00Z-day.md"), "---\nid: msg_day\ndate: 2026-09-27\n---\nDay\n");
+    writeFileSync(join(thread.path, "2026-09-28T10-00-00Z-bad.md"), "---\nid: msg_bad\ndate: yesterday\n---\nBad date\n");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    try {
+      expect(await threadsCommand.run(["read", "legacy"], {}, flags)).toBe(0);
+      const posts = JSON.parse(out).posts;
+      expect(posts.find((p: { id: string }) => p.id === "msg_day").date).toBe("2026-09-27");
+      expect(posts.find((p: { id: string }) => p.id === "msg_bad").date).toBeNull();
+      expect(err).toContain("malformed date; time omitted");
+      expect(out).not.toContain("malformed date;");
+      out = "";
+      expect(await threadsCommand.run(["render", "legacy"], {}, flags)).toBe(0);
+      expect(JSON.parse(out).timeline.find((p: { id: string }) => p.id === "msg_day").date).toBe("2026-09-27");
+      out = "";
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      const rows = JSON.parse(out).threads;
+      expect(rows.find((r: { slug: string }) => r.slug === "legacy").latest_activity_at).toBe("2026-09-27T09:20:00.000Z");
+      expect(rows.find((r: { slug: string }) => r.slug === "empty").latest_activity_at).toBeNull();
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
   it("keeps the old inbox name as a noisy one-release alias", () => {
     expect(inboxCommand.description).toContain("Legacy");
     expect(threadsCommand.examples?.some((x) => x.includes("read x_"))).toBe(true);

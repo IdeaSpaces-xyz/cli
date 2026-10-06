@@ -42,6 +42,21 @@ async function stdin(): Promise<string> {
   for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString("utf8");
 }
+/** Date-only headers are days, not instants. Prefer the filename's fuller
+ * timestamp for activity ordering, as schema/threads.md specifies. */
+function activityAt(post: LocalThread["posts"][number]): string | null {
+  if (post.dateWarning || !post.date) return null;
+  return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
+}
+
+function latestLocalActivity(posts: LocalThread["posts"]): string | null {
+  return posts.reduce<string | null>((latest, post) => {
+    const at = activityAt(post);
+    const time = at ? Date.parse(at) : NaN;
+    return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
+  }, null);
+}
+
 function localRows(threads: LocalThread[], newOnly: boolean) {
   return threads.filter((thread) => {
     if (!newOnly) return true;
@@ -49,11 +64,7 @@ function localRows(threads: LocalThread[], newOnly: boolean) {
     return thread.posts.some((post) => !seen.has(post.id));
   }).map((thread) => ({ source: "local" as const, id: thread.path, slug: thread.slug, name: thread.name,
     summary: thread.summary, count: thread.posts.length, closed: thread.closed,
-    latest_activity_at: thread.posts.reduce<string | null>((latest, post) => {
-      const at = post.dateWarning ? undefined : post.date?.length === 10 ? post.fileDate ?? post.date : post.date;
-      const time = at ? Date.parse(at) : NaN;
-      return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at! : latest;
-    }, null) }));
+    latest_activity_at: latestLocalActivity(thread.posts) }));
 }
 function localText(thread: LocalThread, posts: LocalThread["posts"], rung: string): string {
   if (rung === "name") return `${thread.slug}  ${thread.name}`;
