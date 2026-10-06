@@ -32,7 +32,7 @@ import {
   type ToolInvocation,
 } from "@ideaspaces/sdk";
 import { readJsonLines } from "../local/jsonl.js";
-import { resolveAddedDirs } from "../local/send-options.js";
+import { discloseLaunch, resolveAddedDirs } from "../local/send-options.js";
 import { CLAUDE_DENIED_EFFECTS } from "../local/claude-tool-policy.js";
 import { harvestLocalFiles } from "../local/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
@@ -42,11 +42,7 @@ import { launchMapEnv } from "../local/address-read.js";
 /** Claude Code's `--permission-mode` choices (`claude --help`, 2.1.270). Headless
  * runs never prompt — checked live: `manual` and `dontAsk` under `-p` run or deny
  * a tool and close the turn, they do not wait — so the mode is the whole approval
- * policy for the turn.
- *
- * Observed in Claude Code 2.1.291: `--permission-mode auto` falls back to
- * `default` when set by flag; only `settings.json` carries it. `acceptEdits` is the
- * default and standard mode for headless runs. */
+ * policy for the turn. */
 export const CLAUDE_PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const;
 export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
 
@@ -144,7 +140,7 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
     "--output-format", "stream-json",
     "--include-partial-messages",
     "--permission-mode", opts.permissionMode ?? "acceptEdits",
-    "--permission-prompts", "none", // headless: never wait for or solicit approval
+    "--permission-prompts", "none", // verified in Claude Code 2.1.291 --help; no headless prompts
     opts.sessionExists ? "--resume" : "--session-id", opts.conversationId,
   ];
 
@@ -253,16 +249,12 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
       if (!record) continue; // Claude Code prints some failures as prose before its result line
       for (const ke of translator.translate(record)) {
         if (ke.type === "message_start") {
-          const augmented: KeeperStreamEvent = {
-            ...ke,
-            cwd: opts.repoPath,
-            added_dirs: addedDirs,
+          yield discloseLaunch(ke, {
+            cwd: opts.repoPath, added_dirs: addedDirs,
             permission_mode: opts.permissionMode ?? "acceptEdits",
-            allowed_tools: allowedTools ?? null,
-            runtime: "claude",
+            allowed_tools: allowedTools ?? null, runtime: "claude",
             model: opts.model ?? ke.model_tier,
-          };
-          yield augmented;
+          });
           continue;
         }
         if (ke.type === "turn_complete") ke.result.position = lastPosition(turnTools);

@@ -9,6 +9,7 @@ import {
   type ClaudeTurnOptions,
 } from "../claude/local-agent.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "../claude/tool-names.js";
+import { CLAUDE_DENIED_EFFECTS } from "../local/claude-tool-policy.js";
 import type { ToolInvocation } from "@ideaspaces/sdk";
 
 const base: ClaudeTurnOptions & { sessionExists: boolean } = {
@@ -76,6 +77,19 @@ describe("buildClaudeArgs", () => {
     expect(args[args.indexOf("--append-system-prompt") + 1]).toBe("MAP\n\nLAUNCH");
   });
 
+  it("makes writable agent permissions explicit in argv", () => {
+    const args = buildClaudeArgs({ ...base, addedDirs: ["/home"], allowedTools: [
+      "Read", "Grep", "Glob", "mcp__plugin_ideaspaces_core__*",
+      "Edit", "Write", "Bash(git:*)", "Bash(ideaspaces:*)",
+    ] });
+    expect(args).toEqual([
+      "-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
+      "--permission-mode", "acceptEdits", "--permission-prompts", "none",
+      "--resume", base.conversationId, "--add-dir", "/home",
+      "--allowedTools", "Read,Grep,Glob,mcp__plugin_ideaspaces_core__*,Edit,Write,Bash(git:*),Bash(ideaspaces:*)",
+    ]);
+  });
+
   it("limits available tools for read-only independently of permission mode and forwards supported effort", () => {
     const args = buildClaudeArgs({ ...base, readOnly: true, effort: "high", permissionMode: "dontAsk" });
     expect(args).toEqual(expect.arrayContaining([
@@ -87,6 +101,19 @@ describe("buildClaudeArgs", () => {
     expect(args).not.toContain("--allowedTools");
   });
 
+  it("read-only agent argv denies plugin effects while keeping named reads", () => {
+    const args = buildClaudeArgs({ ...base, readOnly: true, allowedTools: [
+      "Read", "Grep", "Glob", "mcp__plugin_ideaspaces_core__is_look",
+    ] });
+    expect(args).toEqual(expect.arrayContaining([
+      "--permission-mode", "acceptEdits", "--permission-prompts", "none",
+      "--tools", "Read,Grep,Glob", "--allowedTools", "Read,Grep,Glob,mcp__plugin_ideaspaces_core__is_look",
+    ]));
+    expect(args).toContain("--disallowedTools");
+    expect(args[args.indexOf("--disallowedTools") + 1]).toContain("mcp__plugin_ideaspaces_core__is_write");
+    expect(args).not.toContain("--strict-mcp-config");
+  });
+
   it("allows overriding allowedTools explicitly", () => {
     const args = buildClaudeArgs({ ...base, allowedTools: ["Read", "Grep"] });
     expect(args).toContain("--allowedTools");
@@ -95,6 +122,14 @@ describe("buildClaudeArgs", () => {
 
   it("never carries the prompt — it rides stdin", () => {
     expect(buildClaudeArgs({ ...base, message: "a very long message" })).not.toContain("a very long message");
+  });
+});
+
+describe("read-only plugin effect denials", () => {
+  it("denies every known mutating plugin entry point, including mixed-action tools", () => {
+    for (const name of ["is_write", "is_commit", "is_threads", "is_follow", "is_pull", "is_push", "is_auth", "is_clone", "is_change_open", "is_change_close", "is_collaborate"]) {
+      expect(CLAUDE_DENIED_EFFECTS).toContain(`mcp__plugin_ideaspaces_core__${name}`);
+    }
   });
 });
 

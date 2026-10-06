@@ -52,10 +52,12 @@ describe("parseArgs", () => {
 
   it("accumulates only --reach; leaves --ext and --skill last-wins", () => {
     const spaceSeparated = parseArgs(["agent", "run", "scout", "--message", "hi", "--reach", "/dir1", "--reach", "/dir2"]);
-    expect(spaceSeparated.flags.reach).toBe("/dir1,/dir2");
+    expect(spaceSeparated.flags.reach).toEqual(["/dir1", "/dir2"]);
 
     const equalsSeparated = parseArgs(["agent", "run", "scout", "--message=hi", "--reach=/dir1", "--reach=/dir2"]);
-    expect(equalsSeparated.flags.reach).toBe("/dir1,/dir2");
+    expect(equalsSeparated.flags.reach).toEqual(["/dir1", "/dir2"]);
+    expect(parseArgs(["agent", "run", "scout", "--reach", "/dir,one", "--reach", "/dir,two"]).flags.reach)
+      .toEqual(["/dir,one", "/dir,two"]);
     expect(parseArgs(["agent", "run", "scout", "--ext", "a", "--ext", "b", "--skill=x", "--skill=y"]).flags)
       .toMatchObject({ ext: "b", skill: "y" });
   });

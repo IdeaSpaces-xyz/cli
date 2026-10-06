@@ -126,8 +126,6 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
-  const addedDirs = options?.addedDirs ?? [];
-
   // Abort propagation: SIGINT/SIGTERM (or the desktop killing the sidecar) kills
   // the local pi turn. Guarded so repeats don't double-fire.
   const controller = new AbortController();
@@ -145,7 +143,6 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     for await (const event of runLocalTurn({
       repoPath,
       workingRoot,
-      addedDirs: [...new Set(addedDirs)].filter((d) => d !== repoPath),
       message,
       extensionPaths,
       skillPaths,

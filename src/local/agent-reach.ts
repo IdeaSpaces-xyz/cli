@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { repoRoot } from "../git.js";
 import { loadMapNote } from "./map-note.js";
 import { discoverSpaceMapFiles, inspectSpaceMapRoots } from "./space-map.js";
@@ -7,7 +7,7 @@ import { discoverSpaceMapFiles, inspectSpaceMapRoots } from "./space-map.js";
 export interface DiscoverAgentReachOptions {
   povPath: string;
   mapFlag?: string;
-  reachFlag?: string;
+  reachFlag?: string | string[];
   cwd?: string;
 }
 
@@ -25,7 +25,12 @@ export interface AgentReachResult {
 export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachResult {
   const errors: string[] = [];
   const baseCwd = opts.cwd ?? process.cwd();
-  const pov = realpathSync(opts.povPath);
+  let pov: string;
+  try {
+    pov = realpathSync(opts.povPath);
+  } catch (err) {
+    return { addedDirs: [], errors: [`Cannot resolve POV ${opts.povPath}: ${err instanceof Error ? err.message : String(err)}`] };
+  }
   let spaceRoot: string | undefined;
 
   try {
@@ -33,6 +38,18 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
     if (candidate !== pov) spaceRoot = candidate;
   } catch {
     // A standalone POV is valid without an enclosing git Space.
+  }
+  // A POV can itself be a nested Git repo. Its enclosing Space is the nearest
+  // parent repository that actually owns _threads/, not the child's git top.
+  if (!spaceRoot || !existsSync(join(spaceRoot, "_threads"))) {
+    for (let parent = dirname(pov); parent !== dirname(parent); parent = dirname(parent)) {
+      if (!existsSync(join(parent, "_threads"))) continue;
+      try {
+        if (repoRoot(parent) === parent) { spaceRoot = parent; break; }
+      } catch {
+        // Not a Git Space; keep walking ancestors.
+      }
+    }
   }
 
   const discoveredCheckouts: string[] = [];
@@ -77,7 +94,7 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
 
   const explicitReach: string[] = [];
   if (opts.reachFlag) {
-    for (const raw of opts.reachFlag.split(",").map((s) => s.trim()).filter(Boolean)) {
+    for (const raw of (Array.isArray(opts.reachFlag) ? opts.reachFlag : [opts.reachFlag]).map((s) => s.trim()).filter(Boolean)) {
       const resolved = isAbsolute(raw) ? raw : resolve(baseCwd, raw);
       if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
         errors.push(`Refusing reach path ${raw}: directory not found.`);

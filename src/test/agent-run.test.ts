@@ -521,6 +521,16 @@ describe("agent run — command options & validation", () => {
     expect(stderr()).toContain("--reach requires a directory path");
   });
 
+  it("does not discover Claude reach for a Pi run with a malformed Map", async () => {
+    const dir = makeAgentDir();
+    writeFileSync(join(dir, "broken.map.md"), "---\nmap: invalid\n---\n");
+    const code = await agentCmd.run(["run", dir], {
+      runtime: "pi", message: "Analyze", ext: join(dir, "_agent", "agreement.md"), map: "broken.map.md",
+    }, JSON_GLOBAL);
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ addedDirs: [] }));
+  });
+
   it("refuses --reach under Pi runtime", async () => {
     const dir = makeAgentDir();
     const other = tempDir();
@@ -840,6 +850,8 @@ process.stdin.on("data", (chunk) => {
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", skill: true }, JSON_GLOBAL)).toBe(1);
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("bypassPermissions");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "permission-mode": "auto" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("does not set auto");
   });
 
   it("fails closed without explicit child resources, rejects a symlink escape, and loads duplicates once", async () => {

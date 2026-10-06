@@ -148,7 +148,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     for await (const event of runClaudeTurn({
       repoPath,
       workingRoot,
-      addedDirs: [...new Set(addedDirs)].filter((d) => d !== repoPath),
+      addedDirs,
       allowedTools,
       message,
       conversationId,

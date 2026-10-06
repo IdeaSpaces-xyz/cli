@@ -298,6 +298,10 @@ async function cmdRun(
     output.error("agent run does not permit --permission-mode bypassPermissions; use --permission-mode acceptEdits (default).");
     return 1;
   }
+  if (runtime === "claude" && flags["permission-mode"] === "auto") {
+    output.error("Claude Code 2.1.291 does not set auto by --permission-mode flag (it falls back to default). Use acceptEdits or configure auto in Claude Code settings outside agent run.");
+    return 1;
+  }
   if (runtime === "claude" && (flags["pi-thinking"] !== undefined || flags["pi-trust"] !== undefined)) {
     output.error("Pi thinking and trust policy are unavailable under Claude; use --claude-effort if supported.");
     return 1;
@@ -311,12 +315,12 @@ async function cmdRun(
     }
   }
 
-  const reachResult = discoverAgentReach({
+  const reachResult = runtime === "claude" ? discoverAgentReach({
     povPath,
     mapFlag: flagString(flags, "map"),
-    reachFlag: typeof flags.reach === "string" ? flags.reach : undefined,
+    reachFlag: Array.isArray(flags.reach) || typeof flags.reach === "string" ? flags.reach : undefined,
     cwd: process.cwd(),
-  });
+  }) : { addedDirs: [], errors: [] };
   if (reachResult.errors.length > 0) {
     for (const err of reachResult.errors) output.error(err);
     return 1;
@@ -381,7 +385,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Pi runs require explicit --ext paths relative to the selected POV (or absolute); --skill dirs are optional; Pi child runs load only those dirs (skill discovery is disabled). Claude adds the enclosing Space root and local Map checkouts automatically; repeat --reach <dir> for extra checkouts (resolved from caller cwd). The first JSON line discloses this reach. A Claude --read-only run gets read tools, while a writable run pre-approves Edit, Write, IdeaSpaces plugin tools and git/ideaspaces Bash. --conversation resumes an existing nonempty POV transcript; --session-dir is refused. Pi project trust defaults to saved. --read-only restricts Claude builtins to Read/Grep/Glob and allows named IdeaSpaces read tools (not a filesystem sandbox); Pi has no purpose tool scoping. Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
+    description: "Run or list local POVs. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only limits Claude builtins to Read/Grep/Glob and denies known plugin effects; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",

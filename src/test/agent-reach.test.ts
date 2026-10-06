@@ -30,6 +30,17 @@ describe("discoverAgentReach", () => {
     expect(result.addedDirs).toEqual([realpathSync.native(space)]);
   });
 
+  it("finds Home when POV is itself a nested Git repo", () => {
+    const home = tempDir("home-");
+    spawnSync("git", ["init", "-q", "-b", "main", home]);
+    mkdirSync(join(home, "_threads"));
+    const pov = join(home, "agents", "scout");
+    mkdirSync(join(pov, "_agent"), { recursive: true });
+    spawnSync("git", ["init", "-q", "-b", "main", pov]);
+    writeFileSync(join(pov, "_agent", "agreement.md"), "# Scout\n");
+    expect(discoverAgentReach({ povPath: pov }).addedDirs).toEqual([realpathSync.native(home)]);
+  });
+
   it("handles standalone POV without enclosing space root", () => {
     const pov = tempDir("pov-");
     mkdirSync(join(pov, "_agent"), { recursive: true });
@@ -84,12 +95,24 @@ map:
     expect(result.addedDirs).toContain(realpathSync.native(extRepo));
   });
 
+  it("refuses an explicitly selected malformed Map", () => {
+    const pov = tempDir("pov-");
+    writeFileSync(join(pov, "broken.map.md"), "---\nname: Broken\nmap: invalid\n---\n");
+    const result = discoverAgentReach({ povPath: pov, mapFlag: "broken.map.md" });
+    expect(result.errors[0]).toContain("Cannot grant reach from --map");
+  });
+
+  it("reports a moved POV without throwing", () => {
+    const result = discoverAgentReach({ povPath: "/nonexistent/pov" });
+    expect(result.errors[0]).toContain("Cannot resolve POV");
+  });
+
   it("validates and adds explicit --reach directories", () => {
     const pov = tempDir("pov-");
     const other1 = tempDir("reach1-");
     const other2 = tempDir("reach2-");
 
-    const result = discoverAgentReach({ povPath: pov, reachFlag: `${other1},${other2}` });
+    const result = discoverAgentReach({ povPath: pov, reachFlag: [other1, other2] });
     expect(result.errors).toEqual([]);
     expect(result.addedDirs).toEqual([realpathSync.native(other1), realpathSync.native(other2)]);
   });

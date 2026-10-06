@@ -1,4 +1,9 @@
-import type { KeeperStreamEvent } from "@ideaspaces/sdk";
+import type { KeeperStreamEvent, KeeperMessageStartEvent } from "@ideaspaces/sdk";
+
+/** One CLI-local disclosure shape for both runtime translators. */
+export function discloseLaunch(event: Extract<KeeperStreamEvent, { type: "message_start" }>, reach: Partial<KeeperMessageStartEvent>): KeeperMessageStartEvent {
+  return { ...event, ...reach };
+}
 
 export interface LocalSendOptions {
   onEvent?: (event: KeeperStreamEvent) => KeeperStreamEvent;
