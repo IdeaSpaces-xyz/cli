@@ -254,7 +254,8 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
           yield discloseLaunch(ke, {
             cwd: opts.repoPath, added_dirs: addedDirs,
             permission_mode: opts.permissionMode ?? "acceptEdits",
-            allowed_tools: allowedTools ?? null, runtime: "claude",
+            allowed_tools: allowedTools ?? null, allowed_tools_semantics: "preapproval",
+            shell_available: !opts.readOnly, runtime: "claude",
             model: opts.model ?? ke.model_tier,
           });
           continue;

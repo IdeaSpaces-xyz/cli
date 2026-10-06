@@ -58,6 +58,7 @@ describe("parseArgs", () => {
     expect(equalsSeparated.flags.reach).toEqual(["/dir1", "/dir2"]);
     expect(parseArgs(["agent", "run", "scout", "--reach", "/dir,one", "--reach", "/dir,two"]).flags.reach)
       .toEqual(["/dir,one", "/dir,two"]);
+    expect(parseArgs(["agent", "run", "scout", "--reach", "/dir", "--reach"]).flags.reach).toBe(true);
     expect(parseArgs(["agent", "run", "scout", "--ext", "a", "--ext", "b", "--skill=x", "--skill=y"]).flags)
       .toMatchObject({ ext: "b", skill: "y" });
   });

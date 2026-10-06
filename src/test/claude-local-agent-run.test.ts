@@ -79,6 +79,8 @@ describe.skipIf(process.platform === "win32")("runClaudeTurn against a stand-in 
       cwd: join(dir, "space"),
       added_dirs: [],
       permission_mode: "acceptEdits",
+      allowed_tools_semantics: "preapproval",
+      shell_available: true,
       allowed_tools: [
         "Read",
         "Grep",

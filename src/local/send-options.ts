@@ -3,7 +3,7 @@ import type { KeeperStreamEvent, KeeperMessageStartEvent } from "@ideaspaces/sdk
 /** One CLI-local disclosure shape for both runtime translators. Required reach fields catch drift. */
 type LocalLaunchReach = Required<Pick<KeeperMessageStartEvent,
   "cwd" | "added_dirs" | "permission_mode" | "allowed_tools" | "runtime" | "model"
->> & Pick<KeeperMessageStartEvent, "extensions" | "trust">;
+>> & Pick<KeeperMessageStartEvent, "extensions" | "trust" | "allowed_tools_semantics" | "shell_available">;
 export function discloseLaunch(event: Extract<KeeperStreamEvent, { type: "message_start" }>, reach: LocalLaunchReach): KeeperMessageStartEvent {
   return { ...event, ...reach };
 }
