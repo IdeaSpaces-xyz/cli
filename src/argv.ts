@@ -1,6 +1,7 @@
 import type { GlobalFlags } from "./types.js";
 
 const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
+const REPEATABLE_COMMAND_FLAGS = new Set(["reach", "ext", "skill"]);
 
 export interface ParsedArgs {
   global: GlobalFlags;
@@ -47,7 +48,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
 
-        if (flags[key] !== undefined && typeof flags[key] === "string") {
+        if (REPEATABLE_COMMAND_FLAGS.has(key) && flags[key] !== undefined && typeof flags[key] === "string") {
           flags[key] = `${flags[key]},${value}`;
         } else {
           flags[key] = value;
@@ -72,7 +73,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       // Command-specific flag with value
       if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
         const val = argv[++i];
-        if (flags[key] !== undefined && typeof flags[key] === "string") {
+        if (REPEATABLE_COMMAND_FLAGS.has(key) && flags[key] !== undefined && typeof flags[key] === "string") {
           flags[key] = `${flags[key]},${val}`;
         } else {
           flags[key] = val;

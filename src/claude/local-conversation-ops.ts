@@ -14,6 +14,8 @@ import {
   CLAUDE_AUTH_MODES,
   CLAUDE_PERMISSION_MODES,
   CLAUDE_EFFORT_LEVELS,
+  DEFAULT_CLAUDE_HANDOVER_TOOLS,
+  DEFAULT_CLAUDE_READONLY_TOOLS,
   isValidClaudeEffort,
   type ClaudeEffort,
   isValidClaudeAuthMode,
@@ -132,21 +134,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
-  const addedDirs = [
-    ...(options?.addedDirs ?? []),
-  ];
-  if (typeof flags.reach === "string") {
-    for (const raw of flags.reach.split(",").map((s) => s.trim()).filter(Boolean)) {
-      const target = isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
-      if (existsSync(target)) {
-        try {
-          addedDirs.push(realpathSync(target));
-        } catch {
-          addedDirs.push(target);
-        }
-      }
-    }
-  }
+  const addedDirs = options?.addedDirs ?? [];
+  const allowedTools = options?.allowedTools ?? (readOnly
+    ? [...DEFAULT_CLAUDE_READONLY_TOOLS]
+    : [...DEFAULT_CLAUDE_HANDOVER_TOOLS]);
 
   const controller = new AbortController();
   let signalled = false;
@@ -164,7 +155,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       repoPath,
       workingRoot,
       addedDirs: [...new Set(addedDirs)].filter((d) => d !== repoPath),
-      allowedTools: options?.allowedTools,
+      allowedTools,
       message,
       conversationId,
       modelTier,

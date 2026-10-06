@@ -19,12 +19,20 @@ const base: ClaudeTurnOptions & { sessionExists: boolean } = {
 };
 
 describe("buildClaudeArgs", () => {
-  it("runs headless stream-json with partial messages, verbose, acceptEdits, and default handover allowedTools", () => {
+  it("runs headless stream-json with partial messages, verbose, and acceptEdits by default", () => {
     expect(buildClaudeArgs(base)).toEqual([
       "-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
       "--permission-mode", "acceptEdits",
       "--resume", base.conversationId,
-      "--allowedTools", "Read,Grep,Glob,mcp__plugin_ideaspaces_core__*,Edit,Write,Bash(git:*),Bash(ideaspaces:*)",
+    ]);
+  });
+
+  it("passes allowedTools when provided", () => {
+    expect(buildClaudeArgs({ ...base, allowedTools: ["Read", "Grep", "Glob", "mcp__plugin_ideaspaces_core__*"] })).toEqual([
+      "-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
+      "--permission-mode", "acceptEdits",
+      "--resume", base.conversationId,
+      "--allowedTools", "Read,Grep,Glob,mcp__plugin_ideaspaces_core__*",
     ]);
   });
 
@@ -73,10 +81,10 @@ describe("buildClaudeArgs", () => {
     expect(args).toEqual(expect.arrayContaining([
       "--tools", "Read,Grep,Glob",
       "--strict-mcp-config",
-      "--allowedTools", "Read,Grep,Glob",
       "--effort", "high",
       "--permission-mode", "dontAsk",
     ]));
+    expect(args).not.toContain("--allowedTools");
   });
 
   it("allows overriding allowedTools explicitly", () => {

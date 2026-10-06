@@ -60,6 +60,16 @@ describe.skipIf(process.platform === "win32")("runClaudeTurn against a stand-in 
       sessionExists: false,
       claudeBin: bin,
       modelTier: "fake",
+      allowedTools: [
+        "Read",
+        "Grep",
+        "Glob",
+        "mcp__plugin_ideaspaces_core__*",
+        "Edit",
+        "Write",
+        "Bash(git:*)",
+        "Bash(ideaspaces:*)",
+      ],
     }));
     expect(events.map((e) => e.type)).toEqual(["message_start", "tool_start", "tool_result", "text_delta", "message_delta", "turn_complete"]);
     expect(events[0]).toMatchObject({

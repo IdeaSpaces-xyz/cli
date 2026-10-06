@@ -439,12 +439,13 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Pi runs require explicit --ext paths relative to the selected POV (or absolute); --skill dirs are optional; Pi child runs load only those dirs (skill discovery is disabled). --conversation resumes an existing nonempty POV transcript; --session-dir is refused. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
+    description: "Run or list local POVs. Pi runs require explicit --ext paths relative to the selected POV (or absolute); --skill dirs are optional; Pi child runs load only those dirs (skill discovery is disabled). --reach <dirs> grants access to additional repository/workspace checkouts. --conversation resumes an existing nonempty POV transcript; --session-dir is refused. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",
       "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts --pi-trust saved --pi-thinking high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",

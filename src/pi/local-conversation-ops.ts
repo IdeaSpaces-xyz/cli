@@ -128,21 +128,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
-  const addedDirs = [
-    ...(options?.addedDirs ?? []),
-  ];
-  if (typeof flags.reach === "string") {
-    for (const raw of flags.reach.split(",").map((s) => s.trim()).filter(Boolean)) {
-      const target = isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
-      if (existsSync(target)) {
-        try {
-          addedDirs.push(realpathSync(target));
-        } catch {
-          addedDirs.push(target);
-        }
-      }
-    }
-  }
+  const addedDirs = options?.addedDirs ?? [];
 
   // Abort propagation: SIGINT/SIGTERM (or the desktop killing the sidecar) kills
   // the local pi turn. Guarded so repeats don't double-fire.

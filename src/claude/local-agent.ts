@@ -173,15 +173,9 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
 
   if (opts.model) args.push("--model", opts.model);
   if (opts.effort) args.push("--effort", opts.effort);
-
-  const allowedTools = opts.allowedTools ?? (opts.readOnly
-    ? [...DEFAULT_CLAUDE_READONLY_TOOLS]
-    : [...DEFAULT_CLAUDE_HANDOVER_TOOLS]);
-
-  if (opts.readOnly) {
-    args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config", "--allowedTools", allowedTools.join(","));
-  } else {
-    args.push("--allowedTools", allowedTools.join(","));
+  if (opts.readOnly) args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
+  if (opts.allowedTools && opts.allowedTools.length > 0) {
+    args.push("--allowedTools", opts.allowedTools.join(","));
   }
 
   if (opts.autocompact) args.push("--autocompact", opts.autocompact);
@@ -269,9 +263,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
     ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
   ];
   const uniqueAddedDirs = [...new Set(addedDirs)];
-  const allowedTools = opts.allowedTools ?? (opts.readOnly
-    ? [...DEFAULT_CLAUDE_READONLY_TOOLS]
-    : [...DEFAULT_CLAUDE_HANDOVER_TOOLS]);
+  const allowedTools = opts.allowedTools ?? (opts.readOnly ? [...DEFAULT_CLAUDE_READONLY_TOOLS] : undefined);
 
   try {
     for await (const line of readJsonLines(claude.stdout)) {
@@ -284,7 +276,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
             cwd: opts.repoPath,
             added_dirs: uniqueAddedDirs,
             permission_mode: opts.permissionMode ?? "acceptEdits",
-            allowed_tools: allowedTools,
+            ...(allowedTools ? { allowed_tools: allowedTools } : {}),
             runtime: "claude",
             model: opts.model,
           };
