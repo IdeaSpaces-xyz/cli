@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -143,6 +143,22 @@ describe("local Threads", () => {
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
 
+  it("reports a partial threads new when the opening post cannot be dated", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const previous = process.cwd(); process.chdir(root);
+    const stderrWrite = process.stderr.write; let err = "";
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(NaN));
+    try {
+      const flags = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["new", "incomplete"], { about: "Incomplete" }, flags)).toBe(1);
+      expect(err).toContain("Thread created at");
+      expect(err).toContain("Use threads post incomplete");
+      expect(loadThread(join(root, "_threads", "incomplete")).posts).toEqual([]);
+    } finally { vi.useRealTimers(); process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
   it("threads read --json returns authored date and legacy filename fallback", async () => {
     const root = fixture(); process.env.HOME = root;
     const thread = createThread("legacy", "Legacy", root);
@@ -175,7 +191,7 @@ describe("local Threads", () => {
     let out = "", err = "";
     process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
     process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
-    const flags = { json: true, quiet: true, yes: false, help: false };
+    const flags = { json: true, quiet: false, yes: false, help: false };
     try {
       expect(await threadsCommand.run(["read", "legacy"], {}, flags)).toBe(0);
       const posts = JSON.parse(out).posts;
@@ -183,6 +199,9 @@ describe("local Threads", () => {
       expect(posts.find((p: { id: string }) => p.id === "msg_bad").date).toBeNull();
       expect(err).toContain("malformed date; time omitted");
       expect(out).not.toContain("malformed date;");
+      err = ""; out = "";
+      expect(await threadsCommand.run(["read", "legacy"], {}, { ...flags, quiet: true })).toBe(0);
+      expect(err).toBe("");
       out = "";
       expect(await threadsCommand.run(["render", "legacy"], {}, flags)).toBe(0);
       expect(JSON.parse(out).timeline.find((p: { id: string }) => p.id === "msg_day").date).toBe("2026-09-27");

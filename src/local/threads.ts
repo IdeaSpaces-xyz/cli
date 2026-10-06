@@ -20,6 +20,8 @@ export interface LocalThread {
   name: string;
   summary: string;
   posts: ThreadPost[];
+  /** Non-fatal date diagnostics; callers decide whether to print them. */
+  warnings: string[];
   closed: boolean;
   readme: string;
 }
@@ -85,13 +87,14 @@ export function loadThread(dir: string): LocalThread {
   const fm = parseFrontmatter(readme);
   if (!fm) throw new Error(`Malformed README frontmatter: ${readmePath}`);
   const posts: ThreadPost[] = [];
+  const warnings: string[] = [];
   const seen = new Set<string>();
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent") continue;
     if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
     const parsed = parseThreadPost(safeFile(join(path, entry.name)), entry.name);
     if (parsed.status !== "valid") throw new Error(`Invalid post ${entry.name}: ${parsed.issues.join(", ")}`);
-    if (parsed.post.dateWarning) process.stderr.write(`Post ${entry.name}: malformed date; time omitted.\n`);
+    if (parsed.post.dateWarning) warnings.push(`Post ${entry.name}: malformed date; time omitted.`);
     if (seen.has(parsed.post.id)) throw new Error(`Duplicate post id: ${parsed.post.id}`);
     seen.add(parsed.post.id);
     posts.push(parsed.post);
@@ -99,7 +102,7 @@ export function loadThread(dir: string): LocalThread {
   const ordered = reconstructThreadTimeline(posts).posts;
   return {
     path, slug: basename(path), name: typeof fm.name === "string" ? fm.name : basename(path),
-    summary: typeof fm.summary === "string" ? fm.summary : "", posts: ordered,
+    summary: typeof fm.summary === "string" ? fm.summary : "", posts: ordered, warnings,
     closed: ordered.some((p) => p.kind === "closure"), readme,
   };
 }

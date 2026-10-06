@@ -6,7 +6,7 @@ import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-ma
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { createOutput } from "../output.js";
+import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { exchangeText, hostedThreadsCommand } from "./inbox.js";
 import { sanitizedGitEnvironment } from "../git.js";
@@ -42,8 +42,8 @@ async function stdin(): Promise<string> {
   for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString("utf8");
 }
-/** Date-only headers are days, not instants. Prefer the filename's fuller
- * timestamp for activity ordering, as schema/threads.md specifies. */
+/** CLI-local list presentation over protocol date/fileDate metadata. The
+ * protocol defines their precedence; the CLI owns its local Thread activity row. */
 function activityAt(post: LocalThread["posts"][number]): string | null {
   if (post.dateWarning || !post.date) return null;
   return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
@@ -66,6 +66,10 @@ function localRows(threads: LocalThread[], newOnly: boolean) {
     summary: thread.summary, count: thread.posts.length, closed: thread.closed,
     latest_activity_at: latestLocalActivity(thread.posts) }));
 }
+function reportDateWarnings(thread: LocalThread, output: Output): void {
+  for (const warning of new Set(thread.warnings)) output.log(`Thread ${thread.slug}: ${warning}`);
+}
+
 function localText(thread: LocalThread, posts: LocalThread["posts"], rung: string): string {
   if (rung === "name") return `${thread.slug}  ${thread.name}`;
   const header = `${thread.name} (${thread.path})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
@@ -173,6 +177,7 @@ export const threadsCommand: CommandDef = {
         if (!space) {
           try {
             localThreads = listLocal(cwd);
+            for (const thread of localThreads) reportDateWarnings(thread, output);
             local = localRows(localThreads, newOnly);
           } catch (error) {
             // Outside a Space, hosted listing still works. A malformed Thread or
@@ -266,6 +271,7 @@ export const threadsCommand: CommandDef = {
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         const thread = loadThread(resolveLocalThread(rest[0]));
+        reportDateWarnings(thread, output);
         const rung = depth(flags, "summary");
         const newOnly = yes(flags, "new");
         const seen = newOnly ? readCursor(thread) : new Set<string>();
@@ -321,6 +327,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");
         const thread = loadThread(resolveLocalThread(rest[0]));
+        reportDateWarnings(thread, output);
         const timeline = thread.posts.map((post) => ({ id: post.id, name: post.frontmatter.name ?? post.id, kind: post.kind,
           date: post.date ?? null, in_reply_to: post.inReplyTo, path: post.path }));
         output.result({ path: thread.path, readme: thread.readme, timeline },
