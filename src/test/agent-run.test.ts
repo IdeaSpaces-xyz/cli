@@ -508,16 +508,27 @@ describe("agent run — command options & validation", () => {
     expect(stderr()).toContain("directory not found");
   });
 
-  it("refuses a --reach path that is a file rather than a directory", async () => {
+  it("refuses a bare --reach flag with no directory value", async () => {
     const dir = makeAgentDir();
-    const filePath = join(dir, "_agent", "agreement.md");
     const code = await agentCmd.run(
       ["run", dir],
-      { message: "Check file reach", runtime: "claude", reach: filePath },
+      { message: "Check bare reach", runtime: "claude", reach: true },
       JSON_GLOBAL,
     );
     expect(code).toBe(1);
-    expect(stderr()).toContain("directory not found");
+    expect(stderr()).toContain("--reach requires a directory path");
+  });
+
+  it("refuses --reach under Pi runtime", async () => {
+    const dir = makeAgentDir();
+    const other = tempDir();
+    const code = await agentCmd.run(
+      ["run", dir],
+      { message: "Check reach under pi", runtime: "pi", reach: other, ext: join(dir, "_agent", "agreement.md") },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+    expect(stderr()).toContain("reach, and permission mode are unavailable under Pi");
   });
 
   it("combines --reach with --read-only on Claude", async () => {

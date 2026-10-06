@@ -135,7 +135,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   const addedDirs = options?.addedDirs ?? [];
   const allowedTools = options?.allowedTools ?? (readOnly
     ? [...DEFAULT_CLAUDE_READONLY_TOOLS]
-    : [...DEFAULT_CLAUDE_HANDOVER_TOOLS]);
+    : undefined);
 
   const controller = new AbortController();
   let signalled = false;

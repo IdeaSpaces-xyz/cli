@@ -282,7 +282,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
             permission_mode: opts.permissionMode ?? "acceptEdits",
             ...(allowedTools ? { allowed_tools: allowedTools } : {}),
             runtime: "claude",
-            model: opts.model,
+            ...(opts.model ? { model: opts.model } : {}),
           };
           yield augmented as KeeperStreamEvent;
           continue;

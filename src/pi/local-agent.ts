@@ -41,6 +41,18 @@ const NON_AGENT_TYPES = new Set(["response", "extension_ui_request"]);
 
 export { harvestLocalFiles as harvestWorkspace } from "../local/workspace-files.js";
 
+/**
+ * Canonical resolution of added directories: includes workingRoot and explicitly
+ * added dirs, filtered to exclude repoPath (the cwd), deduplicated.
+ */
+export function resolveAddedDirs(opts: { repoPath: string; workingRoot?: string; addedDirs?: string[] }): string[] {
+  const dirs = [
+    ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
+    ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
+  ];
+  return [...new Set(dirs)];
+}
+
 /** The last position an `is_navigate` moved to, for `turn_complete.position`. */
 function lastPosition(tools: ToolInvocation[]): string {
   for (let i = tools.length - 1; i >= 0; i--) {
@@ -244,16 +256,13 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
       }
       for (const ke of translator.translate(msg as unknown as PiAgentEvent)) {
         if (ke.type === "message_start") {
-          const addedDirs = [
-            ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
-            ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
-          ];
+          const addedDirs = resolveAddedDirs(opts);
           const augmented = {
             ...ke,
             cwd: opts.repoPath,
-            added_dirs: [...new Set(addedDirs)],
+            added_dirs: addedDirs,
             runtime: "pi",
-            model: opts.piModel,
+            ...(opts.piModel ? { model: opts.piModel } : {}),
             extensions: opts.extensionPaths,
             trust: opts.trust ?? "saved",
           };

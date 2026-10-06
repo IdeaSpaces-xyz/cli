@@ -285,6 +285,10 @@ async function cmdRun(
   // an agent run's Pi project resources merely because the CLI was invoked.
   if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";
 
+  if (flags.reach === true) {
+    output.error("--reach requires a directory path: --reach <dir>");
+    return 1;
+  }
   if (runtime === "pi" && (flags["read-only"] === true || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined || flags.reach !== undefined)) {
     output.error("Claude read-only, effort, reach, and permission mode are unavailable under Pi. Choose --runtime claude or omit them.");
     return 1;
