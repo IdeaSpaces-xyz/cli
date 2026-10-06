@@ -241,7 +241,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], agentRun: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -374,7 +374,7 @@ describe("agent run — command options & validation", () => {
         message: "Help with analysis",
       }),
       expect.anything(),
-      { extensionPaths: [], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
+      expect.objectContaining({ extensionPaths: [], skillPaths: [], addedDirs: [], allowedTools: expect.any(Array), resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") }),
     );
   });
 
@@ -401,7 +401,7 @@ describe("agent run — command options & validation", () => {
         conversation: "11111111-1111-4111-8111-111111111111",
       }),
       expect.anything(),
-      { extensionPaths: [], skillPaths: [], resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
+      expect.objectContaining({ extensionPaths: [], skillPaths: [], addedDirs: [], allowedTools: expect.any(Array), resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") }),
     );
   });
 
@@ -427,7 +427,163 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], agentRun: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+    );
+  });
+
+  it("adds Space root when POV is in a subdirectory of a git repository", async () => {
+    const space = tempDir("space-");
+    spawnSync("git", ["init", "-q", "-b", "main", space]);
+    mkdirSync(join(space, "_threads"));
+    const scoutDir = join(space, "agents", "scout");
+    mkdirSync(join(scoutDir, "_agent"), { recursive: true });
+    writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
+
+    const code = await agentCmd.run(
+      ["run", scoutDir],
+      { message: "Check space", runtime: "claude" },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: true,
+        context: realpathSync.native(scoutDir),
+        runtime: "claude",
+        message: "Check space",
+      }),
+      expect.anything(),
+      {
+        extensionPaths: [],
+        skillPaths: [],
+        addedDirs: [realpathSync.native(space)],
+        allowedTools: expect.any(Array),
+        agentRun: true,
+        resumeOnly: false,
+        extraOrientation: expect.stringContaining("# Scout Agreement"),
+      },
+    );
+  });
+
+  it("accepts explicit --reach <dir> flag and adds to addedDirs", async () => {
+    const space = tempDir("space-");
+    spawnSync("git", ["init", "-q", "-b", "main", space]);
+    mkdirSync(join(space, "_threads"));
+    const scoutDir = join(space, "agents", "scout");
+    mkdirSync(join(scoutDir, "_agent"), { recursive: true });
+    writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
+
+    const otherDir = tempDir("other-repo-");
+
+    const code = await agentCmd.run(
+      ["run", scoutDir],
+      { message: "Check reach", runtime: "claude", reach: otherDir },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: true,
+        context: realpathSync.native(scoutDir),
+        runtime: "claude",
+        message: "Check reach",
+      }),
+      expect.anything(),
+      {
+        extensionPaths: [],
+        skillPaths: [],
+        addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
+        allowedTools: expect.any(Array),
+        agentRun: true,
+        resumeOnly: false,
+        extraOrientation: expect.stringContaining("# Scout Agreement"),
+      },
+    );
+  });
+
+  it("keeps discovered-Map warnings on stderr in JSON mode", async () => {
+    const dir = makeAgentDir();
+    writeFileSync(join(dir, "home.map.md"), "---\nname: Broken\nmap: invalid\n---\n");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi" }, JSON_GLOBAL)).toBe(0);
+    expect(stderr()).toContain("Reach warning: Could not discover reach from Map home.map.md");
+    expect(stdout()).not.toContain("Reach warning:");
+  });
+
+  it("refuses non-existent --reach path", async () => {
+    const dir = makeAgentDir();
+    const code = await agentCmd.run(
+      ["run", dir],
+      { message: "Check bad reach", runtime: "claude", reach: "/nonexistent/directory/path" },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+    expect(stderr()).toContain("directory not found");
+  });
+
+  it("refuses a bare --reach flag with no directory value", async () => {
+    const dir = makeAgentDir();
+    const code = await agentCmd.run(
+      ["run", dir],
+      { message: "Check bare reach", runtime: "claude", reach: true },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+    expect(stderr()).toContain("--reach requires a directory path");
+  });
+
+  it("does not discover Claude reach for a Pi run with a malformed Map", async () => {
+    const dir = makeAgentDir();
+    writeFileSync(join(dir, "broken.map.md"), "---\nmap: invalid\n---\n");
+    const code = await agentCmd.run(["run", dir], {
+      runtime: "pi", message: "Analyze", ext: join(dir, "_agent", "agreement.md"), map: "broken.map.md",
+    }, JSON_GLOBAL);
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ addedDirs: [] }));
+  });
+
+  it("refuses --reach under Pi runtime", async () => {
+    const dir = makeAgentDir();
+    const other = tempDir();
+    const code = await agentCmd.run(
+      ["run", dir],
+      { message: "Check reach under pi", runtime: "pi", reach: other, ext: join(dir, "_agent", "agreement.md") },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+    expect(stderr()).toContain("reach, and permission mode are unavailable under Pi");
+  });
+
+  it("combines --reach with --read-only on Claude", async () => {
+    const space = tempDir("space-");
+    spawnSync("git", ["init", "-q", "-b", "main", space]);
+    mkdirSync(join(space, "_threads"));
+    const scoutDir = join(space, "agents", "scout");
+    mkdirSync(join(scoutDir, "_agent"), { recursive: true });
+    writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
+    const otherDir = tempDir("other-repo-");
+
+    const code = await agentCmd.run(
+      ["run", scoutDir],
+      { message: "Read reach", runtime: "claude", "read-only": true, reach: otherDir },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: true,
+        context: realpathSync.native(scoutDir),
+        runtime: "claude",
+        "read-only": true,
+        message: "Read reach",
+      }),
+      expect.anything(),
+      expect.objectContaining({
+        addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
+        allowedTools: ["Read", "Grep", "Glob"],
+      }),
     );
   });
 });
@@ -456,7 +612,7 @@ process.stdin.on("end", () => {
   out({ type: "stream_event", event: { type: "message_start" } });
   const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
   const response = prompt.trim() === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
-    : prompt.trim() === "policy_probe" ? JSON.stringify({ readOnly: args.includes("--tools") && args.includes("--strict-mcp-config"), effort: args[args.indexOf("--effort") + 1] })
+    : prompt.trim() === "policy_probe" ? JSON.stringify({ readOnly: args.includes("--tools") && (args.includes("--strict-mcp-config") || args.includes("--disallowedTools")), effort: args[args.indexOf("--effort") + 1] })
     : "claude:" + prompt.trim();
   out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: response } } });
   out({ type: "result", subtype: "success", is_error: false, result: response, num_turns: 1, total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 2 } });
@@ -659,11 +815,15 @@ process.stdin.on("data", (chunk) => {
     writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "claude-test-bin.cjs")}" "$@"\n`);
     chmodSync(pi, 0o755); chmodSync(claude, 0o755);
     expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: pi, "pi-bin": pi, "pi-thinking": "high" }, JSON_GLOBAL)).toBe(0);
-    const piDone = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    const piEvents = stdout().trim().split("\n").map((line) => JSON.parse(line));
+    const piDone = piEvents.find((e) => e.type === "turn_complete");
+    expect(piEvents.find((e) => e.type === "message_start")).toMatchObject({ trust: "saved", added_dirs: [], allowed_tools: null, extensions: [realpathSync.native(pi)] });
     expect(JSON.parse(piDone.result.response)).toEqual({ approved: false, thinking: "high" });
     stdoutChunks = [];
     expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: pi, "pi-bin": pi, "pi-trust": "explicit" }, JSON_GLOBAL)).toBe(0);
-    const approved = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    const explicitEvents = stdout().trim().split("\n").map((line) => JSON.parse(line));
+    const approved = explicitEvents.find((e) => e.type === "turn_complete");
+    expect(explicitEvents.find((e) => e.type === "message_start")).toMatchObject({ trust: "explicit", added_dirs: [], allowed_tools: null });
     expect(JSON.parse(approved.result.response).approved).toBe(true);
     stdoutChunks = [];
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "policy_probe", "claude-bin": claude,
@@ -706,8 +866,10 @@ process.stdin.on("data", (chunk) => {
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("Pi --ext and --skill paths are unavailable under Claude");
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", skill: true }, JSON_GLOBAL)).toBe(1);
-    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "read-only": true, "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
-    expect(stderr()).toContain("cannot be combined");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("bypassPermissions");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "permission-mode": "auto" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("cannot reliably set auto");
   });
 
   it("fails closed without explicit child resources, rejects a symlink escape, and loads duplicates once", async () => {

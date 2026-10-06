@@ -1,6 +1,15 @@
 import type { GlobalFlags } from "./types.js";
 
 const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
+function setFlag(flags: Record<string, string | boolean>, key: string, value: string): void {
+  if (key === "reach") {
+    // Only agent run consumes this array; keep paths with commas intact.
+    const previous: unknown = flags.reach;
+    (flags as Record<string, unknown>).reach = [...(Array.isArray(previous) ? previous : []), value];
+  } else {
+    flags[key] = value;
+  }
+}
 
 export interface ParsedArgs {
   global: GlobalFlags;
@@ -47,7 +56,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
 
-        flags[key] = value;
+        setFlag(flags, key, value);
         continue;
       }
 
@@ -67,7 +76,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
       // Command-specific flag with value
       if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-        flags[key] = argv[++i];
+        setFlag(flags, key, argv[++i]);
       } else {
         flags[key] = true;
       }

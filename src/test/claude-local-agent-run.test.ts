@@ -60,9 +60,39 @@ describe.skipIf(process.platform === "win32")("runClaudeTurn against a stand-in 
       sessionExists: false,
       claudeBin: bin,
       modelTier: "fake",
+      allowedTools: [
+        "Read",
+        "Grep",
+        "Glob",
+        "mcp__plugin_ideaspaces_core__*",
+        "Edit",
+        "Write",
+        "Bash(git:*)",
+        "Bash(ideaspaces:*)",
+      ],
     }));
     expect(events.map((e) => e.type)).toEqual(["message_start", "tool_start", "tool_result", "text_delta", "message_delta", "turn_complete"]);
-    expect(events[0]).toEqual({ type: "message_start", conversation_id: ID, model_tier: "fake" });
+    expect(events[0]).toMatchObject({
+      type: "message_start",
+      conversation_id: ID,
+      model_tier: "fake",
+      cwd: join(dir, "space"),
+      added_dirs: [],
+      permission_mode: "acceptEdits",
+      allowed_tools_semantics: "preapproval",
+      shell_available: true,
+      allowed_tools: [
+        "Read",
+        "Grep",
+        "Glob",
+        "mcp__plugin_ideaspaces_core__*",
+        "Edit",
+        "Write",
+        "Bash(git:*)",
+        "Bash(ideaspaces:*)",
+      ],
+      runtime: "claude",
+    });
     const done = events.at(-1) as Extract<KeeperStreamEvent, { type: "turn_complete" }>;
     expect(done.result.response).toBe("echo:hello there");
     expect(done.result.workspace.modified.map((p) => p.split("/").slice(-2).join("/"))).toEqual(["notes/a.md"]);

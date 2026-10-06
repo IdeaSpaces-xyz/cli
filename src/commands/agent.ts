@@ -1,6 +1,8 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { discoverAgentReach } from "../local/agent-reach.js";
+import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
 import { enteredThroughRoot, isContained } from "../local/contained-path.js";
@@ -52,7 +54,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
@@ -284,8 +286,20 @@ async function cmdRun(
   // an agent run's Pi project resources merely because the CLI was invoked.
   if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";
 
-  if (runtime === "pi" && (flags["read-only"] === true || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined)) {
-    output.error("Claude read-only, effort, and permission mode are unavailable under Pi. Choose --runtime claude or omit them.");
+  if (flags.reach === true) {
+    output.error("--reach requires a directory path: --reach <dir>");
+    return 1;
+  }
+  if (runtime === "pi" && (flags["read-only"] === true || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined || flags.reach !== undefined)) {
+    output.error("Claude read-only, effort, reach, and permission mode are unavailable under Pi. Choose --runtime claude or omit them.");
+    return 1;
+  }
+  if (runtime === "claude" && flags["permission-mode"] === "bypassPermissions") {
+    output.error("agent run does not permit --permission-mode bypassPermissions; use --permission-mode acceptEdits (default).");
+    return 1;
+  }
+  if (runtime === "claude" && flags["permission-mode"] === "auto") {
+    output.error("Claude Code cannot reliably set auto by --permission-mode flag in supported headless versions. Use acceptEdits or configure auto in Claude Code settings outside agent run.");
     return 1;
   }
   if (runtime === "claude" && (flags["pi-thinking"] !== undefined || flags["pi-trust"] !== undefined)) {
@@ -301,10 +315,27 @@ async function cmdRun(
     }
   }
 
+  const noReach = { addedDirs: [] as string[], errors: [] as string[], warnings: [] as string[] };
+  const reachResult = runtime === "claude" ? discoverAgentReach({
+    povPath,
+    mapFlag: flagString(flags, "map"),
+    reachFlag: Array.isArray(flags.reach) || typeof flags.reach === "string" ? flags.reach : undefined,
+    cwd: process.cwd(),
+  }) : noReach;
+  if (reachResult.errors.length > 0) {
+    for (const err of reachResult.errors) output.error(err);
+    return 1;
+  }
+  for (const warning of reachResult.warnings) output.log(`Reach warning: ${warning}`);
+  if (runtime === "claude") output.progress(`Claude ${flags["read-only"] === true ? "read-only" : "writable"} reach: ${[povPath, ...reachResult.addedDirs].join(", ")}`);
+
   // Pass the vetted realpaths, not names or symlinks that could move before spawn.
   const launchOptions = {
     extensionPaths: [...new Set(selectedPaths.ext)],
     skillPaths: [...new Set(selectedPaths.skill)],
+    addedDirs: runtime === "claude" ? reachResult.addedDirs : [],
+    ...(runtime === "claude" ? { allowedTools: flags["read-only"] === true ? [...CLAUDE_READ_TOOLS] : [...CLAUDE_HANDOVER_TOOLS] } : {}),
+    agentRun: true,
     resumeOnly: flags.conversation !== undefined,
   };
   if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
@@ -358,12 +389,13 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Pi runs require explicit --ext paths relative to the selected POV (or absolute); --skill dirs are optional; Pi child runs load only those dirs (skill discovery is disabled). --conversation resumes an existing nonempty POV transcript; --session-dir is refused. Pi project trust defaults to saved. --read-only restricts Claude to Read/Grep/Glob (not a filesystem sandbox). Message <=8 KiB; combined Agreement/Thread orientation <=16 KiB. Pinned Thread runs append a named snapshot.",
+    description: "Run or list local POVs. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",
       "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts --pi-trust saved --pi-thinking high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",

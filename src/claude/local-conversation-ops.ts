@@ -130,6 +130,9 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
+  const addedDirs = options?.addedDirs ?? [];
+  const allowedTools = options?.allowedTools;
+
   const controller = new AbortController();
   let signalled = false;
   const onSignal = (): void => {
@@ -145,6 +148,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     for await (const event of runClaudeTurn({
       repoPath,
       workingRoot,
+      addedDirs,
+      allowedTools,
       message,
       conversationId,
       modelTier,
@@ -153,6 +158,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       model,
       permissionMode,
+      permissionPromptsNone: options?.agentRun === true,
       readOnly,
       effort,
       auth,

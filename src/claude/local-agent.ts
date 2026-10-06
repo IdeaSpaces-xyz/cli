@@ -32,6 +32,7 @@ import {
   type ToolInvocation,
 } from "@ideaspaces/sdk";
 import { readJsonLines } from "../local/jsonl.js";
+import { discloseLaunch, resolveAddedDirs } from "../local/send-options.js";
 import { harvestLocalFiles } from "../local/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
@@ -91,6 +92,10 @@ export interface ClaudeTurnOptions {
   repoPath: string;
   /** The selected material root, independent of the POV. Defaults to repoPath. */
   workingRoot?: string;
+  /** Additional directories to grant Claude Code access to (--add-dir). */
+  addedDirs?: string[];
+  /** Allowed tools by name/pattern (--allowedTools). When omitted, defaults by purpose. */
+  allowedTools?: string[];
   /** The user's message for this turn. */
   message: string;
   /** Conversation id = Claude session id (a UUID); reported in `message_start`, resumed each turn. */
@@ -110,6 +115,8 @@ export interface ClaudeTurnOptions {
   model?: string;
   /** Approval policy for the headless turn. Default `acceptEdits`. */
   permissionMode?: ClaudePermissionMode;
+  /** Agent run only: no human listener for permission requests (Claude Code 2.1.291). */
+  permissionPromptsNone?: boolean;
   /** Restrict the headless child to built-in read tools, with no plugin MCP tools. */
   readOnly?: boolean;
   /** Claude Code's --effort, if supported by the installed version. */
@@ -134,12 +141,27 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
     "--output-format", "stream-json",
     "--include-partial-messages",
     "--permission-mode", opts.permissionMode ?? "acceptEdits",
-    opts.sessionExists ? "--resume" : "--session-id", opts.conversationId,
   ];
-  if (opts.workingRoot && opts.workingRoot !== opts.repoPath) args.push("--add-dir", opts.workingRoot);
+  // Verified in Claude Code 2.1.291 --help. Desktop conversation send retains
+  // its existing prompt policy; only agent run has no permission listener.
+  if (opts.permissionPromptsNone) args.push("--permission-prompts", "none");
+  args.push(opts.sessionExists ? "--resume" : "--session-id", opts.conversationId);
+  const addedDirs = resolveAddedDirs(opts);
+  for (const dir of addedDirs) {
+    args.push("--add-dir", dir);
+  }
+
   if (opts.model) args.push("--model", opts.model);
   if (opts.effort) args.push("--effort", opts.effort);
-  if (opts.readOnly) args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
+  if (opts.readOnly) {
+    // --allowedTools is preapproval, never a restriction. Drop every MCP server
+    // (including the plugin) and all non-read builtins for an actual ask boundary.
+    args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
+  }
+  if (opts.allowedTools && opts.allowedTools.length > 0) {
+    args.push("--allowedTools", opts.allowedTools.join(","));
+  }
+
   if (opts.autocompact) args.push("--autocompact", opts.autocompact);
   const orientation = [opts.mapOrientation, opts.launchOrientation].filter(Boolean).join("\n\n");
   if (orientation) args.push("--append-system-prompt", orientation);
@@ -220,11 +242,24 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
     /* claude gone — the stdout loop reports it */
   }
 
+  const addedDirs = resolveAddedDirs(opts);
+  const allowedTools = opts.allowedTools ?? (opts.readOnly ? ["Read", "Grep", "Glob"] : null);
+
   try {
     for await (const line of readJsonLines(claude.stdout)) {
       const record = parseClaudeStreamLine(line);
       if (!record) continue; // Claude Code prints some failures as prose before its result line
       for (const ke of translator.translate(record)) {
+        if (ke.type === "message_start") {
+          yield discloseLaunch(ke, {
+            cwd: opts.repoPath, added_dirs: addedDirs,
+            permission_mode: opts.permissionMode ?? "acceptEdits",
+            allowed_tools: allowedTools ?? null, allowed_tools_semantics: "preapproval",
+            shell_available: !opts.readOnly, runtime: "claude",
+            model: opts.model ?? ke.model_tier,
+          });
+          continue;
+        }
         if (ke.type === "turn_complete") ke.result.position = lastPosition(turnTools);
         yield ke;
       }

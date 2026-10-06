@@ -35,6 +35,7 @@ import {
   type ToolInvocation,
 } from "@ideaspaces/sdk";
 import { launchMapEnv } from "../local/address-read.js";
+import { discloseLaunch } from "../local/send-options.js";
 
 /** Non-agent stdout kinds we skip (command acks + fire-and-forget UI chrome). */
 const NON_AGENT_TYPES = new Set(["response", "extension_ui_request"]);
@@ -241,6 +242,15 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         continue; // command acks + UI chrome
       }
       for (const ke of translator.translate(msg as unknown as PiAgentEvent)) {
+        if (ke.type === "message_start") {
+          // Pi has no --add-dir or purpose tool allowlist: report only actual grants.
+          yield discloseLaunch(ke, {
+            cwd: opts.repoPath, added_dirs: [], permission_mode: null,
+            allowed_tools: null, runtime: "pi", model: opts.piModel ?? ke.model_tier,
+            extensions: opts.extensionPaths, trust: opts.trust === "saved" ? "saved" : "explicit",
+          });
+          continue;
+        }
         // Fill position from the turn's last navigate (translator can't do it lazily).
         if (ke.type === "turn_complete") ke.result.position = lastPosition(turnTools);
         yield ke;
