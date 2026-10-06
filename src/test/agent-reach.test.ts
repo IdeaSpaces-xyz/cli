@@ -1,0 +1,103 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { discoverAgentReach } from "../local/agent-reach.js";
+import { saveSpace } from "../auth/spaces.js";
+
+const roots: string[] = [];
+function tempDir(prefix = "agent-reach-test-"): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  roots.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe("discoverAgentReach", () => {
+  it("discovers enclosing space root for a sub-POV", () => {
+    const space = tempDir("space-");
+    spawnSync("git", ["init", "-q", "-b", "main", space]);
+    const pov = join(space, "agents", "scout");
+    mkdirSync(join(pov, "_agent"), { recursive: true });
+    writeFileSync(join(pov, "_agent", "agreement.md"), "# Scout Agreement\n");
+
+    const result = discoverAgentReach({ povPath: pov });
+    expect(result.errors).toEqual([]);
+    expect(result.addedDirs).toEqual([realpathSync.native(space)]);
+  });
+
+  it("handles standalone POV without enclosing space root", () => {
+    const pov = tempDir("pov-");
+    mkdirSync(join(pov, "_agent"), { recursive: true });
+    writeFileSync(join(pov, "_agent", "agreement.md"), "# Agreement\n");
+
+    const result = discoverAgentReach({ povPath: pov });
+    expect(result.errors).toEqual([]);
+    expect(result.addedDirs).toEqual([]);
+  });
+
+  it("discovers checkouts referenced in the Space Map", () => {
+    const space = tempDir("space-");
+    spawnSync("git", ["init", "-q", "-b", "main", space]);
+    spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: space });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: space });
+    const pov = join(space, "agents", "scout");
+    mkdirSync(join(pov, "_agent"), { recursive: true });
+    writeFileSync(join(pov, "_agent", "agreement.md"), "# Scout Agreement\n");
+
+    const extRepo = join(space, "ext-repo");
+    spawnSync("git", ["init", "-q", "-b", "main", extRepo]);
+    spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: extRepo });
+    spawnSync("git", ["config", "user.name", "Test"], { cwd: extRepo });
+    mkdirSync(join(extRepo, "_agent"), { recursive: true });
+    writeFileSync(join(extRepo, "_agent", "foundation.md"), "---\nname: Lib\nroot_node_id: n_111111111111111111111111\n---\n# Lib\n");
+    spawnSync("git", ["add", "."], { cwd: extRepo });
+    spawnSync("git", ["commit", "-m", "init"], { cwd: extRepo });
+
+    const extSha = spawnSync("git", ["rev-parse", "HEAD"], { cwd: extRepo, encoding: "utf8" }).stdout.trim();
+
+    const mapContent = `---
+name: Home
+summary: The Space.
+map:
+  roots:
+    - root_node_id: n_111111111111111111111111
+      sha: "${extSha}"
+  members:
+    - root: 0
+      position: README.md
+      depth: summary
+---
+# Space Map
+`;
+    writeFileSync(join(space, "home.map.md"), mapContent);
+    spawnSync("git", ["add", "."], { cwd: space });
+    spawnSync("git", ["commit", "-m", "init"], { cwd: space });
+
+    const result = discoverAgentReach({ povPath: pov });
+    expect(result.errors).toEqual([]);
+    expect(result.addedDirs).toContain(realpathSync.native(space));
+    expect(result.addedDirs).toContain(realpathSync.native(extRepo));
+  });
+
+  it("validates and adds explicit --reach directories", () => {
+    const pov = tempDir("pov-");
+    const other1 = tempDir("reach1-");
+    const other2 = tempDir("reach2-");
+
+    const result = discoverAgentReach({ povPath: pov, reachFlag: `${other1},${other2}` });
+    expect(result.errors).toEqual([]);
+    expect(result.addedDirs).toEqual([realpathSync.native(other1), realpathSync.native(other2)]);
+  });
+
+  it("reports errors for non-existent --reach directories", () => {
+    const pov = tempDir("pov-");
+    const result = discoverAgentReach({ povPath: pov, reachFlag: "/nonexistent/dir" });
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0]).toContain("directory not found");
+  });
+});

@@ -1,8 +1,7 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
-import { repoRoot } from "../git.js";
-import { discoverSpaceMapFiles, inspectSpaceMapRoots } from "../local/space-map.js";
+import { discoverAgentReach } from "../local/agent-reach.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
 import { enteredThroughRoot, isContained } from "../local/contained-path.js";
@@ -286,12 +285,12 @@ async function cmdRun(
   // an agent run's Pi project resources merely because the CLI was invoked.
   if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";
 
-  if (runtime === "pi" && (flags["read-only"] === true || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined)) {
-    output.error("Claude read-only, effort, and permission mode are unavailable under Pi. Choose --runtime claude or omit them.");
+  if (runtime === "pi" && (flags["read-only"] === true || flags["claude-effort"] !== undefined || flags["permission-mode"] !== undefined || flags.reach !== undefined)) {
+    output.error("Claude read-only, effort, reach, and permission mode are unavailable under Pi. Choose --runtime claude or omit them.");
     return 1;
   }
   if (runtime === "claude" && flags["permission-mode"] === "bypassPermissions") {
-    output.error("agent run does not permit --permission-mode bypassPermissions; tools are granted by purpose via --allowedTools.");
+    output.error("agent run does not permit --permission-mode bypassPermissions; use --permission-mode acceptEdits (default).");
     return 1;
   }
   if (runtime === "claude" && (flags["pi-thinking"] !== undefined || flags["pi-trust"] !== undefined)) {
@@ -307,85 +306,22 @@ async function cmdRun(
     }
   }
 
-  let spaceRoot: string | undefined;
-  try {
-    const candidate = repoRoot(povPath);
-    if (candidate && candidate !== povPath) {
-      spaceRoot = candidate;
-    }
-  } catch {
-    // Not inside a git repo
+  const reachResult = discoverAgentReach({
+    povPath,
+    mapFlag: flagString(flags, "map"),
+    reachFlag: typeof flags.reach === "string" ? flags.reach : undefined,
+    cwd: process.cwd(),
+  });
+  if (reachResult.errors.length > 0) {
+    for (const err of reachResult.errors) output.error(err);
+    return 1;
   }
-
-  const discoveredCheckouts: string[] = [];
-  const mapsToInspect: { path: string; context: string }[] = [];
-  const mapFlag = flagString(flags, "map");
-  if (mapFlag) {
-    mapsToInspect.push({ path: mapFlag, context: povPath });
-  }
-  const povMap = discoverSpaceMapFiles(povPath);
-  if (povMap) {
-    mapsToInspect.push({ path: povMap.file, context: povPath });
-  }
-  if (spaceRoot) {
-    const spaceMap = discoverSpaceMapFiles(spaceRoot);
-    if (spaceMap) {
-      mapsToInspect.push({ path: spaceMap.file, context: spaceRoot });
-    }
-  }
-  for (const item of mapsToInspect) {
-    try {
-      const loaded = loadMapNote(item.path, item.context);
-      const inspected = inspectSpaceMapRoots(loaded.map.roots, item.context);
-      for (const root of inspected) {
-        if (root.checkoutPath && existsSync(root.checkoutPath) && statSync(root.checkoutPath).isDirectory()) {
-          try {
-            discoveredCheckouts.push(realpathSync(root.checkoutPath));
-          } catch {
-            discoveredCheckouts.push(root.checkoutPath);
-          }
-        }
-      }
-    } catch {
-      // Unreadable maps do not prevent reach discovery
-    }
-  }
-
-  const explicitReach: string[] = [];
-  const rawReach = flags.reach;
-  if (rawReach !== undefined) {
-    if (typeof rawReach !== "string" || !rawReach.trim()) {
-      output.error("--reach requires a directory path: --reach <dir>");
-      return 1;
-    }
-    for (const raw of rawReach.split(",").map((s) => s.trim()).filter(Boolean)) {
-      const resolved = isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
-      if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
-        output.error(`Refusing reach path ${raw}: directory not found.`);
-        return 1;
-      }
-      try {
-        explicitReach.push(realpathSync(resolved));
-      } catch (err) {
-        output.error(`Refusing reach path ${raw}: ${err instanceof Error ? err.message : String(err)}.`);
-        return 1;
-      }
-    }
-  }
-
-  const allAddedDirs: string[] = [];
-  if (spaceRoot && spaceRoot !== povPath) {
-    allAddedDirs.push(spaceRoot);
-  }
-  allAddedDirs.push(...discoveredCheckouts);
-  allAddedDirs.push(...explicitReach);
-  const uniqueAddedDirs = [...new Set(allAddedDirs)].filter((d) => d !== povPath);
 
   // Pass the vetted realpaths, not names or symlinks that could move before spawn.
   const launchOptions = {
     extensionPaths: [...new Set(selectedPaths.ext)],
     skillPaths: [...new Set(selectedPaths.skill)],
-    addedDirs: uniqueAddedDirs,
+    addedDirs: reachResult.addedDirs,
     resumeOnly: flags.conversation !== undefined,
   };
   if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
