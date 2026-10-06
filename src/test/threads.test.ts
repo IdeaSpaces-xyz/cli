@@ -121,6 +121,9 @@ describe("local Threads", () => {
       expect(opened.opening_post_id).toBe(opening.id);
       expect(opened.date).toBe(opening.date);
       expect(readFileSync(join(root, "_threads", "decision", opening.path), "utf8")).toContain(`date: ${opening.date}`);
+      expect((await run(threadsCommand, ["list"], { new: true })).threads[0].count).toBe(1);
+      expect((await run(threadsCommand, ["open", "decision"], { depth: "summary", new: true, ack: true })).posts[0].date).toBe(opening.date);
+      expect((await run(threadsCommand, ["list"], { new: true })).threads).toEqual([]);
       const first = await run(threadsCommand, ["post", "decision"], { message: "Cold keyword", author: "Agent A" });
       const second = await run(threadsCommand, ["post", "decision"], { message: "Other", author: "Agent B", "reply-to": first.id });
       const joined = await run(threadsCommand, ["post", "decision"], { message: "Join", "reply-to": `${first.id},${second.id}` });

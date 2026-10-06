@@ -49,8 +49,11 @@ function localRows(threads: LocalThread[], newOnly: boolean) {
     return thread.posts.some((post) => !seen.has(post.id));
   }).map((thread) => ({ source: "local" as const, id: thread.path, slug: thread.slug, name: thread.name,
     summary: thread.summary, count: thread.posts.length, closed: thread.closed,
-    latest_activity_at: thread.posts.reduce<string | null>((latest, post) =>
-      post.date && (!latest || Date.parse(post.date) > Date.parse(latest)) ? post.date : latest, null) }));
+    latest_activity_at: thread.posts.reduce<string | null>((latest, post) => {
+      const at = post.dateWarning ? undefined : post.date?.length === 10 ? post.fileDate ?? post.date : post.date;
+      const time = at ? Date.parse(at) : NaN;
+      return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at! : latest;
+    }, null) }));
 }
 function localText(thread: LocalThread, posts: LocalThread["posts"], rung: string): string {
   if (rung === "name") return `${thread.slug}  ${thread.name}`;
@@ -119,7 +122,8 @@ export const threadsCommand: CommandDef = {
   examples: [
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
-    "ideaspaces threads new <slug> --about 'What we are deciding'",
+    "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",
+    "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2] [--kind snapshot] [--map selection.json]",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
@@ -219,7 +223,12 @@ export const threadsCommand: CommandDef = {
       if (sub === "new") {
         if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title>");
         const thread = createThread(rest[0], str(flags, "about")!);
-        const opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary });
+        let opening: ReturnType<typeof appendPost>;
+        try {
+          opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary });
+        } catch (err) {
+          throw new Error(`Thread created at ${thread.path}, but opening post was not written: ${err instanceof Error ? err.message : String(err)}. Use threads post ${thread.slug} --message <opening-text> to complete it; do not rerun threads new.`);
+        }
         output.result({ path: thread.path, slug: thread.slug, opening_post_id: opening.post.id, date: opening.post.date },
           `Created local Thread: ${thread.path}`); return 0;
       }

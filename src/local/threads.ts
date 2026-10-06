@@ -91,6 +91,7 @@ export function loadThread(dir: string): LocalThread {
     if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
     const parsed = parseThreadPost(safeFile(join(path, entry.name)), entry.name);
     if (parsed.status !== "valid") throw new Error(`Invalid post ${entry.name}: ${parsed.issues.join(", ")}`);
+    if (parsed.post.dateWarning) process.stderr.write(`Post ${entry.name}: malformed date; time omitted.\n`);
     if (seen.has(parsed.post.id)) throw new Error(`Duplicate post id: ${parsed.post.id}`);
     seen.add(parsed.post.id);
     posts.push(parsed.post);
