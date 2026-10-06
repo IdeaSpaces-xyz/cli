@@ -247,7 +247,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
           yield discloseLaunch(ke, {
             cwd: opts.repoPath, added_dirs: [], permission_mode: null,
             allowed_tools: null, runtime: "pi", model: opts.piModel ?? ke.model_tier,
-            extensions: opts.extensionPaths, trust: opts.trust ?? "saved",
+            extensions: opts.extensionPaths, trust: opts.trust === "saved" ? "saved" : "explicit",
           });
           continue;
         }

@@ -815,11 +815,15 @@ process.stdin.on("data", (chunk) => {
     writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "claude-test-bin.cjs")}" "$@"\n`);
     chmodSync(pi, 0o755); chmodSync(claude, 0o755);
     expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: pi, "pi-bin": pi, "pi-thinking": "high" }, JSON_GLOBAL)).toBe(0);
-    const piDone = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    const piEvents = stdout().trim().split("\n").map((line) => JSON.parse(line));
+    const piDone = piEvents.find((e) => e.type === "turn_complete");
+    expect(piEvents.find((e) => e.type === "message_start")).toMatchObject({ trust: "saved", added_dirs: [], allowed_tools: null, extensions: [realpathSync.native(pi)] });
     expect(JSON.parse(piDone.result.response)).toEqual({ approved: false, thinking: "high" });
     stdoutChunks = [];
     expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "policy_probe", ext: pi, "pi-bin": pi, "pi-trust": "explicit" }, JSON_GLOBAL)).toBe(0);
-    const approved = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
+    const explicitEvents = stdout().trim().split("\n").map((line) => JSON.parse(line));
+    const approved = explicitEvents.find((e) => e.type === "turn_complete");
+    expect(explicitEvents.find((e) => e.type === "message_start")).toMatchObject({ trust: "explicit", added_dirs: [], allowed_tools: null });
     expect(JSON.parse(approved.result.response).approved).toBe(true);
     stdoutChunks = [];
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "policy_probe", "claude-bin": claude,

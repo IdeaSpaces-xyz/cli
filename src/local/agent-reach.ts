@@ -75,7 +75,11 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
     }
   }
 
+  const seenMaps = new Set<string>();
   for (const item of mapsToInspect) {
+    const mapFile = resolve(item.context, item.path);
+    if (seenMaps.has(mapFile)) continue;
+    seenMaps.add(mapFile);
     try {
       const loaded = loadMapNote(item.path, item.context);
       const inspected = inspectSpaceMapRoots(loaded.map.roots, item.context);
@@ -114,5 +118,5 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
 
   const allAdded = [spaceRoot, ...discoveredCheckouts, ...explicitReach];
   const uniqueAddedDirs = [...new Set(allAdded.filter((d): d is string => Boolean(d) && d !== pov))];
-  return { addedDirs: uniqueAddedDirs, errors, warnings };
+  return { addedDirs: uniqueAddedDirs, errors, warnings: [...new Set(warnings)] };
 }

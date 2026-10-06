@@ -120,6 +120,7 @@ map:
     expect(missing.errors).toEqual([]);
     expect(missing.warnings[0]).toContain("no local checkout");
     expect(missing.addedDirs).toEqual([]);
+    expect(discoverAgentReach({ povPath: pov, mapFlag: "home.map.md" }).warnings).toHaveLength(1);
   });
 
   it("refuses an explicitly selected malformed Map", () => {
