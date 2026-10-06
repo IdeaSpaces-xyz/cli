@@ -149,6 +149,18 @@ export interface ClaudeTurnOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Canonical resolution of added directories for --add-dir: includes workingRoot
+ * and explicitly added dirs, filtered to exclude repoPath (the cwd), deduplicated.
+ */
+export function resolveAddedDirs(opts: { repoPath: string; workingRoot?: string; addedDirs?: string[] }): string[] {
+  const dirs = [
+    ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
+    ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
+  ];
+  return [...new Set(dirs)];
+}
+
 /** The `claude -p` argv for a turn. Pure, so the flag wiring is unit-testable.
  * The prompt is not here — it rides stdin, so message length and quoting never
  * meet the argv limit. */
@@ -162,12 +174,8 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
     opts.sessionExists ? "--resume" : "--session-id", opts.conversationId,
   ];
 
-  const addedDirs = [
-    ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
-    ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
-  ];
-  const uniqueAddedDirs = [...new Set(addedDirs)];
-  for (const dir of uniqueAddedDirs) {
+  const addedDirs = resolveAddedDirs(opts);
+  for (const dir of addedDirs) {
     args.push("--add-dir", dir);
   }
 
@@ -258,11 +266,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
     /* claude gone — the stdout loop reports it */
   }
 
-  const addedDirs = [
-    ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
-    ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
-  ];
-  const uniqueAddedDirs = [...new Set(addedDirs)];
+  const addedDirs = resolveAddedDirs(opts);
   const allowedTools = opts.allowedTools ?? (opts.readOnly ? [...DEFAULT_CLAUDE_READONLY_TOOLS] : undefined);
 
   try {
@@ -274,7 +278,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
           const augmented = {
             ...ke,
             cwd: opts.repoPath,
-            added_dirs: uniqueAddedDirs,
+            added_dirs: addedDirs,
             permission_mode: opts.permissionMode ?? "acceptEdits",
             ...(allowedTools ? { allowed_tools: allowedTools } : {}),
             runtime: "claude",

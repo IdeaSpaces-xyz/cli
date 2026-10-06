@@ -5,8 +5,6 @@
 // for the boundary rule.
 
 import { join } from "node:path";
-import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";

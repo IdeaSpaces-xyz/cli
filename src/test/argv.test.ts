@@ -49,4 +49,17 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["sync", "-n"]);
     expect(parsed.flags.n).toBe(true);
   });
+
+  it("accumulates repeatable flags (--reach, --ext, --skill) with comma separation", () => {
+    const spaceSeparated = parseArgs(["agent", "run", "scout", "--message", "hi", "--reach", "/dir1", "--reach", "/dir2"]);
+    expect(spaceSeparated.flags.reach).toBe("/dir1,/dir2");
+
+    const equalsSeparated = parseArgs(["agent", "run", "scout", "--message=hi", "--reach=/dir1", "--reach=/dir2"]);
+    expect(equalsSeparated.flags.reach).toBe("/dir1,/dir2");
+  });
+
+  it("preserves last-wins semantics for non-repeatable flags", () => {
+    const parsed = parseArgs(["agent", "run", "scout", "--message", "first", "--message", "second"]);
+    expect(parsed.flags.message).toBe("second");
+  });
 });

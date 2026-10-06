@@ -3,6 +3,14 @@ import type { GlobalFlags } from "./types.js";
 const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
 const REPEATABLE_COMMAND_FLAGS = new Set(["reach", "ext", "skill"]);
 
+function setFlag(flags: Record<string, string | boolean>, key: string, value: string): void {
+  if (REPEATABLE_COMMAND_FLAGS.has(key) && typeof flags[key] === "string") {
+    flags[key] = `${flags[key]},${value}`;
+  } else {
+    flags[key] = value;
+  }
+}
+
 export interface ParsedArgs {
   global: GlobalFlags;
   command: string | undefined;
@@ -48,11 +56,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
 
-        if (REPEATABLE_COMMAND_FLAGS.has(key) && flags[key] !== undefined && typeof flags[key] === "string") {
-          flags[key] = `${flags[key]},${value}`;
-        } else {
-          flags[key] = value;
-        }
+        setFlag(flags, key, value);
         continue;
       }
 
@@ -72,12 +76,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
       // Command-specific flag with value
       if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-        const val = argv[++i];
-        if (REPEATABLE_COMMAND_FLAGS.has(key) && flags[key] !== undefined && typeof flags[key] === "string") {
-          flags[key] = `${flags[key]},${val}`;
-        } else {
-          flags[key] = val;
-        }
+        setFlag(flags, key, argv[++i]);
       } else {
         flags[key] = true;
       }

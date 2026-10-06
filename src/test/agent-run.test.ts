@@ -507,6 +507,48 @@ describe("agent run — command options & validation", () => {
     expect(code).toBe(1);
     expect(stderr()).toContain("directory not found");
   });
+
+  it("refuses a --reach path that is a file rather than a directory", async () => {
+    const dir = makeAgentDir();
+    const filePath = join(dir, "_agent", "agreement.md");
+    const code = await agentCmd.run(
+      ["run", dir],
+      { message: "Check file reach", runtime: "claude", reach: filePath },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+    expect(stderr()).toContain("directory not found");
+  });
+
+  it("combines --reach with --read-only on Claude", async () => {
+    const space = tempDir("space-");
+    spawnSync("git", ["init", "-q", "-b", "main", space]);
+    const scoutDir = join(space, "agents", "scout");
+    mkdirSync(join(scoutDir, "_agent"), { recursive: true });
+    writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
+    const otherDir = tempDir("other-repo-");
+
+    const code = await agentCmd.run(
+      ["run", scoutDir],
+      { message: "Read reach", runtime: "claude", "read-only": true, reach: otherDir },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: true,
+        context: realpathSync.native(scoutDir),
+        runtime: "claude",
+        "read-only": true,
+        message: "Read reach",
+      }),
+      expect.anything(),
+      expect.objectContaining({
+        addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
+      }),
+    );
+  });
 });
 
 // Stand-in runner tests (Pi and Claude Code child processes)

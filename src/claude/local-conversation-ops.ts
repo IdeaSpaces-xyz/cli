@@ -2,8 +2,6 @@
 // commands — the `--local --runtime=claude` handlers. Same seam as the pi ops
 // (`src/pi/local-conversation-ops.ts`); the router picks one by `--runtime`.
 
-import { existsSync, realpathSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
