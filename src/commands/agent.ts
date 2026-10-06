@@ -327,7 +327,7 @@ async function cmdRun(
     return 1;
   }
   for (const warning of reachResult.warnings) output.log(`Reach warning: ${warning}`);
-  if (runtime === "claude") output.progress(`Claude reach: ${[povPath, ...reachResult.addedDirs].join(", ")}`);
+  if (runtime === "claude") output.progress(`Claude ${flags["read-only"] === true ? "read-only" : "writable"} reach: ${[povPath, ...reachResult.addedDirs].join(", ")}`);
 
   // Pass the vetted realpaths, not names or symlinks that could move before spawn.
   const launchOptions = {

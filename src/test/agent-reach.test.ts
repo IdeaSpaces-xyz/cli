@@ -41,6 +41,19 @@ describe("discoverAgentReach", () => {
     expect(discoverAgentReach({ povPath: pov }).addedDirs).toEqual([realpathSync.native(home)]);
   });
 
+  it("stops at the nearest parent Git root without _threads", () => {
+    const outer = tempDir("outer-");
+    spawnSync("git", ["init", "-q", "-b", "main", outer]);
+    mkdirSync(join(outer, "_threads"));
+    const inner = join(outer, "inner");
+    mkdirSync(inner);
+    spawnSync("git", ["init", "-q", "-b", "main", inner]);
+    const pov = join(inner, "scout");
+    mkdirSync(pov);
+    spawnSync("git", ["init", "-q", "-b", "main", pov]);
+    expect(discoverAgentReach({ povPath: pov }).addedDirs).toEqual([]);
+  });
+
   it("handles standalone POV without enclosing space root", () => {
     const pov = tempDir("pov-");
     mkdirSync(join(pov, "_agent"), { recursive: true });
@@ -94,6 +107,19 @@ map:
     expect(result.errors).toEqual([]);
     expect(result.addedDirs).toContain(realpathSync.native(space));
     expect(result.addedDirs).toContain(realpathSync.native(extRepo));
+  });
+
+  it("warns when a discovered Map is malformed or names an unavailable checkout", () => {
+    const pov = tempDir("pov-");
+    writeFileSync(join(pov, "home.map.md"), "---\nname: Broken\nmap: invalid\n---\n");
+    const broken = discoverAgentReach({ povPath: pov });
+    expect(broken.errors).toEqual([]);
+    expect(broken.warnings[0]).toContain("home.map.md");
+    writeFileSync(join(pov, "home.map.md"), `---\nname: Home\nmap:\n  roots:\n    - root_node_id: n_aaaaaaaaaaaaaaaaaaaaaaaa\n      sha: "${"a".repeat(40)}"\n  members: []\n---\n# Home\n`);
+    const missing = discoverAgentReach({ povPath: pov });
+    expect(missing.errors).toEqual([]);
+    expect(missing.warnings[0]).toContain("no local checkout");
+    expect(missing.addedDirs).toEqual([]);
   });
 
   it("refuses an explicitly selected malformed Map", () => {

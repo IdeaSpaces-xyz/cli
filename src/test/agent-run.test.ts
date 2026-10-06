@@ -503,6 +503,14 @@ describe("agent run — command options & validation", () => {
     );
   });
 
+  it("keeps discovered-Map warnings on stderr in JSON mode", async () => {
+    const dir = makeAgentDir();
+    writeFileSync(join(dir, "home.map.md"), "---\nname: Broken\nmap: invalid\n---\n");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi" }, JSON_GLOBAL)).toBe(0);
+    expect(stderr()).toContain("Reach warning: Could not discover reach from Map home.map.md");
+    expect(stdout()).not.toContain("Reach warning:");
+  });
+
   it("refuses non-existent --reach path", async () => {
     const dir = makeAgentDir();
     const code = await agentCmd.run(
@@ -574,6 +582,7 @@ describe("agent run — command options & validation", () => {
       expect.anything(),
       expect.objectContaining({
         addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
+        allowedTools: ["Read", "Grep", "Glob"],
       }),
     );
   });

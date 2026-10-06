@@ -34,22 +34,24 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
     return { addedDirs: [], warnings, errors: [`Cannot resolve POV ${opts.povPath}: ${err instanceof Error ? err.message : String(err)}`] };
   }
   let spaceRoot: string | undefined;
-
+  let nestedRepo = true;
   try {
     const candidate = repoRoot(pov);
-    if (candidate !== pov && existsSync(join(candidate, "_threads"))) spaceRoot = candidate;
+    nestedRepo = candidate === pov;
+    if (!nestedRepo && existsSync(join(candidate, "_threads"))) spaceRoot = candidate;
   } catch {
-    // A standalone POV is valid without an enclosing git Space.
+    // A standalone POV may be under a Space; inspect only its nearest parent Git root.
   }
-  // A POV can itself be a nested Git repo. Its enclosing Space is the nearest
-  // parent repository that actually owns _threads/, not the child's git top.
-  if (!spaceRoot || !existsSync(join(spaceRoot, "_threads"))) {
+  // A POV can itself be a nested Git repo. Stop at the FIRST parent Git root;
+  // never borrow reach from a more distant dotfiles or unrelated ancestor repo.
+  if (nestedRepo) {
     for (let parent = dirname(pov); parent !== dirname(parent); parent = dirname(parent)) {
-      if (!existsSync(join(parent, "_threads"))) continue;
       try {
-        if (repoRoot(parent) === parent) { spaceRoot = parent; break; }
+        if (repoRoot(parent) !== parent) continue;
+        if (existsSync(join(parent, "_threads"))) spaceRoot = parent;
+        break;
       } catch {
-        // Not a Git Space; keep walking ancestors.
+        // Keep walking until the first parent Git root or filesystem root.
       }
     }
   }
@@ -90,9 +92,9 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
         }
       }
     } catch (err) {
-      const reason = `Map ${item.path}: ${err instanceof Error ? err.message : String(err)}`;
+      const reason = err instanceof Error ? err.message : String(err);
       if (item.path === opts.mapFlag) errors.push(`Cannot grant reach from --map ${item.path}: ${reason}`);
-      else warnings.push(`Could not discover reach from ${reason}`);
+      else warnings.push(`Could not discover reach from Map ${item.path}: ${reason}`);
     }
   }
 
