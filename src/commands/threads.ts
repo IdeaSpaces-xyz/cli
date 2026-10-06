@@ -6,7 +6,7 @@ import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-ma
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { createOutput } from "../output.js";
+import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { exchangeText, hostedThreadsCommand } from "./inbox.js";
 import { sanitizedGitEnvironment } from "../git.js";
@@ -42,14 +42,34 @@ async function stdin(): Promise<string> {
   for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString("utf8");
 }
+/** CLI-local list presentation over protocol date/fileDate metadata. The
+ * protocol defines their precedence; the CLI owns its local Thread activity row. */
+function activityAt(post: LocalThread["posts"][number]): string | null {
+  if (post.dateWarning || !post.date) return null;
+  return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
+}
+
+function latestLocalActivity(posts: LocalThread["posts"]): string | null {
+  return posts.reduce<string | null>((latest, post) => {
+    const at = activityAt(post);
+    const time = at ? Date.parse(at) : NaN;
+    return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
+  }, null);
+}
+
 function localRows(threads: LocalThread[], newOnly: boolean) {
   return threads.filter((thread) => {
     if (!newOnly) return true;
     const seen = readCursor(thread);
     return thread.posts.some((post) => !seen.has(post.id));
   }).map((thread) => ({ source: "local" as const, id: thread.path, slug: thread.slug, name: thread.name,
-    summary: thread.summary, count: thread.posts.length, closed: thread.closed }));
+    summary: thread.summary, count: thread.posts.length, closed: thread.closed,
+    latest_activity_at: latestLocalActivity(thread.posts) }));
 }
+function reportDateWarnings(thread: LocalThread, output: Output): void {
+  for (const warning of new Set(thread.warnings)) output.log(`Thread ${thread.slug}: ${warning}`);
+}
+
 function localText(thread: LocalThread, posts: LocalThread["posts"], rung: string): string {
   if (rung === "name") return `${thread.slug}  ${thread.name}`;
   const header = `${thread.name} (${thread.path})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
@@ -117,7 +137,8 @@ export const threadsCommand: CommandDef = {
   examples: [
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
-    "ideaspaces threads new <slug> --about 'What we are deciding'",
+    "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",
+    "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2] [--kind snapshot] [--map selection.json]",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
@@ -135,7 +156,7 @@ export const threadsCommand: CommandDef = {
     try {
       if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand") {
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
-          output.error("For local Threads use `threads open <path>`; hosted `read` requires an x_ id."); return 1;
+          return threadsCommand.run(["open", rest[0]], flags, global);
         }
         return hostedThreadsCommand.run(args, flags, global);
       }
@@ -156,6 +177,7 @@ export const threadsCommand: CommandDef = {
         if (!space) {
           try {
             localThreads = listLocal(cwd);
+            for (const thread of localThreads) reportDateWarnings(thread, output);
             local = localRows(localThreads, newOnly);
           } catch (error) {
             // Outside a Space, hosted listing still works. A malformed Thread or
@@ -194,7 +216,8 @@ export const threadsCommand: CommandDef = {
           }));
         }
         const rows = [...local, ...hosted].map((row) => {
-          if (rung === "name") return { source: row.source, id: row.id, name: row.name };
+          if (rung === "name") return { source: row.source, id: row.id, name: row.name,
+            ...(row.source === "local" ? { latest_activity_at: row.latest_activity_at } : {}) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }
@@ -216,7 +239,14 @@ export const threadsCommand: CommandDef = {
       if (sub === "new") {
         if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title>");
         const thread = createThread(rest[0], str(flags, "about")!);
-        output.result({ path: thread.path, slug: thread.slug }, `Created local Thread: ${thread.path}`); return 0;
+        let opening: ReturnType<typeof appendPost>;
+        try {
+          opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary });
+        } catch (err) {
+          throw new Error(`Thread created at ${thread.path}, but opening post was not written: ${err instanceof Error ? err.message : String(err)}. Use threads post ${thread.slug} --message <opening-text> to complete it; do not rerun threads new.`);
+        }
+        output.result({ path: thread.path, slug: thread.slug, opening_post_id: opening.post.id, date: opening.post.date },
+          `Created local Thread: ${thread.path}`); return 0;
       }
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|full] [--new] [--ack]");
@@ -233,7 +263,7 @@ export const threadsCommand: CommandDef = {
           const postName = post.frontmatter.name ?? post.id;
           const postSummary = post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? "";
           const posts = rung === "name" ? [] : rung === "summary" ? [{ id: post.id, path: post.path, kind: post.kind,
-            name: postName, summary: postSummary, in_reply_to: post.inReplyTo }] : [post];
+            date: post.date ?? null, name: postName, summary: postSummary, in_reply_to: post.inReplyTo }] : [post];
           output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
             posts, ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
             rung === "full" ? target.pinned : rung === "name" ? target.name : `${target.name}\n${postName} — ${postSummary}`);
@@ -241,6 +271,7 @@ export const threadsCommand: CommandDef = {
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         const thread = loadThread(resolveLocalThread(rest[0]));
+        reportDateWarnings(thread, output);
         const rung = depth(flags, "summary");
         const newOnly = yes(flags, "new");
         const seen = newOnly ? readCursor(thread) : new Set<string>();
@@ -258,7 +289,7 @@ export const threadsCommand: CommandDef = {
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
         if (ack) acknowledge(thread, posts);
         const projected = rung === "name" ? [] : posts.map((p) => rung === "summary"
-          ? { id: p.id, path: p.path, kind: p.kind, name: p.frontmatter.name ?? p.id,
+          ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
             summary: p.frontmatter.summary ?? p.body.split("\n").find(Boolean) ?? "", in_reply_to: p.inReplyTo }
           : p);
         output.result({ thread: { path: thread.path, name: thread.name, summary: rung === "name" ? undefined : thread.summary,
@@ -296,8 +327,9 @@ export const threadsCommand: CommandDef = {
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");
         const thread = loadThread(resolveLocalThread(rest[0]));
+        reportDateWarnings(thread, output);
         const timeline = thread.posts.map((post) => ({ id: post.id, name: post.frontmatter.name ?? post.id, kind: post.kind,
-          in_reply_to: post.inReplyTo, path: post.path }));
+          date: post.date ?? null, in_reply_to: post.inReplyTo, path: post.path }));
         output.result({ path: thread.path, readme: thread.readme, timeline },
           `${thread.readme.trim()}\n\nTimeline (derived; README not overwritten):\n${timeline.map((p) => `- ${p.name} (${p.kind}) ${p.path}${p.in_reply_to.length ? ` ← ${p.in_reply_to.join(", ")}` : ""}`).join("\n")}`); return 0;
       }

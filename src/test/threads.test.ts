@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -116,14 +116,23 @@ describe("local Threads", () => {
       text = ""; expect(await command.run(args, options, flags)).toBe(0); return JSON.parse(text);
     };
     try {
-      await run(threadsCommand, ["new", "decision"], { about: "Decision" });
+      const opened = await run(threadsCommand, ["new", "decision"], { about: "Decision" });
+      const opening = loadThread(join(root, "_threads", "decision")).posts[0];
+      expect(opened.opening_post_id).toBe(opening.id);
+      expect(opened.date).toBe(opening.date);
+      expect(readFileSync(join(root, "_threads", "decision", opening.path), "utf8")).toContain(`date: ${opening.date}`);
+      expect((await run(threadsCommand, ["list"], { new: true })).threads[0].count).toBe(1);
+      expect((await run(threadsCommand, ["open", "decision"], { depth: "summary", new: true, ack: true })).posts[0].date).toBe(opening.date);
+      expect((await run(threadsCommand, ["list"], { new: true })).threads).toEqual([]);
       const first = await run(threadsCommand, ["post", "decision"], { message: "Cold keyword", author: "Agent A" });
       const second = await run(threadsCommand, ["post", "decision"], { message: "Other", author: "Agent B", "reply-to": first.id });
       const joined = await run(threadsCommand, ["post", "decision"], { message: "Join", "reply-to": `${first.id},${second.id}` });
       expect(loadThread(join(root, "_threads", "decision")).posts.at(-1)?.inReplyTo).toEqual([first.id, second.id]);
       expect(joined.kind).toBe("post");
-      expect((await run(threadsCommand, ["list"])).threads[0].source).toBe("local");
-      expect((await run(threadsCommand, ["render", "decision"])).timeline).toHaveLength(3);
+      const listed = (await run(threadsCommand, ["list"])).threads[0];
+      expect(listed.source).toBe("local");
+      expect(listed.latest_activity_at).toBe(loadThread(join(root, "_threads", "decision")).posts.at(-1)?.date);
+      expect((await run(threadsCommand, ["render", "decision"])).timeline).toHaveLength(4);
       expect((await run(searchCommand, ["Cold"], { threads: true })).results[0].path).toContain("_threads/decision/");
       expect((await run(searchCommand, ["Cold"])).results).toHaveLength(0);
       await run(threadsCommand, ["close", "decision"], { message: "Closing" });
@@ -132,6 +141,76 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["list"], {}, flags)).toBe(1);
       expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(1);
     } finally { process.chdir(previous); process.stdout.write = old; }
+  });
+
+  it("reports a partial threads new when the opening post cannot be dated", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const previous = process.cwd(); process.chdir(root);
+    const stderrWrite = process.stderr.write; let err = "";
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(NaN));
+    try {
+      const flags = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["new", "incomplete"], { about: "Incomplete" }, flags)).toBe(1);
+      expect(err).toContain("Thread created at");
+      expect(err).toContain("Use threads post incomplete");
+      expect(loadThread(join(root, "_threads", "incomplete")).posts).toEqual([]);
+    } finally { vi.useRealTimers(); process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("threads read --json returns authored date and legacy filename fallback", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("legacy", "Legacy", root);
+    writeFileSync(join(thread.path, "2026-09-26T10-00-00Z-old.md"), "---\nid: msg_old\n---\nOld\n");
+    writeFileSync(join(thread.path, "2026-09-26T11-00-00Z-authored.md"),
+      "---\nid: msg_new\ndate: 2026-09-26T12:00:00.000Z\n---\nNew\n");
+    const previous = process.cwd(); process.chdir(root);
+    const write = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    try {
+      const flags = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["read", "legacy"], { depth: "full" }, flags)).toBe(0);
+      const posts = JSON.parse(out).posts;
+      expect(posts.find((p: { id: string }) => p.id === "msg_old").date).toBe("2026-09-26T10:00:00.000Z");
+      expect(posts.find((p: { id: string }) => p.id === "msg_new").date).toBe("2026-09-26T12:00:00.000Z");
+      out = "";
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      expect(JSON.parse(out).threads[0].latest_activity_at).toBe("2026-09-26T12:00:00.000Z");
+    } finally { process.stdout.write = write; process.chdir(previous); }
+  });
+
+  it("orders date-only posts by filename, warns on malformed dates, and projects summary/render", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("legacy", "Legacy", root);
+    createThread("empty", "Empty", root);
+    writeFileSync(join(thread.path, "2026-09-27T09-20-00Z-day.md"), "---\nid: msg_day\ndate: 2026-09-27\n---\nDay\n");
+    writeFileSync(join(thread.path, "2026-09-28T10-00-00Z-bad.md"), "---\nid: msg_bad\ndate: yesterday\n---\nBad date\n");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: false, yes: false, help: false };
+    try {
+      expect(await threadsCommand.run(["read", "legacy"], {}, flags)).toBe(0);
+      const posts = JSON.parse(out).posts;
+      expect(posts.find((p: { id: string }) => p.id === "msg_day").date).toBe("2026-09-27");
+      expect(posts.find((p: { id: string }) => p.id === "msg_bad").date).toBeNull();
+      expect(err).toContain("malformed date; time omitted");
+      expect(out).not.toContain("malformed date;");
+      err = ""; out = "";
+      expect(await threadsCommand.run(["read", "legacy"], {}, { ...flags, quiet: true })).toBe(0);
+      expect(err).toBe("");
+      out = "";
+      expect(await threadsCommand.run(["render", "legacy"], {}, flags)).toBe(0);
+      expect(JSON.parse(out).timeline.find((p: { id: string }) => p.id === "msg_day").date).toBe("2026-09-27");
+      out = "";
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      const rows = JSON.parse(out).threads;
+      expect(rows.find((r: { slug: string }) => r.slug === "legacy").latest_activity_at).toBe("2026-09-27T09:20:00.000Z");
+      expect(rows.find((r: { slug: string }) => r.slug === "empty").latest_activity_at).toBeNull();
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
   it("keeps the old inbox name as a noisy one-release alias", () => {
