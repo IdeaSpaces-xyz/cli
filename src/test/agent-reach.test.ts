@@ -1,10 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { discoverAgentReach } from "../local/agent-reach.js";
-import { saveSpace } from "../auth/spaces.js";
 
 const roots: string[] = [];
 function tempDir(prefix = "agent-reach-test-"): string {
@@ -115,6 +114,17 @@ map:
     const result = discoverAgentReach({ povPath: pov, reachFlag: [other1, other2] });
     expect(result.errors).toEqual([]);
     expect(result.addedDirs).toEqual([realpathSync.native(other1), realpathSync.native(other2)]);
+  });
+
+  it("resolves relative, comma-containing and symlinked reach exactly once", () => {
+    const pov = tempDir("pov-");
+    const caller = tempDir("caller-");
+    const target = join(caller, "repo,one");
+    mkdirSync(target);
+    symlinkSync(target, join(caller, "shortcut"), "dir");
+    const result = discoverAgentReach({ povPath: pov, cwd: caller, reachFlag: ["shortcut", "repo,one"] });
+    expect(result.errors).toEqual([]);
+    expect(result.addedDirs).toEqual([realpathSync.native(target)]);
   });
 
   it("reports errors for non-existent --reach directories", () => {

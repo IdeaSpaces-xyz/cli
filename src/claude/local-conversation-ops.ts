@@ -158,6 +158,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
       model,
       permissionMode,
+      permissionPromptsNone: options?.agentRun === true,
       readOnly,
       effort,
       auth,

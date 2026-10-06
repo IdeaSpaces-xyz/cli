@@ -54,7 +54,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dirs>] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
@@ -299,7 +299,7 @@ async function cmdRun(
     return 1;
   }
   if (runtime === "claude" && flags["permission-mode"] === "auto") {
-    output.error("Claude Code 2.1.291 does not set auto by --permission-mode flag (it falls back to default). Use acceptEdits or configure auto in Claude Code settings outside agent run.");
+    output.error("Claude Code cannot reliably set auto by --permission-mode flag in supported headless versions. Use acceptEdits or configure auto in Claude Code settings outside agent run.");
     return 1;
   }
   if (runtime === "claude" && (flags["pi-thinking"] !== undefined || flags["pi-trust"] !== undefined)) {
@@ -332,6 +332,7 @@ async function cmdRun(
     skillPaths: [...new Set(selectedPaths.skill)],
     addedDirs: runtime === "claude" ? reachResult.addedDirs : [],
     ...(runtime === "claude" ? { allowedTools: flags["read-only"] === true ? [...CLAUDE_READ_TOOLS] : [...CLAUDE_HANDOVER_TOOLS] } : {}),
+    agentRun: true,
     resumeOnly: flags.conversation !== undefined,
   };
   if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
@@ -385,7 +386,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only limits Claude builtins to Read/Grep/Glob and denies known plugin effects; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
+    description: "Run or list local POVs. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",

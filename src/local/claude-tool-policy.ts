@@ -1,21 +1,10 @@
-// Claude Code plugin tool names at the launcher boundary. --allowedTools preapproves;
-// it does not restrict availability, so read-only also limits builtins with --tools
-// and explicitly denies plugin effects with --disallowedTools.
-export const CLAUDE_READ_TOOLS = [
-  "Read", "Grep", "Glob",
-  "mcp__plugin_ideaspaces_core__is_look",
-  "mcp__plugin_ideaspaces_core__is_navigate",
-  "mcp__plugin_ideaspaces_core__is_status",
-  "mcp__plugin_ideaspaces_core__is_get",
-  "mcp__plugin_ideaspaces_core__is_spaces",
-] as const;
+// Claude's --allowedTools preapproves; it does not restrict available tools.
+// A read-only agent must also use --tools Read,Grep,Glob and --strict-mcp-config.
+export const CLAUDE_READ_TOOLS = ["Read", "Grep", "Glob"] as const;
 
+// A writable hand-over's preapprovals. This is not a shell security boundary;
+// the person's accepted contract is the Space reach and the owner's Agreement.
 export const CLAUDE_HANDOVER_TOOLS = [
   "Read", "Grep", "Glob", "mcp__plugin_ideaspaces_core__*",
   "Edit", "Write", "Bash(git:*)", "Bash(ideaspaces:*)",
 ] as const;
-
-export const CLAUDE_DENIED_EFFECTS = [
-  "is_auth", "is_threads", "is_follow", "is_write", "is_commit",
-  "is_change_open", "is_change_close", "is_pull", "is_push", "is_clone", "is_collaborate",
-].map((name) => `mcp__plugin_ideaspaces_core__${name}`);

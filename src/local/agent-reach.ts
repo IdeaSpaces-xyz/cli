@@ -96,14 +96,12 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
   if (opts.reachFlag) {
     for (const raw of (Array.isArray(opts.reachFlag) ? opts.reachFlag : [opts.reachFlag]).map((s) => s.trim()).filter(Boolean)) {
       const resolved = isAbsolute(raw) ? raw : resolve(baseCwd, raw);
-      if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
-        errors.push(`Refusing reach path ${raw}: directory not found.`);
-        continue;
-      }
       try {
-        explicitReach.push(realpathSync(resolved));
-      } catch (err) {
-        errors.push(`Refusing reach path ${raw}: ${err instanceof Error ? err.message : String(err)}.`);
+        const canonical = realpathSync(resolved);
+        if (!statSync(canonical).isDirectory()) throw new Error("directory not found");
+        explicitReach.push(canonical);
+      } catch {
+        errors.push(`Refusing reach path ${raw}: directory not found.`);
       }
     }
   }

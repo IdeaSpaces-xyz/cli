@@ -33,7 +33,6 @@ import {
 } from "@ideaspaces/sdk";
 import { readJsonLines } from "../local/jsonl.js";
 import { discloseLaunch, resolveAddedDirs } from "../local/send-options.js";
-import { CLAUDE_DENIED_EFFECTS } from "../local/claude-tool-policy.js";
 import { harvestLocalFiles } from "../local/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
@@ -116,6 +115,8 @@ export interface ClaudeTurnOptions {
   model?: string;
   /** Approval policy for the headless turn. Default `acceptEdits`. */
   permissionMode?: ClaudePermissionMode;
+  /** Agent run only: no human listener for permission requests (Claude Code 2.1.291). */
+  permissionPromptsNone?: boolean;
   /** Restrict the headless child to built-in read tools, with no plugin MCP tools. */
   readOnly?: boolean;
   /** Claude Code's --effort, if supported by the installed version. */
@@ -140,10 +141,11 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
     "--output-format", "stream-json",
     "--include-partial-messages",
     "--permission-mode", opts.permissionMode ?? "acceptEdits",
-    "--permission-prompts", "none", // verified in Claude Code 2.1.291 --help; no headless prompts
-    opts.sessionExists ? "--resume" : "--session-id", opts.conversationId,
   ];
-
+  // Verified in Claude Code 2.1.291 --help. Desktop conversation send retains
+  // its existing prompt policy; only agent run has no permission listener.
+  if (opts.permissionPromptsNone) args.push("--permission-prompts", "none");
+  args.push(opts.sessionExists ? "--resume" : "--session-id", opts.conversationId);
   const addedDirs = resolveAddedDirs(opts);
   for (const dir of addedDirs) {
     args.push("--add-dir", dir);
@@ -152,9 +154,9 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
   if (opts.model) args.push("--model", opts.model);
   if (opts.effort) args.push("--effort", opts.effort);
   if (opts.readOnly) {
-    args.push("--tools", "Read,Grep,Glob");
-    if (opts.allowedTools) args.push("--disallowedTools", CLAUDE_DENIED_EFFECTS.join(","));
-    else args.push("--strict-mcp-config"); // legacy direct read-only turn
+    // --allowedTools is preapproval, never a restriction. Drop every MCP server
+    // (including the plugin) and all non-read builtins for an actual ask boundary.
+    args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
   }
   if (opts.allowedTools && opts.allowedTools.length > 0) {
     args.push("--allowedTools", opts.allowedTools.join(","));

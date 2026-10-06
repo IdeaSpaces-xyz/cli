@@ -241,7 +241,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], agentRun: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -427,7 +427,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], agentRun: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -458,6 +458,7 @@ describe("agent run — command options & validation", () => {
         skillPaths: [],
         addedDirs: [realpathSync.native(space)],
         allowedTools: expect.any(Array),
+        agentRun: true,
         resumeOnly: false,
         extraOrientation: expect.stringContaining("# Scout Agreement"),
       },
@@ -493,6 +494,7 @@ describe("agent run — command options & validation", () => {
         skillPaths: [],
         addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
         allowedTools: expect.any(Array),
+        agentRun: true,
         resumeOnly: false,
         extraOrientation: expect.stringContaining("# Scout Agreement"),
       },
@@ -851,7 +853,7 @@ process.stdin.on("data", (chunk) => {
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("bypassPermissions");
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "permission-mode": "auto" }, JSON_GLOBAL)).toBe(1);
-    expect(stderr()).toContain("does not set auto");
+    expect(stderr()).toContain("cannot reliably set auto");
   });
 
   it("fails closed without explicit child resources, rejects a symlink escape, and loads duplicates once", async () => {
