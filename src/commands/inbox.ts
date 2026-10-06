@@ -50,7 +50,7 @@ const LIST_USAGE =
 const READ_USAGE =
   "ideaspaces threads read <thread_id> [--new|--since <position>] [--kind <message|reframe>] [--depth <name|summary|full>] [--ack]";
 const SEND_USAGE =
-  "ideaspaces threads send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] [--share <viewer|copying|editor>] [--share-roots <node_id,...>] [--space-map <path.map.md>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces threads send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] [--share <viewer|copying|editor>] [--share-roots <node_id,...>] [--space-map <path.map.md>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>] (recipient required without a target)";
 const EXPAND_USAGE = "ideaspaces threads expand <thread_id> <member_ordinal>";
 const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
@@ -103,9 +103,10 @@ async function writeBody(flags: Flags, output: Output): Promise<ExchangeNoteWrit
 
 function loadMapSelection(flags: Flags, output: Output): ExchangeMapSelection | null | undefined {
   const path = flagString(flags, "map");
+  if (flags.map === undefined) return undefined;
   if (!path) {
-    if (flags.map !== undefined) output.error("--map requires a selection file path.");
-    return flags.map === undefined ? undefined : null;
+    output.error("--map requires a selection file path.");
+    return null;
   }
   try {
     if (statSync(path).size > MAX_SELECTION_FILE_BYTES) {
@@ -452,9 +453,8 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
 }
 
 async function send(rest: string[], flags: Flags, output: Output): Promise<number> {
-  // The recipient is optional: a Thread is about a Node, and when no person is
-  // named the server addresses that Node's owner. A reporter rarely knows the
-  // maker's handle, and nothing the CLI can read exposes an owner.
+  // Recipient is required when there is no subject Node. For targeted sends,
+  // omitting it still addresses that Node's owner.
   const [recipientValue] = rest;
   const recipient = recipientValue ? recipientSelector(recipientValue) : undefined;
   const selection = loadMapSelection(flags, output);
@@ -503,10 +503,9 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
   return runAuthenticated(output, async (config) => {
     const shareResults: Array<PersonShareAddResult & { root_node_id: string; message: string }> = [];
     if (parsedShareGrade && recipient) {
-      const shareRootsFlag = flagString(flags, "share-roots");
       let rootsToShare: string[] = [];
-      if (shareRootsFlag) {
-        rootsToShare = shareRootsFlag.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+      if (explicitShareRoots.length) {
+        rootsToShare = explicitShareRoots;
       } else if (selection?.map?.roots && selection.map.roots.length > 0) {
         rootsToShare = Array.from(
           new Set(
@@ -568,6 +567,10 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
       });
     } catch (sendErr) {
       const errDetail = apiErrorDetail(sendErr);
+      if (!target && sendErr instanceof Error && /→ 422:/.test(sendErr.message) && /target_node_id/.test(sendErr.message)) {
+        output.error("This server does not yet accept message-only Threads (target_node_id is still required). Wait for the API rollout, or pass --about <node_id> to send a targeted Thread now.");
+        return 1;
+      }
       if (
         errDetail.includes("recipient unavailable") ||
         errDetail.includes("no routable person owner") ||
@@ -608,6 +611,8 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
       lines.push(sr.message);
     }
     const inSpace = result.space_id ? ` in Space ${result.space_id}` : "";
+    // The owner-routing branch is reachable only for a targeted send: the
+    // recipient-required preflight above rules out an absent subject here.
     const addressed = recipient
       ? `Sent${inSpace}. Thread ${result.exchange_id}${result.target_node_id ? ` is about ${result.target_node_id}` : ""}.`
       : `Sent${inSpace} to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;

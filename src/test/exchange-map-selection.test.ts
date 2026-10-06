@@ -65,6 +65,12 @@ describe("exchange Map selections", () => {
     );
   });
 
+  it("refuses a null present target rather than treating it as absent", () => {
+    expect(() => parseExchangeMapSelection({ kind: "exchange-map-selection", target_node_id: null,
+      map: { roots: [], members: [{ address: "https://example.com", disclosure: { name: "Link" } }] } }))
+      .toThrow("target_node_id is invalid");
+  });
+
   it("refuses malformed targets and protocol Maps", () => {
     expect(() => parseExchangeMapSelection({ ...selection(), target_node_id: "not-a-node" }))
       .toThrow("target_node_id is invalid");

@@ -605,6 +605,36 @@ describe("inbox", () => {
     expect(stdout()).not.toContain("about null");
   });
 
+  it("keeps null subject in list/read JSON without printing an about line", async () => {
+    fetchInboxMock.mockResolvedValue({ items: [{ kind: "inquiry", mode: "direct", exchange_id: "x_one",
+      target_node_id: null, participants: [participant(1, "One"), participant(2, "Two")],
+      opening_note: message, latest_message: message, latest_position: 1, cursor: null,
+      latest_received_position: 1, message_count: 1, received_message_count: 1 }] });
+    expect(await inboxCommand.run(["list"], {}, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).items[0].target_node_id).toBeNull();
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["list"], {}, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).not.toContain("about null");
+    stdoutChunks = [];
+    fetchExchangeMock.mockResolvedValue({ mode: "direct", exchange_id: "x_one", target_node_id: null,
+      participants: [participant(1, "One"), participant(2, "Two")], messages: [message],
+      subject: { opening_note_id: message.note_node_id, current_note_id: message.note_node_id },
+      latest_position: 1, cursor: null });
+    expect(await inboxCommand.run(["read", "x_one"], {}, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).target_node_id).toBeNull();
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], {}, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).not.toContain("About null");
+  });
+
+  it("explains the old server's 422 until the targetless API is deployed", async () => {
+    sendInquiryMock.mockRejectedValue(new Error('POST /api/v1/inquiries → 422: {"detail":[{"loc":["body","target_node_id"],"msg":"Field required"}]}'));
+    expect(await inboxCommand.run(["send", "@two"], { name: "Hello", summary: "First", message: "Body" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("does not yet accept message-only Threads");
+    expect(stderr()).toContain("Wait for the API rollout");
+    expect(sendInquiryMock).toHaveBeenCalledTimes(1);
+  });
+
   it("requires a recipient before network access when no target is named", async () => {
     expect(await inboxCommand.run(["send"], { name: "Hello", summary: "First", message: "Body" }, TEXT_GLOBAL)).toBe(1);
     expect(stderr()).toContain("Say who to send to");
@@ -622,6 +652,15 @@ describe("inbox", () => {
       expect(sendInquiryMock.mock.calls[0][1]).toMatchObject({ recipient: { username: "two" }, map: links });
       expect(sendInquiryMock.mock.calls[0][1]).not.toHaveProperty("target_node_id");
     } finally { unlinkSync(path); }
+  });
+
+  it("shares explicit roots alongside a message-first send", async () => {
+    addPersonShareMock.mockResolvedValue({ status: "added", target_node_id: TARGET, grade: "viewer", share_history: false, recipient_route: "@two" });
+    sendInquiryMock.mockResolvedValue({ ...writeResult, target_node_id: null });
+    expect(await inboxCommand.run(["send", "@two"], { name: "Hello", summary: "First", message: "Body",
+      share: "viewer", "share-roots": TARGET }, JSON_GLOBAL)).toBe(0);
+    expect(addPersonShareMock).toHaveBeenCalledTimes(1);
+    expect(sendInquiryMock.mock.calls[0][1]).not.toHaveProperty("target_node_id");
   });
 
   it("refuses sharing without any root on a message-first send", async () => {

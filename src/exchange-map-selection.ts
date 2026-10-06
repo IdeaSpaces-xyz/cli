@@ -45,8 +45,9 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
   if (value.kind !== "exchange-map-selection") {
     throw new Error("Map selection kind must be exchange-map-selection");
   }
-  if (value.target_node_id !== undefined &&
-      (typeof value.target_node_id !== "string" || !NODE_ID.test(value.target_node_id))) {
+  const targetNodeId = value.target_node_id;
+  if (targetNodeId !== undefined &&
+      (typeof targetNodeId !== "string" || !NODE_ID.test(targetNodeId))) {
     throw new Error("Map selection target_node_id is invalid");
   }
   if (!isRecord(value.map)) throw new Error("Map selection map must be an object");
@@ -133,7 +134,7 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
     };
   });
 
-  if (value.target_node_id === undefined && members.some((member) => "position" in member)) {
+  if (targetNodeId === undefined && members.some((member) => "position" in member)) {
     throw new Error("A Map selection without target_node_id may contain only address members.");
   }
   const built = buildMap({ roots, members });
@@ -141,7 +142,7 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
     const detail = built.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ");
     throw new Error(`Map selection is invalid: ${detail}`);
   }
-  return { kind: "exchange-map-selection", ...(value.target_node_id ? { target_node_id: value.target_node_id as string } : {}), map: built.map };
+  return { kind: "exchange-map-selection", ...(targetNodeId !== undefined ? { target_node_id: targetNodeId } : {}), map: built.map };
 }
 
 function quoted(value: unknown): string {
