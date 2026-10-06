@@ -236,6 +236,8 @@ describe("ideaspaces map select", () => {
       GLOBAL,
     );
     expect(code).toBe(0);
+    expect(fetchContentTreeMock).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(), ROOT_NODE_ID, "notes", { timeoutMs: 15_000 });
     const data = JSON.parse(stdoutChunks.join(""));
     expect(data).toEqual({
       kind: "exchange-map-selection",
@@ -320,6 +322,8 @@ map:
     stderrChunks = [];
     const code = await mapCommand.run(["select", "notes/space.map.md"], {}, GLOBAL);
     expect(code).toBe(0);
+    expect(fetchContentTreeMock).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(), ROOT_NODE_ID, "notes", { timeoutMs: 15_000 });
     const data = JSON.parse(stdoutChunks.join(""));
     expect(data.target_node_id).toBe("n_112233445566778899aabbcc");
     expect(data.map.roots).toEqual([
@@ -367,6 +371,8 @@ map:
     stderrChunks = [];
     const code = await mapCommand.run(["select", "."], { "note-depth": "summary" }, GLOBAL);
     expect(code).toBe(0);
+    expect(fetchContentTreeMock).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(), ROOT_NODE_ID, "", { timeoutMs: 15_000 });
     const data = JSON.parse(stdoutChunks.join(""));
     expect(data.target_node_id).toBe(TARGET_NODE_ID);
     expect(data.map.roots).toEqual([

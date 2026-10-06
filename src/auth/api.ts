@@ -227,10 +227,9 @@ function isConnectionFailure(err: unknown): boolean {
   return err instanceof TypeError && /fetch failed/i.test(err.message);
 }
 
-/** Unreachable-host message with the conditional Cowork redirect. We can't
- * detect Cowork, so we suggest rather than assert; `timedOut` keeps the softer
- * "timed out" wording (a slow cold start is also possible). */
-function unreachableMessage(apiUrl: string, timedOut: boolean): string {
+/** Name the failing call. Only a known Claude plugin invocation gets Cowork advice;
+ * other shells have no evidence that Claude Code (let alone Cowork) is running. */
+function unreachableMessage(apiUrl: string, timedOut: boolean, call: string): string {
   let host = apiUrl;
   try {
     host = new URL(apiUrl).host;
@@ -238,9 +237,11 @@ function unreachableMessage(apiUrl: string, timedOut: boolean): string {
     // Non-URL apiUrl — fall back to the raw string.
   }
   const lead = timedOut
-    ? `Reaching ${host} timed out — the server may be slow, or the network unreachable.`
-    : `Can't reach ${host} — the network looks unreachable.`;
-  return `${lead} If you're in Cowork, its sandbox blocks remote access — switch to Claude Code view to browse and sync (local capture still works).`;
+    ? `Could not reach ${host}: ${call} timed out — the server may be slow, or the network unreachable.`
+    : `Could not reach ${host}: ${call} failed — the network looks unreachable.`;
+  return process.env.CLAUDE_PLUGIN_ROOT?.trim()
+    ? `${lead} If you're in Cowork, its sandbox blocks remote access — switch to Claude Code view to browse and sync (local capture still works).`
+    : lead;
 }
 
 /** Optional auth + JSON headers, shared so streaming and public reads cannot drift. */
@@ -296,10 +297,10 @@ async function request<T>(
       const timedOut = err instanceof Error && err.name === "AbortError";
       if (timedOut && attempt < maxAttempts) continue; // warm-up retry
       if (timedOut) {
-        throw new NetworkError(unreachableMessage(config.apiUrl, true));
+        throw new NetworkError(unreachableMessage(config.apiUrl, true, `${method} ${path}`));
       }
       if (isConnectionFailure(err)) {
-        throw new NetworkError(unreachableMessage(config.apiUrl, false));
+        throw new NetworkError(unreachableMessage(config.apiUrl, false, `${method} ${path}`));
       }
       throw err;
     } finally {
@@ -600,7 +601,7 @@ export interface InquiryInboxItem {
   kind: "inquiry";
   mode: "direct";
   exchange_id: string;
-  target_node_id: string;
+  target_node_id: string | null;
   participants: InboxParticipant[];
   opening_note: ExchangeMessageSummary;
   latest_message: ExchangeMessageSummary;
@@ -632,7 +633,7 @@ export interface InboxResponse {
 export interface ExchangeReadResponse {
   mode: "direct";
   exchange_id: string;
-  target_node_id: string;
+  target_node_id: string | null;
   participants: InboxParticipant[];
   messages: ExchangeMessage[];
   subject: { opening_note_id: string; current_note_id: string };
@@ -649,8 +650,8 @@ export interface ExchangeNoteWrite {
 }
 
 export interface InquirySendBody extends ExchangeNoteWrite {
-  /** A Content Note, an Actor profile, or a Process the sender can read. */
-  target_node_id: string;
+  /** Optional subject; an absent target needs an explicit recipient. */
+  target_node_id?: string;
   /** Omit to address the target's owner. */
   recipient?: { user_id: number } | { username: string } | { email: string };
   /** Optional coordination Space node_id to bind this exchange to at creation. */
@@ -664,7 +665,7 @@ export interface ExchangeWriteResponse {
   event_id: string;
   position: number;
   created_at: string;
-  target_node_id: string;
+  target_node_id: string | null;
   author_ref: string;
   recipient_ref: string;
   actor_ref: string;

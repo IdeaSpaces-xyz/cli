@@ -30,6 +30,7 @@ import {
   RetiredEndpointError,
   UnauthorizedError,
   NetworkError,
+  DEFAULT_REQUEST_TIMEOUT_MS,
 } from "../auth/api.js";
 
 const config = { apiUrl: "http://api.test", apiKey: "k" };
@@ -50,6 +51,7 @@ function abortingFetch() {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("request() retry on timeout (cold start)", () => {
@@ -107,17 +109,26 @@ describe("request() retry on timeout (cold start)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces a NetworkError with a Cowork-aware redirect when the host is unreachable", async () => {
-    // undici throws `TypeError: fetch failed` for connect/DNS failures — the
-    // Cowork sandbox block manifests here, not as an HTTP status.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new TypeError("fetch failed"))),
-    );
-    const err = await fetchAuthMe(config, { retry: false }).catch((e) => e);
+  it("names the failed call and gives Cowork advice only in a known Claude plugin", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fetch failed"))));
+    vi.stubEnv("CLAUDE_PLUGIN_ROOT", "");
+    const outside = await fetchAuthMe(config, { retry: false }).catch((e) => e);
+    expect(outside).toBeInstanceOf(NetworkError);
+    expect(outside.message).toContain("Could not reach api.test: GET /auth/me failed");
+    expect(outside.message).not.toContain("Cowork");
+    vi.stubEnv("CLAUDE_PLUGIN_ROOT", "/installed/plugin");
+    const inside = await fetchAuthMe(config, { retry: false }).catch((e) => e);
+    expect(inside.message).toContain("Claude Code view");
+  });
+
+  it("retains one GET retry and names the slow Content-tree call on timeout", async () => {
+    const fetchMock = abortingFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const err = await fetchContentTree(config, "n_0123456789abcdef01234567", "notes", { timeoutMs: 20 }).catch((e) => e);
     expect(err).toBeInstanceOf(NetworkError);
-    expect(err.message).toMatch(/unreachable/i);
-    expect(err.message).toMatch(/Claude Code view/);
+    expect(err.message).toContain("GET /api/v1/content/n_0123456789abcdef01234567/tree/notes timed out");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(DEFAULT_REQUEST_TIMEOUT_MS).toBe(5000);
   });
 
   it("does not retry a non-timeout error (401)", async () => {

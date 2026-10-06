@@ -40,6 +40,22 @@ describe("exchange Map selections", () => {
     expect(formatPortableMap(parsed.map).join("\n")).toContain("curated name=\"Why this one\"");
   });
 
+  it("accepts an address-only HTTPS Map without a target or a published Note", () => {
+    const parsed = parseExchangeMapSelection({
+      kind: "exchange-map-selection",
+      map: { roots: [], members: [{ address: "https://github.com/example/project", depth: "summary",
+        disclosure: { name: "Project link", summary: "Source" } }] },
+    });
+    expect(parsed.target_node_id).toBeUndefined();
+    expect(parsed.map.roots).toEqual([]);
+    expect(parsed.map.members[0]).toMatchObject({ address: "https://github.com/example/project" });
+  });
+
+  it("refuses a position-only Map with no target", () => {
+    const value = selection();
+    expect(() => parseExchangeMapSelection({ kind: value.kind, map: value.map })).toThrow(/only address members/);
+  });
+
   it("refuses private bindings and unsupported transport fields", () => {
     const value = selection();
     (value.map.roots[0] as Record<string, unknown>).local_path = "/private/checkout";
@@ -47,6 +63,12 @@ describe("exchange Map selections", () => {
     expect(() => parseExchangeMapSelection(value)).toThrow(
       "Map root 0 contains unsupported fields: local_path",
     );
+  });
+
+  it("refuses a null present target rather than treating it as absent", () => {
+    expect(() => parseExchangeMapSelection({ kind: "exchange-map-selection", target_node_id: null,
+      map: { roots: [], members: [{ address: "https://example.com", disclosure: { name: "Link" } }] } }))
+      .toThrow("target_node_id is invalid");
   });
 
   it("refuses malformed targets and protocol Maps", () => {
@@ -141,7 +163,7 @@ describe("exchange Map selections", () => {
       },
     };
     expect(() => parseExchangeMapSelection(invalidAddress)).toThrow(
-      "Map member 0 address must be a canonical hostname: or thread:x_<24hex>",
+      "Map member 0 address must be a canonical hostname:, thread:x_<24hex>, or HTTPS URL",
     );
 
     const invalidRevision = {
