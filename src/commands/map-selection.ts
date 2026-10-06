@@ -29,6 +29,9 @@ import type { GlobalFlags } from "../types.js";
 
 const NOTE_DEPTHS = new Set<MapDepth>(["name", "summary", "surface", "children", "full"]);
 const HOSTNAME = /^(?:\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::[0-9]+)?$/;
+/** Index-fresh Content-tree reads can exceed the 5s default. Only these GETs
+ * get a longer window; request() retains its one idempotent timeout retry. */
+export const MAP_TREE_READ_TIMEOUT_MS = 15_000;
 
 export const MAP_SELECT_USAGE =
   "ideaspaces map select <note.md|map.map.md|dir> [--hostname <domain>] [--note-depth <name|summary|surface|children|full>] [--entity-depth <name|summary>] [--note-name <label>] [--note-summary <context>] [--entity-name <label>] [--entity-summary <context>] [--about <node_id>] [--json]";
@@ -250,7 +253,7 @@ export async function runMapSelection(
       members = positionMembers;
 
       if (!targetNodeId) {
-        const hostedTree = await fetchContentTree(config, binding.rootNodeId, "");
+        const hostedTree = await fetchContentTree(config, binding.rootNodeId, "", { timeoutMs: MAP_TREE_READ_TIMEOUT_MS });
         if (hostedTree.root_node_id !== binding.rootNodeId) {
           throw new Error("The hosted Content tree returned a different root identity");
         }
@@ -352,7 +355,7 @@ export async function runMapSelection(
 
         if (!targetNodeId) {
           const parent = posix.dirname(position) === "." ? "" : posix.dirname(position);
-          const tree = await fetchContentTree(config, binding.rootNodeId, parent);
+          const tree = await fetchContentTree(config, binding.rootNodeId, parent, { timeoutMs: MAP_TREE_READ_TIMEOUT_MS });
           if (tree.root_node_id !== binding.rootNodeId) {
             throw new Error("The hosted Content tree returned a different root identity");
           }
@@ -375,7 +378,7 @@ export async function runMapSelection(
         const hostname = canonicalHostname(flags);
         const parent = posix.dirname(position) === "." ? "" : posix.dirname(position);
         const [tree, entity] = await Promise.all([
-          fetchContentTree(config, binding.rootNodeId, parent),
+          fetchContentTree(config, binding.rootNodeId, parent, { timeoutMs: MAP_TREE_READ_TIMEOUT_MS }),
           hostname ? fetchEntity(config, "hostname", hostname) : Promise.resolve(null),
         ]);
         if (tree.root_node_id !== binding.rootNodeId) {

@@ -103,7 +103,10 @@ async function writeBody(flags: Flags, output: Output): Promise<ExchangeNoteWrit
 
 function loadMapSelection(flags: Flags, output: Output): ExchangeMapSelection | null | undefined {
   const path = flagString(flags, "map");
-  if (!path) return undefined;
+  if (!path) {
+    if (flags.map !== undefined) output.error("--map requires a selection file path.");
+    return flags.map === undefined ? undefined : null;
+  }
   try {
     if (statSync(path).size > MAX_SELECTION_FILE_BYTES) {
       throw new Error(`selection file exceeds ${MAX_SELECTION_FILE_BYTES} bytes`);
@@ -149,7 +152,7 @@ function inboxItemText(item: InboxItem): string {
   return [
     inboxItemName(item),
     `  ${item.latest_message.summary}`,
-    `  about ${item.target_node_id} · ${count} · ${cursor} · ${participantsText(item.participants)}`,
+    `  ${item.target_node_id ? `about ${item.target_node_id} · ` : ""}${count} · ${cursor} · ${participantsText(item.participants)}`,
   ].join("\n");
 }
 
@@ -165,7 +168,7 @@ export function exchangeText(
 
   const lines = [
     `Thread ${exchange.exchange_id}`,
-    `About ${exchange.target_node_id}`,
+    ...(exchange.target_node_id ? [`About ${exchange.target_node_id}`] : []),
     `Participants: ${participantsText(exchange.participants)}`,
     `Cursor: ${exchange.cursor ?? "not followed"} · Latest: ${exchange.latest_position}`,
   ];
@@ -457,7 +460,7 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
   const selection = loadMapSelection(flags, output);
   if (selection === null) return 1;
   const requestedTarget = flagString(flags, "about")?.trim();
-  if (selection && requestedTarget && requestedTarget !== selection.target_node_id) {
+  if (selection?.target_node_id && requestedTarget && requestedTarget !== selection.target_node_id) {
     output.error("--about does not match the reviewed Map selection target_node_id.");
     return 1;
   }
@@ -481,8 +484,17 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
     output.error("Sharing requires an explicit recipient (@handle or email).");
     return 1;
   }
-  if (rest.length > 1 || recipient === null || !target) {
+  if (rest.length > 1 || recipient === null) {
     output.error(`Usage: ${SEND_USAGE}`);
+    return 1;
+  }
+  if (!target && !recipient) {
+    output.error("Say who to send to: threads send @handle --name <title> --summary <summary> --message <markdown>.");
+    return 1;
+  }
+  const explicitShareRoots = flagString(flags, "share-roots")?.split(",").map((r) => r.trim()).filter(Boolean) ?? [];
+  if (parsedShareGrade && !explicitShareRoots.length && !target && !selection?.map.roots.length) {
+    output.error("--share without a target or Map roots needs --share-roots <node_id,...>.");
     return 1;
   }
   const note = await writeBody(flags, output);
@@ -549,7 +561,7 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
     try {
       result = await sendInquiry(config, {
         ...note,
-        target_node_id: target,
+        ...(target ? { target_node_id: target } : {}),
         ...(recipient ? { recipient } : {}),
         ...(spaceId ? { space_id: spaceId } : {}),
         ...(selection ? { map: selection.map } : {}),
@@ -597,7 +609,7 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
     }
     const inSpace = result.space_id ? ` in Space ${result.space_id}` : "";
     const addressed = recipient
-      ? `Sent${inSpace}. Thread ${result.exchange_id} is about ${result.target_node_id}.`
+      ? `Sent${inSpace}. Thread ${result.exchange_id}${result.target_node_id ? ` is about ${result.target_node_id}` : ""}.`
       : `Sent${inSpace} to the owner of ${result.target_node_id}. Thread ${result.exchange_id}.`;
     lines.push(addressed);
     if (spaceMapAdded) {

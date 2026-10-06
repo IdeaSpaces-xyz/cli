@@ -591,6 +591,45 @@ describe("inbox", () => {
     });
   });
 
+  it("sends a message-first Thread without an about Node or Map", async () => {
+    sendInquiryMock.mockResolvedValue({ ...writeResult, target_node_id: null });
+    const code = await inboxCommand.run(["send", "@two"], {
+      name: "Hello", summary: "A first exchange", message: "# Hello\n\nLet's talk.", "send-id": "message-first",
+    }, TEXT_GLOBAL);
+    expect(code).toBe(0);
+    expect(sendInquiryMock).toHaveBeenCalledWith(CFG, {
+      recipient: { username: "two" }, send_id: "message-first", name: "Hello",
+      summary: "A first exchange", markdown: "# Hello\n\nLet's talk.",
+    });
+    expect(stdout()).toContain("Sent. Thread x_one.");
+    expect(stdout()).not.toContain("about null");
+  });
+
+  it("requires a recipient before network access when no target is named", async () => {
+    expect(await inboxCommand.run(["send"], { name: "Hello", summary: "First", message: "Body" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Say who to send to");
+    expect(sendInquiryMock).not.toHaveBeenCalled();
+  });
+
+  it("sends an address-only Map without a target or published Note", async () => {
+    sendInquiryMock.mockResolvedValue({ ...writeResult, target_node_id: null });
+    const path = join(tmpdir(), `is-cli-links-only-${process.pid}.json`);
+    const links = { roots: [], members: [{ address: "https://github.com/example/project", depth: "summary",
+      disclosure: { name: "Project", summary: "Link" } }] };
+    writeFileSync(path, JSON.stringify({ kind: "exchange-map-selection", map: links }));
+    try {
+      expect(await inboxCommand.run(["send", "@two"], { map: path, name: "Links", summary: "Useful", message: "See link" }, JSON_GLOBAL)).toBe(0);
+      expect(sendInquiryMock.mock.calls[0][1]).toMatchObject({ recipient: { username: "two" }, map: links });
+      expect(sendInquiryMock.mock.calls[0][1]).not.toHaveProperty("target_node_id");
+    } finally { unlinkSync(path); }
+  });
+
+  it("refuses sharing without any root on a message-first send", async () => {
+    expect(await inboxCommand.run(["send", "@two"], { name: "Hello", summary: "First", message: "Body", share: "viewer" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("--share-roots");
+    expect(sendInquiryMock).not.toHaveBeenCalled();
+  });
+
   it("sends an inquiry to a handle about one target", async () => {
     sendInquiryMock.mockResolvedValue(writeResult);
 

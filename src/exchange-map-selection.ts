@@ -14,7 +14,7 @@ const THREAD_ADDRESS = /^thread:x_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
 export interface ExchangeMapSelection {
   kind: "exchange-map-selection";
-  target_node_id: string;
+  target_node_id?: string;
   map: MapBlock;
 }
 
@@ -45,7 +45,8 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
   if (value.kind !== "exchange-map-selection") {
     throw new Error("Map selection kind must be exchange-map-selection");
   }
-  if (typeof value.target_node_id !== "string" || !NODE_ID.test(value.target_node_id)) {
+  if (value.target_node_id !== undefined &&
+      (typeof value.target_node_id !== "string" || !NODE_ID.test(value.target_node_id))) {
     throw new Error("Map selection target_node_id is invalid");
   }
   if (!isRecord(value.map)) throw new Error("Map selection map must be an object");
@@ -99,10 +100,13 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
       const addressValue = stringField(raw.address, `Map member ${ordinal} address`) ?? "";
       const isHostname = HOSTNAME_ADDRESS.test(addressValue);
       const isThread = THREAD_ADDRESS.test(addressValue);
-      if (!isHostname && !isThread) {
-        throw new Error(
-          `Map member ${ordinal} address must be a canonical hostname: or thread:x_<24hex>`,
-        );
+      let isUrl = false;
+      try {
+        const url = new URL(addressValue);
+        isUrl = url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password;
+      } catch { /* not a URL */ }
+      if (!isHostname && !isThread && !isUrl) {
+        throw new Error(`Map member ${ordinal} address must be a canonical hostname:, thread:x_<24hex>, or HTTPS URL`);
       }
       const revision = stringField(raw.revision, `Map member ${ordinal} revision`);
       if (revision !== undefined && !REVISION_PATTERN.test(revision)) {
@@ -129,12 +133,15 @@ export function parseExchangeMapSelection(value: unknown): ExchangeMapSelection 
     };
   });
 
+  if (value.target_node_id === undefined && members.some((member) => "position" in member)) {
+    throw new Error("A Map selection without target_node_id may contain only address members.");
+  }
   const built = buildMap({ roots, members });
   if (built.status === "invalid") {
     const detail = built.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ");
     throw new Error(`Map selection is invalid: ${detail}`);
   }
-  return { kind: "exchange-map-selection", target_node_id: value.target_node_id, map: built.map };
+  return { kind: "exchange-map-selection", ...(value.target_node_id ? { target_node_id: value.target_node_id as string } : {}), map: built.map };
 }
 
 function quoted(value: unknown): string {
