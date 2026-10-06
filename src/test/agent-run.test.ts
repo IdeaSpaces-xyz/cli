@@ -374,7 +374,7 @@ describe("agent run — command options & validation", () => {
         message: "Help with analysis",
       }),
       expect.anything(),
-      { extensionPaths: [], skillPaths: [], addedDirs: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
+      expect.objectContaining({ extensionPaths: [], skillPaths: [], addedDirs: [], allowedTools: expect.any(Array), resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") }),
     );
   });
 
@@ -401,7 +401,7 @@ describe("agent run — command options & validation", () => {
         conversation: "11111111-1111-4111-8111-111111111111",
       }),
       expect.anything(),
-      { extensionPaths: [], skillPaths: [], addedDirs: [], resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
+      expect.objectContaining({ extensionPaths: [], skillPaths: [], addedDirs: [], allowedTools: expect.any(Array), resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") }),
     );
   });
 
@@ -457,6 +457,7 @@ describe("agent run — command options & validation", () => {
         extensionPaths: [],
         skillPaths: [],
         addedDirs: [realpathSync.native(space)],
+        allowedTools: expect.any(Array),
         resumeOnly: false,
         extraOrientation: expect.stringContaining("# Scout Agreement"),
       },
@@ -491,6 +492,7 @@ describe("agent run — command options & validation", () => {
         extensionPaths: [],
         skillPaths: [],
         addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
+        allowedTools: expect.any(Array),
         resumeOnly: false,
         extraOrientation: expect.stringContaining("# Scout Agreement"),
       },
@@ -586,7 +588,7 @@ process.stdin.on("end", () => {
   out({ type: "stream_event", event: { type: "message_start" } });
   const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
   const response = prompt.trim() === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
-    : prompt.trim() === "policy_probe" ? JSON.stringify({ readOnly: args.includes("--tools") && args.includes("--strict-mcp-config"), effort: args[args.indexOf("--effort") + 1] })
+    : prompt.trim() === "policy_probe" ? JSON.stringify({ readOnly: args.includes("--tools") && (args.includes("--strict-mcp-config") || args.includes("--disallowedTools")), effort: args[args.indexOf("--effort") + 1] })
     : "claude:" + prompt.trim();
   out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: response } } });
   out({ type: "result", subtype: "success", is_error: false, result: response, num_turns: 1, total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 2 } });

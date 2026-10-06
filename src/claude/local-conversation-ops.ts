@@ -12,8 +12,6 @@ import {
   CLAUDE_AUTH_MODES,
   CLAUDE_PERMISSION_MODES,
   CLAUDE_EFFORT_LEVELS,
-  DEFAULT_CLAUDE_HANDOVER_TOOLS,
-  DEFAULT_CLAUDE_READONLY_TOOLS,
   isValidClaudeEffort,
   type ClaudeEffort,
   isValidClaudeAuthMode,
@@ -133,9 +131,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   }
 
   const addedDirs = options?.addedDirs ?? [];
-  const allowedTools = options?.allowedTools ?? (readOnly
-    ? [...DEFAULT_CLAUDE_READONLY_TOOLS]
-    : undefined);
+  const allowedTools = options?.allowedTools;
 
   const controller = new AbortController();
   let signalled = false;

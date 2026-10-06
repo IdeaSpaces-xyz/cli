@@ -22,7 +22,7 @@ describe("buildClaudeArgs", () => {
   it("runs headless stream-json with partial messages, verbose, and acceptEdits by default", () => {
     expect(buildClaudeArgs(base)).toEqual([
       "-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
-      "--permission-mode", "acceptEdits",
+      "--permission-mode", "acceptEdits", "--permission-prompts", "none",
       "--resume", base.conversationId,
     ]);
   });
@@ -30,7 +30,7 @@ describe("buildClaudeArgs", () => {
   it("passes allowedTools when provided", () => {
     expect(buildClaudeArgs({ ...base, allowedTools: ["Read", "Grep", "Glob", "mcp__plugin_ideaspaces_core__*"] })).toEqual([
       "-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
-      "--permission-mode", "acceptEdits",
+      "--permission-mode", "acceptEdits", "--permission-prompts", "none",
       "--resume", base.conversationId,
       "--allowedTools", "Read,Grep,Glob,mcp__plugin_ideaspaces_core__*",
     ]);

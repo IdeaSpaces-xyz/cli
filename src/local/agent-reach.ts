@@ -25,15 +25,14 @@ export interface AgentReachResult {
 export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachResult {
   const errors: string[] = [];
   const baseCwd = opts.cwd ?? process.cwd();
+  const pov = realpathSync(opts.povPath);
   let spaceRoot: string | undefined;
 
   try {
-    const candidate = repoRoot(opts.povPath);
-    if (candidate && candidate !== opts.povPath) {
-      spaceRoot = candidate;
-    }
+    const candidate = repoRoot(pov);
+    if (candidate !== pov) spaceRoot = candidate;
   } catch {
-    // Not in a git repo
+    // A standalone POV is valid without an enclosing git Space.
   }
 
   const discoveredCheckouts: string[] = [];
@@ -68,8 +67,11 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
           }
         }
       }
-    } catch {
-      // Unreadable maps do not prevent reach discovery
+    } catch (err) {
+      if (item.path === opts.mapFlag) {
+        errors.push(`Cannot grant reach from --map ${item.path}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      // A broken optional discovered Map cannot authorize a checkout.
     }
   }
 
@@ -89,12 +91,7 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
     }
   }
 
-  const allAdded = [
-    ...(spaceRoot && spaceRoot !== opts.povPath ? [realpathSync(spaceRoot)] : []),
-    ...discoveredCheckouts,
-    ...explicitReach,
-  ];
-
-  const uniqueAddedDirs = [...new Set(allAdded)].filter((d) => d !== opts.povPath);
+  const allAdded = [spaceRoot, ...discoveredCheckouts, ...explicitReach];
+  const uniqueAddedDirs = [...new Set(allAdded.filter((d): d is string => Boolean(d) && d !== pov))];
   return { addedDirs: uniqueAddedDirs, errors };
 }

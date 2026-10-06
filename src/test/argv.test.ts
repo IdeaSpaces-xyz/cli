@@ -50,12 +50,14 @@ describe("parseArgs", () => {
     expect(parsed.flags.n).toBe(true);
   });
 
-  it("accumulates repeatable flags (--reach, --ext, --skill) with comma separation", () => {
+  it("accumulates only --reach; leaves --ext and --skill last-wins", () => {
     const spaceSeparated = parseArgs(["agent", "run", "scout", "--message", "hi", "--reach", "/dir1", "--reach", "/dir2"]);
     expect(spaceSeparated.flags.reach).toBe("/dir1,/dir2");
 
     const equalsSeparated = parseArgs(["agent", "run", "scout", "--message=hi", "--reach=/dir1", "--reach=/dir2"]);
     expect(equalsSeparated.flags.reach).toBe("/dir1,/dir2");
+    expect(parseArgs(["agent", "run", "scout", "--ext", "a", "--ext", "b", "--skill=x", "--skill=y"]).flags)
+      .toMatchObject({ ext: "b", skill: "y" });
   });
 
   it("preserves last-wins semantics for non-repeatable flags", () => {

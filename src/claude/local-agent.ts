@@ -32,6 +32,8 @@ import {
   type ToolInvocation,
 } from "@ideaspaces/sdk";
 import { readJsonLines } from "../local/jsonl.js";
+import { resolveAddedDirs } from "../local/send-options.js";
+import { CLAUDE_DENIED_EFFECTS } from "../local/claude-tool-policy.js";
 import { harvestLocalFiles } from "../local/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
@@ -42,28 +44,11 @@ import { launchMapEnv } from "../local/address-read.js";
  * a tool and close the turn, they do not wait — so the mode is the whole approval
  * policy for the turn.
  *
- * Note: `--permission-mode auto` cannot be set by flag in headless Claude Code
- * (falls back to `default`); only `settings.json` carries it. `acceptEdits` is the
+ * Observed in Claude Code 2.1.291: `--permission-mode auto` falls back to
+ * `default` when set by flag; only `settings.json` carries it. `acceptEdits` is the
  * default and standard mode for headless runs. */
 export const CLAUDE_PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const;
 export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
-
-export const DEFAULT_CLAUDE_HANDOVER_TOOLS = [
-  "Read",
-  "Grep",
-  "Glob",
-  "mcp__plugin_ideaspaces_core__*",
-  "Edit",
-  "Write",
-  "Bash(git:*)",
-  "Bash(ideaspaces:*)",
-] as const;
-
-export const DEFAULT_CLAUDE_READONLY_TOOLS = [
-  "Read",
-  "Grep",
-  "Glob",
-] as const;
 
 export function isValidClaudePermissionMode(mode: string): mode is ClaudePermissionMode {
   return (CLAUDE_PERMISSION_MODES as readonly string[]).includes(mode);
@@ -149,18 +134,6 @@ export interface ClaudeTurnOptions {
   signal?: AbortSignal;
 }
 
-/**
- * Canonical resolution of added directories for --add-dir: includes workingRoot
- * and explicitly added dirs, filtered to exclude repoPath (the cwd), deduplicated.
- */
-export function resolveAddedDirs(opts: { repoPath: string; workingRoot?: string; addedDirs?: string[] }): string[] {
-  const dirs = [
-    ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
-    ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
-  ];
-  return [...new Set(dirs)];
-}
-
 /** The `claude -p` argv for a turn. Pure, so the flag wiring is unit-testable.
  * The prompt is not here — it rides stdin, so message length and quoting never
  * meet the argv limit. */
@@ -171,6 +144,7 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
     "--output-format", "stream-json",
     "--include-partial-messages",
     "--permission-mode", opts.permissionMode ?? "acceptEdits",
+    "--permission-prompts", "none", // headless: never wait for or solicit approval
     opts.sessionExists ? "--resume" : "--session-id", opts.conversationId,
   ];
 
@@ -181,7 +155,11 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
 
   if (opts.model) args.push("--model", opts.model);
   if (opts.effort) args.push("--effort", opts.effort);
-  if (opts.readOnly) args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
+  if (opts.readOnly) {
+    args.push("--tools", "Read,Grep,Glob");
+    if (opts.allowedTools) args.push("--disallowedTools", CLAUDE_DENIED_EFFECTS.join(","));
+    else args.push("--strict-mcp-config"); // legacy direct read-only turn
+  }
   if (opts.allowedTools && opts.allowedTools.length > 0) {
     args.push("--allowedTools", opts.allowedTools.join(","));
   }
@@ -267,7 +245,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
   }
 
   const addedDirs = resolveAddedDirs(opts);
-  const allowedTools = opts.allowedTools ?? (opts.readOnly ? [...DEFAULT_CLAUDE_READONLY_TOOLS] : undefined);
+  const allowedTools = opts.allowedTools ?? (opts.readOnly ? ["Read", "Grep", "Glob"] : null);
 
   try {
     for await (const line of readJsonLines(claude.stdout)) {
@@ -275,16 +253,16 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
       if (!record) continue; // Claude Code prints some failures as prose before its result line
       for (const ke of translator.translate(record)) {
         if (ke.type === "message_start") {
-          const augmented = {
+          const augmented: KeeperStreamEvent = {
             ...ke,
             cwd: opts.repoPath,
             added_dirs: addedDirs,
             permission_mode: opts.permissionMode ?? "acceptEdits",
-            ...(allowedTools ? { allowed_tools: allowedTools } : {}),
+            allowed_tools: allowedTools ?? null,
             runtime: "claude",
-            ...(opts.model ? { model: opts.model } : {}),
+            model: opts.model ?? ke.model_tier,
           };
-          yield augmented as KeeperStreamEvent;
+          yield augmented;
           continue;
         }
         if (ke.type === "turn_complete") ke.result.position = lastPosition(turnTools);

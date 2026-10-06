@@ -14,6 +14,10 @@ export interface LocalSendOptions {
   resumeOnly?: boolean;
 }
 
+export function resolveAddedDirs(opts: { repoPath: string; workingRoot?: string; addedDirs?: string[] }): string[] {
+  return [...new Set([opts.workingRoot, ...(opts.addedDirs ?? [])].filter((dir): dir is string => Boolean(dir) && dir !== opts.repoPath))];
+}
+
 export function joinLocalOrientation(...parts: (string | undefined)[]): string | undefined {
   return parts.filter(Boolean).join("\n\n") || undefined;
 }

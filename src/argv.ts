@@ -1,7 +1,7 @@
 import type { GlobalFlags } from "./types.js";
 
 const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
-const REPEATABLE_COMMAND_FLAGS = new Set(["reach", "ext", "skill"]);
+const REPEATABLE_COMMAND_FLAGS = new Set(["reach"]);
 
 function setFlag(flags: Record<string, string | boolean>, key: string, value: string): void {
   if (REPEATABLE_COMMAND_FLAGS.has(key) && typeof flags[key] === "string") {
