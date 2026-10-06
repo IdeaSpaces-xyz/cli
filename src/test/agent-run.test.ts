@@ -241,7 +241,7 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -374,7 +374,7 @@ describe("agent run — command options & validation", () => {
         message: "Help with analysis",
       }),
       expect.anything(),
-      { extensionPaths: [], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
+      { extensionPaths: [], skillPaths: [], addedDirs: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Specialist Agreement") },
     );
   });
 
@@ -401,7 +401,7 @@ describe("agent run — command options & validation", () => {
         conversation: "11111111-1111-4111-8111-111111111111",
       }),
       expect.anything(),
-      { extensionPaths: [], skillPaths: [], resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [], skillPaths: [], addedDirs: [], resumeOnly: true, extraOrientation: expect.stringContaining("# Agreement") },
     );
   });
 
@@ -427,8 +427,85 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
     );
+  });
+
+  it("adds Space root when POV is in a subdirectory of a git repository", async () => {
+    const space = tempDir("space-");
+    spawnSync("git", ["init", "-q", "-b", "main", space]);
+    const scoutDir = join(space, "agents", "scout");
+    mkdirSync(join(scoutDir, "_agent"), { recursive: true });
+    writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
+
+    const code = await agentCmd.run(
+      ["run", scoutDir],
+      { message: "Check space", runtime: "claude" },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: true,
+        context: realpathSync.native(scoutDir),
+        runtime: "claude",
+        message: "Check space",
+      }),
+      expect.anything(),
+      {
+        extensionPaths: [],
+        skillPaths: [],
+        addedDirs: [realpathSync.native(space)],
+        resumeOnly: false,
+        extraOrientation: expect.stringContaining("# Scout Agreement"),
+      },
+    );
+  });
+
+  it("accepts explicit --reach <dir> flag and adds to addedDirs", async () => {
+    const space = tempDir("space-");
+    spawnSync("git", ["init", "-q", "-b", "main", space]);
+    const scoutDir = join(space, "agents", "scout");
+    mkdirSync(join(scoutDir, "_agent"), { recursive: true });
+    writeFileSync(join(scoutDir, "_agent", "agreement.md"), "# Scout Agreement\n");
+
+    const otherDir = tempDir("other-repo-");
+
+    const code = await agentCmd.run(
+      ["run", scoutDir],
+      { message: "Check reach", runtime: "claude", reach: otherDir },
+      JSON_GLOBAL,
+    );
+
+    expect(code).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        local: true,
+        context: realpathSync.native(scoutDir),
+        runtime: "claude",
+        message: "Check reach",
+      }),
+      expect.anything(),
+      {
+        extensionPaths: [],
+        skillPaths: [],
+        addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
+        resumeOnly: false,
+        extraOrientation: expect.stringContaining("# Scout Agreement"),
+      },
+    );
+  });
+
+  it("refuses non-existent --reach path", async () => {
+    const dir = makeAgentDir();
+    const code = await agentCmd.run(
+      ["run", dir],
+      { message: "Check bad reach", runtime: "claude", reach: "/nonexistent/directory/path" },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+    expect(stderr()).toContain("directory not found");
   });
 });
 
@@ -706,8 +783,8 @@ process.stdin.on("data", (chunk) => {
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain("Pi --ext and --skill paths are unavailable under Claude");
     expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", skill: true }, JSON_GLOBAL)).toBe(1);
-    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "read-only": true, "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
-    expect(stderr()).toContain("cannot be combined");
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "permission-mode": "bypassPermissions" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("bypassPermissions");
   });
 
   it("fails closed without explicit child resources, rejects a symlink escape, and loads duplicates once", async () => {

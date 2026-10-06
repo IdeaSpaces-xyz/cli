@@ -2,6 +2,8 @@
 // commands — the `--local --runtime=claude` handlers. Same seam as the pi ops
 // (`src/pi/local-conversation-ops.ts`); the router picks one by `--runtime`.
 
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
@@ -130,6 +132,22 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
+  const addedDirs = [
+    ...(options?.addedDirs ?? []),
+  ];
+  if (typeof flags.reach === "string") {
+    for (const raw of flags.reach.split(",").map((s) => s.trim()).filter(Boolean)) {
+      const target = isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
+      if (existsSync(target)) {
+        try {
+          addedDirs.push(realpathSync(target));
+        } catch {
+          addedDirs.push(target);
+        }
+      }
+    }
+  }
+
   const controller = new AbortController();
   let signalled = false;
   const onSignal = (): void => {
@@ -145,6 +163,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     for await (const event of runClaudeTurn({
       repoPath,
       workingRoot,
+      addedDirs: [...new Set(addedDirs)].filter((d) => d !== repoPath),
+      allowedTools: options?.allowedTools,
       message,
       conversationId,
       modelTier,

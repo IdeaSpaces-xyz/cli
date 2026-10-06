@@ -40,9 +40,30 @@ import { launchMapEnv } from "../local/address-read.js";
 /** Claude Code's `--permission-mode` choices (`claude --help`, 2.1.270). Headless
  * runs never prompt — checked live: `manual` and `dontAsk` under `-p` run or deny
  * a tool and close the turn, they do not wait — so the mode is the whole approval
- * policy for the turn. */
+ * policy for the turn.
+ *
+ * Note: `--permission-mode auto` cannot be set by flag in headless Claude Code
+ * (falls back to `default`); only `settings.json` carries it. `acceptEdits` is the
+ * default and standard mode for headless runs. */
 export const CLAUDE_PERMISSION_MODES = ["acceptEdits", "auto", "bypassPermissions", "manual", "dontAsk", "plan"] as const;
 export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number];
+
+export const DEFAULT_CLAUDE_HANDOVER_TOOLS = [
+  "Read",
+  "Grep",
+  "Glob",
+  "mcp__plugin_ideaspaces_core__*",
+  "Edit",
+  "Write",
+  "Bash(git:*)",
+  "Bash(ideaspaces:*)",
+] as const;
+
+export const DEFAULT_CLAUDE_READONLY_TOOLS = [
+  "Read",
+  "Grep",
+  "Glob",
+] as const;
 
 export function isValidClaudePermissionMode(mode: string): mode is ClaudePermissionMode {
   return (CLAUDE_PERMISSION_MODES as readonly string[]).includes(mode);
@@ -91,6 +112,10 @@ export interface ClaudeTurnOptions {
   repoPath: string;
   /** The selected material root, independent of the POV. Defaults to repoPath. */
   workingRoot?: string;
+  /** Additional directories to grant Claude Code access to (--add-dir). */
+  addedDirs?: string[];
+  /** Allowed tools by name/pattern (--allowedTools). When omitted, defaults by purpose. */
+  allowedTools?: string[];
   /** The user's message for this turn. */
   message: string;
   /** Conversation id = Claude session id (a UUID); reported in `message_start`, resumed each turn. */
@@ -136,10 +161,29 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
     "--permission-mode", opts.permissionMode ?? "acceptEdits",
     opts.sessionExists ? "--resume" : "--session-id", opts.conversationId,
   ];
-  if (opts.workingRoot && opts.workingRoot !== opts.repoPath) args.push("--add-dir", opts.workingRoot);
+
+  const addedDirs = [
+    ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
+    ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
+  ];
+  const uniqueAddedDirs = [...new Set(addedDirs)];
+  for (const dir of uniqueAddedDirs) {
+    args.push("--add-dir", dir);
+  }
+
   if (opts.model) args.push("--model", opts.model);
   if (opts.effort) args.push("--effort", opts.effort);
-  if (opts.readOnly) args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
+
+  const allowedTools = opts.allowedTools ?? (opts.readOnly
+    ? [...DEFAULT_CLAUDE_READONLY_TOOLS]
+    : [...DEFAULT_CLAUDE_HANDOVER_TOOLS]);
+
+  if (opts.readOnly) {
+    args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config", "--allowedTools", allowedTools.join(","));
+  } else {
+    args.push("--allowedTools", allowedTools.join(","));
+  }
+
   if (opts.autocompact) args.push("--autocompact", opts.autocompact);
   const orientation = [opts.mapOrientation, opts.launchOrientation].filter(Boolean).join("\n\n");
   if (orientation) args.push("--append-system-prompt", orientation);
@@ -220,11 +264,33 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
     /* claude gone — the stdout loop reports it */
   }
 
+  const addedDirs = [
+    ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
+    ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
+  ];
+  const uniqueAddedDirs = [...new Set(addedDirs)];
+  const allowedTools = opts.allowedTools ?? (opts.readOnly
+    ? [...DEFAULT_CLAUDE_READONLY_TOOLS]
+    : [...DEFAULT_CLAUDE_HANDOVER_TOOLS]);
+
   try {
     for await (const line of readJsonLines(claude.stdout)) {
       const record = parseClaudeStreamLine(line);
       if (!record) continue; // Claude Code prints some failures as prose before its result line
       for (const ke of translator.translate(record)) {
+        if (ke.type === "message_start") {
+          const augmented = {
+            ...ke,
+            cwd: opts.repoPath,
+            added_dirs: uniqueAddedDirs,
+            permission_mode: opts.permissionMode ?? "acceptEdits",
+            allowed_tools: allowedTools,
+            runtime: "claude",
+            model: opts.model,
+          };
+          yield augmented as KeeperStreamEvent;
+          continue;
+        }
         if (ke.type === "turn_complete") ke.result.position = lastPosition(turnTools);
         yield ke;
       }

@@ -6,6 +6,10 @@ export interface LocalSendOptions {
   /** Agent-run only: vetted canonical Pi paths. Empty is intentional; never fall back to ambient. */
   extensionPaths?: string[];
   skillPaths?: string[];
+  /** Additional directories granted tool access (--add-dir / reach). */
+  addedDirs?: string[];
+  /** Allowed tools override. */
+  allowedTools?: string[];
   /** Agent-run only: recheck the transcript before invoking the child. */
   resumeOnly?: boolean;
 }

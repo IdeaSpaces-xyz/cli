@@ -19,11 +19,12 @@ const base: ClaudeTurnOptions & { sessionExists: boolean } = {
 };
 
 describe("buildClaudeArgs", () => {
-  it("runs headless stream-json with partial messages, verbose, and acceptEdits by default", () => {
+  it("runs headless stream-json with partial messages, verbose, acceptEdits, and default handover allowedTools", () => {
     expect(buildClaudeArgs(base)).toEqual([
       "-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages",
       "--permission-mode", "acceptEdits",
       "--resume", base.conversationId,
+      "--allowedTools", "Read,Grep,Glob,mcp__plugin_ideaspaces_core__*,Edit,Write,Bash(git:*),Bash(ideaspaces:*)",
     ]);
   });
 
@@ -35,6 +36,20 @@ describe("buildClaudeArgs", () => {
   it("allows a distinct working root through --add-dir, and skips it when it is the POV", () => {
     expect(buildClaudeArgs({ ...base, workingRoot: "/work" })).toContain("--add-dir");
     expect(buildClaudeArgs({ ...base, workingRoot: "/ws" })).not.toContain("--add-dir");
+  });
+
+  it("adds Space root, Map checkouts, and reach dirs via --add-dir (deduplicating and excluding POV)", () => {
+    const args = buildClaudeArgs({
+      ...base,
+      repoPath: "/home/agents/scout",
+      workingRoot: "/home/work",
+      addedDirs: ["/home", "/home/work", "/checkouts/lib", "/home/agents/scout"],
+    });
+    const addDirIndices: number[] = [];
+    args.forEach((a, i) => { if (a === "--add-dir") addDirIndices.push(i); });
+    const added = addDirIndices.map((i) => args[i + 1]);
+    expect(added).toEqual(["/home/work", "/home", "/checkouts/lib"]);
+    expect(added).not.toContain("/home/agents/scout");
   });
 
   it("passes model, permission mode, autocompact, and orientation through", () => {
@@ -55,8 +70,19 @@ describe("buildClaudeArgs", () => {
 
   it("limits available tools for read-only independently of permission mode and forwards supported effort", () => {
     const args = buildClaudeArgs({ ...base, readOnly: true, effort: "high", permissionMode: "dontAsk" });
-    expect(args).toEqual(expect.arrayContaining(["--tools", "Read,Grep,Glob", "--strict-mcp-config", "--effort", "high", "--permission-mode", "dontAsk"]));
-    expect(args).not.toContain("--allowedTools");
+    expect(args).toEqual(expect.arrayContaining([
+      "--tools", "Read,Grep,Glob",
+      "--strict-mcp-config",
+      "--allowedTools", "Read,Grep,Glob",
+      "--effort", "high",
+      "--permission-mode", "dontAsk",
+    ]));
+  });
+
+  it("allows overriding allowedTools explicitly", () => {
+    const args = buildClaudeArgs({ ...base, allowedTools: ["Read", "Grep"] });
+    expect(args).toContain("--allowedTools");
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe("Read,Grep");
   });
 
   it("never carries the prompt — it rides stdin", () => {

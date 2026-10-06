@@ -5,6 +5,8 @@
 // for the boundary rule.
 
 import { join } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
@@ -126,6 +128,22 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
+  const addedDirs = [
+    ...(options?.addedDirs ?? []),
+  ];
+  if (typeof flags.reach === "string") {
+    for (const raw of flags.reach.split(",").map((s) => s.trim()).filter(Boolean)) {
+      const target = isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
+      if (existsSync(target)) {
+        try {
+          addedDirs.push(realpathSync(target));
+        } catch {
+          addedDirs.push(target);
+        }
+      }
+    }
+  }
+
   // Abort propagation: SIGINT/SIGTERM (or the desktop killing the sidecar) kills
   // the local pi turn. Guarded so repeats don't double-fire.
   const controller = new AbortController();
@@ -143,6 +161,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     for await (const event of runLocalTurn({
       repoPath,
       workingRoot,
+      addedDirs: [...new Set(addedDirs)].filter((d) => d !== repoPath),
       message,
       extensionPaths,
       skillPaths,

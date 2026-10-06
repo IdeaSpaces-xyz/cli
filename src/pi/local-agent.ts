@@ -67,6 +67,8 @@ export interface LocalTurnOptions {
   repoPath: string;
   /** The selected material root, independent of the POV. Defaults to repoPath. */
   workingRoot?: string;
+  /** Additional directories granted tool access (--add-dir / reach). */
+  addedDirs?: string[];
   /** The user's message for this turn. */
   message: string;
   /** Extensions to load, in order — pi-is-space (Space) + pi-local-context. */
@@ -241,6 +243,23 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         continue; // command acks + UI chrome
       }
       for (const ke of translator.translate(msg as unknown as PiAgentEvent)) {
+        if (ke.type === "message_start") {
+          const addedDirs = [
+            ...(opts.workingRoot && opts.workingRoot !== opts.repoPath ? [opts.workingRoot] : []),
+            ...(opts.addedDirs ?? []).filter((d) => d !== opts.repoPath),
+          ];
+          const augmented = {
+            ...ke,
+            cwd: opts.repoPath,
+            added_dirs: [...new Set(addedDirs)],
+            runtime: "pi",
+            model: opts.piModel,
+            extensions: opts.extensionPaths,
+            trust: opts.trust ?? "saved",
+          };
+          yield augmented as KeeperStreamEvent;
+          continue;
+        }
         // Fill position from the turn's last navigate (translator can't do it lazily).
         if (ke.type === "turn_complete") ke.result.position = lastPosition(turnTools);
         yield ke;
