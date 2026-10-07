@@ -155,12 +155,6 @@ describe("local Threads", () => {
         expect(await threadsCommand.run([verb, "somewhere"], { unknown: "value" }, global)).toBe(1);
         expect(errors).toContain(`Unknown flag for threads ${verb}: --unknown`);
       }
-      errors = "";
-      expect(await threadsCommand.run(["open", "somewhere"], { post: "msg_one" }, global)).toBe(1);
-      expect(errors).toContain("--post");
-      errors = "";
-      expect(await threadsCommand.run(["open", "somewhere"], { since: "2026-10-07" }, global)).toBe(1);
-      expect(errors).toContain("--since");
     } finally { process.stderr.write = write; }
   });
 
@@ -178,6 +172,35 @@ describe("local Threads", () => {
       expect(err).toContain("Use threads post incomplete");
       expect(loadThread(join(root, "_threads", "incomplete")).posts).toEqual([]);
     } finally { vi.useRealTimers(); process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("opens local Threads by rung and bounds posts without leaking bodies", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("disclosure", "Disclosure", root);
+    writeFileSync(join(thread.path, "README.md"), "---\nname: Disclosure\nsummary: A decision\n---\n\n# Disclosure\n\n## Current frame\n\nToday we decide.\n");
+    writeFileSync(join(thread.path, "_agent/agreement.md"), "---\nname: Agreement — Disclosure\nsummary: A decision\n---\n\n# Agreement\n\n## Goal\n\nKeep it honest.\n\n## Done when\n\nOne reply is read.\n");
+    const first = appendPost(thread.path, { body: "Private opening", author: "Agent A", name: "Opening" });
+    const second = appendPost(thread.path, { body: "Private reply", author: "Agent B", name: "Reply", summary: "A bounded decision", replyTo: [first.post.id] });
+    const previous = process.cwd(); process.chdir(root);
+    const write = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    const global = { json: true, quiet: true, yes: false, help: false };
+    async function open(options: Record<string, string | boolean>) { out = ""; expect(await threadsCommand.run(["open", "disclosure"], options, global)).toBe(0); return JSON.parse(out); }
+    try {
+      const named = await open({ depth: "name" });
+      expect(named.posts).toEqual([]);
+      expect(named.thread.frame).toMatchObject({ current_frame: "Today we decide.", goal: "Keep it honest.", done_when: "One reply is read." });
+      const summary = await open({ depth: "summary", since: first.post.id });
+      expect(summary.posts).toMatchObject([{ id: second.post.id, in_reply_to: [first.post.id], author: "Agent B" }]);
+      expect(out).not.toContain("Private reply");
+      const children = await open({ depth: "children" });
+      expect(children.posts[0].children[0].id).toBe(second.post.id);
+      expect(out).not.toContain("Private reply");
+      const surface = await open({ depth: "surface", post: second.post.id });
+      expect(surface.posts).toHaveLength(1);
+      expect(surface.raw_post).toContain("Private reply");
+      expect(out).not.toContain("Private opening");
+    } finally { process.stdout.write = write; process.chdir(previous); }
   });
 
   it("threads read --json returns authored date and legacy filename fallback", async () => {

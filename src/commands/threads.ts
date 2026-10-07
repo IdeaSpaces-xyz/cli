@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { parseFrontmatter, parseThreadPost, reconstructThreadTimeline, type ThreadKind, type ThreadNode } from "@ideaspaces/protocol";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
@@ -31,10 +31,11 @@ function selectionFlags(flags: Flags): void {
   if (flags.map === undefined && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("--member and --checkout require --map.");
   if (flags.checkout === true) throw new Error("--checkout requires an absolute Space root path.");
 }
-function depth(flags: Flags, fallback: string): "name" | "summary" | "full" {
+type ThreadDepth = "name" | "summary" | "children" | "surface" | "full";
+function depth(flags: Flags, fallback: string): ThreadDepth {
   const value = flags.depth ?? fallback;
-  if (value === "name" || value === "summary" || value === "full") return value;
-  throw new Error("--depth must be name, summary or full.");
+  if (value === "name" || value === "summary" || value === "children" || value === "surface" || value === "full") return value;
+  throw new Error("--depth must be name, summary, children, surface or full.");
 }
 async function stdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
@@ -70,11 +71,54 @@ function reportDateWarnings(thread: LocalThread, output: Output): void {
   for (const warning of new Set(thread.warnings)) output.log(`Thread ${thread.slug}: ${warning}`);
 }
 
-function localText(thread: LocalThread, posts: LocalThread["posts"], rung: string): string {
-  if (rung === "name") return `${thread.slug}  ${thread.name}`;
-  const header = `${thread.name} (${thread.path})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
-  return [header, ...posts.map((p) => rung === "summary"
-    ? `\n${p.frontmatter.name ?? p.id} — ${p.frontmatter.summary ?? p.body.split("\n").find(Boolean) ?? ""}`
+function threadSection(markdown: string, heading: string): string | undefined {
+  const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
+  return match?.[1]?.trim() || undefined;
+}
+function threadFrame(thread: LocalThread) {
+  const agreement = readFileSync(join(thread.path, "_agent", "agreement.md"), "utf8");
+  return {
+    current_frame: threadSection(thread.readme, "Current frame"),
+    goal: threadSection(agreement, "Goal"),
+    done_when: threadSection(agreement, "Done when"),
+  };
+}
+interface ThreadChild {
+  id: string;
+  kind: ThreadKind;
+  date: string | null;
+  name: string;
+  in_reply_to: string[];
+  children: ThreadChild[];
+}
+function childTree(posts: LocalThread["posts"]): ThreadChild[] {
+  const seen = new Set<string>();
+  const project = (node: ThreadNode): ThreadChild => {
+    seen.add(node.post.id);
+    return { id: node.post.id, kind: node.post.kind, date: node.post.date ?? null,
+      name: node.post.frontmatter.name ?? node.post.id, in_reply_to: node.post.inReplyTo,
+      children: node.children.filter((child) => !seen.has(child.post.id)).map(project) };
+  };
+  return reconstructThreadTimeline(posts).roots.map(project);
+}
+function localText(thread: LocalThread, posts: LocalThread["posts"], rung: ThreadDepth, frame = threadFrame(thread)): string {
+  const header = `${thread.slug}  ${thread.name}`;
+  if (rung === "name") return [header, frame.current_frame && `Current frame: ${frame.current_frame}`,
+    frame.goal && `Goal: ${frame.goal}`, frame.done_when && `Done when: ${frame.done_when}`].filter(Boolean).join("\n\n");
+  const context = `${thread.name} (${thread.path})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
+  if (rung === "children") {
+    const lines: string[] = [];
+    const visit = (nodes: ReturnType<typeof childTree>, level: number) => {
+      for (const node of nodes) {
+        lines.push(`${"  ".repeat(level)}${node.id} · ${node.kind} · ${node.date ?? "undated"} · ${node.name} · in_reply_to ${node.in_reply_to.join(", ") || "—"}`);
+        visit(node.children, level + 1);
+      }
+    };
+    visit(childTree(posts), 0);
+    return [context, ...lines].join("\n");
+  }
+  return [context, ...posts.map((p) => rung === "summary"
+    ? `\n${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${p.frontmatter.name ?? p.id} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}\n${p.frontmatter.summary ?? p.body.split("\n").find(Boolean) ?? ""}`
     : `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}`),
   ].join("\n");
 }
@@ -135,8 +179,8 @@ function writerName(explicit?: string): string {
 const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
   Object.entries({
     list: "new space depth kind since",
-    open: "depth new ack map member checkout pin position",
-    read: "depth new ack kind since map member checkout pin position",
+    open: "depth new ack since post map member checkout pin position",
+    read: "depth new ack kind since post map member checkout pin position",
     new: "about",
     post: "map member checkout reply-to kind author name summary supersedes message",
     close: "map reply-to kind author name summary supersedes message",
@@ -192,6 +236,7 @@ export const threadsCommand: CommandDef = {
         return hostedThreadsCommand.run(args, flags, global);
       }
       if (sub === "list") {
+        if (flags.depth === "children" || flags.depth === "surface") throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
         if (rest.length > 1 || (rest.length && str(flags, "space"))) throw new Error("Usage: threads list [<dir>] [--space n_…] [--new]");
         const newOnly = yes(flags, "new");
         const rung = depth(flags, "summary");
@@ -285,6 +330,7 @@ export const threadsCommand: CommandDef = {
         selectionFlags(flags);
         if (flags.map !== undefined && flags.member === undefined) throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");
         if (flags.map !== undefined && flags.member !== undefined) {
+          if (flags.since !== undefined || flags.post !== undefined) throw new Error("Selected pinned open cannot use --since or --post; select one authored post with --member.");
           if (flags.pin !== undefined || flags.position !== undefined) throw new Error("Use either --map with --member or --pin with --position, not both.");
           if (flags.new !== undefined || flags.ack !== undefined) throw new Error("Selected pinned reads cannot use live --new or --ack.");
           const { root, member } = selectPinnedThreadMember(loadLocalThreadMap(str(flags, "map") ?? ""), str(flags, "member") ?? "");
@@ -293,40 +339,62 @@ export const threadsCommand: CommandDef = {
           const post = target.post;
           const postName = post.frontmatter.name ?? post.id;
           const postSummary = post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? "";
-          const posts = rung === "name" ? [] : rung === "summary" ? [{ id: post.id, path: post.path, kind: post.kind,
-            date: post.date ?? null, name: postName, summary: postSummary, in_reply_to: post.inReplyTo }] : [post];
+          const posts = rung === "name" ? [] : rung === "summary" || rung === "children" ? [{ id: post.id, path: post.path, kind: post.kind,
+            date: post.date ?? null, name: postName, ...(rung === "summary" ? { summary: postSummary } : {}), in_reply_to: post.inReplyTo }] : [post];
           output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
             posts, ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
-            rung === "full" ? target.pinned : rung === "name" ? target.name : `${target.name}\n${postName} — ${postSummary}`);
+            rung === "full" || rung === "surface" ? target.pinned : rung === "name" ? target.name : rung === "children" ? `${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"}` : `${target.name}\n${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"} — ${postSummary}`);
           return 0;
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         const thread = loadThread(resolveLocalThread(rest[0]));
         reportDateWarnings(thread, output);
         const rung = depth(flags, "summary");
+        const postId = str(flags, "post");
+        if (flags.post !== undefined && !postId) throw new Error("--post requires a post id.");
+        if (rung === "surface" && !postId) throw new Error("--depth surface requires --post <id>.");
+        const since = str(flags, "since");
+        if (flags.since !== undefined && !since) throw new Error("--since requires an ISO date or post id.");
         const newOnly = yes(flags, "new");
+        if (newOnly && since) throw new Error("Use either --new or --since, not both.");
         const seen = newOnly ? readCursor(thread) : new Set<string>();
-        const posts = thread.posts.filter((p) => !seen.has(p.id));
+        let posts = thread.posts.filter((p) => !seen.has(p.id));
+        if (since) {
+          const at = thread.posts.findIndex((p) => p.id === since);
+          if (at !== -1) posts = posts.filter((p) => thread.posts.indexOf(p) > at);
+          else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
+            posts = posts.filter((p) => p.date && Date.parse(p.date) > Date.parse(since));
+          } else throw new Error(`--since needs a post id in this Thread or a valid ISO date: ${since}`);
+        }
+        if (postId) {
+          if (!thread.posts.some((p) => p.id === postId)) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
+          posts = posts.filter((p) => p.id === postId);
+        }
         const ack = yes(flags, "ack");
         if (ack && rung === "name") throw new Error("Cannot --ack at name depth: no posts were shown.");
         const pin = str(flags, "pin");
         const position = str(flags, "position");
         if (flags.pin === true || flags.position === true) throw new Error("--pin and --position require values.");
         if (!!pin !== !!position) throw new Error("Pinned open requires both --pin <authored SHA> and --position <_threads/...md>.");
+        if (pin && (flags.since !== undefined || flags.post !== undefined)) throw new Error("Pinned open already selects one authored position; omit --since and --post.");
         if (position && !position.startsWith(`_threads/${thread.slug}/`)) {
           throw new Error(`Pinned member ${position} belongs to another Thread; open its own local path instead.`);
         }
         const pinned = pin && position ? readPinnedThreadMember(threadBase(), pin, position) : undefined;
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
         if (ack) acknowledge(thread, posts);
-        const projected = rung === "name" ? [] : posts.map((p) => rung === "summary"
+        const effectiveRung = postId ? "full" : rung;
+        const projected = effectiveRung === "name" ? [] : effectiveRung === "children" ? childTree(posts) : posts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
-            summary: p.frontmatter.summary ?? p.body.split("\n").find(Boolean) ?? "", in_reply_to: p.inReplyTo }
+            summary: p.frontmatter.summary ?? p.body.split("\n").find(Boolean) ?? "", in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null }
           : p);
-        output.result({ thread: { path: thread.path, name: thread.name, summary: rung === "name" ? undefined : thread.summary,
-          closed: thread.closed }, posts: projected,
-          ...(pinned ? { pinned: rung === "full" ? pinned : undefined, pin, position } : {}), acknowledged: ack },
-          pinned && rung === "full" ? pinned : localText(thread, posts, rung)); return 0;
+        const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
+        const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;
+        output.result({ thread: { path: thread.path, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
+          closed: thread.closed, ...(frame ? { frame } : {}) }, posts: projected,
+          ...(rawPost ? { raw_post: rawPost } : {}),
+          ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), acknowledged: ack },
+          pinned && effectiveRung === "full" ? pinned : rawPost ?? localText(thread, posts, effectiveRung)); return 0;
       }
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || HOSTED.test(rest[0])) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);

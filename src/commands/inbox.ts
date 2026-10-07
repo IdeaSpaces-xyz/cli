@@ -53,7 +53,7 @@ const USAGE = "ideaspaces threads <list|read|send|reply|add|close|rename|expand>
 const LIST_USAGE =
   "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
 const READ_USAGE =
-  "ideaspaces threads read <thread_id> [--new|--since <position>] [--kind <message|reframe>] [--depth <name|summary|full>] [--ack]";
+  "ideaspaces threads read <thread_id> [--new|--since <position|ISO date|note_node_id>] [--post <note_node_id>] [--kind <message|reframe>] [--depth <name|summary|children|surface|full>] [--ack]";
 const SEND_USAGE =
   "ideaspaces threads send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] [--share <viewer|copying|editor>] [--share-roots <node_id,...>] [--space-map <path.map.md>] [--grade <view|participate>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>] (recipient required without a target)";
 const EXPAND_USAGE = "ideaspaces threads expand <thread_id> <member_ordinal>";
@@ -141,7 +141,7 @@ function participantsText(participants: InboxParticipant[]): string {
 }
 
 type InboxKind = "message" | "reframe" | "request";
-type ReadDepth = "name" | "summary" | "full";
+type ReadDepth = "name" | "summary" | "children" | "surface" | "full";
 
 export function threadBadges(grade?: ThreadGrade, closed?: boolean): string {
   return `${grade ? ` [${grade}]` : ""}${closed ? " [closed]" : ""}`;
@@ -197,8 +197,8 @@ export function exchangeText(
     const actor = message.actor_ref === message.author_ref ? "" : ` via ${message.actor_ref}`;
     lines.push(
       "",
-      `[${message.position}] ${author ? participantLabel(author) : message.author_ref}${actor} — ${message.name}`,
-      message.summary,
+      `[${message.position}] ${message.note_node_id} · ${message.action} · ${message.created_at} · ${author ? participantLabel(author) : message.author_ref}${actor} — ${message.name}`,
+      ...(depth === "summary" ? [message.summary, "in_reply_to: unavailable (hosted service does not expose reply parents)"] : [message.summary]),
     );
     if (depth === "full") {
       if (message.map) lines.push(...formatPortableMap(message.map));
@@ -231,8 +231,8 @@ function parseKind(value: string | boolean | undefined, output: Output): InboxKi
 
 function parseDepth(value: string | boolean | undefined, output: Output): ReadDepth | null {
   if (value === undefined) return "summary";
-  if (value === "name" || value === "summary" || value === "full") return value;
-  output.error("--depth must be one of: name, summary, full.");
+  if (value === "name" || value === "summary" || value === "children" || value === "surface" || value === "full") return value;
+  output.error("--depth must be one of: name, summary, children, surface, full.");
   return null;
 }
 
@@ -306,6 +306,10 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
   }
   const depth = parseDepth(flags.depth, output);
   if (!depth) return 1;
+  if (depth === "children" || depth === "surface") {
+    output.error("--depth children and surface are for opening a Thread; list supports name, summary or full.");
+    return 1;
+  }
 
   return runAuthenticated(output, async (config) => {
     if (space) {
@@ -402,8 +406,16 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
     output.error("--ack cannot be combined with --since because omitted events would be marked read. Use --new --ack, or acknowledge an exact position with `follow --ack`.");
     return 1;
   }
-  const since = parsePosition(flags.since, output);
-  if (since === null) return 1;
+  const sinceValue = flagString(flags, "since");
+  if (flags.since !== undefined && (!sinceValue || !( /^\d+$/.test(sinceValue) || /^n_[a-zA-Z0-9_-]+$/.test(sinceValue) || /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(sinceValue)))) {
+    output.error("--since needs a position, hosted Note id, or ISO date.");
+    return 1;
+  }
+  const post = flagString(flags, "post");
+  if (flags.post !== undefined && !post) {
+    output.error("--post needs a hosted Note id (n_…).");
+    return 1;
+  }
   const kind = parseKind(flags.kind, output);
   if (kind === null) return 1;
   if (kind === "request") {
@@ -416,17 +428,54 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
   }
   const depth = parseDepth(flags.depth ?? "full", output);
   if (!depth) return 1;
+  if (depth === "children") {
+    output.error("Hosted Threads do not expose reply-parent links, so --depth children cannot draw a reply tree. Use --depth summary to read dated posts.");
+    return 1;
+  }
+  if (depth === "surface" && !post) {
+    output.error("Hosted Thread surface needs --post <note_node_id> to select one post.");
+    return 1;
+  }
+  if (kind === "reframe" && sinceValue && !/^\d+$/.test(sinceValue)) {
+    output.error("--kind reframe needs a numeric --since position; the bounded event feed has no post-id or date cursor.");
+    return 1;
+  }
 
   return runAuthenticated(output, async (config) => {
     const exchange = await fetchExchange(config, exchangeId);
+    const since = sinceValue && /^\d+$/.test(sinceValue) ? Number(sinceValue) : undefined;
+    if (since !== undefined && !Number.isSafeInteger(since)) {
+      output.error("--since position must be a non-negative safe integer.");
+      return 1;
+    }
+    if (sinceValue && since === undefined && /^n_/.test(sinceValue) && !exchange.messages.some((message) => message.note_node_id === sinceValue)) {
+      output.error(`--since post ${sinceValue} is not in Thread ${exchangeId}.`);
+      return 1;
+    }
+    const sinceDate = sinceValue && /^\d{4}-/.test(sinceValue) ? Date.parse(sinceValue) : undefined;
+    if (sinceDate !== undefined && Number.isNaN(sinceDate)) {
+      output.error("--since must be a valid ISO date.");
+      return 1;
+    }
     if ((flags.new || flags.ack) && exchange.cursor === null) {
       output.error(`Thread ${exchangeId} is not followed. Run \`ideaspaces follow thread ${exchangeId}\` first.`);
       return 1;
     }
     const after = flags.new ? exchange.cursor ?? undefined : since;
-    let messages = exchange.messages.filter(
-      (message) => after === undefined || message.position > after,
+    const sincePost = sinceValue && /^n_/.test(sinceValue)
+      ? exchange.messages.find((message) => message.note_node_id === sinceValue) : undefined;
+    let messages = exchange.messages.filter((message) =>
+      (after === undefined || message.position > after) &&
+      (sincePost === undefined || message.position > sincePost.position) &&
+      (sinceDate === undefined || Date.parse(message.created_at) > sinceDate),
     );
+    if (post) {
+      if (!exchange.messages.some((message) => message.note_node_id === post)) {
+        output.error(`Post ${post} is not in Thread ${exchangeId}.`);
+        return 1;
+      }
+      messages = messages.filter((message) => message.note_node_id === post);
+    }
     let events: FollowEvent[] = [];
     if (kind === "reframe") {
       if (after !== undefined && exchange.cursor !== null && after < exchange.cursor) {
@@ -457,14 +506,19 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
       acknowledged = await acknowledgeSubscription(config, row.id, exchange.latest_position);
     }
 
+    const projected = post || depth === "surface" || depth === "full" ? messages : depth === "name" ? [] : messages.map((message) => ({
+      id: message.note_node_id, note_node_id: message.note_node_id, kind: message.action, date: message.created_at, name: message.name,
+      summary: message.summary, author: message.author_ref, in_reply_to: null,
+    }));
     const data = {
       ...exchange,
-      messages,
+      messages: projected,
+      ...(depth === "summary" ? { reply_links_unavailable: true } : {}),
       ...(kind === "reframe" ? { events } : {}),
       ...(acknowledged ? { acknowledged_cursor: acknowledged.cursor } : {}),
     };
     const empty = kind === "reframe" ? "No new reframe events." : "No messages after that position.";
-    output.result(data, messages.length ? exchangeText(exchange, messages, depth) : empty);
+    output.result(data, messages.length ? exchangeText(exchange, messages, post ? "full" : depth) : empty);
     return 0;
   });
 }

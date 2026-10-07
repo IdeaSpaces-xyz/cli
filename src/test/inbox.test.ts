@@ -208,6 +208,35 @@ describe("inbox", () => {
     expect(stdout()).toContain("# Question\n\nWhat next?");
   });
 
+  it("bounds hosted Thread disclosure and selects one immutable Note by id", async () => {
+    const dated = [
+      { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, markdown: "Old private body" },
+      { ...message, note_node_id: "n_second", created_at: "2026-10-07T00:00:00Z", position: 2, markdown: "Selected body" },
+    ];
+    fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", name: "Thread", your_grade: "view", target_node_id: null,
+      participants: [], cursor: 1, latest_position: 2, messages: dated });
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "summary", new: true }, JSON_GLOBAL)).toBe(0);
+    let result = JSON.parse(stdout());
+    expect(result.messages).toMatchObject([{ id: "n_second", kind: "inquiry.opened", date: "2026-10-07T00:00:00Z", in_reply_to: null }]);
+    expect(stdout()).not.toContain("Selected body");
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "name" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages).toEqual([]);
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "summary", since: "n_first" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages.map((p: { id: string }) => p.id)).toEqual(["n_second"]);
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "summary", since: "2026-10-06T00:00:00Z" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages.map((p: { id: string }) => p.id)).toEqual(["n_second"]);
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "surface", post: "n_second" }, JSON_GLOBAL)).toBe(0);
+    result = JSON.parse(stdout());
+    expect(result.messages).toMatchObject([{ note_node_id: "n_second", markdown: "Selected body" }]);
+    expect(stdout()).not.toContain("Old private body");
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("do not expose reply-parent links");
+  });
+
   it("renders preserved Map context without losing the question", async () => {
     fetchExchangeMock.mockResolvedValue({
       mode: "direct",
