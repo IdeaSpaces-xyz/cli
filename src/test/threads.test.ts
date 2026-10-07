@@ -191,7 +191,7 @@ describe("local Threads", () => {
       expect(named.posts).toEqual([]);
       expect(named.thread.frame).toMatchObject({ current_frame: "Today we decide.", goal: "Keep it honest.", done_when: "One reply is read." });
       const allSummaries = await open({ depth: "summary" });
-      expect(allSummaries.posts[0].summary).toBe("");
+      expect(allSummaries.posts[0].summary).toBe("(no summary)");
       expect(out).not.toContain("Private opening");
       const summary = await open({ depth: "summary", since: first.post.id });
       expect(summary.posts).toMatchObject([{ id: second.post.id, in_reply_to: [first.post.id], author: "Agent B" }]);
@@ -203,6 +203,8 @@ describe("local Threads", () => {
       expect(surface.posts).toHaveLength(1);
       expect(surface.raw_post).toContain("Private reply");
       expect(out).not.toContain("Private opening");
+      expect(await threadsCommand.run(["open", "disclosure"], { post: second.post.id, since: first.post.id }, global)).toBe(1);
+      expect(await threadsCommand.run(["open", "disclosure"], { depth: "name", ack: true }, global)).toBe(1);
     } finally { process.stdout.write = write; process.chdir(previous); }
   });
 

@@ -402,8 +402,12 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
     output.error("--ack does not take a value here; use `ideaspaces follow thread <id> --ack <position>` to acknowledge an exact position.");
     return 1;
   }
-  if (flags.ack && flags.since !== undefined) {
-    output.error("--ack cannot be combined with --since because omitted events would be marked read. Use --new --ack, or acknowledge an exact position with `follow --ack`.");
+  if (flags.ack && (flags.since !== undefined || flags.post !== undefined || flags.depth === "name" || flags.depth === "children")) {
+    output.error("--ack requires an unfiltered summary or full read; omit --since, --post and name/children depth because omitted events would be marked read. Use follow --ack <position> for an exact cursor.");
+    return 1;
+  }
+  if (flags.post !== undefined && (flags.new || flags.since !== undefined)) {
+    output.error("--post selects one immutable Note; omit --new and --since, which select a range.");
     return 1;
   }
   const sinceValue = flagString(flags, "since");

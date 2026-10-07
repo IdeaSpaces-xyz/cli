@@ -128,7 +128,7 @@ function localText(thread: LocalThread, posts: LocalThread["posts"], rung: Threa
     return [context, ...lines].join("\n");
   }
   return [context, ...posts.map((p) => rung === "summary"
-    ? `\n${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${p.frontmatter.name ?? p.id} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}\n${p.frontmatter.summary ?? ""}`
+    ? `\n${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${p.frontmatter.name ?? p.id} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}\n${p.frontmatter.summary ?? "(no summary)"}`
     : `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}`),
   ].join("\n");
 }
@@ -369,12 +369,15 @@ export const threadsCommand: CommandDef = {
         if (flags.since !== undefined && !since) throw new Error("--since requires an ISO date or post id.");
         const newOnly = yes(flags, "new");
         if (newOnly && since) throw new Error("Use either --new or --since, not both.");
+        if (postId && (newOnly || since)) throw new Error("--post selects one immutable post; omit --new and --since, which select a range.");
         const seen = newOnly ? readCursor(thread) : new Set<string>();
         let posts = thread.posts.filter((p) => !seen.has(p.id));
         if (since) {
           const at = thread.posts.findIndex((p) => p.id === since);
           if (at !== -1) posts = posts.filter((p) => thread.posts.indexOf(p) > at);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
+            const undated = posts.filter((p) => !p.date).length;
+            if (undated) output.log(`${undated} undated post(s) in Thread ${thread.slug} cannot be compared to --since ${since}; omitted.`);
             posts = posts.filter((p) => p.date && Date.parse(p.date) > Date.parse(since));
           } else throw new Error(`--since needs a post id in this Thread or a valid ISO date: ${since}`);
         }
@@ -383,7 +386,7 @@ export const threadsCommand: CommandDef = {
           posts = posts.filter((p) => p.id === postId);
         }
         const ack = yes(flags, "ack");
-        if (ack && rung === "name") throw new Error("Cannot --ack at name depth: no posts were shown.");
+        if (ack && (rung === "name" || rung === "children" || postId || since)) throw new Error("Cannot --ack an incomplete Thread read (name/children, --post or --since); use summary/full --new --ack or follow --ack <position>.");
         const pin = str(flags, "pin");
         const position = str(flags, "position");
         if (flags.pin === true || flags.position === true) throw new Error("--pin and --position require values.");
@@ -398,7 +401,7 @@ export const threadsCommand: CommandDef = {
         const effectiveRung = postId ? "full" : rung;
         const projected = effectiveRung === "name" ? [] : effectiveRung === "children" ? childTree(posts) : posts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
-            summary: p.frontmatter.summary ?? "", in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null }
+            summary: p.frontmatter.summary ?? "(no summary)", in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null }
           : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;

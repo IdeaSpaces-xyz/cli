@@ -208,6 +208,19 @@ describe("inbox", () => {
     expect(stdout()).toContain("# Question\n\nWhat next?");
   });
 
+  it("does not acknowledge hosted posts that were not shown", async () => {
+    for (const flags of [
+      { depth: "name", ack: true }, { depth: "children", ack: true },
+      { post: "n_one", ack: true }, { post: "n_one", new: true },
+      { post: "n_one", since: "2026-10-07" },
+    ]) {
+      expect(await inboxCommand.run(["read", "x_one"], flags, TEXT_GLOBAL)).toBe(1);
+    }
+    expect(fetchExchangeMock).not.toHaveBeenCalled();
+    expect(acknowledgeSubscriptionMock).not.toHaveBeenCalled();
+    expect(stderr()).toContain("--ack requires an unfiltered summary or full read");
+  });
+
   it("bounds hosted Thread disclosure and selects one immutable Note by id", async () => {
     const dated = [
       { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, markdown: "Old private body" },
