@@ -803,7 +803,7 @@ async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Fl
     const planned = sub === "add"
       ? `Would add ${handle} to hosted Thread ${exchangeId} at ${grade}. This grants Thread access.`
       : `Would close hosted Thread ${exchangeId}.`;
-    output.result({ exchange_id: exchangeId, planned: true }, `${planned} Nothing changed; re-run with --yes to apply. The server checks ownership.`);
+    output.result({ exchange_id: exchangeId, planned: true, ...(sub === "add" ? { recipient, grade } : {}) }, `${planned} Nothing changed; re-run with --yes to apply. The server checks ownership.`);
     return 0;
   }
   return runAuthenticated(output, async (config) => {
@@ -846,7 +846,7 @@ export const hostedThreadsCommand: CommandDef = {
     "ideaspaces threads send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --grade view --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads add x_example @colleague --grade participate  # preview; add --yes to grant as owner",
     "ideaspaces threads close x_example  # preview; add --yes to close as owner",
-    "ideaspaces threads rename x_example --name 'New title'  # owner only",
+    "ideaspaces threads rename x_example --name 'New title'  # applies immediately; owner only",
     "ideaspaces threads send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --map selection.json --share viewer --name 'Question' --summary 'One decision' --message 'What should happen next?'",

@@ -624,11 +624,12 @@ describe("inbox", () => {
     const result = { exchange_id: id, position: 5 };
     addExchangePersonMock.mockResolvedValue(result); closeExchangeMock.mockResolvedValue(result); renameExchangeMock.mockResolvedValue(result);
     expect(await inboxCommand.run(["add", id, "@two"], { grade: "view" }, JSON_GLOBAL)).toBe(0);
-    expect(JSON.parse(stdout()).planned).toBe(true);
+    expect(JSON.parse(stdout())).toMatchObject({ planned: true, recipient: { username: "two" }, grade: "view" });
     expect(addExchangePersonMock).not.toHaveBeenCalled();
     stdoutChunks = [];
     expect(await inboxCommand.run(["add", id, "@two"], { grade: "view" }, { ...JSON_GLOBAL, yes: true })).toBe(0);
     expect(addExchangePersonMock).toHaveBeenCalledWith(CFG, id, { username: "two" }, "view");
+    expect(addExchangePersonMock).toHaveBeenCalledTimes(1);
     stdoutChunks = [];
     expect(await inboxCommand.run(["close", id], {}, JSON_GLOBAL)).toBe(0);
     expect(JSON.parse(stdout()).planned).toBe(true);

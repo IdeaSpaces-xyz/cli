@@ -147,7 +147,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads close <slug|path> --message 'Closing rationale'  # local",
     "ideaspaces threads close x_<id>  # preview; add --yes to close as owner",
     "ideaspaces threads add x_<id> @handle --grade view  # preview; add --yes to grant as hosted owner",
-    "ideaspaces threads rename x_<id> --name 'New title'  # hosted owner only",
+    "ideaspaces threads rename x_<id> --name 'New title'  # applies immediately; hosted owner only",
     "ideaspaces threads send @handle --grade view --name 'Question' --summary 'One decision' --message '…'",
     "ideaspaces threads list --kind message --json  # hosted rows include your_grade and closed",
     "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
@@ -222,7 +222,7 @@ export const threadsCommand: CommandDef = {
         }
         const rows = [...local, ...hosted].map((row) => {
           if (rung === "name") return { source: row.source, id: row.id, name: row.name,
-            ...(row.source === "local" ? { latest_activity_at: row.latest_activity_at } : { your_grade: row.your_grade, closed: row.closed }) };
+            ...(row.source === "local" ? { latest_activity_at: row.latest_activity_at } : { ...(row.your_grade ? { your_grade: row.your_grade } : {}), ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }
