@@ -107,7 +107,7 @@ export function projectMapAgents(
       });
       continue;
     }
-    if ((read.status !== "checkout_at_pin" && read.status !== "checkout_at_head") || read.kind !== "file") {
+    if ((read.status !== "checkout_at_pin" && read.status !== "checkout_at_head") || read.kind !== "file" || !read.commit) {
       continue;
     }
 
@@ -148,7 +148,7 @@ export function projectMapAgents(
       ...(root.root_node_id || declaredRootNodeId
         ? { root_node_id: root.root_node_id ?? declaredRootNodeId }
         : {}),
-      sha: read.commit!, // selected pin, or the observed HEAD for an unpinned root
+      sha: read.commit, // selected pin, or the observed HEAD for an unpinned root
       path: checkoutPath,
       ...(memberPosition ? { position: memberPosition } : {}),
     });

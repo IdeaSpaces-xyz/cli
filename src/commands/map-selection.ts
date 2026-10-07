@@ -316,12 +316,24 @@ export async function runMapSelection(
         // A Space Map names live roots. A sent Map is a moment: pin every
         // unpinned root at its OWN locally identified checkout's HEAD now.
         const located = inspectSpaceMapRoots(roots, repoRoot);
-        roots = roots.map((root, index) => {
-          if (root.sha) return root;
+        const momentRoots: MapRoot[] = [];
+        for (const [index, root] of roots.entries()) {
+          if (root.sha) { momentRoots.push(root); continue; }
+          const checkout = located[index]?.checkoutPath;
           const head = located[index]?.headSha;
-          if (!head) throw new Error(`Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no reachable local HEAD to pin for sending.`);
-          return { ...root, sha: head };
-        });
+          if (!checkout || !head) throw new Error(`Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no reachable local HEAD to pin for sending.`);
+          if (checkout !== repoRoot) {
+            const foreign = await gitState(checkout);
+            const remote = originUrl(checkout);
+            if (!foreign.headSha || !foreign.branch || foreign.headSha !== head || foreign.dirty ||
+                !remote || rootNodeIdFromGitUrl(remote, config.apiUrl) !== root.root_node_id ||
+                exactRemoteHead(checkout, foreign.branch) !== head) {
+              throw new Error(`Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) is not published at its own origin. Push its HEAD, then retry.`);
+            }
+          }
+          momentRoots.push({ ...root, sha: head });
+        }
+        roots = momentRoots;
 
         members = rawMembers.map((m) => {
           if (!m || typeof m !== "object") throw new Error("Map member must be an object");

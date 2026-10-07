@@ -197,7 +197,8 @@ export function readMapRoot(
     checkoutPath,
   };
 
-  if (at === "pin" && !located.pinnedSha) {
+  const commit = at === "pin" ? located.pinnedSha : headSha;
+  if (at === "pin" && !commit) {
     return { ...base, status: "pin_absent", reason: "This Map root has no pin; read at HEAD with --at head or author a pinned moment Map." };
   }
   if (!checkoutPath) {
@@ -213,14 +214,7 @@ export function readMapRoot(
     };
   }
 
-  let commit: string;
-  if (at === "pin") {
-    commit = located.pinnedSha!; // checked above
-  } else if (headSha) {
-    commit = headSha;
-  } else {
-    return { ...base, reason: `The checkout at ${checkoutPath} has no readable HEAD.` };
-  }
+  if (!commit) return { ...base, reason: `The checkout at ${checkoutPath} has no readable HEAD.` };
   const read = readCheckoutAt(checkoutPath, commit, position, maxBytes);
   if (read.status === "read") {
     return {

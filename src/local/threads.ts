@@ -162,8 +162,8 @@ export function appendPost(dir: string, options: {
     if (map.status !== "valid") throw new Error("--map must contain a valid protocol Map block; no implicit HEAD pin is substituted.");
     if (!isPinnedMomentMap(map.map)) {
       for (const [index, root] of map.map.roots.entries()) {
-      if (!root.sha) throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);
-    }
+        if (!root.sha) throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);
+      }
       for (const [index, member] of map.map.members.entries()) {
         if ("position" in member && !member.depth) throw new Error(`Thread post Map position member ${index} has no depth ceiling. Choose one before citing a moment.`);
       }

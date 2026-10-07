@@ -77,6 +77,7 @@ export async function loadMapOrientation(
     const read = root
       ? readMapRoot({ ...root.drift, rootIndex: member.root }, member.position, at, 1)
       : ({ status: "unreachable", at, drift: false, reason: `Root ${member.root} is not in the Map.` } as MapReadResult);
+    // Summary is this launch reader's initial rung, not an authored Map ceiling.
     reads.push({ index, member, label, declared: member.depth ?? "summary", read, looks: new Map() });
   }
 
