@@ -190,6 +190,9 @@ describe("local Threads", () => {
       const named = await open({ depth: "name" });
       expect(named.posts).toEqual([]);
       expect(named.thread.frame).toMatchObject({ current_frame: "Today we decide.", goal: "Keep it honest.", done_when: "One reply is read." });
+      const allSummaries = await open({ depth: "summary" });
+      expect(allSummaries.posts[0].summary).toBe("");
+      expect(out).not.toContain("Private opening");
       const summary = await open({ depth: "summary", since: first.post.id });
       expect(summary.posts).toMatchObject([{ id: second.post.id, in_reply_to: [first.post.id], author: "Agent B" }]);
       expect(out).not.toContain("Private reply");

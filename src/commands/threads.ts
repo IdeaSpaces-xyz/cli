@@ -118,7 +118,7 @@ function localText(thread: LocalThread, posts: LocalThread["posts"], rung: Threa
     return [context, ...lines].join("\n");
   }
   return [context, ...posts.map((p) => rung === "summary"
-    ? `\n${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${p.frontmatter.name ?? p.id} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}\n${p.frontmatter.summary ?? p.body.split("\n").find(Boolean) ?? ""}`
+    ? `\n${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${p.frontmatter.name ?? p.id} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}\n${p.frontmatter.summary ?? ""}`
     : `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}`),
   ].join("\n");
 }
@@ -338,7 +338,7 @@ export const threadsCommand: CommandDef = {
           const rung = depth(flags, "summary");
           const post = target.post;
           const postName = post.frontmatter.name ?? post.id;
-          const postSummary = post.frontmatter.summary ?? post.body.split("\n").find(Boolean) ?? "";
+          const postSummary = post.frontmatter.summary ?? "";
           const posts = rung === "name" ? [] : rung === "summary" || rung === "children" ? [{ id: post.id, path: post.path, kind: post.kind,
             date: post.date ?? null, name: postName, ...(rung === "summary" ? { summary: postSummary } : {}), in_reply_to: post.inReplyTo }] : [post];
           output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
@@ -386,7 +386,7 @@ export const threadsCommand: CommandDef = {
         const effectiveRung = postId ? "full" : rung;
         const projected = effectiveRung === "name" ? [] : effectiveRung === "children" ? childTree(posts) : posts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
-            summary: p.frontmatter.summary ?? p.body.split("\n").find(Boolean) ?? "", in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null }
+            summary: p.frontmatter.summary ?? "", in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null }
           : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;
