@@ -233,8 +233,13 @@ describe("inbox", () => {
     result = JSON.parse(stdout());
     expect(result.messages).toMatchObject([{ note_node_id: "n_second", markdown: "Selected body" }]);
     expect(stdout()).not.toContain("Old private body");
-    expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, TEXT_GLOBAL)).toBe(1);
-    expect(stderr()).toContain("do not expose reply-parent links");
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout())).toMatchObject({ reply_links_unavailable: true, messages: [{ id: "n_first", in_reply_to: null }, { id: "n_second", in_reply_to: null }] });
+    expect(stdout()).not.toContain("Old private body");
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("flat post order");
   });
 
   it("renders preserved Map context without losing the question", async () => {

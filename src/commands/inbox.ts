@@ -428,10 +428,6 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
   }
   const depth = parseDepth(flags.depth ?? "full", output);
   if (!depth) return 1;
-  if (depth === "children") {
-    output.error("Hosted Threads do not expose reply-parent links, so --depth children cannot draw a reply tree. Use --depth summary to read dated posts.");
-    return 1;
-  }
   if (depth === "surface" && !post) {
     output.error("Hosted Thread surface needs --post <note_node_id> to select one post.");
     return 1;
@@ -508,17 +504,21 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
 
     const projected = post || depth === "surface" || depth === "full" ? messages : depth === "name" ? [] : messages.map((message) => ({
       id: message.note_node_id, note_node_id: message.note_node_id, kind: message.action, date: message.created_at, name: message.name,
-      summary: message.summary, author: message.author_ref, in_reply_to: null,
+      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref } : {}), in_reply_to: null,
     }));
     const data = {
       ...exchange,
       messages: projected,
-      ...(depth === "summary" ? { reply_links_unavailable: true } : {}),
+      ...(depth === "summary" || depth === "children" ? { reply_links_unavailable: true } : {}),
       ...(kind === "reframe" ? { events } : {}),
       ...(acknowledged ? { acknowledged_cursor: acknowledged.cursor } : {}),
     };
     const empty = kind === "reframe" ? "No new reframe events." : "No messages after that position.";
-    output.result(data, messages.length ? exchangeText(exchange, messages, post ? "full" : depth) : empty);
+    const text = depth === "children" && !post
+      ? ["Hosted reply parents unavailable; showing flat post order.", ...messages.map((message) =>
+        `${message.note_node_id} · ${message.action} · ${message.created_at} · ${message.name} · in_reply_to unavailable`)].join("\n")
+      : exchangeText(exchange, messages, post ? "full" : depth);
+    output.result(data, messages.length ? text : empty);
     return 0;
   });
 }
