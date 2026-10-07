@@ -197,6 +197,9 @@ export function readMapRoot(
     checkoutPath,
   };
 
+  if (at === "pin" && !located.pinnedSha) {
+    return { ...base, status: "pin_absent", reason: "This Map root has no pin; read at HEAD with --at head or author a pinned moment Map." };
+  }
   if (!checkoutPath) {
     return {
       ...base,
@@ -212,7 +215,7 @@ export function readMapRoot(
 
   let commit: string;
   if (at === "pin") {
-    commit = located.pinnedSha;
+    commit = located.pinnedSha!; // checked above
   } else if (headSha) {
     commit = headSha;
   } else {

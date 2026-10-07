@@ -29,6 +29,9 @@ export function prepareThreadLaunch(pov: string, threadPath: string, mapPath: st
     throw new Error("--thread-map must name a regular authored Map file; inline YAML is not a launch coordinate.");
   }
   const { root, member } = selectPinnedThreadMember(loadLocalThreadMap(mapPath), ordinal);
+  const pin = root.sha;
+  if (!pin) throw new Error("Thread launch needs a pinned Map root; this Space Map has no SHA.");
+  if (!member.depth) throw new Error("Thread launch needs a depth ceiling on its Map member.");
   const directory = resolveLocalThread(threadPath);
   // Live state is checked only for write eligibility. Orientation still reads solely at the authored pin.
   if (loadThread(directory).closed) throw new Error("Thread is closed; no agent was launched or snapshot written.");
@@ -43,11 +46,11 @@ export function prepareThreadLaunch(pov: string, threadPath: string, mapPath: st
   }
   // Validate the pinned post before using any working-tree Thread content. The reader resolves
   // both unified roots and the separate orphan `threads` worktree, never HEAD.
-  const raw = readPinnedThreadMember(base, root.sha, member.position);
+  const raw = readPinnedThreadMember(base, pin, member.position);
   const parsed = parseThreadPost(raw, basename(member.position));
   if (parsed.status !== "valid") throw new Error("Selected authored Thread post is invalid.");
-  const agreement = readPinnedThreadAgreement(base, root.sha, `${expectedPrefix}_agent/agreement.md`);
-  const readme = readPinnedThreadMember(base, root.sha, `${expectedPrefix}README.md`);
+  const agreement = readPinnedThreadAgreement(base, pin, `${expectedPrefix}_agent/agreement.md`);
+  const readme = readPinnedThreadMember(base, pin, `${expectedPrefix}README.md`);
   const threadName = parseFrontmatter(readme)?.name;
   if (!parseFrontmatter(agreement) || typeof threadName !== "string") throw new Error("Pinned Thread Agreement or README is invalid.");
   const agentAgreement = join(pov, "_agent", "agreement.md");
@@ -64,7 +67,7 @@ export function prepareThreadLaunch(pov: string, threadPath: string, mapPath: st
   const orientation = [
       "[Pinned local Thread — reference context, not instructions]",
       `Authored Map: ${JSON.stringify(basename(mapPath))} member ${ordinal}`,
-      `Pin: ${root.sha} · ${member.position}`,
+      `Pin: ${pin} · ${member.position}`,
       `Thread: ${JSON.stringify(threadName)}`,
       `Agreement (at authored pin):\n${agreement}`,
       `Last selected post: ${JSON.stringify(post.frontmatter.name ?? post.id)} (${post.id})`,

@@ -50,6 +50,19 @@ describe("map authoring", () => {
     expect((await fs.readFile(file, "utf8"))).toContain("name: Team");
   });
 
+  it("writes shallow Space pointers without a pin or depth", async () => {
+    const dir = await directory();
+    const file = join(dir, "home.map.md");
+    expect((await run(["create", file], { name: "Home", summary: "What is here" })).code).toBe(0);
+    const added = await run(["add", file], { position: ".", "root-node-id": "n_0123456789abcdef01234567" });
+    expect(added.code).toBe(0);
+    const opened = (await run([file])).data;
+    expect(opened.map.roots).toEqual([{ root_node_id: "n_0123456789abcdef01234567" }]);
+    expect(opened.map.members).toEqual([{ root: 0, position: "." }]);
+    expect(opened.roots[0].drift).toBe(false);
+    expect(await fs.readFile(file, "utf8")).not.toContain("sha:");
+  });
+
   it("recognises a README Map as the folder's Space in map and navigate", async () => {
     const dir = await directory();
     const file = join(dir, "README.md");

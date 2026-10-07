@@ -77,7 +77,7 @@ export async function loadMapOrientation(
     const read = root
       ? readMapRoot({ ...root.drift, rootIndex: member.root }, member.position, at, 1)
       : ({ status: "unreachable", at, drift: false, reason: `Root ${member.root} is not in the Map.` } as MapReadResult);
-    reads.push({ index, member, label, declared: member.depth, read, looks: new Map() });
+    reads.push({ index, member, label, declared: member.depth ?? "summary", read, looks: new Map() });
   }
 
   const effective = new Map<number, MapDepth>(reads.map((entry) => [entry.index, entry.declared]));
