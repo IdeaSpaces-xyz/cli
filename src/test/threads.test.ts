@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
 import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread } from "../local/threads.js";
-import { threadsCommand } from "../commands/threads.js";
+import { threadsCommand, threadFlagError } from "../commands/threads.js";
 import { inboxCommand } from "../commands/inbox.js";
 import { searchCommand } from "../commands/search.js";
 import { push as genericPush } from "../git.js";
@@ -145,6 +145,30 @@ describe("local Threads", () => {
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
 
+  it("accepts a documented flag per verb before enforcing unknown-flag rejection", () => {
+    for (const [verb, flag] of Object.entries({
+      list: "depth", open: "post", read: "since", new: "about", post: "reply-to",
+      close: "message", render: "", init: "", push: "remote", send: "grade",
+      reply: "send-id", expand: "", add: "grade", rename: "name",
+    })) {
+      expect(threadFlagError(verb, flag ? { [flag]: "value" } : {}), verb).toBeUndefined();
+      expect(threadFlagError(verb, { typo: true }), verb).toContain("--typo");
+    }
+  });
+
+  it("refuses unknown flags on every Thread verb before reading or writing", async () => {
+    const write = process.stderr.write; let errors = "";
+    process.stderr.write = ((chunk: string) => { errors += chunk; return true; }) as typeof process.stderr.write;
+    try {
+      const global = { json: false, quiet: true, yes: false, help: false };
+      for (const verb of ["list", "open", "read", "new", "post", "close", "render", "init", "push", "send", "reply", "expand", "add", "rename"]) {
+        errors = "";
+        expect(await threadsCommand.run([verb, "somewhere"], { unknown: "value" }, global)).toBe(1);
+        expect(errors).toContain(`Unknown flag for threads ${verb}: --unknown`);
+      }
+    } finally { process.stderr.write = write; }
+  });
+
   it("reports a partial threads new when the opening post cannot be dated", async () => {
     const root = fixture(); process.env.HOME = root;
     const previous = process.cwd(); process.chdir(root);
@@ -159,6 +183,40 @@ describe("local Threads", () => {
       expect(err).toContain("Use threads post incomplete");
       expect(loadThread(join(root, "_threads", "incomplete")).posts).toEqual([]);
     } finally { vi.useRealTimers(); process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("opens local Threads by rung and bounds posts without leaking bodies", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("disclosure", "Disclosure", root);
+    writeFileSync(join(thread.path, "README.md"), "---\nname: Disclosure\nsummary: A decision\n---\n\n# Disclosure\n\n## Current frame\n\nToday we decide.\n");
+    writeFileSync(join(thread.path, "_agent/agreement.md"), "---\nname: Agreement — Disclosure\nsummary: A decision\n---\n\n# Agreement\n\n## Goal\n\nKeep it honest.\n\n## Done when\n\nOne reply is read.\n");
+    const first = appendPost(thread.path, { body: "Private opening", author: "Agent A", name: "Opening" });
+    const second = appendPost(thread.path, { body: "Private reply", author: "Agent B", name: "Reply", summary: "A bounded decision", replyTo: [first.post.id] });
+    const previous = process.cwd(); process.chdir(root);
+    const write = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    const global = { json: true, quiet: true, yes: false, help: false };
+    async function open(options: Record<string, string | boolean>) { out = ""; expect(await threadsCommand.run(["open", "disclosure"], options, global)).toBe(0); return JSON.parse(out); }
+    try {
+      const named = await open({ depth: "name" });
+      expect(named.posts).toEqual([]);
+      expect(named.thread.frame).toMatchObject({ current_frame: "Today we decide.", goal: "Keep it honest.", done_when: "One reply is read." });
+      const allSummaries = await open({ depth: "summary" });
+      expect(allSummaries.posts[0].summary).toBeNull();
+      expect(out).not.toContain("Private opening");
+      const summary = await open({ depth: "summary", since: first.post.id });
+      expect(summary.posts).toMatchObject([{ id: second.post.id, in_reply_to: [first.post.id], author: "Agent B" }]);
+      expect(out).not.toContain("Private reply");
+      const children = await open({ depth: "children" });
+      expect(children.posts[0].children[0].id).toBe(second.post.id);
+      expect(out).not.toContain("Private reply");
+      const surface = await open({ depth: "surface", post: second.post.id });
+      expect(surface.posts).toHaveLength(1);
+      expect(surface.raw_post).toContain("Private reply");
+      expect(out).not.toContain("Private opening");
+      expect(await threadsCommand.run(["open", "disclosure"], { post: second.post.id, since: first.post.id }, global)).toBe(1);
+      expect(await threadsCommand.run(["open", "disclosure"], { depth: "name", ack: true }, global)).toBe(1);
+    } finally { process.stdout.write = write; process.chdir(previous); }
   });
 
   it("threads read --json returns authored date and legacy filename fallback", async () => {

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { MAP_DEPTHS, assembleContentLook, gitState, parseMap } from "@ideaspaces/protocol";
 import { loadConfig } from "../auth/credentials.js";
 import { lookCommand, projectPortableMap } from "../commands/look.js";
+import { appendPost, createThread } from "../local/threads.js";
 import type { GlobalFlags } from "../types.js";
 
 vi.mock("../auth/credentials.js", async (importOriginal) => ({
@@ -104,6 +105,39 @@ afterEach(async () => {
 });
 
 describe("ideaspaces look", () => {
+  it("routes a Thread folder through five bounded Thread rungs without treating it as Content", async () => {
+    const thread = createThread("decision", "Current decision", root);
+    const first = appendPost(thread.path, { body: "Private body", author: "Integrator", name: "First", summary: "One finding" });
+    const second = appendPost(thread.path, { body: "Second body", author: "Scout", name: "Second", summary: "Next finding", replyTo: [first.post.id] });
+    const named = await runLook(["_threads/decision"], { depth: "name" });
+    expect(named.exit, named.stderr).toBe(0);
+    expect(named.data.posts).toEqual([]);
+    const withSlash = await runLook(["_threads/decision/"], { depth: "name" });
+    expect(withSlash.exit, withSlash.stderr).toBe(0); // resolve() normalizes the trailing slash.
+    expect(withSlash.data.posts).toEqual([]);
+    const summary = await runLook(["_threads/decision"], { depth: "summary" });
+    expect(summary.exit, summary.stderr).toBe(0);
+    expect(summary.data.posts).toMatchObject([{ id: first.post.id, kind: "post" }, { id: second.post.id, in_reply_to: [first.post.id] }]);
+    expect(summary.stdout).not.toContain("Private body");
+    const children = await runLook(["_threads/decision"], { depth: "children" });
+    expect(children.data.posts[0].children[0].id).toBe(second.post.id);
+    expect(children.stdout).not.toContain("Second body");
+    const selected = await runLook(["_threads/decision"], { depth: "surface", post: second.post.id });
+    expect(selected.exit, selected.stderr).toBe(0);
+    expect(selected.data.raw_post).toContain("Second body");
+    expect(selected.stdout).not.toContain("Private body");
+    const exact = await runLook(["_threads/decision"], { depth: "name", post: second.post.id });
+    expect(exact.data.raw_post).toContain("Second body"); // --post explicitly requests one full post.
+    const unknown = await runLook(["_threads/decision"], { depth: "summary", typo: "value" });
+    expect(unknown.exit).toBe(1);
+    expect(unknown.stderr).toContain("Unknown flag for a Thread folder: --typo");
+    const full = await runLook(["_threads/decision"], { depth: "full" });
+    expect(full.data.posts).toHaveLength(2);
+    const wrong = await runLook(["_threads/decision"], { depth: "summary", contract: "agreement" });
+    expect(wrong.exit).toBe(1);
+    expect(wrong.stderr).toContain("Thread folder");
+  });
+
   it("defaults to Agreement summary and emits one valid portable Map", async () => {
     const cwd = process.cwd();
     const result = await runLook(["notes/decision.md"]);

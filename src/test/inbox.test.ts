@@ -208,6 +208,81 @@ describe("inbox", () => {
     expect(stdout()).toContain("# Question\n\nWhat next?");
   });
 
+  it("does not acknowledge hosted posts that were not shown", async () => {
+    for (const flags of [
+      { depth: "name", ack: true }, { depth: "children", ack: true },
+      { post: "n_one", ack: true }, { post: "n_one", new: true },
+      { post: "n_one", since: "2026-10-07" },
+    ]) {
+      expect(await inboxCommand.run(["read", "x_one"], flags, TEXT_GLOBAL)).toBe(1);
+    }
+    expect(fetchExchangeMock).not.toHaveBeenCalled();
+    expect(acknowledgeSubscriptionMock).not.toHaveBeenCalled();
+    expect(stderr()).toContain("--ack requires an unfiltered summary or full read");
+  });
+
+  it("rejects hosted --new with --since before fetching, and name text shows no posts", async () => {
+    expect(await inboxCommand.run(["read", "x_one"], { new: true, since: "2026-10-07" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Use either --new or --since");
+    expect(fetchExchangeMock).not.toHaveBeenCalled();
+    fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", name: "Only the header", your_grade: "view", target_node_id: null,
+      participants: [], cursor: 0, latest_position: 1, messages: [{ ...message, markdown: "Private body" }] });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "name" }, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("Only the header");
+    expect(stdout()).not.toContain("Private body");
+    expect(stdout()).not.toContain(message.note_node_id);
+  });
+
+  it("refuses malformed or unknown hosted --since selectors without inventing a cursor", async () => {
+    expect(await inboxCommand.run(["read", "x_one"], { since: "not-a-date" }, TEXT_GLOBAL)).toBe(1);
+    expect(fetchExchangeMock).not.toHaveBeenCalled();
+    fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", cursor: 0, messages: [], latest_position: 0 });
+    expect(await inboxCommand.run(["read", "x_one"], { since: "n_unknown" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("is not in Thread");
+    expect(await inboxCommand.run(["read", "x_one"], { since: "2026-13-40" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("valid ISO date");
+  });
+
+  it("bounds hosted Thread disclosure and selects one immutable Note by id", async () => {
+    const dated = [
+      { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, markdown: "Old private body" },
+      { ...message, note_node_id: "n_second", created_at: "2026-10-07T00:00:00Z", position: 2, markdown: "Selected body" },
+    ];
+    fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", name: "Thread", your_grade: "view", target_node_id: null,
+      participants: [], cursor: 1, latest_position: 2, messages: dated });
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "summary", new: true }, JSON_GLOBAL)).toBe(0);
+    let result = JSON.parse(stdout());
+    expect(result.messages).toMatchObject([{ id: "n_second", kind: "inquiry.opened", date: "2026-10-07T00:00:00Z" }]);
+    expect(result.messages[0]).not.toHaveProperty("in_reply_to");
+    expect(stdout()).not.toContain("Selected body");
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "name" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages).toEqual([]);
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "summary", since: "n_first" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages.map((p: { id: string }) => p.id)).toEqual(["n_second"]);
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "summary", since: "2026-10-06T00:00:00Z" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages.map((p: { id: string }) => p.id)).toEqual(["n_second"]);
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "surface", post: "n_second" }, JSON_GLOBAL)).toBe(0);
+    result = JSON.parse(stdout());
+    expect(result.messages).toMatchObject([{ note_node_id: "n_second", markdown: "Selected body" }]);
+    expect(stdout()).not.toContain("Old private body");
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "name", post: "n_second" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages[0].markdown).toBe("Selected body"); // --post means one full post.
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout())).toMatchObject({ reply_links_unavailable: true, messages: [{ id: "n_first" }, { id: "n_second" }] });
+    expect(JSON.parse(stdout()).messages[0]).not.toHaveProperty("in_reply_to");
+    expect(stdout()).not.toContain("Old private body");
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("flat post order");
+  });
+
   it("renders preserved Map context without losing the question", async () => {
     fetchExchangeMock.mockResolvedValue({
       mode: "direct",
