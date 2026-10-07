@@ -3,7 +3,9 @@ import { readFileSync, statSync } from "node:fs";
 
 import {
   acknowledgeSubscription,
+  addExchangePerson,
   addPersonShare,
+  closeExchange,
   apiErrorDetail,
   describeShareRefusal,
   fetchExchange,
@@ -13,6 +15,7 @@ import {
   fetchSubscriptionEvents,
   listSubscriptions,
   replyToExchange,
+  renameExchange,
   sendInquiry,
   UnauthorizedError,
   type ExchangeMapMemberResponse,
@@ -44,13 +47,13 @@ type Flags = Record<string, string | boolean>;
 
 const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
-const USAGE = "ideaspaces threads <list|read|send|reply|expand> ...";
+const USAGE = "ideaspaces threads <list|read|send|reply|add|close|rename|expand> ...";
 const LIST_USAGE =
   "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
 const READ_USAGE =
   "ideaspaces threads read <thread_id> [--new|--since <position>] [--kind <message|reframe>] [--depth <name|summary|full>] [--ack]";
 const SEND_USAGE =
-  "ideaspaces threads send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] [--share <viewer|copying|editor>] [--share-roots <node_id,...>] [--space-map <path.map.md>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>] (recipient required without a target)";
+  "ideaspaces threads send [<email|@handle>] [--space <space_node_id>] [--about <node_id>] [--map <selection.json>] [--share <viewer|copying|editor>] [--share-roots <node_id,...>] [--space-map <path.map.md>] [--grade <view|participate>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>] (recipient required without a target)";
 const EXPAND_USAGE = "ideaspaces threads expand <thread_id> <member_ordinal>";
 const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
@@ -74,6 +77,13 @@ function recipientSelector(value: string): InquirySendBody["recipient"] | null {
   if (!value.startsWith("@") && value.includes("@")) {
     return { email: value };
   }
+  return null;
+}
+
+function threadGrade(flags: Flags, output: Output): "view" | "participate" | null {
+  if (flags.grade === undefined) return "participate";
+  if (flags.grade === "view" || flags.grade === "participate") return flags.grade;
+  output.error("--grade must be view or participate; manage is reserved for the Thread owner.");
   return null;
 }
 
@@ -470,6 +480,8 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
     output.error("Invalid --space: must be a Space node_id (n_…).");
     return 1;
   }
+  const grade = threadGrade(flags, output);
+  if (!grade) return 1;
   const shareArg = flagString(flags, "share") ?? (flags.share === true ? "viewer" : undefined);
   let parsedShareGrade: ShareGrade | undefined;
   if (shareArg) {
@@ -562,6 +574,7 @@ async function send(rest: string[], flags: Flags, output: Output): Promise<numbe
         ...note,
         ...(target ? { target_node_id: target } : {}),
         ...(recipient ? { recipient } : {}),
+        ...(flags.grade !== undefined ? { grade } : {}),
         ...(spaceId ? { space_id: spaceId } : {}),
         ...(selection ? { map: selection.map } : {}),
       });
@@ -750,16 +763,62 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
   });
 }
 
+async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Flags, output: Output): Promise<number> {
+  const [exchangeId, handle] = rest;
+  if (!exchangeId || !/^x_[0-9a-f]{24}$/.test(exchangeId)) {
+    output.error(`Use a hosted Thread id (x_…) with threads ${sub}. Local Threads have separate controls.`);
+    return 1;
+  }
+  let recipient: InquirySendBody["recipient"] | null = null;
+  let grade: "view" | "participate" | null = null;
+  let name: string | undefined;
+  if (sub === "add") {
+    recipient = handle ? recipientSelector(handle) : null;
+    grade = threadGrade(flags, output);
+    if (rest.length !== 2 || !recipient || !handle?.startsWith("@") || !grade) {
+      if (grade) output.error("Usage: threads add <x_id> @handle [--grade view|participate].");
+      return 1;
+    }
+  } else if (sub === "close") {
+    if (rest.length !== 1 || flags.message !== undefined || flags.grade !== undefined || flags.name !== undefined) {
+      output.error("Usage: threads close <x_id>. Hosted close has no --message; use threads reply first if you want to explain why.");
+      return 1;
+    }
+  } else {
+    name = flagString(flags, "name")?.trim();
+    if (rest.length !== 1 || !name || flags.grade !== undefined) {
+      output.error("Usage: threads rename <x_id> --name <new title>.");
+      return 1;
+    }
+  }
+  return runAuthenticated(output, async (config) => {
+    try {
+      const result = sub === "add"
+        ? await addExchangePerson(config, exchangeId, recipient!, grade!)
+        : sub === "close" ? await closeExchange(config, exchangeId) : await renameExchange(config, exchangeId, name!);
+      output.result(result, `Thread ${exchangeId} ${sub === "add" ? `now includes ${handle} at ${grade}` : sub === "close" ? "closed" : `renamed to ${name}`}.`);
+      return 0;
+    } catch (error) {
+      output.error(`Cannot ${sub} Thread ${exchangeId}: ${apiErrorDetail(error)}`);
+      return 1;
+    }
+  });
+}
+
 export const hostedThreadsCommand: CommandDef = {
   name: "threads-hosted",
-  description: "Ask, read, and reply to hosted Threads about shared Content",
+  description: "Send, read, and manage hosted Threads (management is owner-only)",
   usage: USAGE,
   examples: [
     "ideaspaces threads list --new --depth name",
     "ideaspaces threads list --space n_0123456789abcdef01234567",
-    "ideaspaces threads read x_example --new --depth full --ack",
+    "ideaspaces threads read x_example --new --depth full --ack  # JSON includes your_grade",
+    "ideaspaces threads list --kind message --json  # each hosted row includes your_grade",
     "ideaspaces threads expand x_example 0",
-    "ideaspaces threads send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
+    "ideaspaces threads send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --grade view --name 'Question' --summary 'One decision' --message 'What should happen next?'",
+    "ideaspaces threads add x_example @colleague --grade participate  # owner only",
+    "ideaspaces threads close x_example  # owner only",
+    "ideaspaces threads rename x_example --name 'New title'  # owner only",
     "ideaspaces threads send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --map selection.json --share viewer --name 'Question' --summary 'One decision' --message 'What should happen next?'",
@@ -779,6 +838,10 @@ export const hostedThreadsCommand: CommandDef = {
         return send(rest, flags, output);
       case "reply":
         return reply(rest, flags, output);
+      case "add":
+      case "close":
+      case "rename":
+        return manage(sub, rest, flags, output);
       case "expand":
         return expand(rest, output);
       default:

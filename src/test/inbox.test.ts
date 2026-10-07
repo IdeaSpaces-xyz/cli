@@ -18,6 +18,7 @@ const {
   sendInquiryMock,
   replyToExchangeMock,
   addPersonShareMock,
+  addExchangePersonMock, closeExchangeMock, renameExchangeMock,
 } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
   fetchInboxMock: vi.fn(),
@@ -30,6 +31,7 @@ const {
   sendInquiryMock: vi.fn(),
   replyToExchangeMock: vi.fn(),
   addPersonShareMock: vi.fn(),
+  addExchangePersonMock: vi.fn(), closeExchangeMock: vi.fn(), renameExchangeMock: vi.fn(),
 }));
 
 vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
@@ -47,10 +49,14 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     sendInquiry: sendInquiryMock,
     replyToExchange: replyToExchangeMock,
     addPersonShare: addPersonShareMock,
+    addExchangePerson: addExchangePersonMock,
+    closeExchange: closeExchangeMock,
+    renameExchange: renameExchangeMock,
   };
 });
 
 const { inboxCommand } = await import("../commands/inbox.js");
+const { threadsCommand } = await import("../commands/threads.js");
 
 const CFG = { apiUrl: "https://api.example.test", apiKey: "k" };
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
@@ -74,6 +80,7 @@ beforeEach(() => {
   sendInquiryMock.mockReset();
   replyToExchangeMock.mockReset();
   addPersonShareMock.mockReset();
+  addExchangePersonMock.mockReset(); closeExchangeMock.mockReset(); renameExchangeMock.mockReset();
   stdoutChunks = [];
   stderrChunks = [];
   originalOut = process.stdout.write.bind(process.stdout);
@@ -589,6 +596,57 @@ describe("inbox", () => {
       member_ordinal: 0,
       target_node_id: map.roots[0].root_node_id,
     });
+  });
+
+  it("sends view grade explicitly and defaults to participate when omitted", async () => {
+    sendInquiryMock.mockResolvedValue({ ...writeResult, target_node_id: null });
+    expect(await inboxCommand.run(["send", "@two"], { name: "Hello", summary: "First", message: "Body", grade: "view" }, JSON_GLOBAL)).toBe(0);
+    expect(sendInquiryMock.mock.calls[0][1]).toMatchObject({ recipient: { username: "two" }, grade: "view" });
+    expect(await inboxCommand.run(["send", "@two"], { name: "Hello", summary: "First", message: "Body" }, JSON_GLOBAL)).toBe(0);
+    expect(sendInquiryMock.mock.calls[1][1]).not.toHaveProperty("grade");
+    expect(await inboxCommand.run(["send", "@two"], { name: "Hello", summary: "First", message: "Body", grade: "manage" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("--grade must be view or participate");
+    expect(sendInquiryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes your_grade in hosted list and read JSON without local grading", async () => {
+    fetchInboxMock.mockResolvedValue({ items: [{ kind: "inquiry", exchange_id: "x_one", your_grade: "view", latest_message: message, latest_position: 1 }] });
+    expect(await inboxCommand.run(["list"], { kind: "message", depth: "name" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).items[0].your_grade).toBe("view");
+    stdoutChunks = [];
+    fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", your_grade: "manage", target_node_id: null, participants: [], messages: [], cursor: null, latest_position: 1 });
+    expect(await inboxCommand.run(["read", "x_one"], {}, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).your_grade).toBe("manage");
+  });
+
+  it("routes hosted owner controls and passes through server refusals", async () => {
+    const id = "x_0123456789abcdef01234567";
+    const result = { exchange_id: id, position: 5 };
+    addExchangePersonMock.mockResolvedValue(result); closeExchangeMock.mockResolvedValue(result); renameExchangeMock.mockResolvedValue(result);
+    expect(await inboxCommand.run(["add", id, "@two"], { grade: "view" }, JSON_GLOBAL)).toBe(0);
+    expect(addExchangePersonMock).toHaveBeenCalledWith(CFG, id, { username: "two" }, "view");
+    expect(await inboxCommand.run(["close", id], {}, JSON_GLOBAL)).toBe(0);
+    expect(closeExchangeMock).toHaveBeenCalledWith(CFG, id);
+    expect(await inboxCommand.run(["rename", id], { name: "New title" }, JSON_GLOBAL)).toBe(0);
+    expect(renameExchangeMock).toHaveBeenCalledWith(CFG, id, "New title");
+    closeExchangeMock.mockRejectedValue(new Error(`POST /api/v1/exchanges/${id}/close → 403: {"detail":"Only the Thread owner can manage it"}`));
+    expect(await inboxCommand.run(["close", id], {}, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Only the Thread owner can manage it");
+    expect(await inboxCommand.run(["add", id, "@two"], { grade: "manage" }, TEXT_GLOBAL)).toBe(1);
+    expect(addExchangePersonMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes hosted owner controls through threads without touching local close", async () => {
+    const hosted = "x_0123456789abcdef01234567";
+    closeExchangeMock.mockResolvedValue({ exchange_id: hosted, position: 6 });
+    addExchangePersonMock.mockResolvedValue({ exchange_id: hosted, position: 7 });
+    renameExchangeMock.mockResolvedValue({ exchange_id: hosted, position: 8 });
+    expect(await threadsCommand.run(["close", hosted], {}, JSON_GLOBAL)).toBe(0);
+    expect(await threadsCommand.run(["add", hosted, "@two"], {}, JSON_GLOBAL)).toBe(0);
+    expect(addExchangePersonMock).toHaveBeenCalledWith(CFG, hosted, { username: "two" }, "participate");
+    expect(await threadsCommand.run(["rename", hosted], { name: "Title" }, JSON_GLOBAL)).toBe(0);
+    expect(closeExchangeMock).toHaveBeenCalledWith(CFG, hosted);
+    expect(renameExchangeMock).toHaveBeenCalledWith(CFG, hosted, "Title");
   });
 
   it("sends a message-first Thread without an about Node or Map", async () => {
