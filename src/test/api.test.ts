@@ -26,6 +26,9 @@ import {
   fetchContentTree,
   fetchEntity,
   sendInquiry,
+  addExchangePerson,
+  closeExchange,
+  renameExchange,
   replyToExchange,
   RetiredEndpointError,
   UnauthorizedError,
@@ -52,6 +55,28 @@ function abortingFetch() {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe("hosted Thread grades and management routes", () => {
+  it("sends the grade and uses backend owner-management paths", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ exchange_id: "x_test", position: 2 }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    await addExchangePerson(config, "x_test", { username: "friend" }, "view");
+    await closeExchange(config, "x_test");
+    await renameExchange(config, "x_test", "New title");
+    const [addUrl, addOpts] = fetchMock.mock.calls[0];
+    expect(addUrl).toContain("/api/v1/exchanges/x_test/participants");
+    expect(addOpts.method).toBe("POST");
+    expect(JSON.parse(addOpts.body)).toEqual({ recipient: { username: "friend" }, grade: "view" });
+    expect(fetchMock.mock.calls[1][0]).toContain("/api/v1/exchanges/x_test/close");
+    expect(fetchMock.mock.calls[2][1].method).toBe("PATCH");
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ name: "New title" });
+  });
+
+  it("retains a server owner refusal instead of guessing permissions locally", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Only the Thread owner can manage it" }), { status: 403 })));
+    await expect(closeExchange(config, "x_test")).rejects.toThrow("Only the Thread owner can manage it");
+  });
 });
 
 describe("request() retry on timeout (cold start)", () => {

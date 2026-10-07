@@ -597,11 +597,16 @@ export interface ExchangeMessage extends ExchangeMessageSummary {
   map?: MapBlock | null;
 }
 
+export type ThreadGrade = "view" | "participate" | "manage";
+
 export interface InquiryInboxItem {
   kind: "inquiry";
   mode: "direct";
   exchange_id: string;
   target_node_id: string | null;
+  your_grade?: ThreadGrade;
+  name?: string;
+  closed?: boolean;
   participants: InboxParticipant[];
   opening_note: ExchangeMessageSummary;
   latest_message: ExchangeMessageSummary;
@@ -634,6 +639,9 @@ export interface ExchangeReadResponse {
   mode: "direct";
   exchange_id: string;
   target_node_id: string | null;
+  your_grade?: ThreadGrade;
+  name?: string;
+  closed?: boolean;
   participants: InboxParticipant[];
   messages: ExchangeMessage[];
   subject: { opening_note_id: string; current_note_id: string };
@@ -650,6 +658,8 @@ export interface ExchangeNoteWrite {
 }
 
 export interface InquirySendBody extends ExchangeNoteWrite {
+  /** Per-recipient Thread grade; omitted means participate. */
+  grade?: "view" | "participate";
   /** Optional subject; an absent target needs an explicit recipient. */
   target_node_id?: string;
   /** Omit to address the target's owner. */
@@ -821,6 +831,24 @@ export async function sendInquiry(
   opts?: RequestOptions,
 ): Promise<ExchangeWriteResponse> {
   return request<ExchangeWriteResponse>(config, "POST", `${API_V1}/inquiries`, body, opts);
+}
+
+export interface ExchangeManagementResponse {
+  exchange_id: string;
+  position: number;
+}
+
+/** Owner-only hosted Thread controls. The server authorizes every operation. */
+export async function addExchangePerson(config: ApiConfig, exchangeId: string, recipient: NonNullable<InquirySendBody["recipient"]>, grade: "view" | "participate", opts?: RequestOptions): Promise<ExchangeManagementResponse> {
+  return request<ExchangeManagementResponse>(config, "POST", `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/participants`, { recipient, grade }, opts);
+}
+
+export async function closeExchange(config: ApiConfig, exchangeId: string, opts?: RequestOptions): Promise<ExchangeManagementResponse> {
+  return request<ExchangeManagementResponse>(config, "POST", `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/close`, undefined, opts);
+}
+
+export async function renameExchange(config: ApiConfig, exchangeId: string, name: string, opts?: RequestOptions): Promise<ExchangeManagementResponse> {
+  return request<ExchangeManagementResponse>(config, "PATCH", `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}`, { name }, opts);
 }
 
 /** Reply through an existing direct exchange as the logged-in person. */

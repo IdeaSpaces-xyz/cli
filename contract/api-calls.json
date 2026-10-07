@@ -55,8 +55,20 @@
       "path": "/api/v1/exchanges/{exchangeId}"
     },
     {
+      "method": "PATCH",
+      "path": "/api/v1/exchanges/{exchangeId}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/exchanges/{exchangeId}/close"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/exchanges/{exchangeId}/map/members/{memberOrdinal}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/exchanges/{exchangeId}/participants"
     },
     {
       "method": "POST",

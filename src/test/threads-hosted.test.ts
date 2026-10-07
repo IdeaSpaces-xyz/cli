@@ -29,7 +29,7 @@ it("merges local and hosted list rows, excluding access requests, while preservi
   appendPost(local.path, { body: "Private local body", author: "Agent A" });
   loadConfigMock.mockReturnValue({ apiUrl: "https://example.test", apiKey: "test" });
   fetchInboxMock.mockResolvedValue({ items: [
-    { kind: "inquiry", exchange_id: id, latest_message: { name: "Hosted decision", summary: "Hosted summary" }, cursor: 0, latest_position: 1, message_count: 1 },
+    { kind: "inquiry", exchange_id: id, name: "Hosted decision", your_grade: "view", closed: false, latest_message: { name: "Hosted decision", summary: "Hosted summary" }, cursor: 0, latest_position: 1, message_count: 1 },
     { kind: "access_request", request_id: "r_test", latest_position: 1 },
   ] });
   fetchExchangeMock.mockResolvedValue({ exchange_id: id, target_node_id: "n_0123456789abcdef01234567", participants: [], cursor: 0,
@@ -47,9 +47,11 @@ it("merges local and hosted list rows, excluding access requests, while preservi
     const together = await list({});
     expect(together.threads.map((row: { source: string }) => row.source)).toEqual(["local", "hosted"]);
     expect(together.threads[1].id).toBe(id);
+    expect(together.threads[1].your_grade).toBe("view");
     const names = await list({ depth: "name" });
     expect(text).not.toContain("Hosted summary"); expect(text).not.toContain("Private local body");
     expect(names.threads[0].name).toBe("Local decision");
+    expect(names.threads[1].your_grade).toBe("view");
     const full = await list({ depth: "full" });
     expect(full.threads[0].posts[0].body).toContain("Private local body");
     expect(full.threads[1].messages[0].markdown).toBe("Hosted body");

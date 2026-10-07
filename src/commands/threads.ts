@@ -4,11 +4,11 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
-import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError } from "../auth/api.js";
+import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
-import { exchangeText, hostedThreadsCommand } from "./inbox.js";
+import { exchangeText, hostedThreadsCommand, threadBadges } from "./inbox.js";
 import { sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
@@ -133,7 +133,7 @@ function writerName(explicit?: string): string {
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|open|new|post|close|render|init|push|read|send|reply|expand> ...",
+  usage: "ideaspaces threads <list|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
   examples: [
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
@@ -144,7 +144,12 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
     "ideaspaces threads open <slug|path> --pin <40-hex-sha> --position _threads/<slug>/<post>.md",
-    "ideaspaces threads close <slug|path> --message 'Closing rationale'",
+    "ideaspaces threads close <slug|path> --message 'Closing rationale'  # local",
+    "ideaspaces threads close x_<id>  # preview; add --yes to close as owner",
+    "ideaspaces threads add x_<id> @handle --grade view  # preview; add --yes to grant as hosted owner",
+    "ideaspaces threads rename x_<id> --name 'New title'  # applies immediately; hosted owner only",
+    "ideaspaces threads send @handle --grade view --name 'Question' --summary 'One decision' --message '…'",
+    "ideaspaces threads list --kind message --json  # hosted rows include your_grade and closed",
     "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
     "ideaspaces threads push --remote <team-remote>  # never origin/GitHub",
@@ -154,7 +159,7 @@ export const threadsCommand: CommandDef = {
     const output = createOutput(global);
     const [sub, ...rest] = args;
     try {
-      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand") {
+      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
           return threadsCommand.run(["open", rest[0]], flags, global);
         }
@@ -187,7 +192,7 @@ export const threadsCommand: CommandDef = {
         }
         const config = loadConfig();
         if (space && !config) throw new Error("Not logged in. Run `ideaspaces login` to list hosted Space Threads.");
-        let hosted: Array<{ source: "hosted"; id: string; name: string; summary: string; count?: number; messages?: unknown[]; text?: string }> = [];
+        let hosted: Array<{ source: "hosted"; id: string; name: string; summary: string; your_grade?: ThreadGrade; closed?: boolean; count?: number; messages?: unknown[]; text?: string }> = [];
         if (config) {
           try {
             if (space) {
@@ -197,7 +202,7 @@ export const threadsCommand: CommandDef = {
               const result = await fetchInbox(config);
               hosted = result.items.filter((t) => t.kind === "inquiry")
                 .filter((t) => !newOnly || t.cursor !== null && t.latest_position > t.cursor)
-                .map((t) => ({ source: "hosted", id: t.exchange_id, name: t.latest_message.name, summary: t.latest_message.summary, count: t.message_count }));
+                .map((t) => ({ source: "hosted", id: t.exchange_id, name: t.name ?? t.latest_message.name, summary: t.latest_message.summary, your_grade: t.your_grade, closed: t.closed, count: t.message_count }));
             }
           } catch (error) {
             if (!local.length) throw error;
@@ -217,20 +222,20 @@ export const threadsCommand: CommandDef = {
         }
         const rows = [...local, ...hosted].map((row) => {
           if (rung === "name") return { source: row.source, id: row.id, name: row.name,
-            ...(row.source === "local" ? { latest_activity_at: row.latest_activity_at } : {}) };
+            ...(row.source === "local" ? { latest_activity_at: row.latest_activity_at } : { ...(row.your_grade ? { your_grade: row.your_grade } : {}), ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }
           return row;
         });
         const text = rows.map((row) => {
-          if (rung === "name") return `${row.id}  ${row.name}`;
+          if (rung === "name") return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row ? row.closed : undefined)}`;
           if (rung === "full" && "posts" in row && Array.isArray(row.posts)) {
             const thread = localThreads.find((candidate) => candidate.path === row.id)!;
             return localText(thread, row.posts, "full");
           }
           if (rung === "full" && "text" in row && typeof row.text === "string") return row.text;
-          return `${row.id}  ${row.name}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
+          return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row ? row.closed : undefined)}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
         output.result({ threads: rows, hosted_checked: Boolean(config) }, (text || "No local Threads here.") + hint);
