@@ -221,6 +221,19 @@ describe("inbox", () => {
     expect(stderr()).toContain("--ack requires an unfiltered summary or full read");
   });
 
+  it("rejects hosted --new with --since before fetching, and name text shows no posts", async () => {
+    expect(await inboxCommand.run(["read", "x_one"], { new: true, since: "2026-10-07" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Use either --new or --since");
+    expect(fetchExchangeMock).not.toHaveBeenCalled();
+    fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", name: "Only the header", your_grade: "view", target_node_id: null,
+      participants: [], cursor: 0, latest_position: 1, messages: [{ ...message, markdown: "Private body" }] });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "name" }, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("Only the header");
+    expect(stdout()).not.toContain("Private body");
+    expect(stdout()).not.toContain(message.note_node_id);
+  });
+
   it("bounds hosted Thread disclosure and selects one immutable Note by id", async () => {
     const dated = [
       { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, markdown: "Old private body" },

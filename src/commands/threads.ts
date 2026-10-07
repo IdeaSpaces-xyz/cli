@@ -350,7 +350,7 @@ export const threadsCommand: CommandDef = {
           const rung = depth(flags, "summary");
           const post = target.post;
           const postName = post.frontmatter.name ?? post.id;
-          const postSummary = post.frontmatter.summary ?? "";
+          const postSummary = post.frontmatter.summary ?? "(no summary)";
           const posts = rung === "name" ? [] : rung === "summary" || rung === "children" ? [{ id: post.id, path: post.path, kind: post.kind,
             date: post.date ?? null, name: postName, ...(rung === "summary" ? { summary: postSummary } : {}), in_reply_to: post.inReplyTo }] : [post];
           output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
