@@ -297,7 +297,7 @@ export async function runMapSelection(
 
       if (isMapNote && frontmatter.map && typeof frontmatter.map === "object") {
         const parsedMap = parseMap(frontmatter.map);
-        if (parsedMap.status !== "valid") throw new Error("The selected Map Note has an invalid Map block; repair it before sending.");
+        if (parsedMap.status !== "valid") throw new Error(`The selected Map Note has an invalid Map block: ${parsedMap.status === "invalid" ? parsedMap.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ") : "missing map"}. Repair it before sending.`);
         const rawRoots = parsedMap.map.roots;
         const rawMembers = parsedMap.map.members;
 
