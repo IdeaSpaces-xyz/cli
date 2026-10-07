@@ -20,6 +20,7 @@ import {
   UnauthorizedError,
   type ExchangeMapMemberResponse,
   type ExchangeMessage,
+  type ExchangeManagementResponse,
   type ExchangeNoteWrite,
   type ExchangeReadResponse,
   type ExchangeWriteResponse,
@@ -30,6 +31,7 @@ import {
   type InquirySendBody,
   type PersonShareAddResult,
   type ShareGrade,
+  type ThreadGrade,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import {
@@ -141,12 +143,16 @@ function participantsText(participants: InboxParticipant[]): string {
 type InboxKind = "message" | "reframe" | "request";
 type ReadDepth = "name" | "summary" | "full";
 
+export function threadBadges(grade?: ThreadGrade, closed?: boolean): string {
+  return `${grade ? ` [${grade}]` : ""}${closed ? " [closed]" : ""}`;
+}
+
 function isInquiry(item: InboxItem): item is InquiryInboxItem {
   return item.kind === "inquiry";
 }
 
 function inboxItemName(item: InboxItem): string {
-  if (isInquiry(item)) return `${item.exchange_id}  ${item.name ?? item.latest_message.name}${item.your_grade ? ` [${item.your_grade}]` : ""}${item.closed ? " [closed]" : ""}`;
+  if (isInquiry(item)) return `${item.exchange_id}  ${item.name ?? item.latest_message.name}${threadBadges(item.your_grade, item.closed)}`;
   return `${item.request_id}  Access request for ${item.target_node_id}`;
 }
 
@@ -172,10 +178,13 @@ export function exchangeText(
   messages: ExchangeMessage[] = exchange.messages,
   depth: ReadDepth = "full",
 ): string {
-  if (depth === "name") return `${exchange.exchange_id}  ${exchange.name ?? exchange.messages.at(-1)?.name ?? "Thread"}${exchange.your_grade ? ` [${exchange.your_grade}]` : ""}${exchange.closed ? " [closed]" : ""}`;
+  const current = exchange.messages.find(
+    (message) => message.note_node_id === exchange.subject?.current_note_id,
+  ) ?? exchange.messages.at(-1);
+  if (depth === "name") return `${exchange.exchange_id}  ${exchange.name ?? current?.name ?? "Thread"}${threadBadges(exchange.your_grade, exchange.closed)}`;
 
   const lines = [
-    `Thread ${exchange.exchange_id}${exchange.closed ? " [closed]" : ""}`,
+    `Thread ${exchange.exchange_id}${threadBadges(undefined, exchange.closed)}`,
     ...(exchange.your_grade ? [`Your grade: ${exchange.your_grade}`] : []),
     ...(exchange.target_node_id ? [`About ${exchange.target_node_id}`] : []),
     `Participants: ${participantsText(exchange.participants)}`,
@@ -772,11 +781,12 @@ async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Fl
   let name: string | undefined;
   if (sub === "add") {
     recipient = handle ? recipientSelector(handle) : null;
-    grade = threadGrade(flags, output);
-    if (rest.length !== 2 || !recipient || !handle?.startsWith("@") || !grade) {
-      if (grade) output.error("Usage: threads add <x_id> @handle [--grade view|participate]. Add a registered @handle, not an email address.");
+    if (rest.length !== 2 || !recipient || !handle?.startsWith("@")) {
+      output.error("Usage: threads add <x_id> @handle [--grade view|participate]. Add a registered @handle, not an email address.");
       return 1;
     }
+    grade = threadGrade(flags, output);
+    if (!grade) return 1;
   } else if (sub === "close") {
     if (rest.length !== 1 || flags.message !== undefined || flags.grade !== undefined || flags.name !== undefined) {
       output.error("Usage: threads close <x_id>. Hosted close has no --message; use threads reply first if you want to explain why.");
@@ -789,16 +799,32 @@ async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Fl
       return 1;
     }
   }
-  if (sub === "close" && !apply) {
-    output.result({ exchange_id: exchangeId, planned: true }, `Would close hosted Thread ${exchangeId}. Nothing changed; re-run with --yes to close it. The server checks ownership.`);
+  if (sub !== "rename" && !apply) {
+    const planned = sub === "add"
+      ? `Would add ${handle} to hosted Thread ${exchangeId} at ${grade}. This grants Thread access.`
+      : `Would close hosted Thread ${exchangeId}.`;
+    output.result({ exchange_id: exchangeId, planned: true }, `${planned} Nothing changed; re-run with --yes to apply. The server checks ownership.`);
     return 0;
   }
   return runAuthenticated(output, async (config) => {
     try {
-      const result = sub === "add"
-        ? await addExchangePerson(config, exchangeId, recipient!, grade!)
-        : sub === "close" ? await closeExchange(config, exchangeId) : await renameExchange(config, exchangeId, name!);
-      output.result(result, `Thread ${exchangeId} ${sub === "add" ? `now includes ${handle} at ${grade}` : sub === "close" ? "closed" : `renamed to ${name}`}.`);
+      let result: ExchangeManagementResponse;
+      let done: string;
+      switch (sub) {
+        case "add":
+          result = await addExchangePerson(config, exchangeId, recipient!, grade!);
+          done = `now includes ${handle} at ${grade}`;
+          break;
+        case "close":
+          result = await closeExchange(config, exchangeId);
+          done = "closed";
+          break;
+        case "rename":
+          result = await renameExchange(config, exchangeId, name!);
+          done = `renamed to ${name}`;
+          break;
+      }
+      output.result(result, `Thread ${exchangeId} ${done}.`);
       return 0;
     } catch (error) {
       output.error(`Cannot ${sub} Thread ${exchangeId}: ${apiErrorDetail(error)}`);
@@ -818,7 +844,7 @@ export const hostedThreadsCommand: CommandDef = {
     "ideaspaces threads list --kind message --json  # each hosted row includes your_grade",
     "ideaspaces threads expand x_example 0",
     "ideaspaces threads send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --grade view --name 'Question' --summary 'One decision' --message 'What should happen next?'",
-    "ideaspaces threads add x_example @colleague --grade participate  # owner only",
+    "ideaspaces threads add x_example @colleague --grade participate  # preview; add --yes to grant as owner",
     "ideaspaces threads close x_example  # preview; add --yes to close as owner",
     "ideaspaces threads rename x_example --name 'New title'  # owner only",
     "ideaspaces threads send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",

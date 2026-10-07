@@ -624,6 +624,10 @@ describe("inbox", () => {
     const result = { exchange_id: id, position: 5 };
     addExchangePersonMock.mockResolvedValue(result); closeExchangeMock.mockResolvedValue(result); renameExchangeMock.mockResolvedValue(result);
     expect(await inboxCommand.run(["add", id, "@two"], { grade: "view" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).planned).toBe(true);
+    expect(addExchangePersonMock).not.toHaveBeenCalled();
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["add", id, "@two"], { grade: "view" }, { ...JSON_GLOBAL, yes: true })).toBe(0);
     expect(addExchangePersonMock).toHaveBeenCalledWith(CFG, id, { username: "two" }, "view");
     stdoutChunks = [];
     expect(await inboxCommand.run(["close", id], {}, JSON_GLOBAL)).toBe(0);
@@ -671,11 +675,14 @@ describe("inbox", () => {
     addExchangePersonMock.mockResolvedValue({ exchange_id: hosted, position: 7 });
     renameExchangeMock.mockResolvedValue({ exchange_id: hosted, position: 8 });
     expect(await threadsCommand.run(["close", hosted], {}, { ...JSON_GLOBAL, yes: true })).toBe(0);
-    expect(await threadsCommand.run(["add", hosted, "@two"], {}, JSON_GLOBAL)).toBe(0);
+    expect(await threadsCommand.run(["add", hosted, "@two"], {}, { ...JSON_GLOBAL, yes: true })).toBe(0);
     expect(addExchangePersonMock).toHaveBeenCalledWith(CFG, hosted, { username: "two" }, "participate");
     expect(await threadsCommand.run(["rename", hosted], { name: "Title" }, JSON_GLOBAL)).toBe(0);
     expect(closeExchangeMock).toHaveBeenCalledWith(CFG, hosted);
     expect(renameExchangeMock).toHaveBeenCalledWith(CFG, hosted, "Title");
+    expect(await threadsCommand.run(["close", hosted], { message: "why" }, { ...TEXT_GLOBAL, yes: true })).toBe(1);
+    expect(stderr()).toContain("Hosted close has no --message");
+    expect(closeExchangeMock).toHaveBeenCalledTimes(1);
   });
 
   it("sends a message-first Thread without an about Node or Map", async () => {

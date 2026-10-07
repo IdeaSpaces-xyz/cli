@@ -604,9 +604,9 @@ export interface InquiryInboxItem {
   mode: "direct";
   exchange_id: string;
   target_node_id: string | null;
-  your_grade: ThreadGrade;
-  name: string;
-  closed: boolean;
+  your_grade?: ThreadGrade;
+  name?: string;
+  closed?: boolean;
   participants: InboxParticipant[];
   opening_note: ExchangeMessageSummary;
   latest_message: ExchangeMessageSummary;
@@ -639,9 +639,9 @@ export interface ExchangeReadResponse {
   mode: "direct";
   exchange_id: string;
   target_node_id: string | null;
-  your_grade: ThreadGrade;
-  name: string;
-  closed: boolean;
+  your_grade?: ThreadGrade;
+  name?: string;
+  closed?: boolean;
   participants: InboxParticipant[];
   messages: ExchangeMessage[];
   subject: { opening_note_id: string; current_note_id: string };
