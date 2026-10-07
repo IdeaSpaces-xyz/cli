@@ -145,6 +145,25 @@ describe("local Threads", () => {
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
 
+  it("refuses unknown flags on every Thread verb before reading or writing", async () => {
+    const write = process.stderr.write; let errors = "";
+    process.stderr.write = ((chunk: string) => { errors += chunk; return true; }) as typeof process.stderr.write;
+    try {
+      const global = { json: false, quiet: true, yes: false, help: false };
+      for (const verb of ["list", "open", "read", "new", "post", "close", "render", "init", "push", "send", "reply", "expand", "add", "rename"]) {
+        errors = "";
+        expect(await threadsCommand.run([verb, "somewhere"], { unknown: "value" }, global)).toBe(1);
+        expect(errors).toContain(`Unknown flag for threads ${verb}: --unknown`);
+      }
+      errors = "";
+      expect(await threadsCommand.run(["open", "somewhere"], { post: "msg_one" }, global)).toBe(1);
+      expect(errors).toContain("--post");
+      errors = "";
+      expect(await threadsCommand.run(["open", "somewhere"], { since: "2026-10-07" }, global)).toBe(1);
+      expect(errors).toContain("--since");
+    } finally { process.stderr.write = write; }
+  });
+
   it("reports a partial threads new when the opening post cannot be dated", async () => {
     const root = fixture(); process.env.HOME = root;
     const previous = process.cwd(); process.chdir(root);

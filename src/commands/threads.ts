@@ -130,6 +130,27 @@ function writerName(explicit?: string): string {
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
 }
+// A misspelled disclosure flag must not silently return a broader Thread read.
+// Keep this per verb: accepting a valid flag on the wrong verb is also a false promise.
+const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
+  Object.entries({
+    list: "new space depth kind since",
+    open: "depth new ack map member checkout pin position",
+    read: "depth new ack kind since map member checkout pin position",
+    new: "about",
+    post: "map member checkout reply-to kind author name summary supersedes message",
+    close: "map reply-to kind author name summary supersedes message",
+    render: "",
+    init: "",
+    push: "remote",
+    send: "space about map share share-roots space-map name summary message send-id grade",
+    reply: "map name summary message send-id",
+    expand: "",
+    add: "grade",
+    rename: "name",
+  }).map(([verb, names]) => [verb, new Set(names ? names.split(" ") : [])]),
+);
+
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
@@ -159,6 +180,11 @@ export const threadsCommand: CommandDef = {
     const output = createOutput(global);
     const [sub, ...rest] = args;
     try {
+      const known = THREAD_FLAGS[sub ?? ""];
+      if (known) {
+        const unknown = Object.keys(flags).find((flag) => !known.has(flag));
+        if (unknown) throw new Error(`Unknown flag for threads ${sub}: --${unknown}. Run ideaspaces threads --help for supported flags.`);
+      }
       if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
           return threadsCommand.run(["open", rest[0]], flags, global);
