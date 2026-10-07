@@ -6,7 +6,7 @@ import { parseMap, type MapMember } from "@ideaspaces/protocol";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> --depth <name|summary|surface|children|full> (--root <index> | --root-node-id <id> --sha <commit>)\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address> [--if-match <file_sha>]";
+const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address> [--if-match <file_sha>]";
 
 function value(flags: Record<string, string | boolean>, key: string): string | undefined {
   const v = flags[key];
@@ -68,18 +68,18 @@ function memberFrom(args: string[], flags: Record<string, string | boolean>, roo
     const existingRoot = value(flags, "root");
     const id = value(flags, "root-node-id");
     const sha = value(flags, "sha");
-    if (!depth || (!existingRoot && !(id && sha)) || (existingRoot && (id || sha))) {
-      throw new Error("Position needs --depth and either --root <index> or --root-node-id <id> --sha <commit>.");
+    if ((!existingRoot && !id) || (existingRoot && (id || sha)) || (sha && !id)) {
+      throw new Error("Position needs either --root <index> or --root-node-id <id> (optional --sha <commit>); --depth is optional on a Space Map.");
     }
     const root = existingRoot === undefined ? roots.length : Number(existingRoot);
     if (!Number.isInteger(root) || root < 0 || root > roots.length || (existingRoot !== undefined && root === roots.length)) {
       throw new Error(roots.length === 0
-        ? "Map has no roots. Supply --root-node-id <id> --sha <commit> to add one."
+        ? "Map has no roots. Supply --root-node-id <id> to add one (optionally --sha <commit>)."
         : `Root index ${existingRoot} is not in this Map (0..${roots.length - 1}).`);
     }
-    const member = { root, position, depth, ...(value(flags, "name") ? { name: value(flags, "name") } : {}),
+    const member = { root, position, ...(depth ? { depth } : {}), ...(value(flags, "name") ? { name: value(flags, "name") } : {}),
       ...(value(flags, "summary") ? { summary: value(flags, "summary") } : {}) } as MapMember;
-    return { member, ...(id && sha ? { root: { root_node_id: id, sha } } : {}) };
+    return { member, ...(id ? { root: { root_node_id: id, ...(sha ? { sha } : {}) } } : {}) };
   }
   if (!address || args.length !== 1 || flags.root !== undefined || flags["root-node-id"] !== undefined || flags.sha !== undefined) {
     throw new Error("Address needs exactly one <address>; position members use --position and --root.");

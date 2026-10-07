@@ -4,6 +4,7 @@ import {
   gitState,
   inspectFrontmatterSyntax,
   parseFrontmatter,
+  parseMap,
   resolveRepoRoot,
   type MapDepth,
   type MapMember,
@@ -23,6 +24,7 @@ import {
   sanitizedGitEnvironment,
 } from "../git.js";
 import { formatPortableMap, parseExchangeMapSelection } from "../exchange-map-selection.js";
+import { inspectSpaceMapRoots } from "../local/space-map.js";
 import { canonicalRepoUrl, rootNodeIdFromGitUrl } from "../repo-locator.js";
 import type { Output } from "../output.js";
 import type { GlobalFlags } from "../types.js";
@@ -294,21 +296,44 @@ export async function runMapSelection(
       const isMapNote = basename(position).endsWith(".map.md") || (basename(position) === "README.md" && frontmatter.map !== undefined);
 
       if (isMapNote && frontmatter.map && typeof frontmatter.map === "object") {
-        const rawMap = frontmatter.map as { roots?: unknown[]; members?: unknown[] };
-        const rawRoots = Array.isArray(rawMap.roots) ? rawMap.roots : [];
-        const rawMembers = Array.isArray(rawMap.members) ? rawMap.members : [];
+        const parsedMap = parseMap(frontmatter.map);
+        if (parsedMap.status !== "valid") throw new Error(`The selected Map Note has an invalid Map block: ${parsedMap.status === "invalid" ? parsedMap.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ") : "missing map"}. Repair it before sending.`);
+        const rawRoots = parsedMap.map.roots;
+        const rawMembers = parsedMap.map.members;
 
         roots = rawRoots.map((r) => {
           if (!r || typeof r !== "object") throw new Error("Map root must be an object");
           const rObj = r as Record<string, unknown>;
           const rNodeId = typeof rObj.root_node_id === "string" ? rObj.root_node_id : binding.rootNodeId;
-          const rSha = typeof rObj.sha === "string" ? rObj.sha : headSha;
+          const rSha = typeof rObj.sha === "string" ? rObj.sha : undefined;
           const rRepo = typeof rObj.repo === "string" ? rObj.repo : canonicalRepoUrl(config.apiUrl, rNodeId);
-          return { repo: rRepo, root_node_id: rNodeId, sha: rSha };
+          return { repo: rRepo, root_node_id: rNodeId, ...(rSha ? { sha: rSha } : {}) };
         });
         if (roots.length === 0) {
           roots = [{ repo, root_node_id: binding.rootNodeId, sha: headSha }];
         }
+
+        // A Space Map names live roots. A sent Map is a moment: pin every
+        // unpinned root at its OWN locally identified checkout's HEAD now.
+        const located = inspectSpaceMapRoots(roots, repoRoot);
+        const momentRoots: MapRoot[] = [];
+        for (const [index, root] of roots.entries()) {
+          if (root.sha) { momentRoots.push(root); continue; }
+          const checkout = located[index]?.checkoutPath;
+          const head = located[index]?.headSha;
+          if (!checkout || !head) throw new Error(`Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no reachable local HEAD to pin for sending.`);
+          if (checkout !== repoRoot) {
+            const foreign = await gitState(checkout);
+            const remote = originUrl(checkout);
+            if (!foreign.headSha || !foreign.branch || foreign.headSha !== head || foreign.dirty ||
+                !remote || rootNodeIdFromGitUrl(remote, config.apiUrl) !== root.root_node_id ||
+                exactRemoteHead(checkout, foreign.branch) !== head) {
+              throw new Error(`Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) is not published at its own origin. Push its HEAD, then retry.`);
+            }
+          }
+          momentRoots.push({ ...root, sha: head });
+        }
+        roots = momentRoots;
 
         members = rawMembers.map((m) => {
           if (!m || typeof m !== "object") throw new Error("Map member must be an object");

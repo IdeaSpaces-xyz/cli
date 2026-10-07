@@ -260,8 +260,11 @@ describe("ideaspaces map select", () => {
     });
   });
 
-  it("builds a selection from a curated *.map.md note", async () => {
-    const pinnedSha = git(["rev-parse", "HEAD"]);
+  it("pins an unpinned Space Map root from its live checkout when selecting a moment", async () => {
+    mkdirSync(join(root, "_agent"));
+    writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Space\nroot_node_id: ${ROOT_NODE_ID}\n---\n# Space\n`);
+    git(["add", "_agent/agreement.md"]);
+    git(["commit", "-q", "-m", "declare root identity"]);
     writeFileSync(
       join(root, "notes", "space.map.md"),
       `---
@@ -270,7 +273,6 @@ summary: Curated space map note
 map:
   roots:
     - root_node_id: ${ROOT_NODE_ID}
-      sha: ${pinnedSha}
   members:
     - root: 0
       position: notes/finding.md
@@ -285,6 +287,7 @@ map:
     git(["add", "notes/space.map.md"]);
     git(["commit", "-q", "-m", "add space map"]);
     git(["push", "-q", "origin", "main"]);
+    const pinnedSha = git(["rev-parse", "HEAD"]);
 
     fetchContentTreeMock.mockResolvedValue({
       kind: "content_tree",
@@ -341,6 +344,16 @@ map:
         disclosure: { name: "Finding", summary: "Observed at the selected pin." },
       },
     ]);
+  });
+
+  it("refuses to pin a foreign root with no identified local checkout", async () => {
+    writeFileSync(join(root, "notes", "links.map.md"), `---\nname: Links\nmap:\n  roots:\n    - root_node_id: n_aaaaaaaaaaaaaaaaaaaaaaaa\n  members:\n    - root: 0\n      position: README.md\n---\n# Links\n`);
+    git(["add", "notes/links.map.md"]); git(["commit", "-q", "-m", "map foreign root"]);
+    git(["push", "-q", "origin", "main"]);
+    stdoutChunks = []; stderrChunks = [];
+    expect(await mapCommand.run(["select", "notes/links.map.md"], {}, GLOBAL)).toBe(1);
+    expect(stderrChunks.join("")).toContain("no reachable local HEAD to pin for sending");
+    expect(fetchContentTreeMock).not.toHaveBeenCalled();
   });
 
   it("builds a selection from a repository root directory", async () => {

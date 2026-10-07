@@ -21,7 +21,7 @@ export interface MapAgentListing {
 export interface MapUnresolvedRoot {
   root_node_id?: string;
   repo?: string;
-  sha: string;
+  sha?: string;
   path?: string;
   reason: "unbound" | "unavailable_pin" | "git_error";
   detail?: string;
@@ -83,7 +83,7 @@ export function projectMapAgents(
       sha: root.sha,
     };
 
-    const read = readMapRoot(located[rootIndex], "_agent/agreement.md", "pin");
+    const read = readMapRoot(located[rootIndex], "_agent/agreement.md", root.sha ? "pin" : "head");
     const checkoutPath = read.checkoutPath;
     if (!checkoutPath) {
       unresolved.push({ ...identity, reason: "unbound", detail: "No local checkout found" });
@@ -107,7 +107,7 @@ export function projectMapAgents(
       });
       continue;
     }
-    if (read.status !== "checkout_at_pin" || read.kind !== "file") {
+    if ((read.status !== "checkout_at_pin" && read.status !== "checkout_at_head") || read.kind !== "file" || !read.commit) {
       continue;
     }
 
@@ -148,7 +148,7 @@ export function projectMapAgents(
       ...(root.root_node_id || declaredRootNodeId
         ? { root_node_id: root.root_node_id ?? declaredRootNodeId }
         : {}),
-      sha: root.sha,
+      sha: read.commit, // selected pin, or the observed HEAD for an unpinned root
       path: checkoutPath,
       ...(memberPosition ? { position: memberPosition } : {}),
     });
@@ -171,10 +171,10 @@ export function formatMapAgentsText(result: MapAgentsResult): string {
     if (lines.length > 0) lines.push("");
     lines.push("Unresolved roots:");
     for (const u of result.unresolved) {
-      const id = u.root_node_id ?? u.repo ?? u.sha;
+      const id = u.root_node_id ?? u.repo ?? u.sha ?? "unidentified root";
       const reasonText =
         u.reason === "unavailable_pin"
-          ? `pin unavailable (${u.sha.slice(0, 8)})`
+          ? `pin unavailable (${u.sha?.slice(0, 8) ?? "unknown"})`
           : u.reason === "git_error"
             ? `git error: ${u.detail ?? "unknown"}`
             : "unbound (no local checkout)";

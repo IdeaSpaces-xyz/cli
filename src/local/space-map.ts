@@ -9,14 +9,14 @@ import { canonicalRepoUrl, parseRepoLocator } from "../repo-locator.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 
-export type SpaceMapRootStatus = "pinned" | "moved" | "unresolved";
+export type SpaceMapRootStatus = "pinned" | "moved" | "found" | "unresolved";
 
 export interface SpaceMapRootDrift {
   root: MapRoot;
   rootIndex: number;
   rootNodeId: string | null;
   repo: string | null;
-  pinnedSha: string;
+  pinnedSha?: string;
   status: SpaceMapRootStatus;
   drift: boolean;
   headSha: string | null;
@@ -267,13 +267,9 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
     let drift = false;
 
     if (head) {
-      if (head === pinnedSha) {
-        status = "pinned";
-        drift = false;
-      } else {
-        status = "moved";
-        drift = true;
-      }
+      if (!pinnedSha) status = "found";
+      else if (head === pinnedSha) status = "pinned";
+      else { status = "moved"; drift = true; }
     }
 
     return {

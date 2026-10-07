@@ -63,6 +63,8 @@ describe("local Threads", () => {
     expect(() => resolveLocalThread("../../outside", root)).toThrow();
     expect(() => appendPost(t.path, { body: "No", replyTo: ["missing"] })).toThrow(/reply-to/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ sha: "HEAD" }], members: [] } })).toThrow(/Map/);
+    expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567" }], members: [] } })).toThrow(/root 0.*no SHA/);
+    expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }], members: [{ root: 0, position: "." }] } })).toThrow(/depth ceiling/);
     expect(readdirSync(t.path).filter((p) => p.startsWith("20"))).toEqual([]);
     writeFileSync(join(t.path, "bad.md"), "---\nkind: post\n---\nMissing id");
     expect(() => loadThread(t.path)).toThrow(/Invalid post/);

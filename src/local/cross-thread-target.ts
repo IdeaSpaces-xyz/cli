@@ -74,9 +74,11 @@ export interface SelectedThreadTarget {
 }
 
 export function selectLocalThreadTarget(input: string, root: MapRoot, member: MapPositionMember, checkoutHint?: string): SelectedThreadTarget {
+  const pin = root.sha;
+  if (!pin || !/^[0-9a-f]{40}$/.test(pin)) throw new Error("Selected authored pin must be a full 40-character commit SHA.");
+  if (!member.depth) throw new Error("Selected authored Thread member needs a depth ceiling.");
   const checkout = locate(root, checkoutHint);
-  if (!/^[0-9a-f]{40}$/.test(root.sha)) throw new Error("Selected authored pin must be a full 40-character commit SHA.");
-  const commit = spawnSync("git", ["cat-file", "-t", root.sha], {
+  const commit = spawnSync("git", ["cat-file", "-t", pin], {
     cwd: checkout, encoding: "utf8", env: sanitizedGitEnvironment(),
   });
   if (commit.status !== 0 || commit.stdout.trim() !== "commit") throw new Error("Selected authored pin is not a commit in this checkout.");
@@ -93,12 +95,12 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
     throw new Error(`Selected Map member belongs to Thread ${slug}; pass that slug, not a cross-Space path.`);
   }
   const thread = loadThread(directory);
-  const pinned = readPinnedThreadMember(checkout, root.sha, position);
+  const pinned = readPinnedThreadMember(checkout, pin, position);
   const parsed = parseThreadPost(pinned, basename(position));
   if (parsed.status !== "valid") throw new Error("Selected authored Thread post is invalid.");
   const prefix = `_threads/${slug}/`;
-  const agreement = readPinnedThreadAgreement(checkout, root.sha, `${prefix}_agent/agreement.md`);
-  const readme = readPinnedThreadMember(checkout, root.sha, `${prefix}README.md`);
+  const agreement = readPinnedThreadAgreement(checkout, pin, `${prefix}_agent/agreement.md`);
+  const readme = readPinnedThreadMember(checkout, pin, `${prefix}README.md`);
   const frontmatter = parseFrontmatter(readme);
   if (!parseFrontmatter(agreement) || !frontmatter) throw new Error("Pinned Thread Agreement or README is invalid.");
   const name = typeof frontmatter.name === "string" ? frontmatter.name : slug;
@@ -119,10 +121,10 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
     if (!parents.length || new Set(parents).size !== parents.length) throw new Error("Selected cross-Space post requires distinct explicit --reply-to ids; no implicit HEAD parent.");
     for (const id of [...parents, ...(supersedes ? [supersedes] : [])]) {
       const parent: ThreadPost | undefined = live.posts.find((post) => post.id === id);
-      if (!parent || !safeEqual(join(directory, parent.path), readPinnedThreadMember(checkout, root.sha, `${prefix}${parent.path}`))) {
+      if (!parent || !safeEqual(join(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
         throw new Error(`Selected parent or superseded post ${id} is missing or changed since the authored pin.`);
       }
     }
   };
-  return { checkout, thread, pin: root.sha, position, pinned, post: parsed.post, name, summary, verifyWrite };
+  return { checkout, thread, pin, position, pinned, post: parsed.post, name, summary, verifyWrite };
 }

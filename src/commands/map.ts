@@ -40,7 +40,7 @@ function humanMember(projected: ProjectedContentTreeMember): string {
   const { member, presentation } = projected;
   const suffix = presentation.kind === "directory" ? "/" : "";
   const summary = member.disclosure?.summary;
-  return `  ${member.depth.padEnd(8)} ${member.position}${suffix}${summary ? ` — ${summary}` : ""}`;
+  return `  ${(member.depth ?? "unspecified").padEnd(8)} ${member.position}${suffix}${summary ? ` — ${summary}` : ""}`;
 }
 
 function emptyTree(): ContentAwarenessTree {
@@ -144,10 +144,10 @@ export const mapCommand: CommandDef = {
       } else {
         for (const r of spaceMap.roots) {
           const label = r.repo ?? r.rootNodeId ?? `root_${r.rootIndex}`;
-          const mark = `[${r.status}]`;
-          const pin = `@ ${r.pinnedSha}`;
+          const mark = r.pinnedSha ? `[${r.status}] ` : "";
+          const pin = r.pinnedSha ? ` @ ${r.pinnedSha}` : "";
           const detail = r.status === "moved" && r.headSha ? ` (head: ${r.headSha})` : "";
-          lines.push(`  [${r.rootIndex}] ${mark} ${label} ${pin}${detail}`);
+          lines.push(`  [${r.rootIndex}] ${mark}${label}${pin}${detail}`);
         }
       }
 
@@ -163,7 +163,7 @@ export const mapCommand: CommandDef = {
             );
           } else if ("position" in member) {
             lines.push(
-              `  [${index}] position="${member.position}" root=${member.root} depth=${member.depth}${summary}`,
+              `  [${index}] position="${member.position}" root=${member.root}${member.depth ? ` depth=${member.depth}` : ""}${summary}`,
             );
           }
         }
