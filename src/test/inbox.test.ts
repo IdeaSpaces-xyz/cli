@@ -234,6 +234,16 @@ describe("inbox", () => {
     expect(stdout()).not.toContain(message.note_node_id);
   });
 
+  it("refuses malformed or unknown hosted --since selectors without inventing a cursor", async () => {
+    expect(await inboxCommand.run(["read", "x_one"], { since: "not-a-date" }, TEXT_GLOBAL)).toBe(1);
+    expect(fetchExchangeMock).not.toHaveBeenCalled();
+    fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", cursor: 0, messages: [], latest_position: 0 });
+    expect(await inboxCommand.run(["read", "x_one"], { since: "n_unknown" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("is not in Thread");
+    expect(await inboxCommand.run(["read", "x_one"], { since: "2026-13-40" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("valid ISO date");
+  });
+
   it("bounds hosted Thread disclosure and selects one immutable Note by id", async () => {
     const dated = [
       { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, markdown: "Old private body" },
@@ -243,7 +253,8 @@ describe("inbox", () => {
       participants: [], cursor: 1, latest_position: 2, messages: dated });
     expect(await inboxCommand.run(["read", "x_one"], { depth: "summary", new: true }, JSON_GLOBAL)).toBe(0);
     let result = JSON.parse(stdout());
-    expect(result.messages).toMatchObject([{ id: "n_second", kind: "inquiry.opened", date: "2026-10-07T00:00:00Z", in_reply_to: null }]);
+    expect(result.messages).toMatchObject([{ id: "n_second", kind: "inquiry.opened", date: "2026-10-07T00:00:00Z" }]);
+    expect(result.messages[0]).not.toHaveProperty("in_reply_to");
     expect(stdout()).not.toContain("Selected body");
     stdoutChunks = [];
     expect(await inboxCommand.run(["read", "x_one"], { depth: "name" }, JSON_GLOBAL)).toBe(0);
@@ -264,7 +275,8 @@ describe("inbox", () => {
     expect(JSON.parse(stdout()).messages[0].markdown).toBe("Selected body"); // --post means one full post.
     stdoutChunks = [];
     expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, JSON_GLOBAL)).toBe(0);
-    expect(JSON.parse(stdout())).toMatchObject({ reply_links_unavailable: true, messages: [{ id: "n_first", in_reply_to: null }, { id: "n_second", in_reply_to: null }] });
+    expect(JSON.parse(stdout())).toMatchObject({ reply_links_unavailable: true, messages: [{ id: "n_first" }, { id: "n_second" }] });
+    expect(JSON.parse(stdout()).messages[0]).not.toHaveProperty("in_reply_to");
     expect(stdout()).not.toContain("Old private body");
     stdoutChunks = [];
     expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, TEXT_GLOBAL)).toBe(0);

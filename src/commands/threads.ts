@@ -377,7 +377,8 @@ export const threadsCommand: CommandDef = {
         let posts = thread.posts.filter((p) => !seen.has(p.id));
         if (since) {
           const at = thread.posts.findIndex((p) => p.id === since);
-          if (at !== -1) posts = posts.filter((p) => thread.posts.indexOf(p) > at);
+          // --since post-id is exclusive in the Thread's deterministic post order.
+          if (at !== -1) posts = thread.posts.slice(at + 1);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
             const undated = posts.filter((p) => !p.date).length;
             if (undated) output.log(`${undated} undated post(s) in Thread ${thread.slug} cannot be compared to --since ${since}; omitted.`);

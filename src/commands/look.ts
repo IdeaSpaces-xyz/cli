@@ -85,7 +85,7 @@ export const lookCommand: CommandDef = {
     "ideaspaces look notes/decision.md --depth children",
     "ideaspaces look research --depth full --json",
     "ideaspaces look _threads/decision --depth summary --new",
-    "ideaspaces look _threads/decision --depth surface --post msg_…",
+    "ideaspaces look _threads/decision --depth surface --post msg_01234567-89ab-4cde-8f01-23456789abcd",
     "ideaspaces look . --contract foundation --depth summary",
   ],
   async run(args, flags, global) {

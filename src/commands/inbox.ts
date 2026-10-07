@@ -189,6 +189,7 @@ export function exchangeText(
     ...(exchange.target_node_id ? [`About ${exchange.target_node_id}`] : []),
     `Participants: ${participantsText(exchange.participants)}`,
     `Cursor: ${exchange.cursor ?? "not followed"} · Latest: ${exchange.latest_position}`,
+    ...(depth === "summary" ? ["Reply parents unavailable in hosted Threads; posts are listed in time order."] : []),
   ];
   for (const message of messages) {
     const author = exchange.participants.find(
@@ -198,7 +199,7 @@ export function exchangeText(
     lines.push(
       "",
       `[${message.position}] ${message.note_node_id} · ${message.action} · ${message.created_at} · ${author ? participantLabel(author) : message.author_ref}${actor} — ${message.name}`,
-      ...(depth === "summary" ? [message.summary, "in_reply_to: unavailable (hosted service does not expose reply parents)"] : [message.summary]),
+      message.summary,
     );
     if (depth === "full") {
       if (message.map) lines.push(...formatPortableMap(message.map));
@@ -508,7 +509,7 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
 
     const projected = post || depth === "surface" || depth === "full" ? messages : depth === "name" ? [] : messages.map((message) => ({
       id: message.note_node_id, note_node_id: message.note_node_id, kind: message.action, date: message.created_at, name: message.name,
-      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref } : {}), in_reply_to: null,
+      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref } : {}),
     }));
     const data = {
       ...exchange,
