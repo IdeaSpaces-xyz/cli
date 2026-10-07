@@ -32,6 +32,7 @@ import {
   type LocalProjectionRoot,
 } from "../local-map-root.js";
 import { createOutput, type Output } from "../output.js";
+import { threadsCommand } from "./threads.js";
 import { repoRoot } from "../git.js";
 import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap } from "../local/address-read.js";
 import { lookAtCommit } from "../local/map-look.js";
@@ -41,7 +42,8 @@ import type { CommandDef } from "../types.js";
 const DEPTHS = "<name|summary|surface|children|full>";
 const USAGE =
   `ideaspaces look <path> [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--limit <n>] [--pin <sha>] [--json]\n` +
-  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--json]`;
+  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--json]\n` +
+  `       ideaspaces look _threads/<slug> [--depth ${DEPTHS}] [--new|--since <ISO date|post id>] [--post <id>] [--json]`;
 
 interface PortableProjection {
   root: LocalProjectionRoot;
@@ -73,7 +75,7 @@ function isRemoteAddress(value: string): boolean {
 
 export const lookCommand: CommandDef = {
   name: "look",
-  description: "Read one local Note or directory at a progressive-disclosure rung",
+  description: "Read one local Note, Content directory or Thread folder at a progressive-disclosure rung",
   usage: USAGE,
   examples: [
     "ideaspaces look notes/decision.md",
@@ -82,6 +84,8 @@ export const lookCommand: CommandDef = {
     "ideaspaces look notes/decision.md --pin 0123456789abcdef0123456789abcdef01234567",
     "ideaspaces look notes/decision.md --depth children",
     "ideaspaces look research --depth full --json",
+    "ideaspaces look _threads/decision --depth summary --new",
+    "ideaspaces look _threads/decision --depth surface --post msg_…",
     "ideaspaces look . --contract foundation --depth summary",
   ],
   async run(args, flags, global) {
@@ -141,6 +145,21 @@ export const lookCommand: CommandDef = {
       output.error(`--map and --at read a Map address (@<root>//<position> or //<position>); ${JSON.stringify(raw)} is a path.`);
       return 1;
     }
+    const path = resolve(raw);
+    // Thread folders are extension payload, not Content. Route the five rungs
+    // through the same bounded Thread reader as `threads open`; never reinterpret
+    // their posts as ordinary Notes or substitute a pin from working-tree HEAD.
+    if (/(?:^|[\\/])_threads[\\/][^\\/]+$/.test(path) && existsSync(path) && statSync(path).isDirectory()) {
+      if (flags.contract !== undefined || flags.limit !== undefined || flags.pin !== undefined) {
+        output.error("A Thread folder has its own Agreement and post rungs; omit --contract, --limit and --pin. Use threads open with an authored pin for a post.");
+        return 1;
+      }
+      const allowed = new Set(["depth", "new", "since", "post"]);
+      const extra = Object.keys(flags).find((flag) => !allowed.has(flag));
+      if (extra) { output.error(`Unknown flag for a Thread folder: --${extra}`); return 1; }
+      return threadsCommand.run(["open", path], { depth, ...("new" in flags ? { new: flags.new } : {}),
+        ...("since" in flags ? { since: flags.since } : {}), ...("post" in flags ? { post: flags.post } : {}) }, global);
+    }
     if (flags.pin !== undefined) {
       return lookAtPin(output, global.json, raw, flags.pin, {
         depth,
@@ -149,7 +168,6 @@ export const lookCommand: CommandDef = {
       });
     }
 
-    const path = resolve(raw);
     let looked;
     try {
       const options = {
