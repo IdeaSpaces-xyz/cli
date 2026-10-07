@@ -625,15 +625,44 @@ describe("inbox", () => {
     addExchangePersonMock.mockResolvedValue(result); closeExchangeMock.mockResolvedValue(result); renameExchangeMock.mockResolvedValue(result);
     expect(await inboxCommand.run(["add", id, "@two"], { grade: "view" }, JSON_GLOBAL)).toBe(0);
     expect(addExchangePersonMock).toHaveBeenCalledWith(CFG, id, { username: "two" }, "view");
+    stdoutChunks = [];
     expect(await inboxCommand.run(["close", id], {}, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).planned).toBe(true);
+    expect(closeExchangeMock).not.toHaveBeenCalled();
+    expect(await inboxCommand.run(["close", id], {}, { ...JSON_GLOBAL, yes: true })).toBe(0);
     expect(closeExchangeMock).toHaveBeenCalledWith(CFG, id);
     expect(await inboxCommand.run(["rename", id], { name: "New title" }, JSON_GLOBAL)).toBe(0);
     expect(renameExchangeMock).toHaveBeenCalledWith(CFG, id, "New title");
     closeExchangeMock.mockRejectedValue(new Error(`POST /api/v1/exchanges/${id}/close → 403: {"detail":"Only the Thread owner can manage it"}`));
-    expect(await inboxCommand.run(["close", id], {}, TEXT_GLOBAL)).toBe(1);
+    expect(await inboxCommand.run(["close", id], {}, { ...TEXT_GLOBAL, yes: true })).toBe(1);
     expect(stderr()).toContain("Only the Thread owner can manage it");
     expect(await inboxCommand.run(["add", id, "@two"], { grade: "manage" }, TEXT_GLOBAL)).toBe(1);
     expect(addExchangePersonMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows grade and closure in human hosted reads and lists", async () => {
+    fetchInboxMock.mockResolvedValue({ items: [{ kind: "inquiry", exchange_id: "x_one", name: "Updated title", your_grade: "view", closed: true,
+      latest_message: message, participants: [participant(1, "One")], latest_position: 1, cursor: null, message_count: 1 }] });
+    expect(await inboxCommand.run(["list"], { kind: "message" }, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("Updated title [view] [closed]");
+    stdoutChunks = [];
+    fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", name: "Updated title", your_grade: "view", closed: true,
+      target_node_id: null, participants: [], messages: [{ ...message, markdown: "Body" }], cursor: null, latest_position: 1 });
+    expect(await inboxCommand.run(["read", "x_one"], {}, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("Thread x_one [closed]");
+    expect(stdout()).toContain("Your grade: view");
+  });
+
+  it("rejects malformed hosted management flags before network access", async () => {
+    const id = "x_0123456789abcdef01234567";
+    expect(await inboxCommand.run(["add", id], {}, TEXT_GLOBAL)).toBe(1);
+    expect(await inboxCommand.run(["add", id, "two@example.test"], {}, TEXT_GLOBAL)).toBe(1);
+    expect(await inboxCommand.run(["add", id, "@two"], { grade: true }, TEXT_GLOBAL)).toBe(1);
+    expect(await inboxCommand.run(["close", id], { message: "why" }, { ...TEXT_GLOBAL, yes: true })).toBe(1);
+    expect(await inboxCommand.run(["rename", id], {}, TEXT_GLOBAL)).toBe(1);
+    expect(addExchangePersonMock).not.toHaveBeenCalled();
+    expect(closeExchangeMock).not.toHaveBeenCalled();
+    expect(renameExchangeMock).not.toHaveBeenCalled();
   });
 
   it("routes hosted owner controls through threads without touching local close", async () => {
@@ -641,7 +670,7 @@ describe("inbox", () => {
     closeExchangeMock.mockResolvedValue({ exchange_id: hosted, position: 6 });
     addExchangePersonMock.mockResolvedValue({ exchange_id: hosted, position: 7 });
     renameExchangeMock.mockResolvedValue({ exchange_id: hosted, position: 8 });
-    expect(await threadsCommand.run(["close", hosted], {}, JSON_GLOBAL)).toBe(0);
+    expect(await threadsCommand.run(["close", hosted], {}, { ...JSON_GLOBAL, yes: true })).toBe(0);
     expect(await threadsCommand.run(["add", hosted, "@two"], {}, JSON_GLOBAL)).toBe(0);
     expect(addExchangePersonMock).toHaveBeenCalledWith(CFG, hosted, { username: "two" }, "participate");
     expect(await threadsCommand.run(["rename", hosted], { name: "Title" }, JSON_GLOBAL)).toBe(0);

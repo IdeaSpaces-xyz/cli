@@ -145,11 +145,11 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
     "ideaspaces threads open <slug|path> --pin <40-hex-sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads close <slug|path> --message 'Closing rationale'  # local",
-    "ideaspaces threads close x_<id>  # hosted owner",
-    "ideaspaces threads add x_<id> @handle --grade view  # hosted owner",
-    "ideaspaces threads rename x_<id> --name 'New title'  # hosted owner",
+    "ideaspaces threads close x_<id>  # preview; add --yes to close as owner",
+    "ideaspaces threads add x_<id> @handle --grade view  # hosted owner only (not email)",
+    "ideaspaces threads rename x_<id> --name 'New title'  # hosted owner only",
     "ideaspaces threads send @handle --grade view --name 'Question' --summary 'One decision' --message '…'",
-    "ideaspaces threads list --kind message --json  # hosted rows include your_grade",
+    "ideaspaces threads list --kind message --json  # hosted rows include your_grade and closed",
     "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
     "ideaspaces threads push --remote <team-remote>  # never origin/GitHub",
@@ -229,13 +229,13 @@ export const threadsCommand: CommandDef = {
           return row;
         });
         const text = rows.map((row) => {
-          if (rung === "name") return `${row.id}  ${row.name}`;
+          if (rung === "name") return `${row.id}  ${row.name}${"your_grade" in row && row.your_grade ? ` [${row.your_grade}]` : ""}${"closed" in row && row.closed ? " [closed]" : ""}`;
           if (rung === "full" && "posts" in row && Array.isArray(row.posts)) {
             const thread = localThreads.find((candidate) => candidate.path === row.id)!;
             return localText(thread, row.posts, "full");
           }
           if (rung === "full" && "text" in row && typeof row.text === "string") return row.text;
-          return `${row.id}  ${row.name}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
+          return `${row.id}  ${row.name}${"your_grade" in row && row.your_grade ? ` [${row.your_grade}]` : ""}${"closed" in row && row.closed ? " [closed]" : ""}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
         output.result({ threads: rows, hosted_checked: Boolean(config) }, (text || "No local Threads here.") + hint);

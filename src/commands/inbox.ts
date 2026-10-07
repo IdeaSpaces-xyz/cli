@@ -146,7 +146,7 @@ function isInquiry(item: InboxItem): item is InquiryInboxItem {
 }
 
 function inboxItemName(item: InboxItem): string {
-  if (isInquiry(item)) return `${item.exchange_id}  ${item.latest_message.name}`;
+  if (isInquiry(item)) return `${item.exchange_id}  ${item.name ?? item.latest_message.name}${item.your_grade ? ` [${item.your_grade}]` : ""}${item.closed ? " [closed]" : ""}`;
   return `${item.request_id}  Access request for ${item.target_node_id}`;
 }
 
@@ -172,13 +172,11 @@ export function exchangeText(
   messages: ExchangeMessage[] = exchange.messages,
   depth: ReadDepth = "full",
 ): string {
-  const current = exchange.messages.find(
-    (message) => message.note_node_id === exchange.subject?.current_note_id,
-  ) ?? exchange.messages.at(-1);
-  if (depth === "name") return `${exchange.exchange_id}  ${current?.name ?? "Thread"}`;
+  if (depth === "name") return `${exchange.exchange_id}  ${exchange.name ?? exchange.messages.at(-1)?.name ?? "Thread"}${exchange.your_grade ? ` [${exchange.your_grade}]` : ""}${exchange.closed ? " [closed]" : ""}`;
 
   const lines = [
-    `Thread ${exchange.exchange_id}`,
+    `Thread ${exchange.exchange_id}${exchange.closed ? " [closed]" : ""}`,
+    ...(exchange.your_grade ? [`Your grade: ${exchange.your_grade}`] : []),
     ...(exchange.target_node_id ? [`About ${exchange.target_node_id}`] : []),
     `Participants: ${participantsText(exchange.participants)}`,
     `Cursor: ${exchange.cursor ?? "not followed"} · Latest: ${exchange.latest_position}`,
@@ -763,7 +761,7 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
   });
 }
 
-async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Flags, output: Output): Promise<number> {
+async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Flags, output: Output, apply: boolean): Promise<number> {
   const [exchangeId, handle] = rest;
   if (!exchangeId || !/^x_[0-9a-f]{24}$/.test(exchangeId)) {
     output.error(`Use a hosted Thread id (x_…) with threads ${sub}. Local Threads have separate controls.`);
@@ -776,7 +774,7 @@ async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Fl
     recipient = handle ? recipientSelector(handle) : null;
     grade = threadGrade(flags, output);
     if (rest.length !== 2 || !recipient || !handle?.startsWith("@") || !grade) {
-      if (grade) output.error("Usage: threads add <x_id> @handle [--grade view|participate].");
+      if (grade) output.error("Usage: threads add <x_id> @handle [--grade view|participate]. Add a registered @handle, not an email address.");
       return 1;
     }
   } else if (sub === "close") {
@@ -790,6 +788,10 @@ async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Fl
       output.error("Usage: threads rename <x_id> --name <new title>.");
       return 1;
     }
+  }
+  if (sub === "close" && !apply) {
+    output.result({ exchange_id: exchangeId, planned: true }, `Would close hosted Thread ${exchangeId}. Nothing changed; re-run with --yes to close it. The server checks ownership.`);
+    return 0;
   }
   return runAuthenticated(output, async (config) => {
     try {
@@ -817,7 +819,7 @@ export const hostedThreadsCommand: CommandDef = {
     "ideaspaces threads expand x_example 0",
     "ideaspaces threads send @owner --space n_0123456789abcdef01234567 --about n_0123456789abcdef01234567 --grade view --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads add x_example @colleague --grade participate  # owner only",
-    "ideaspaces threads close x_example  # owner only",
+    "ideaspaces threads close x_example  # preview; add --yes to close as owner",
     "ideaspaces threads rename x_example --name 'New title'  # owner only",
     "ideaspaces threads send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
@@ -841,7 +843,7 @@ export const hostedThreadsCommand: CommandDef = {
       case "add":
       case "close":
       case "rename":
-        return manage(sub, rest, flags, output);
+        return manage(sub, rest, flags, output, global.yes === true);
       case "expand":
         return expand(rest, output);
       default:
