@@ -234,6 +234,9 @@ describe("inbox", () => {
     expect(result.messages).toMatchObject([{ note_node_id: "n_second", markdown: "Selected body" }]);
     expect(stdout()).not.toContain("Old private body");
     stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_one"], { depth: "name", post: "n_second" }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages[0].markdown).toBe("Selected body"); // --post means one full post.
+    stdoutChunks = [];
     expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, JSON_GLOBAL)).toBe(0);
     expect(JSON.parse(stdout())).toMatchObject({ reply_links_unavailable: true, messages: [{ id: "n_first", in_reply_to: null }, { id: "n_second", in_reply_to: null }] });
     expect(stdout()).not.toContain("Old private body");

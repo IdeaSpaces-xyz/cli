@@ -76,7 +76,14 @@ function threadSection(markdown: string, heading: string): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 function threadFrame(thread: LocalThread) {
-  const agreement = readFileSync(join(thread.path, "_agent", "agreement.md"), "utf8");
+  // loadThread validates the Agreement, but it can disappear between the two
+  // reads. A missing target frame does not erase the curated README frame.
+  let agreement = "";
+  try {
+    agreement = readFileSync(join(thread.path, "_agent", "agreement.md"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   return {
     current_frame: threadSection(thread.readme, "Current frame"),
     goal: threadSection(agreement, "Goal"),
@@ -101,10 +108,13 @@ function childTree(posts: LocalThread["posts"]): ThreadChild[] {
   };
   return reconstructThreadTimeline(posts).roots.map(project);
 }
-function localText(thread: LocalThread, posts: LocalThread["posts"], rung: ThreadDepth, frame = threadFrame(thread)): string {
+function localText(thread: LocalThread, posts: LocalThread["posts"], rung: ThreadDepth, frame?: ReturnType<typeof threadFrame>): string {
   const header = `${thread.slug}  ${thread.name}`;
-  if (rung === "name") return [header, frame.current_frame && `Current frame: ${frame.current_frame}`,
-    frame.goal && `Goal: ${frame.goal}`, frame.done_when && `Done when: ${frame.done_when}`].filter(Boolean).join("\n\n");
+  if (rung === "name") {
+    const lens = frame ?? threadFrame(thread);
+    return [header, lens.current_frame && `Current frame: ${lens.current_frame}`,
+      lens.goal && `Goal: ${lens.goal}`, lens.done_when && `Done when: ${lens.done_when}`].filter(Boolean).join("\n\n");
+  }
   const context = `${thread.name} (${thread.path})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
   if (rung === "children") {
     const lines: string[] = [];
@@ -219,6 +229,8 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
     "ideaspaces threads push --remote <team-remote>  # never origin/GitHub",
     "ideaspaces threads read x_<id> --new --ack  # hosted",
+    "ideaspaces threads open <slug|x_id> --depth name|summary|children|surface|full [--new|--since <date|id>]",
+    "ideaspaces threads open <slug|x_id> --post <id>  # one post in full, regardless of --depth",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -394,7 +406,7 @@ export const threadsCommand: CommandDef = {
           closed: thread.closed, ...(frame ? { frame } : {}) }, posts: projected,
           ...(rawPost ? { raw_post: rawPost } : {}),
           ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), acknowledged: ack },
-          pinned && effectiveRung === "full" ? pinned : rawPost ?? localText(thread, posts, effectiveRung)); return 0;
+          pinned && effectiveRung === "full" ? pinned : rawPost ?? localText(thread, posts, effectiveRung, frame)); return 0;
       }
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || HOSTED.test(rest[0])) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);

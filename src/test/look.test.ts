@@ -123,6 +123,11 @@ describe("ideaspaces look", () => {
     expect(selected.exit, selected.stderr).toBe(0);
     expect(selected.data.raw_post).toContain("Second body");
     expect(selected.stdout).not.toContain("Private body");
+    const exact = await runLook(["_threads/decision"], { depth: "name", post: second.post.id });
+    expect(exact.data.raw_post).toContain("Second body"); // --post explicitly requests one full post.
+    const unknown = await runLook(["_threads/decision"], { depth: "summary", typo: "value" });
+    expect(unknown.exit).toBe(1);
+    expect(unknown.stderr).toContain("Unknown flag for a Thread folder: --typo");
     const full = await runLook(["_threads/decision"], { depth: "full" });
     expect(full.data.posts).toHaveLength(2);
     const wrong = await runLook(["_threads/decision"], { depth: "summary", contract: "agreement" });
