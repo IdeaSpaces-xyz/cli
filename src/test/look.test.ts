@@ -112,6 +112,9 @@ describe("ideaspaces look", () => {
     const named = await runLook(["_threads/decision"], { depth: "name" });
     expect(named.exit, named.stderr).toBe(0);
     expect(named.data.posts).toEqual([]);
+    const withSlash = await runLook(["_threads/decision/"], { depth: "name" });
+    expect(withSlash.exit, withSlash.stderr).toBe(0); // resolve() normalizes the trailing slash.
+    expect(withSlash.data.posts).toEqual([]);
     const summary = await runLook(["_threads/decision"], { depth: "summary" });
     expect(summary.exit, summary.stderr).toBe(0);
     expect(summary.data.posts).toMatchObject([{ id: first.post.id, kind: "post" }, { id: second.post.id, in_reply_to: [first.post.id] }]);

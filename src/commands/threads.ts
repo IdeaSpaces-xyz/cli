@@ -205,6 +205,12 @@ const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
   }).map(([verb, names]) => [verb, new Set(names ? names.split(" ") : [])]),
 );
 
+export function threadFlagError(verb: string, flags: Flags): string | undefined {
+  const known = THREAD_FLAGS[verb];
+  const unknown = known && Object.keys(flags).find((flag) => !known.has(flag));
+  return unknown ? `Unknown flag for threads ${verb}: --${unknown}. Run ideaspaces threads --help for supported flags.` : undefined;
+}
+
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
@@ -236,11 +242,8 @@ export const threadsCommand: CommandDef = {
     const output = createOutput(global);
     const [sub, ...rest] = args;
     try {
-      const known = THREAD_FLAGS[sub ?? ""];
-      if (known) {
-        const unknown = Object.keys(flags).find((flag) => !known.has(flag));
-        if (unknown) throw new Error(`Unknown flag for threads ${sub}: --${unknown}. Run ideaspaces threads --help for supported flags.`);
-      }
+      const flagError = threadFlagError(sub ?? "", flags);
+      if (flagError) throw new Error(flagError);
       if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
           return threadsCommand.run(["open", rest[0]], flags, global);
@@ -350,12 +353,12 @@ export const threadsCommand: CommandDef = {
           const rung = depth(flags, "summary");
           const post = target.post;
           const postName = post.frontmatter.name ?? post.id;
-          const postSummary = post.frontmatter.summary ?? "(no summary)";
+          const postSummary = post.frontmatter.summary ?? "";
           const posts = rung === "name" ? [] : rung === "summary" || rung === "children" ? [{ id: post.id, path: post.path, kind: post.kind,
-            date: post.date ?? null, name: postName, ...(rung === "summary" ? { summary: postSummary } : {}), in_reply_to: post.inReplyTo }] : [post];
+            date: post.date ?? null, name: postName, ...(rung === "summary" ? { summary: post.frontmatter.summary ?? null } : {}), in_reply_to: post.inReplyTo }] : [post];
           output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
             posts, ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
-            rung === "full" || rung === "surface" ? target.pinned : rung === "name" ? target.name : rung === "children" ? `${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"}` : `${target.name}\n${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"} — ${postSummary}`);
+            rung === "full" || rung === "surface" ? target.pinned : rung === "name" ? target.name : rung === "children" ? `${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"}` : `${target.name}\n${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"} — ${postSummary || "(no summary)"}`);
           return 0;
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
@@ -401,7 +404,7 @@ export const threadsCommand: CommandDef = {
         const effectiveRung = postId ? "full" : rung;
         const projected = effectiveRung === "name" ? [] : effectiveRung === "children" ? childTree(posts) : posts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
-            summary: p.frontmatter.summary ?? "(no summary)", in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null }
+            summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null }
           : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;

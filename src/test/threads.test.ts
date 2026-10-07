@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
 import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread } from "../local/threads.js";
-import { threadsCommand } from "../commands/threads.js";
+import { threadsCommand, threadFlagError } from "../commands/threads.js";
 import { inboxCommand } from "../commands/inbox.js";
 import { searchCommand } from "../commands/search.js";
 import { push as genericPush } from "../git.js";
@@ -145,6 +145,17 @@ describe("local Threads", () => {
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
 
+  it("accepts a documented flag per verb before enforcing unknown-flag rejection", () => {
+    for (const [verb, flag] of Object.entries({
+      list: "depth", open: "post", read: "since", new: "about", post: "reply-to",
+      close: "message", render: "", init: "", push: "remote", send: "grade",
+      reply: "send-id", expand: "", add: "grade", rename: "name",
+    })) {
+      expect(threadFlagError(verb, flag ? { [flag]: "value" } : {}), verb).toBeUndefined();
+      expect(threadFlagError(verb, { typo: true }), verb).toContain("--typo");
+    }
+  });
+
   it("refuses unknown flags on every Thread verb before reading or writing", async () => {
     const write = process.stderr.write; let errors = "";
     process.stderr.write = ((chunk: string) => { errors += chunk; return true; }) as typeof process.stderr.write;
@@ -191,7 +202,7 @@ describe("local Threads", () => {
       expect(named.posts).toEqual([]);
       expect(named.thread.frame).toMatchObject({ current_frame: "Today we decide.", goal: "Keep it honest.", done_when: "One reply is read." });
       const allSummaries = await open({ depth: "summary" });
-      expect(allSummaries.posts[0].summary).toBe("(no summary)");
+      expect(allSummaries.posts[0].summary).toBeNull();
       expect(out).not.toContain("Private opening");
       const summary = await open({ depth: "summary", since: first.post.id });
       expect(summary.posts).toMatchObject([{ id: second.post.id, in_reply_to: [first.post.id], author: "Agent B" }]);
