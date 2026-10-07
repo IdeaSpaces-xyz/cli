@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -160,11 +160,14 @@ export function appendPost(dir: string, options: {
   if (options.map !== undefined) {
     const map = parseMap(options.map);
     if (map.status !== "valid") throw new Error("--map must contain a valid protocol Map block; no implicit HEAD pin is substituted.");
-    for (const [index, root] of map.map.roots.entries()) {
+    if (!isPinnedMomentMap(map.map)) {
+      for (const [index, root] of map.map.roots.entries()) {
       if (!root.sha) throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);
     }
-    for (const [index, member] of map.map.members.entries()) {
-      if ("position" in member && !member.depth) throw new Error(`Thread post Map position member ${index} has no depth ceiling. Choose one before citing a moment.`);
+      for (const [index, member] of map.map.members.entries()) {
+        if ("position" in member && !member.depth) throw new Error(`Thread post Map position member ${index} has no depth ceiling. Choose one before citing a moment.`);
+      }
+      throw new Error("Thread post Map must pin every root and choose a depth for each position.");
     }
   }
   // Local-first exclusive create, not a cross-process lock: check the selected

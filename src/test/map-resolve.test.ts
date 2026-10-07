@@ -106,6 +106,17 @@ describe("resolveMapAddress — one resolver reads a Map member", { timeout: 30_
     expect(atHead.canonical).toBe(`@${ID_RESEARCH}//frictions/x.md`);
   });
 
+  it("reads an unpinned shallow Space Map at HEAD, with no drift, and refuses pin", () => {
+    const { head } = spaceWithResearch();
+    const file = writeMap(home, "space.map.md", [{ root_node_id: ID_RESEARCH }], [{ root: 0, position: "frictions" }]);
+    const map = loadMapNote(file, home);
+    const [located] = inspectSpaceMapRoots(map.map.roots, home);
+    expect(located).toMatchObject({ status: "found", drift: false, headSha: head });
+    expect(located.pinnedSha).toBeUndefined();
+    expect(resolveMapAddress(map, `@${ID_RESEARCH}//frictions/x.md`)).toMatchObject({ status: "checkout_at_head", at: "head", content: "at head\n" });
+    expect(resolveMapAddress(map, `@${ID_RESEARCH}//frictions/x.md`, { at: "pin" })).toMatchObject({ status: "pin_absent", reason: expect.stringContaining("no pin") });
+  });
+
   it("finds a checkout nested two folders below the Map, as a Space with grouped checkouts", () => {
     const { research } = spaceWithResearch();
     const [located] = inspectSpaceMapRoots(loadMapNote("space.map.md", home).map.roots, home);
