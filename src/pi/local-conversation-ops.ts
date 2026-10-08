@@ -13,6 +13,7 @@ import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./loca
 import { canResumePiConversation, getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { prepareHostedThreadLaunch, prepareThreadLaunch, prepareUnpinnedThreadLaunch, type HostedThreadLaunch, type LocalThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -126,6 +127,48 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
+  let threadLaunch: PinnedThreadLaunch | LocalThreadLaunch | HostedThreadLaunch | undefined;
+  if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
+    const threadPath = typeof flags.thread === "string" ? flags.thread.trim() : undefined;
+    if (!threadPath) {
+      output.error("A Thread launch requires --thread <path|x_id>.");
+      return 1;
+    }
+    if (/^x_[0-9a-f]{12,24}$/.test(threadPath)) {
+      if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
+        output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
+        return 1;
+      }
+      try {
+        threadLaunch = await prepareHostedThreadLaunch(repoPath, threadPath, { requireAuthor: false });
+      } catch (err) {
+        return reportLocalError(err, output);
+      }
+    } else {
+      const map = typeof flags["thread-map"] === "string" ? flags["thread-map"].trim() : undefined;
+      const member = typeof flags["thread-member"] === "string" ? flags["thread-member"].trim() : undefined;
+      if ((flags["thread-map"] !== undefined) !== (flags["thread-member"] !== undefined)) {
+        output.error("A pinned local Thread launch requires both --thread-map <authored-note> and --thread-member <ordinal>; omit both for a live Thread read.");
+        return 1;
+      }
+      if (map && member !== undefined) {
+        try {
+          threadLaunch = prepareThreadLaunch(repoPath, threadPath, map, member, { requireAuthor: false });
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err);
+          output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
+          return 1;
+        }
+      } else {
+        try {
+          threadLaunch = prepareUnpinnedThreadLaunch(repoPath, threadPath, { requireAuthor: false });
+        } catch (err) {
+          return reportLocalError(err, output);
+        }
+      }
+    }
+  }
+
   // Abort propagation: SIGINT/SIGTERM (or the desktop killing the sidecar) kills
   // the local pi turn. Guarded so repeats don't double-fire.
   const controller = new AbortController();
@@ -154,7 +197,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       modelTier,
       mapOrientation,
       mapPath,
-      launchOrientation: joinLocalOrientation(launchOrientation, options?.extraOrientation),
+      launchOrientation: joinLocalOrientation(launchOrientation, threadLaunch?.orientation, options?.extraOrientation),
+      threadReceipt: options?.threadReceipt ?? threadLaunch?.receipt,
       piModel,
       thinkingLevel: piThinking,
       trust,

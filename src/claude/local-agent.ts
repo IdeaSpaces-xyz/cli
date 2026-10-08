@@ -32,7 +32,7 @@ import {
   type ToolInvocation,
 } from "@ideaspaces/sdk";
 import { readJsonLines } from "../local/jsonl.js";
-import { discloseLaunch, resolveAddedDirs } from "../local/send-options.js";
+import { discloseLaunch, resolveAddedDirs, type ThreadReadReceipt } from "../local/send-options.js";
 import { harvestLocalFiles } from "../local/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
@@ -129,6 +129,8 @@ export interface ClaudeTurnOptions {
   autocompact?: string;
   /** Abort the turn (SIGINT/desktop kill) — kills claude and emits `cancelled`. */
   signal?: AbortSignal;
+  /** Read receipt of Thread context provided to the agent. */
+  threadReceipt?: ThreadReadReceipt;
 }
 
 /** The `claude -p` argv for a turn. Pure, so the flag wiring is unit-testable.
@@ -257,6 +259,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
             allowed_tools: allowedTools ?? null, allowed_tools_semantics: "preapproval",
             shell_available: !opts.readOnly, runtime: "claude",
             model: opts.model ?? ke.model_tier,
+            thread: opts.threadReceipt,
           });
           continue;
         }

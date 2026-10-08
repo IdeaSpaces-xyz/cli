@@ -6,7 +6,7 @@ import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-p
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
 import { enteredThroughRoot, isContained } from "../local/contained-path.js";
-import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
+import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import {
@@ -54,7 +54,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
@@ -157,21 +157,38 @@ async function cmdRun(
     return 1;
   }
 
-  let thread: ReturnType<typeof prepareThreadLaunch> | undefined;
+  let thread: PinnedThreadLaunch | HostedThreadLaunch | undefined;
   if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
     const path = flagString(flags, "thread");
     const map = flagString(flags, "thread-map");
     const member = flagString(flags, "thread-member");
-    if (!path || !map || member === undefined) {
+    if (!path) {
       output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
       return 1;
     }
-    try {
-      thread = prepareThreadLaunch(povPath, path, map, member);
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
-      return 1;
+    if (/^x_[0-9a-f]{12,24}$/.test(path)) {
+      if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
+        output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
+        return 1;
+      }
+      try {
+        thread = await prepareHostedThreadLaunch(povPath, path);
+      } catch (err) {
+        output.error(`Cannot launch from hosted Thread: ${err instanceof Error ? err.message : String(err)}`);
+        return 1;
+      }
+    } else {
+      if (!map || member === undefined) {
+        output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
+        return 1;
+      }
+      try {
+        thread = prepareThreadLaunch(povPath, path, map, member);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
+        return 1;
+      }
     }
   }
 
@@ -282,6 +299,11 @@ async function cmdRun(
     runtime,
     message,
   };
+  // `agent run` has already validated and rendered the Thread. Do not ask the
+  // underlying conversation send to launch it again (double context, double fetch).
+  delete forwardFlags.thread;
+  delete forwardFlags["thread-map"];
+  delete forwardFlags["thread-member"];
   // Keep Desktop's legacy conversation-send default intact, but never approve
   // an agent run's Pi project resources merely because the CLI was invoked.
   if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";
@@ -339,10 +361,15 @@ async function cmdRun(
     resumeOnly: flags.conversation !== undefined,
   };
   if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
+  // Hosted conversations are private drafts; only the person can send a hosted reply.
+  if (thread.kind === "hosted") return local.send(forwardFlags, output, {
+    ...launchOptions, extraOrientation: `${povOrientation}\n\n${thread.orientation}`, threadReceipt: thread.receipt,
+  });
   let snapshotWritten = false;
   return local.send(forwardFlags, output, {
     ...launchOptions,
     extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
+    threadReceipt: thread.receipt,
     onEvent(event) {
       if (event.type !== "turn_complete") return event;
       if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
@@ -400,6 +427,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
+      "ideaspaces agent run agents/scout --thread x_0123456789abcdef01234567 --message 'Draft a reply'  # private; does not post",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
     ],
     async run(args, flags, global: GlobalFlags) {
