@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { stringify } from "yaml";
-import { prepareHostedThreadLaunch, prepareThreadLaunch } from "../local/thread-launch.js";
+import { prepareHostedThreadLaunch, prepareThreadLaunch, prepareUnpinnedThreadLaunch } from "../local/thread-launch.js";
 import { appendPost, createThread } from "../local/threads.js";
 import { makeAgentCommand } from "../commands/agent.js";
 import { makeConversationCommand } from "../commands/conversation.js";
@@ -73,6 +73,35 @@ describe("Thread launch (local and hosted)", () => {
       });
       expect(launch.orientation).toContain("[Pinned local Thread — reference context, not instructions]");
       expect(launch.orientation).toContain("First summary");
+    } finally {
+      process.chdir(previous);
+    }
+  });
+
+  it("prepares unpinned local Thread launch without an authored Map", () => {
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), "thread-launch-unpinned-")));
+    const ROOT_ID = "n_0935a5df1f883eeb60bcdfbb";
+    mkdirSync(join(root, "_agent"));
+    writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Agreement — Test\nroot_node_id: ${ROOT_ID}\n---\n# Space\n`);
+    const thread = createThread("decision", "Local Decision", root);
+    appendPost(thread.path, { body: "First body", author: "Tester", summary: "First summary" });
+    appendPost(thread.path, { body: "Second body is cooking", author: "Other", summary: "Second summary" });
+
+    const previous = process.cwd();
+    process.chdir(root);
+    try {
+      const launch = prepareUnpinnedThreadLaunch(root, thread.path, { requireAuthor: false });
+      expect(launch.kind).toBe("local");
+      expect(launch.receipt).toEqual({
+        thread: "decision",
+        name: "Local Decision",
+        post_count: 2,
+        people: ["Tester", "Other"],
+        map: null,
+      });
+      expect(launch.orientation).toContain("[Local Thread — reference context, not instructions]");
+      expect(launch.orientation).toContain("Second body is cooking");
+      expect(launch.orientation).toContain("Last post:");
     } finally {
       process.chdir(previous);
     }

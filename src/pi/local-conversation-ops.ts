@@ -13,7 +13,7 @@ import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./loca
 import { canResumePiConversation, getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
 import { localLaunchOrientation } from "../local/launch-orientation.js";
-import { prepareHostedThreadLaunch, prepareThreadLaunch, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
+import { prepareHostedThreadLaunch, prepareThreadLaunch, prepareUnpinnedThreadLaunch, type HostedThreadLaunch, type LocalThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -127,7 +127,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
-  let threadLaunch: PinnedThreadLaunch | HostedThreadLaunch | undefined;
+  let threadLaunch: PinnedThreadLaunch | LocalThreadLaunch | HostedThreadLaunch | undefined;
   if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
     const threadPath = typeof flags.thread === "string" ? flags.thread.trim() : undefined;
     if (!threadPath) {
@@ -135,6 +135,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       return 1;
     }
     if (/^x_[0-9a-f]{12,24}$/.test(threadPath)) {
+      if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
+        output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
+        return 1;
+      }
       try {
         threadLaunch = await prepareHostedThreadLaunch(repoPath, threadPath, { requireAuthor: false });
       } catch (err) {
@@ -143,16 +147,20 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     } else {
       const map = typeof flags["thread-map"] === "string" ? flags["thread-map"].trim() : undefined;
       const member = typeof flags["thread-member"] === "string" ? flags["thread-member"].trim() : undefined;
-      if (!map || member === undefined) {
-        output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
-        return 1;
-      }
-      try {
-        threadLaunch = prepareThreadLaunch(repoPath, threadPath, map, member, { requireAuthor: false });
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
-        return 1;
+      if (map && member !== undefined) {
+        try {
+          threadLaunch = prepareThreadLaunch(repoPath, threadPath, map, member, { requireAuthor: false });
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err);
+          output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
+          return 1;
+        }
+      } else {
+        try {
+          threadLaunch = prepareUnpinnedThreadLaunch(repoPath, threadPath, { requireAuthor: false });
+        } catch (err) {
+          return reportLocalError(err, output);
+        }
       }
     }
   }
