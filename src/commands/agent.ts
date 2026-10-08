@@ -299,6 +299,11 @@ async function cmdRun(
     runtime,
     message,
   };
+  // `agent run` has already validated and rendered the Thread. Do not ask the
+  // underlying conversation send to launch it again (double context, double fetch).
+  delete forwardFlags.thread;
+  delete forwardFlags["thread-map"];
+  delete forwardFlags["thread-member"];
   // Keep Desktop's legacy conversation-send default intact, but never approve
   // an agent run's Pi project resources merely because the CLI was invoked.
   if (runtime === "pi" && flags["pi-trust"] === undefined) forwardFlags["pi-trust"] = "saved";

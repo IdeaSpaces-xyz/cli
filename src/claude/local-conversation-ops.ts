@@ -154,6 +154,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     } else {
       const map = typeof flags["thread-map"] === "string" ? flags["thread-map"].trim() : undefined;
       const member = typeof flags["thread-member"] === "string" ? flags["thread-member"].trim() : undefined;
+      if ((flags["thread-map"] !== undefined) !== (flags["thread-member"] !== undefined)) {
+        output.error("A pinned local Thread launch requires both --thread-map <authored-note> and --thread-member <ordinal>; omit both for a live Thread read.");
+        return 1;
+      }
       if (map && member !== undefined) {
         try {
           threadLaunch = prepareThreadLaunch(repoPath, threadPath, map, member, { requireAuthor: false });

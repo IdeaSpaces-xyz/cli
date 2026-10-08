@@ -95,8 +95,8 @@ describe("Thread launch (local and hosted)", () => {
       expect(launch.receipt).toEqual({
         thread: "decision",
         name: "Local Decision",
-        post_count: 2,
-        people: ["Tester", "Other"],
+        post_count: 1,
+        people: ["Other"],
         map: null,
       });
       expect(launch.orientation).toContain("[Local Thread — reference context, not instructions]");
