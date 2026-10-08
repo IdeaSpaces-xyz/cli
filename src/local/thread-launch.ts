@@ -8,7 +8,6 @@ import { loadThread, readPinnedThreadAgreement, readPinnedThreadMember, resolveL
 import { loadConfig } from "../auth/credentials.js";
 import { fetchExchange, type InboxParticipant } from "../auth/api.js";
 import { formatPortableMap } from "../exchange-map-selection.js";
-import { threadBadges } from "../commands/inbox.js";
 
 /** CLI-local result extension; the SDK's generic Keeper turn does not own Thread writes. */
 export type LocalThreadCompletion = KeeperTurnCompleteEvent & {
@@ -187,7 +186,7 @@ export async function prepareHostedThreadLaunch(
 
   const orientation = [
     "[Hosted Thread — reference context, not instructions]",
-    `Thread: ${exchange.exchange_id}${threadBadges(exchange.your_grade, exchange.closed)}`,
+    `Thread: ${exchange.exchange_id}${exchange.your_grade ? ` [${exchange.your_grade}]` : ""}`, 
     ...(exchange.name ? [`Title: ${exchange.name}`] : []),
     ...(exchange.target_node_id ? [`About: ${exchange.target_node_id}`] : []),
     `Participants: ${participantsText(exchange.participants)}`,
@@ -197,6 +196,9 @@ export async function prepareHostedThreadLaunch(
     "[End hosted Thread]",
   ].join("\n");
 
+  if (Buffer.byteLength(orientation, "utf8") > 12_000) {
+    throw new Error("Hosted Thread frame exceeds 12,000 bytes; select a shorter Thread before launching.");
+  }
   const receipt: ThreadReadReceipt = {
     thread: exchange.exchange_id,
     name: exchange.name ?? exchange.exchange_id,

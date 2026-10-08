@@ -8,9 +8,6 @@ import { loadMapNote } from "../local/map-note.js";
 import { enteredThroughRoot, isContained } from "../local/contained-path.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
-import { replyToExchange } from "../auth/api.js";
-import { loadConfig } from "../auth/credentials.js";
-import { randomUUID } from "node:crypto";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import {
   resolveAgentPov,
@@ -170,6 +167,10 @@ async function cmdRun(
       return 1;
     }
     if (/^x_[0-9a-f]{12,24}$/.test(path)) {
+      if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
+        output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
+        return 1;
+      }
       try {
         thread = await prepareHostedThreadLaunch(povPath, path);
       } catch (err) {
@@ -355,6 +356,10 @@ async function cmdRun(
     resumeOnly: flags.conversation !== undefined,
   };
   if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
+  // Hosted conversations are private drafts; only the person can send a hosted reply.
+  if (thread.kind === "hosted") return local.send(forwardFlags, output, {
+    ...launchOptions, extraOrientation: `${povOrientation}\n\n${thread.orientation}`, threadReceipt: thread.receipt,
+  });
   let snapshotWritten = false;
   return local.send(forwardFlags, output, {
     ...launchOptions,
@@ -365,21 +370,6 @@ async function cmdRun(
       if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
       const response = event.result.response;
       if (!response?.trim()) throw new Error("Agent completed without a closing response.");
-      if (thread.kind === "hosted") {
-        snapshotWritten = true;
-        const config = loadConfig();
-        if (config) {
-          void replyToExchange(config, thread.exchangeId, {
-            send_id: randomUUID(),
-            name: `Snapshot — ${thread.agentName}`,
-            summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200) ?? "",
-            markdown: response,
-          }).catch((err) => {
-            output.log(`Warning: Could not post snapshot reply to hosted Thread: ${err instanceof Error ? err.message : String(err)}`);
-          });
-        }
-        return event;
-      }
       const { post, path } = appendPost(thread.directory, {
         body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
         summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
@@ -432,6 +422,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
+      "ideaspaces agent run agents/scout --thread x_0123456789abcdef01234567 --message 'Draft a reply'  # private; does not post",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude",
     ],
     async run(args, flags, global: GlobalFlags) {
