@@ -1,16 +1,23 @@
 import type { KeeperStreamEvent, KeeperMessageStartEvent } from "@ideaspaces/sdk";
+import type { ThreadReadReceipt } from "./thread-launch.js";
+
+export type { ThreadReadReceipt };
 
 /** One CLI-local disclosure shape for both runtime translators. Required reach fields catch drift. */
 type LocalLaunchReach = Required<Pick<KeeperMessageStartEvent,
   "cwd" | "added_dirs" | "permission_mode" | "allowed_tools" | "runtime" | "model"
->> & Pick<KeeperMessageStartEvent, "extensions" | "trust" | "allowed_tools_semantics" | "shell_available">;
-export function discloseLaunch(event: Extract<KeeperStreamEvent, { type: "message_start" }>, reach: LocalLaunchReach): KeeperMessageStartEvent {
+>> & Pick<KeeperMessageStartEvent, "extensions" | "trust" | "allowed_tools_semantics" | "shell_available"> & {
+  thread?: ThreadReadReceipt;
+};
+
+export function discloseLaunch(event: Extract<KeeperStreamEvent, { type: "message_start" }>, reach: LocalLaunchReach): KeeperMessageStartEvent & { thread?: ThreadReadReceipt } {
   return { ...event, ...reach };
 }
 
 export interface LocalSendOptions {
   onEvent?: (event: KeeperStreamEvent) => KeeperStreamEvent;
   extraOrientation?: string;
+  threadReceipt?: ThreadReadReceipt;
   /** Agent-run only: vetted canonical Pi paths. Empty is intentional; never fall back to ambient. */
   extensionPaths?: string[];
   skillPaths?: string[];

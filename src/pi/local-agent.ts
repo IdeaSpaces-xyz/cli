@@ -35,7 +35,7 @@ import {
   type ToolInvocation,
 } from "@ideaspaces/sdk";
 import { launchMapEnv } from "../local/address-read.js";
-import { discloseLaunch } from "../local/send-options.js";
+import { discloseLaunch, type ThreadReadReceipt } from "../local/send-options.js";
 
 /** Non-agent stdout kinds we skip (command acks + fire-and-forget UI chrome). */
 const NON_AGENT_TYPES = new Set(["response", "extension_ui_request"]);
@@ -103,6 +103,8 @@ export interface LocalTurnOptions {
   piBin?: string;
   /** Abort the turn (SIGINT/desktop kill) — kills pi and emits `cancelled`. */
   signal?: AbortSignal;
+  /** Read receipt of Thread context provided to the agent. */
+  threadReceipt?: ThreadReadReceipt;
 }
 
 /** A conversation name derived from the first message — first non-empty line,
@@ -248,6 +250,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
             cwd: opts.repoPath, added_dirs: [], permission_mode: null,
             allowed_tools: null, runtime: "pi", model: opts.piModel ?? ke.model_tier,
             extensions: opts.extensionPaths, trust: opts.trust === "saved" ? "saved" : "explicit",
+            thread: opts.threadReceipt,
           });
           continue;
         }

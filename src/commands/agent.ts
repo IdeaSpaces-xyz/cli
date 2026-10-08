@@ -6,8 +6,11 @@ import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-p
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
 import { enteredThroughRoot, isContained } from "../local/contained-path.js";
-import { prepareThreadLaunch, withThreadSnapshot } from "../local/thread-launch.js";
+import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
+import { replyToExchange } from "../auth/api.js";
+import { loadConfig } from "../auth/credentials.js";
+import { randomUUID } from "node:crypto";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import {
   resolveAgentPov,
@@ -54,7 +57,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path> --thread-map <note> --thread-member <ordinal>] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const LIST_USAGE =
@@ -157,21 +160,34 @@ async function cmdRun(
     return 1;
   }
 
-  let thread: ReturnType<typeof prepareThreadLaunch> | undefined;
+  let thread: PinnedThreadLaunch | HostedThreadLaunch | undefined;
   if (["thread", "thread-map", "thread-member"].some((key) => flags[key] !== undefined)) {
     const path = flagString(flags, "thread");
     const map = flagString(flags, "thread-map");
     const member = flagString(flags, "thread-member");
-    if (!path || !map || member === undefined) {
+    if (!path) {
       output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
       return 1;
     }
-    try {
-      thread = prepareThreadLaunch(povPath, path, map, member);
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
-      return 1;
+    if (/^x_[0-9a-f]{12,24}$/.test(path)) {
+      try {
+        thread = await prepareHostedThreadLaunch(povPath, path);
+      } catch (err) {
+        output.error(`Cannot launch from hosted Thread: ${err instanceof Error ? err.message : String(err)}`);
+        return 1;
+      }
+    } else {
+      if (!map || member === undefined) {
+        output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
+        return 1;
+      }
+      try {
+        thread = prepareThreadLaunch(povPath, path, map, member);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        output.error(`Cannot launch from local Thread: ${detail.replace(/--member\b/g, "--thread-member").replace(/--map\b/g, "--thread-map")}`);
+        return 1;
+      }
     }
   }
 
@@ -343,11 +359,27 @@ async function cmdRun(
   return local.send(forwardFlags, output, {
     ...launchOptions,
     extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
+    threadReceipt: thread.receipt,
     onEvent(event) {
       if (event.type !== "turn_complete") return event;
       if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
       const response = event.result.response;
       if (!response?.trim()) throw new Error("Agent completed without a closing response.");
+      if (thread.kind === "hosted") {
+        snapshotWritten = true;
+        const config = loadConfig();
+        if (config) {
+          void replyToExchange(config, thread.exchangeId, {
+            send_id: randomUUID(),
+            name: `Snapshot — ${thread.agentName}`,
+            summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200) ?? "",
+            markdown: response,
+          }).catch((err) => {
+            output.log(`Warning: Could not post snapshot reply to hosted Thread: ${err instanceof Error ? err.message : String(err)}`);
+          });
+        }
+        return event;
+      }
       const { post, path } = appendPost(thread.directory, {
         body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
         summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
