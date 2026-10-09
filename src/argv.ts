@@ -55,6 +55,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "yes") { global.yes = parseBool(value); continue; }
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
+        if (key === "git-bin") {
+          global.gitBin = value;
+          flags["git-bin"] = value;
+          process.env.IDEASPACES_GIT_BIN = value;
+          continue;
+        }
 
         setFlag(flags, key, value);
         continue;
@@ -72,6 +78,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
       // Check if next arg is a value
       if (key === "repo" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
         global.repo = argv[++i];
+        continue;
+      }
+      if (key === "git-bin" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
+        const val = argv[++i];
+        global.gitBin = val;
+        flags["git-bin"] = val;
+        process.env.IDEASPACES_GIT_BIN = val;
         continue;
       }
       // Command-specific flag with value

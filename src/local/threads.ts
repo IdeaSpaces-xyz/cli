@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
-import { gitAvailability, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
+import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
 
 const MAX_POST = 1024 * 1024;
@@ -29,7 +29,7 @@ export interface LocalThread {
 function git(cwd: string, args: string[]): string {
   const availability = gitAvailability();
   if (availability.state !== "usable") throw new Error(availability.hint);
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  const result = spawnSync(gitBinary(), args, { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status !== 0) throw new Error((result.stderr || result.error?.message || `git ${args[0]} failed`).trim());
   return result.stdout.trim();
 }

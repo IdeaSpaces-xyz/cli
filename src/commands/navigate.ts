@@ -48,7 +48,7 @@ import {
   CONTENT_AWARENESS_SECTIONS,
 } from "@ideaspaces/protocol";
 import { contractSourceFlag, preferredContractSource, MAX_DRIFT } from "../contract-source.js";
-import { headSha } from "../git.js";
+import { gitBinary, headSha, sanitizedGitEnvironment } from "../git.js";
 import { floorHint, formatWorkingSetSection, planCatalog } from "../catalog.js";
 import { findSpaceMapFile } from "../local/space-map.js";
 import { focusAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap } from "../local/address-read.js";
@@ -80,7 +80,10 @@ function formatSpacePosition(renderedBlock: string, spaceMapFile: string, header
 // exists for writing a custom ref, so this thin wrapper is net-new. (Reading it
 // is the protocol's job now: `assembleContentAwareness` consumes the seen ref.)
 function gitRef(cwd: string, args: string[]): string | null {
-  const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
+  const r = spawnSync(gitBinary(), ["-C", cwd, ...args], {
+    encoding: "utf-8",
+    env: sanitizedGitEnvironment(),
+  });
   return r.status === 0 ? r.stdout.trim() || null : null;
 }
 

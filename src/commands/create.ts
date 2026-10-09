@@ -34,7 +34,7 @@ import { createOutput } from "../output.js";
 import { loadStoredCredentials } from "../auth/credentials.js";
 import { fetchAuthMe } from "../auth/api.js";
 import { identityEmail, identityName } from "../auth/identity.js";
-import { gitAvailability } from "../git.js";
+import { gitAvailability, gitBinary, sanitizedGitEnvironment } from "../git.js";
 import { mintDeclaredRootIdentity } from "../root-identity.js";
 import type { CommandDef } from "../types.js";
 import {
@@ -636,7 +636,10 @@ async function maybeSetIdentity(targetDir: string): Promise<void> {
 }
 
 function runGit(cwd: string, args: string[]): void {
-  const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
+  const r = spawnSync(gitBinary(), ["-C", cwd, ...args], {
+    encoding: "utf-8",
+    env: sanitizedGitEnvironment(),
+  });
   if (r.error) {
     // Spawn failure (e.g. git not on PATH) — status is null, streams undefined.
     throw new Error(`git ${args.join(" ")}: ${r.error.message}`);
@@ -679,7 +682,10 @@ function enclosingRepoRoot(targetDir: string): string | null {
     if (parent === probe) return null;
     probe = parent;
   }
-  const r = spawnSync("git", ["-C", probe, "rev-parse", "--show-toplevel"], { encoding: "utf-8" });
+  const r = spawnSync(gitBinary(), ["-C", probe, "rev-parse", "--show-toplevel"], {
+    encoding: "utf-8",
+    env: sanitizedGitEnvironment(),
+  });
   if (r.status !== 0) return null;
   const reportedRoot = r.stdout.trim();
   if (!reportedRoot) return null;

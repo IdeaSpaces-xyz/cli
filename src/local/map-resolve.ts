@@ -11,7 +11,7 @@ import {
   type MapRoot,
 } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
-import { gitAvailability, repoRoot, sanitizedGitEnvironment } from "../git.js";
+import { gitAvailability, gitBinary, repoRoot, sanitizedGitEnvironment } from "../git.js";
 import type { LoadedMapNote } from "./map-note.js";
 import { CHECKOUT_SEARCH_LIMIT, checkoutRootNodeId, inspectSpaceMapRoots, type SpaceMapRootDrift } from "./space-map.js";
 
@@ -255,7 +255,7 @@ export function readCheckoutAt(
   if (position.includes("\n")) return { status: "missing_path", reason: "A position cannot contain a newline." };
 
   const git = (args: string[], buffer = 64 * 1024, input?: string) =>
-    spawnSync("git", ["-C", checkoutPath, ...args], {
+    spawnSync(gitBinary(), ["-C", checkoutPath, ...args], {
       encoding: "utf8",
       env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
       maxBuffer: buffer,

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { loadConfig, getDefaultApiUrl } from "./auth/credentials.js";
 import { preferredContractSource } from "./contract-source.js";
 import { findSpaceFor } from "./auth/spaces.js";
-import { originUrl } from "./git.js";
+import { gitBinary, originUrl, sanitizedGitEnvironment } from "./git.js";
 import { rootNodeIdFromGitUrl } from "./repo-locator.js";
 
 const FOUNDATION_PATH = "_agent/foundation.md";
@@ -38,7 +38,10 @@ export interface LocalRootIdentityReport extends RootIdentityEvaluation {
 }
 
 function runGit(cwd: string, args: string[]): { ok: boolean; stdout: string } {
-  const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf-8" });
+  const result = spawnSync(gitBinary(), ["-C", cwd, ...args], {
+    encoding: "utf-8",
+    env: sanitizedGitEnvironment(),
+  });
   if (result.error) throw new Error(`git ${args.join(" ")}: ${result.error.message}`);
   return { ok: result.status === 0, stdout: result.stdout ?? "" };
 }

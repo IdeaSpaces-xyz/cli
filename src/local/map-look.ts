@@ -13,7 +13,7 @@ import {
   type MapDepth,
 } from "@ideaspaces/protocol";
 import { preferredContractSource } from "../contract-source.js";
-import { sanitizedGitEnvironment } from "../git.js";
+import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 
 /**
  * Reading Content at a commit, not in a working tree.
@@ -123,7 +123,7 @@ async function withSnapshot<T>(
 }
 
 const git = (cwd: string, args: string[], options: { input?: string; maxBuffer?: number } = {}) =>
-  spawnSync("git", ["-C", cwd, ...args], {
+  spawnSync(gitBinary(), ["-C", cwd, ...args], {
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
     maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
     ...(options.input === undefined ? {} : { input: options.input }),

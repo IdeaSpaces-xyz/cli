@@ -9,7 +9,7 @@ import { loadConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { exchangeText, hostedThreadsCommand, threadBadges } from "./inbox.js";
-import { sanitizedGitEnvironment } from "../git.js";
+import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
@@ -134,7 +134,7 @@ function localText(thread: LocalThread, posts: LocalThread["posts"], rung: Threa
 }
 function selectedWriterName(): string {
   const cwd = realpathSync(process.cwd());
-  const prefix = spawnSync("git", ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  const prefix = spawnSync(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   // Derive the checkout root from native cwd, not Git's differently spelled
   // --show-toplevel (Windows). Never ascend into a parent checkout's Agreement.
   const boundary = prefix.status === 0
@@ -180,7 +180,7 @@ function writerName(explicit?: string): string {
     if (dirname(at) === at) break;
     at = dirname(at);
   }
-  const result = spawnSync("git", ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
+  const result = spawnSync(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
 }

@@ -19,7 +19,7 @@ import { parse } from "yaml";
 import type { SpaceCopySnapshotFile } from "./auth/api.js";
 import { configDir } from "./auth/config-dir.js";
 import { isExactAssetPayloadPath } from "./fork-paths.js";
-import { sanitizedGitEnvironment } from "./git.js";
+import { gitBinary, sanitizedGitEnvironment } from "./git.js";
 import { declareRootIdentity } from "./root-identity.js";
 
 export interface ForkUpdateConflict {
@@ -48,7 +48,7 @@ export interface ForkUpdatePlan {
 }
 
 function runGit(args: string[], cwd: string): string {
-  const result = spawnSync("git", args, {
+  const result = spawnSync(gitBinary(), args, {
     cwd,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
@@ -62,7 +62,7 @@ function runGit(args: string[], cwd: string): string {
 }
 
 function runGitBuffer(args: string[], cwd: string): Buffer {
-  const result = spawnSync("git", args, {
+  const result = spawnSync(gitBinary(), args, {
     cwd,
     maxBuffer: 64 * 1024 * 1024,
     env: sanitizedGitEnvironment(),
@@ -362,7 +362,7 @@ export function applyForkUpdate(plan: ForkUpdatePlan, root: string): void {
     writeTree(afterDir, after);
 
     const diff = spawnSync(
-      "git",
+      gitBinary(),
       ["-c", "core.autocrlf=false", "diff", "--no-index", "--binary", "--no-renames", "--", "before", "after"],
       {
         cwd: temp,
@@ -378,7 +378,7 @@ export function applyForkUpdate(plan: ForkUpdatePlan, root: string): void {
     const patch = (diff.stdout ?? "")
       .replaceAll("a/before/", "a/")
       .replaceAll("b/after/", "b/");
-    const applied = spawnSync("git", ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", "-"], {
+    const applied = spawnSync(gitBinary(), ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", "-"], {
       cwd: root,
       input: patch,
       encoding: "utf-8",

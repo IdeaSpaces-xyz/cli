@@ -61,6 +61,28 @@ describe("ideaspaces doctor", () => {
     });
   });
 
+  it("reports an explicit bundled Git path in detail", async () => {
+    const command = makeDoctorCommand(runtime({
+      git: () => ({
+        state: "usable",
+        version: "git version 2.53.0",
+        path: "/Applications/IdeaSpaces.app/Contents/Resources/git/bin/git",
+      }),
+    }));
+
+    const { exit, json } = await captureJson(() => command.run([], {}, JSON_GLOBAL));
+    expect(exit).toBe(0);
+    expect(json.checks.git).toEqual({
+      state: "usable",
+      required: true,
+      ok: true,
+      version: "git version 2.53.0",
+      detail: "Using /Applications/IdeaSpaces.app/Contents/Resources/git/bin/git",
+      exit_code: null,
+      fix: null,
+    });
+  });
+
   it("reports the S1 nonzero Git shim as unusable and exits nonzero", async () => {
     const command = makeDoctorCommand(runtime({
       git: () => ({

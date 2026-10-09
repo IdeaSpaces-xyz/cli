@@ -18,6 +18,14 @@ import { isIdeaspacePath } from "@ideaspaces/protocol";
 
 export class GitError extends Error {}
 
+/**
+ * Resolved git binary executable path. Honors IDEASPACES_GIT_BIN when set,
+ * otherwise defaults to "git" (PATH lookup).
+ */
+export function gitBinary(): string {
+  return process.env.IDEASPACES_GIT_BIN || "git";
+}
+
 /** Remove ambient repository and identity overrides before a bounded Git operation. */
 export function sanitizedGitEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   const env = { ...process.env };
@@ -39,6 +47,29 @@ export function sanitizedGitEnvironment(overrides: NodeJS.ProcessEnv = {}): Node
   for (const key of Object.keys(env)) {
     if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)) delete env[key];
   }
+
+  const gitBin = env.IDEASPACES_GIT_BIN;
+  if (gitBin && existsSync(gitBin)) {
+    try {
+      const binDir = resolve(gitBin, "..");
+      const gitDir = resolve(binDir, "..");
+      const execPath = join(gitDir, "libexec", "git-core");
+      const templateDir = join(gitDir, "share", "git-core", "templates");
+      const systemConfig = join(gitDir, "etc", "system.gitconfig");
+      const globalConfig = join(gitDir, "etc", "global.gitconfig");
+      const caBundle = join(gitDir, "etc", "ca-bundle.crt");
+
+      if (!env.GIT_EXEC_PATH && existsSync(execPath)) env.GIT_EXEC_PATH = execPath;
+      if (!env.GIT_TEMPLATE_DIR && existsSync(templateDir)) env.GIT_TEMPLATE_DIR = templateDir;
+      if (!env.GIT_CONFIG_SYSTEM && existsSync(systemConfig)) env.GIT_CONFIG_SYSTEM = systemConfig;
+      if (!env.GIT_CONFIG_GLOBAL && existsSync(globalConfig)) env.GIT_CONFIG_GLOBAL = globalConfig;
+      if (!env.GIT_SSL_CAINFO && existsSync(caBundle)) env.GIT_SSL_CAINFO = caBundle;
+      if (env.GIT_TERMINAL_PROMPT === undefined) env.GIT_TERMINAL_PROMPT = "0";
+    } catch {
+      // Best-effort path resolution; fall through if not a standard directory layout.
+    }
+  }
+
   return { ...env, ...overrides };
 }
 
@@ -51,38 +82,48 @@ export const GIT_UNUSABLE_HINT =
   "git is present but unusable — on macOS, run `xcode-select --install`; otherwise repair or reinstall Git, then retry.";
 
 export type GitAvailability =
-  | { state: "usable"; version: string }
-  | { state: "absent"; hint: string }
-  | { state: "unusable"; hint: string; detail: string; exitCode: number | null };
+  | { state: "usable"; version: string; path?: string }
+  | { state: "absent"; hint: string; path?: string }
+  | { state: "unusable"; hint: string; detail: string; exitCode: number | null; path?: string };
 
 /**
  * Distinguish a working Git from an absent executable and a present-but-broken
  * one such as the macOS Command Line Tools shim before its tools are installed.
  */
-export function gitAvailability(): GitAvailability {
-  const result = spawnSync("git", ["--version"], { encoding: "utf-8" });
+export function gitAvailability(explicitBin?: string): GitAvailability {
+  const bin = explicitBin || gitBinary();
+  const env = sanitizedGitEnvironment();
+  const result = spawnSync(bin, ["--version"], { encoding: "utf-8", env });
+  const customPath = bin !== "git" ? bin : undefined;
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return { state: "absent", hint: GIT_MISSING_HINT };
+    if (code === "ENOENT") {
+      const hint = customPath
+        ? `git executable not found at ${customPath} — verify the path and retry.`
+        : GIT_MISSING_HINT;
+      return { state: "absent", hint, ...(customPath ? { path: customPath } : {}) };
+    }
     return {
       state: "unusable",
-      hint: GIT_UNUSABLE_HINT,
+      hint: customPath ? `git at ${customPath} could not run: ${result.error.message}` : GIT_UNUSABLE_HINT,
       detail: result.error.message,
       exitCode: result.status,
+      ...(customPath ? { path: customPath } : {}),
     };
   }
   if (result.status !== 0) {
     return {
       state: "unusable",
-      hint: GIT_UNUSABLE_HINT,
+      hint: customPath ? `git at ${customPath} exited with status ${result.status}` : GIT_UNUSABLE_HINT,
       detail:
         (result.stderr ?? "").trim() ||
         (result.stdout ?? "").trim() ||
         `git --version exited ${result.status ?? "without a status"}`,
       exitCode: result.status,
+      ...(customPath ? { path: customPath } : {}),
     };
   }
-  return { state: "usable", version: (result.stdout ?? "").trim() };
+  return { state: "usable", version: (result.stdout ?? "").trim(), ...(customPath ? { path: customPath } : {}) };
 }
 
 /** True only when `git --version` exits successfully. */
@@ -91,19 +132,26 @@ export function gitAvailable(): boolean {
 }
 
 function git(args: string[], cwd?: string): { ok: boolean; out: string; err: string } {
-  const r = spawnSync("git", args, { encoding: "utf-8", cwd });
+  const bin = gitBinary();
+  const r = spawnSync(bin, args, { encoding: "utf-8", cwd, env: sanitizedGitEnvironment() });
   // ENOENT & friends — git not on PATH. spawnSync sets r.error and leaves
   // status null; surface the actionable hint instead of a blank "git … failed".
   if (r.error) {
     const code = (r.error as NodeJS.ErrnoException).code;
-    return { ok: false, out: "", err: code === "ENOENT" ? GIT_MISSING_HINT : `git could not run: ${r.error.message}` };
+    return {
+      ok: false,
+      out: "",
+      err: code === "ENOENT"
+        ? (bin !== "git" ? `git not found at ${bin}` : GIT_MISSING_HINT)
+        : `git could not run: ${r.error.message}`,
+    };
   }
   return { ok: r.status === 0, out: (r.stdout ?? "").trim(), err: (r.stderr ?? "").trim() };
 }
 
 /** Exit code of a git invocation (for `--quiet` diff probes). -1 on spawn error. */
 function gitExit(args: string[], cwd?: string): number {
-  const r = spawnSync("git", args, { encoding: "utf-8", cwd });
+  const r = spawnSync(gitBinary(), args, { encoding: "utf-8", cwd, env: sanitizedGitEnvironment() });
   return r.status ?? -1;
 }
 

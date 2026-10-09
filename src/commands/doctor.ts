@@ -177,7 +177,7 @@ export function buildDoctorReport(input: {
           required: true,
           ok: true,
           version: input.git.version,
-          detail: null,
+          detail: input.git.path && input.git.path !== "git" ? `Using ${input.git.path}` : null,
           exit_code: null,
           fix: null,
         };
@@ -187,9 +187,13 @@ export function buildDoctorReport(input: {
           required: true,
           ok: false,
           version: null,
-          detail: input.git.detail,
+          detail: input.git.path && input.git.path !== "git"
+            ? `Git at ${input.git.path} is unusable: ${input.git.detail}`
+            : input.git.detail,
           exit_code: input.git.exitCode,
-          fix: gitFix(input.platform, input.git.state),
+          fix: input.git.path && input.git.path !== "git"
+            ? `Verify the executable at ${input.git.path} or unset IDEASPACES_GIT_BIN.`
+            : gitFix(input.platform, input.git.state),
         };
       case "absent":
         return {
@@ -197,9 +201,13 @@ export function buildDoctorReport(input: {
           required: true,
           ok: false,
           version: null,
-          detail: "The `git` executable is not available on PATH.",
+          detail: input.git.path && input.git.path !== "git"
+            ? `The git executable at ${input.git.path} was not found.`
+            : "The `git` executable is not available on PATH.",
           exit_code: null,
-          fix: gitFix(input.platform, input.git.state),
+          fix: input.git.path && input.git.path !== "git"
+            ? `Ensure ${input.git.path} exists and is executable, or unset IDEASPACES_GIT_BIN.`
+            : gitFix(input.platform, input.git.state),
         };
     }
   })();

@@ -8,7 +8,7 @@ import type {
   LocalGitRunner,
 } from "@ideaspaces/protocol";
 import { nodeLocalEffectFileSystem } from "@ideaspaces/protocol/local-effects";
-import { GIT_MISSING_HINT, sanitizedGitEnvironment } from "./git.js";
+import { GIT_MISSING_HINT, gitBinary, sanitizedGitEnvironment } from "./git.js";
 import type { Output } from "./output.js";
 import type { GlobalFlags } from "./types.js";
 
@@ -25,7 +25,7 @@ function localEffectGitEnvironment(): NodeJS.ProcessEnv {
 }
 
 export const localEffectGitRunner: LocalGitRunner = async (root, args) => {
-  const result = spawnSync("git", [...args], {
+  const result = spawnSync(gitBinary(), [...args], {
     cwd: root,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -74,7 +74,7 @@ export async function gitIdentityConfigForEffects(root: string, key: string): Pr
 
 /** Canonical absolute toplevel required by the protocol effect boundary. */
 export function canonicalRepoRoot(cwd = process.cwd()): string {
-  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+  const result = spawnSync(gitBinary(), ["rev-parse", "--show-toplevel"], {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],

@@ -19,6 +19,7 @@ import { fetchContentTree, fetchEntity, UnauthorizedError } from "../auth/api.js
 import { loadConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding, type BindingFailure } from "../auth/resolve-space.js";
 import {
+  gitBinary,
   originUrl,
   pathStatus,
   sanitizedGitEnvironment,
@@ -69,7 +70,7 @@ function bindingFailure(failure: BindingFailure): string {
 }
 
 function gitRead(cwd: string, args: string[]): string {
-  const result = spawnSync("git", args, {
+  const result = spawnSync(gitBinary(), args, {
     cwd,
     encoding: "utf8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
