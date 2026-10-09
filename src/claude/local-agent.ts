@@ -277,6 +277,17 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
         : stderr.trim() || "claude ended without completing the turn";
       yield translator.error("claude_exit", reason);
     }
+  } catch (err) {
+    if (aborted && !translator.isEnded) {
+      yield translator.cancelled("aborted");
+    } else if (!translator.isEnded) {
+      const reason = spawnError
+        ? `Could not start ${opts.claudeBin ?? "claude"}: ${spawnError.message}`
+        : (err instanceof Error && err.message !== "Premature close"
+            ? err.message
+            : stderr.trim() || `Could not start ${opts.claudeBin ?? "claude"}`);
+      yield translator.error("claude_exit", reason);
+    }
   } finally {
     opts.signal?.removeEventListener("abort", onAbort);
     claude.kill("SIGTERM");

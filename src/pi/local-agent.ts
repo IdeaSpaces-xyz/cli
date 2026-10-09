@@ -193,6 +193,10 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
   pi.stderr.on("data", (d) => {
     stderr += String(d);
   });
+  let spawnError: Error | undefined;
+  pi.on("error", (err) => {
+    spawnError = err;
+  });
 
   let aborted = false;
   const onAbort = (): void => {
@@ -271,7 +275,21 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
     if (aborted && !translator.isEnded) {
       yield translator.cancelled("aborted");
     } else if (!translator.isEnded) {
-      yield translator.error("pi_exit", stderr.trim() || "pi ended without completing the turn");
+      const reason = spawnError
+        ? `Could not start ${opts.piBin ?? "pi"}: ${spawnError.message}`
+        : stderr.trim() || "pi ended without completing the turn";
+      yield translator.error("pi_exit", reason);
+    }
+  } catch (err) {
+    if (aborted && !translator.isEnded) {
+      yield translator.cancelled("aborted");
+    } else if (!translator.isEnded) {
+      const reason = spawnError
+        ? `Could not start ${opts.piBin ?? "pi"}: ${spawnError.message}`
+        : (err instanceof Error && err.message !== "Premature close"
+            ? err.message
+            : stderr.trim() || `Could not start ${opts.piBin ?? "pi"}`);
+      yield translator.error("pi_exit", reason);
     }
   } finally {
     opts.signal?.removeEventListener("abort", onAbort);
