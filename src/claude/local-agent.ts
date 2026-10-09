@@ -191,6 +191,24 @@ function lastPosition(tools: ToolInvocation[]): string {
   return "";
 }
 
+function terminalExit(
+  translator: ClaudeTranslator,
+  aborted: boolean,
+  spawnError: Error | undefined,
+  stderr: string,
+  bin: string,
+  err?: unknown,
+): KeeperStreamEvent | undefined {
+  if (translator.isEnded) return undefined;
+  if (aborted) return translator.cancelled("aborted");
+  if (spawnError) return translator.error("claude_exit", `Could not start ${bin}: ${spawnError.message}`);
+  const streamErr = err instanceof Error && (err as { code?: string }).code !== "ERR_STREAM_PREMATURE_CLOSE" && err.message !== "Premature close"
+    ? err.message
+    : undefined;
+  const reason = streamErr ?? (stderr.trim() || `${bin} ended without completing the turn`);
+  return translator.error("claude_exit", reason);
+}
+
 /**
  * Run one Claude Code turn, yielding Keeper stream events as they arrive.
  * Ends after `turn_complete` (result), `cancelled` (abort), or `error`
@@ -209,7 +227,8 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
   });
 
   const args = buildClaudeArgs({ ...opts, sessionExists });
-  const claude = spawn(opts.claudeBin ?? "claude", args, {
+  const bin = opts.claudeBin ?? "claude";
+  const claude = spawn(bin, args, {
     cwd: opts.repoPath,
     env: buildClaudeEnv(opts.auth ?? "login", process.env, opts.mapPath),
     stdio: ["pipe", "pipe", "pipe"],
@@ -269,14 +288,11 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
       if (translator.isEnded) return;
     }
     // stdout closed without a terminal event.
-    if (aborted && !translator.isEnded) {
-      yield translator.cancelled("aborted");
-    } else if (!translator.isEnded) {
-      const reason = spawnError
-        ? `Could not start ${opts.claudeBin ?? "claude"}: ${spawnError.message}`
-        : stderr.trim() || "claude ended without completing the turn";
-      yield translator.error("claude_exit", reason);
-    }
+    const exit = terminalExit(translator, aborted, spawnError, stderr, bin);
+    if (exit) yield exit;
+  } catch (err) {
+    const exit = terminalExit(translator, aborted, spawnError, stderr, bin, err);
+    if (exit) yield exit;
   } finally {
     opts.signal?.removeEventListener("abort", onAbort);
     claude.kill("SIGTERM");

@@ -1,10 +1,14 @@
 import { Readable } from "node:stream";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   deriveConversationName,
   buildPiArgs,
   isValidPiThinkingLevel,
   readRpcLines,
+  runLocalTurn,
 } from "../pi/local-agent.js";
 import type { LocalTurnOptions } from "../pi/local-agent.js";
 
@@ -119,5 +123,27 @@ describe("isValidPiThinkingLevel (pi thinking-level guard)", () => {
     expect(isValidPiThinkingLevel("HIGH")).toBe(false); // case-sensitive
     expect(isValidPiThinkingLevel("ultra")).toBe(false);
     expect(isValidPiThinkingLevel("")).toBe(false);
+  });
+});
+
+describe("runLocalTurn — missing binary error handling", () => {
+  it("reports a binary that cannot start as an error event", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "pi-missing-"));
+    try {
+      const events = [];
+      for await (const e of runLocalTurn({
+        ...baseOpts,
+        repoPath: tmp,
+        sessionDir: join(tmp, ".pi", "sessions"),
+        piBin: "/nonexistent/path/to/pi",
+      })) {
+        events.push(e);
+      }
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ type: "error", error_type: "pi_exit" });
+      expect((events[0] as { message: string }).message).toMatch(/Could not start .*\/nonexistent\/path\/to\/pi/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
