@@ -23,7 +23,9 @@ export class GitError extends Error {}
  * otherwise defaults to "git" (PATH lookup).
  */
 export function gitBinary(): string {
-  return process.env.IDEASPACES_GIT_BIN || "git";
+  const envBin = process.env.IDEASPACES_GIT_BIN?.trim();
+  if (!envBin) return "git";
+  return (envBin.includes("/") || envBin.includes("\\")) ? resolve(envBin) : envBin;
 }
 
 /** Remove ambient repository and identity overrides before a bounded Git operation. */

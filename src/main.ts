@@ -41,8 +41,17 @@ function installSyncWriter(stream: NodeJS.WriteStream, fd: number): void {
 installSyncWriter(process.stdout, 1);
 installSyncWriter(process.stderr, 2);
 
-const { global, command, args, flags } = parseArgs(process.argv.slice(2));
+let parsed: ReturnType<typeof parseArgs>;
+try {
+  parsed = parseArgs(process.argv.slice(2));
+} catch (err) {
+  process.stderr.write(`${err instanceof Error ? err.message : String(err)}\nRun: ideaspaces --help\n`);
+  process.exit(1);
+}
+const { global, command, args, flags } = parsed;
 
+// Propagate explicit --git-bin to process.env.IDEASPACES_GIT_BIN so all
+// downstream git operations, subprocesses, and protocol adapters honor the override.
 if (global.gitBin) {
   process.env.IDEASPACES_GIT_BIN = global.gitBin;
 }

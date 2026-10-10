@@ -37,6 +37,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { gitBinary } from "../git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -97,17 +98,18 @@ function selfCredentialHelper(): string {
  */
 export async function registerGitCredentialHelper(): Promise<void> {
   const helper = selfCredentialHelper();
+  const bin = gitBinary();
   for (const host of GIT_HOSTS) {
     try {
       const key = `credential.${host}.helper`;
       // Clear any previous value (an older CLI may have written a bare
       // `!ideaspaces credential`, or the path may have moved). --unset-all exits
       // non-zero when the key doesn't exist — ignore that.
-      await execFileAsync("git", ["config", "--global", "--unset-all", key]).catch(() => {});
+      await execFileAsync(bin, ["config", "--global", "--unset-all", key]).catch(() => {});
       // Empty sentinel resets the helper list for this URL…
-      await execFileAsync("git", ["config", "--global", "--add", key, ""]);
+      await execFileAsync(bin, ["config", "--global", "--add", key, ""]);
       // …then our helper as the sole entry.
-      await execFileAsync("git", ["config", "--global", "--add", key, helper]);
+      await execFileAsync(bin, ["config", "--global", "--add", key, helper]);
     } catch {
       // Git not installed, or config write failed — silently skip. The user can
       // register manually: git config --global credential.<host>.helper "!<path> credential".
