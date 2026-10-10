@@ -61,6 +61,74 @@ describe("ideaspaces doctor", () => {
     });
   });
 
+  it("reports an explicit bundled Git path in detail", async () => {
+    const command = makeDoctorCommand(runtime({
+      git: () => ({
+        state: "usable",
+        version: "git version 2.53.0",
+        path: "/Applications/IdeaSpaces.app/Contents/Resources/git/bin/git",
+      }),
+    }));
+
+    const { exit, json } = await captureJson(() => command.run([], {}, JSON_GLOBAL));
+    expect(exit).toBe(0);
+    expect(json.checks.git).toEqual({
+      state: "usable",
+      required: true,
+      ok: true,
+      version: "git version 2.53.0",
+      detail: "Using /Applications/IdeaSpaces.app/Contents/Resources/git/bin/git",
+      exit_code: null,
+      fix: null,
+    });
+  });
+
+  it("reports an absent explicit Git path with tailored fix message", async () => {
+    const command = makeDoctorCommand(runtime({
+      git: () => ({
+        state: "absent",
+        hint: "git executable not found at /custom/git — verify the path or unset IDEASPACES_GIT_BIN.",
+        path: "/custom/git",
+      }),
+    }));
+
+    const { exit, json } = await captureJson(() => command.run([], {}, JSON_GLOBAL));
+    expect(exit).toBe(1);
+    expect(json.checks.git).toEqual({
+      state: "absent",
+      required: true,
+      ok: false,
+      version: null,
+      detail: "The git executable at /custom/git was not found.",
+      exit_code: null,
+      fix: "Ensure /custom/git exists and is executable, or check your --git-bin / IDEASPACES_GIT_BIN setting.",
+    });
+  });
+
+  it("reports an unusable explicit Git path with tailored fix message", async () => {
+    const command = makeDoctorCommand(runtime({
+      git: () => ({
+        state: "unusable",
+        hint: "git at /custom/git could not run: permission denied",
+        detail: "permission denied",
+        exitCode: 126,
+        path: "/custom/git",
+      }),
+    }));
+
+    const { exit, json } = await captureJson(() => command.run([], {}, JSON_GLOBAL));
+    expect(exit).toBe(1);
+    expect(json.checks.git).toEqual({
+      state: "unusable",
+      required: true,
+      ok: false,
+      version: null,
+      detail: "Git at /custom/git is unusable: permission denied",
+      exit_code: 126,
+      fix: "Verify the executable at /custom/git or check your --git-bin / IDEASPACES_GIT_BIN setting.",
+    });
+  });
+
   it("reports the S1 nonzero Git shim as unusable and exits nonzero", async () => {
     const command = makeDoctorCommand(runtime({
       git: () => ({

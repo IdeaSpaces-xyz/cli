@@ -139,10 +139,11 @@ export function printHelp(): void {
   }
   lines.push("", "  power          Advanced tools (logout, ...)");
   lines.push("", "Global flags:");
-  lines.push("  --json         Structured JSON output to stdout");
-  lines.push("  --quiet        Suppress non-essential output");
-  lines.push("  --yes          Apply the plan (create, publish, share visibility)");
-  lines.push("  --help         Show help");
+  lines.push("  --git-bin <path> Explicit git executable path (or set IDEASPACES_GIT_BIN)");
+  lines.push("  --json           Structured JSON output to stdout");
+  lines.push("  --quiet          Suppress non-essential output");
+  lines.push("  --yes            Apply the plan (create, publish, share visibility)");
+  lines.push("  --help           Show help");
   lines.push("", "Run: ideaspaces <command> --help for command-specific help.");
   process.stderr.write(lines.join("\n") + "\n");
 }

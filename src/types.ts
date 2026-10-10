@@ -3,6 +3,7 @@ export interface GlobalFlags {
   quiet: boolean;
   yes: boolean;
   repo?: string;
+  gitBin?: string;
   help: boolean;
 }
 

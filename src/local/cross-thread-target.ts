@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { parseCanonicalRepoUrl, parseFrontmatter, parseThreadPost, type MapPositionMember, type MapRoot, type ThreadPost } from "@ideaspaces/protocol";
 import { listClones } from "../auth/spaces.js";
-import { sanitizedGitEnvironment } from "../git.js";
+import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadThread, readPinnedThreadAgreement, readPinnedThreadMember, resolveLocalThread, threadBase, type LocalThread } from "./threads.js";
 
@@ -25,7 +25,7 @@ function rootId(root: MapRoot): string {
 
 function validatedCheckout(path: string, expected: string): string {
   const checkout = physical(path);
-  const result = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+  const result = spawnSync(gitBinary(), ["rev-parse", "--show-toplevel"], {
     cwd: checkout, encoding: "utf8", env: sanitizedGitEnvironment(),
   });
   if (result.status !== 0 || physical(result.stdout.trim()) !== checkout) {
@@ -78,7 +78,7 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
   if (!pin || !/^[0-9a-f]{40}$/.test(pin)) throw new Error("Selected authored pin must be a full 40-character commit SHA.");
   if (!member.depth) throw new Error("Selected authored Thread member needs a depth ceiling.");
   const checkout = locate(root, checkoutHint);
-  const commit = spawnSync("git", ["cat-file", "-t", pin], {
+  const commit = spawnSync(gitBinary(), ["cat-file", "-t", pin], {
     cwd: checkout, encoding: "utf8", env: sanitizedGitEnvironment(),
   });
   if (commit.status !== 0 || commit.stdout.trim() !== "commit") throw new Error("Selected authored pin is not a commit in this checkout.");

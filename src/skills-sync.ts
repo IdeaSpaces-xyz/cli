@@ -29,6 +29,7 @@ import {
   resolveRepoRoot,
 } from "@ideaspaces/protocol";
 import { preferredContractSource } from "./contract-source.js";
+import { gitBinary, sanitizedGitEnvironment } from "./git.js";
 
 export const GENERATED_MARKER = "ideaspaces:generated skill pointer";
 
@@ -205,8 +206,9 @@ async function renderPointer(name: string, canonicalPath: string, pointerDir: st
 
 /** True when the level's `_agent/` is gitignored — committed pointers would dangle for cloners. */
 function agentIsGitignored(level: string): boolean {
-  const r = spawnSync("git", ["-C", level, "check-ignore", "-q", join(level, "_agent", "skills")], {
+  const r = spawnSync(gitBinary(), ["-C", level, "check-ignore", "-q", join(level, "_agent", "skills")], {
     encoding: "utf-8",
+    env: sanitizedGitEnvironment(),
   });
   return r.status === 0;
 }

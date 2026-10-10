@@ -121,7 +121,7 @@ Pick `claude` to continue a session you started in Claude Code; the same session
 | `~/.ideaspaces/cursors/` | Private per-reader local Thread acknowledgements |
 | `~/.pi/agent/auth.json` | Local-agent model credentials |
 
-`IS_API_KEY` overrides stored credentials. `IS_API_URL` points at another host. `IDEASPACES_PI_EXTENSIONS` lists extension paths for direct `conversation send --local` (not `agent run` child authority). `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.
+`IS_API_KEY` overrides stored credentials. `IS_API_URL` points at another host. `IDEASPACES_GIT_BIN` (or `--git-bin <path>`) names an explicit Git executable for environments with no Git on PATH. `IDEASPACES_PI_EXTENSIONS` lists extension paths for direct `conversation send --local` (not `agent run` child authority). `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.
 
 ## Contributing
 

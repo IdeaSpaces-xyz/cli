@@ -1,3 +1,4 @@
+import { normalizeGitBin } from "./git.js";
 import type { GlobalFlags } from "./types.js";
 
 const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
@@ -55,6 +56,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "yes") { global.yes = parseBool(value); continue; }
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
+        if (key === "git-bin") {
+          global.gitBin = normalizeGitBin(value);
+          continue;
+        }
 
         setFlag(flags, key, value);
         continue;
@@ -72,6 +77,13 @@ export function parseArgs(argv: string[]): ParsedArgs {
       // Check if next arg is a value
       if (key === "repo" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
         global.repo = argv[++i];
+        continue;
+      }
+      if (key === "git-bin") {
+        if (i + 1 >= argv.length || argv[i + 1].startsWith("--")) {
+          throw new Error("--git-bin requires a path argument");
+        }
+        global.gitBin = normalizeGitBin(argv[++i]);
         continue;
       }
       // Command-specific flag with value

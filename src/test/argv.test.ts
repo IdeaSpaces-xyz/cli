@@ -67,4 +67,21 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["agent", "run", "scout", "--message", "first", "--message", "second"]);
     expect(parsed.flags.message).toBe("second");
   });
+
+  it("parses --git-bin flag to absolute path without mutating process.env", () => {
+    const parsed = parseArgs(["status", "doctor", "--git-bin", "custom/git"]);
+    expect(parsed.global.gitBin).toMatch(/[/\\]custom[/\\]git$/);
+
+    const eqParsed = parseArgs(["status", "doctor", "--git-bin=/custom/git2"]);
+    expect(eqParsed.global.gitBin).toBe("/custom/git2");
+
+    const bareParsed = parseArgs(["status", "doctor", "--git-bin", "git"]);
+    expect(bareParsed.global.gitBin).toBe("git");
+  });
+
+  it("throws when --git-bin is missing a path argument", () => {
+    expect(() => parseArgs(["status", "doctor", "--git-bin"])).toThrow(/--git-bin requires a path argument/);
+    expect(() => parseArgs(["status", "doctor", "--git-bin", "--json"])).toThrow(/--git-bin requires a path argument/);
+    expect(() => parseArgs(["status", "doctor", "--git-bin="])).toThrow(/--git-bin requires a path argument/);
+  });
 });

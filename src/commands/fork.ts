@@ -31,7 +31,7 @@ import {
   type ForkSourceBaseline,
 } from "../fork-update.js";
 import { prepareForkSnapshot } from "../fork-snapshot.js";
-import { gitAvailability, sanitizedGitEnvironment } from "../git.js";
+import { gitAvailability, gitBinary, sanitizedGitEnvironment } from "../git.js";
 import { preferredContractSource } from "../contract-source.js";
 import { createOutput } from "../output.js";
 import { declareRootIdentity, mintDeclaredRootIdentity } from "../root-identity.js";
@@ -93,7 +93,7 @@ function runGit(cwd: string, args: string[], importIdentity = false): string {
         }
       : {}),
   });
-  const result = spawnSync("git", ["-C", cwd, ...args], {
+  const result = spawnSync(gitBinary(), ["-C", cwd, ...args], {
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
     env,
