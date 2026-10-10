@@ -113,4 +113,18 @@ describe("git availability", () => {
     expect(availability.state).toBe("absent");
     expect(availability.hint).toContain("/nonexistent/custom/git");
   });
+
+  it("reports unusable for nonzero-exiting IDEASPACES_GIT_BIN", async () => {
+    const stubDirectory = await pathDirectory({
+      stderr: "custom git failed",
+      exitCode: 1,
+    });
+    const stubBinary = join(stubDirectory, process.platform === "win32" ? "git.exe" : "git");
+    process.env.IDEASPACES_GIT_BIN = stubBinary;
+
+    const availability = gitAvailability();
+    expect(availability.state).toBe("unusable");
+    expect(availability.detail).toContain("custom git failed");
+    expect(availability.path).toBe(stubBinary);
+  });
 });
