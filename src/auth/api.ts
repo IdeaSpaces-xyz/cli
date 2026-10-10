@@ -1099,17 +1099,72 @@ export async function putFile(
 
 export type CopyAccessLevel = "owner" | "member" | "reader" | "public";
 
+export interface PublicationSignals {
+  search: boolean;
+  ai_input: boolean;
+  ai_train: boolean;
+}
+
 export interface SpaceAccessResponse {
   repo_id: string;
   root_node_id: string;
   read_public: boolean;
   copy_public: boolean;
   copy_access: CopyAccessLevel;
+  publication_policy: PublicationSignals;
+  effective_publication_policy: PublicationSignals;
+  policy_anchor_node_id: string | null;
 }
 
 export interface SpaceAccessUpdate {
+  read_public?: boolean;
+  copy_access?: CopyAccessLevel;
+  search?: boolean;
+  ai_input?: boolean;
+  ai_train?: boolean;
+}
+
+export interface NodePublicAccessResponse {
+  node_id: string;
+  node_type: "note" | "dir";
   read_public: boolean;
-  copy_access: CopyAccessLevel;
+  effective_read_public: boolean;
+  publication_policy: PublicationSignals;
+  effective_publication_policy: PublicationSignals;
+  policy_anchor_node_id: string | null;
+}
+
+export interface NodeGrant {
+  id: string;
+  node_id: string;
+  repo_id: string | null;
+  capability: string;
+  grantee: string;
+  granter: string;
+  expires_at: string | null;
+  audience?: string | null;
+  audience_label?: string | null;
+}
+
+export interface NodeGrantEvent extends NodeGrant {
+  grant_id: string;
+  action: "created" | "deleted";
+  by: string;
+  at: string;
+  source: string;
+  via?: unknown;
+}
+
+export async function getNodePublicAccess(config: ApiConfig, repoId: string, nodeId: string): Promise<NodePublicAccessResponse> {
+  return request(config, "GET", `${repoBase(repoId)}/nodes/${encodeURIComponent(nodeId)}/public-access`);
+}
+
+export async function listNodeGrants(config: ApiConfig, repoId: string, nodeId: string): Promise<NodeGrant[]> {
+  return request(config, "GET", `${repoBase(repoId)}/nodes/${encodeURIComponent(nodeId)}/grants`);
+}
+
+export async function listNodeGrantEvents(config: ApiConfig, repoId: string, nodeId: string): Promise<NodeGrantEvent[]> {
+  return request(config, "GET", `${repoBase(repoId)}/nodes/${encodeURIComponent(nodeId)}/grant-events`);
 }
 
 const repoBase = (repoId: string) => `${API_V1}/repos/${encodeURIComponent(repoId)}`;
@@ -1586,8 +1641,15 @@ export async function setSpaceAccess(
   config: ApiConfig,
   repoId: string,
   update: SpaceAccessUpdate,
+  opts?: RequestOptions,
 ): Promise<SpaceAccessResponse> {
-  return request<SpaceAccessResponse>(config, "PATCH", `${repoBase(repoId)}/access`, update);
+  // A cold server can take ~9 s to answer. Never retry a visibility write:
+  // after a timeout the server may already have applied it.
+  return request<SpaceAccessResponse>(config, "PATCH", `${repoBase(repoId)}/access`, update, {
+    timeoutMs: 30_000,
+    ...opts,
+    retry: false,
+  });
 }
 
 export interface ConversationHistoryMessage {
