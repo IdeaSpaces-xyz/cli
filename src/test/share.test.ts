@@ -17,6 +17,10 @@ const {
   setTeamShareMock,
   removeTeamShareMock,
   getSpaceAccessMock,
+  getNodePublicAccessMock,
+  listNodeGrantsMock,
+  listNodeGrantEventsMock,
+  fetchContentTreeMock,
   setSpaceAccessMock,
   removePersonShareMock,
   revokePersonShareInviteMock,
@@ -35,6 +39,10 @@ const {
   setTeamShareMock: vi.fn(),
   removeTeamShareMock: vi.fn(),
   getSpaceAccessMock: vi.fn(),
+  getNodePublicAccessMock: vi.fn(),
+  listNodeGrantsMock: vi.fn(),
+  listNodeGrantEventsMock: vi.fn(),
+  fetchContentTreeMock: vi.fn(),
   setSpaceAccessMock: vi.fn(),
   removePersonShareMock: vi.fn(),
   revokePersonShareInviteMock: vi.fn(),
@@ -58,6 +66,10 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     setTeamShare: setTeamShareMock,
     removeTeamShare: removeTeamShareMock,
     getSpaceAccess: getSpaceAccessMock,
+    getNodePublicAccess: getNodePublicAccessMock,
+    listNodeGrants: listNodeGrantsMock,
+    listNodeGrantEvents: listNodeGrantEventsMock,
+    fetchContentTree: fetchContentTreeMock,
     setSpaceAccess: setSpaceAccessMock,
     removePersonShare: removePersonShareMock,
     revokePersonShareInvite: revokePersonShareInviteMock,
@@ -109,6 +121,10 @@ beforeEach(() => {
     setTeamShareMock,
     removeTeamShareMock,
     getSpaceAccessMock,
+    getNodePublicAccessMock,
+    listNodeGrantsMock,
+    listNodeGrantEventsMock,
+    fetchContentTreeMock,
     setSpaceAccessMock,
     removePersonShareMock,
     revokePersonShareInviteMock,
@@ -153,6 +169,18 @@ beforeEach(() => {
     read_public: false,
     copy_public: false,
     copy_access: "owner",
+    publication_policy: { search: false, ai_input: false, ai_train: false },
+    effective_publication_policy: { search: false, ai_input: false, ai_train: false },
+    policy_anchor_node_id: null,
+  });
+  fetchContentTreeMock.mockResolvedValue({ children: [] });
+  listNodeGrantsMock.mockResolvedValue([]);
+  listNodeGrantEventsMock.mockResolvedValue([]);
+  listPersonSharesMock.mockResolvedValue({ standings: [], actions: {} });
+  listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
+  getNodePublicAccessMock.mockResolvedValue({
+    read_public: false, effective_read_public: false,
+    publication_policy: { search: false, ai_input: false, ai_train: false },
   });
   setSpaceAccessMock.mockResolvedValue({
     repo_id: "repo_abc",
@@ -171,6 +199,43 @@ beforeEach(() => {
     stderr += typeof c === "string" ? c : Buffer.from(c).toString("utf-8");
     return true;
   }) as typeof process.stderr.write);
+});
+
+describe("share access inspection", () => {
+  it("returns root policy, direct grants and a path that differs, as JSON", async () => {
+    const note = "n_aaaaaaaaaaaaaaaaaaaaaaaa";
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [
+      { path: "notes/one.md", node_id: note, type: "file", node_type: "note" },
+    ] });
+    getNodePublicAccessMock.mockResolvedValueOnce({
+      node_id: note, node_type: "note", read_public: true, effective_read_public: true,
+      publication_policy: { search: true, ai_input: false, ai_train: false },
+      effective_publication_policy: { search: true, ai_input: false, ai_train: false },
+      policy_anchor_node_id: note,
+    });
+    listNodeGrantsMock.mockImplementation(async (_config: unknown, _repo: string, node: string) =>
+      node === note ? [{ grantee: "public", capability: "read" }] : [],
+    );
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(0);
+    const result = JSON.parse(stdout);
+    expect(result.visibility).toBe("private");
+    expect(result.paths_scanned).toBe(1);
+    expect(result.paths[0].path).toBe("notes/one.md");
+    expect(result.paths[0].public_access.publication_policy.search).toBe(true);
+    expect(result.paths[0].grants[0].grantee).toBe("public");
+  });
+
+  it("labels the per-node fallback as incomplete, not a repo-wide log", async () => {
+    listNodeGrantEventsMock.mockResolvedValue([{ at: "2026-10-10", by: "person:1", action: "created", grantee: "public", capability: "read", source: "repo_visibility" }]);
+    expect(await shareCommand.run(["log"], {}, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ scope: "node_grants_only", complete_repo_log: false, node_id: ROOT });
+  });
+
+  it("fails instead of calling partial path coverage a complete status", async () => {
+    fetchContentTreeMock.mockRejectedValue(new Error("tree unavailable"));
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("tree unavailable");
+  });
 });
 
 describe("share person — a grade on a Space, not a seat in a repo", () => {

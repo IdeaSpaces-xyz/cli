@@ -134,6 +134,23 @@ describe("request() retry on timeout (cold start)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("gives an access PATCH a cold-start window, but never retries an ambiguous write", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = abortingFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      const result = setSpaceAccess(config, "repo_abc", { read_public: false });
+      const rejection = expect(result).rejects.toThrow(/PATCH \/api\/v1\/repos\/repo_abc\/access timed out/);
+      await vi.advanceTimersByTimeAsync(5001);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(25_000);
+      await rejection;
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("names the failed call and gives Cowork advice only in a known Claude plugin", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fetch failed"))));
     vi.stubEnv("CLAUDE_PLUGIN_ROOT", "");
