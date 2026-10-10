@@ -19,13 +19,23 @@ import { isIdeaspacePath } from "@ideaspaces/protocol";
 export class GitError extends Error {}
 
 /**
+ * Normalizes a git binary path: resolves relative paths containing path separators
+ * to absolute paths, preserving bare executable names (e.g. "git") for PATH lookup.
+ */
+export function normalizeGitBin(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error("--git-bin requires a path argument");
+  return trimmed.includes("/") || trimmed.includes("\\") ? resolve(trimmed) : trimmed;
+}
+
+/**
  * Resolved git binary executable path. Honors IDEASPACES_GIT_BIN when set,
  * otherwise defaults to "git" (PATH lookup).
  */
 export function gitBinary(): string {
-  const envBin = process.env.IDEASPACES_GIT_BIN?.trim();
-  if (!envBin) return "git";
-  return (envBin.includes("/") || envBin.includes("\\")) ? resolve(envBin) : envBin;
+  const envBin = process.env.IDEASPACES_GIT_BIN;
+  if (!envBin || !envBin.trim()) return "git";
+  return normalizeGitBin(envBin);
 }
 
 /** Remove ambient repository and identity overrides before a bounded Git operation. */
@@ -77,7 +87,7 @@ export function gitAvailability(): GitAvailability {
     const code = (result.error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
       const hint = isCustom
-        ? `git executable not found at ${bin} — verify the path or unset IDEASPACES_GIT_BIN.`
+        ? `git executable not found at ${bin} — verify the path or check your --git-bin / IDEASPACES_GIT_BIN setting.`
         : GIT_MISSING_HINT;
       return { state: "absent", hint, ...(isCustom ? { path: bin } : {}) };
     }
@@ -121,7 +131,7 @@ function git(args: string[], cwd?: string): { ok: boolean; out: string; err: str
       ok: false,
       out: "",
       err: code === "ENOENT"
-        ? (isCustom ? `git not found at ${bin} — verify the path or unset IDEASPACES_GIT_BIN.` : GIT_MISSING_HINT)
+        ? (isCustom ? `git not found at ${bin} — verify the path or check your --git-bin / IDEASPACES_GIT_BIN setting.` : GIT_MISSING_HINT)
         : `git could not run: ${r.error.message}`,
     };
   }

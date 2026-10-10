@@ -33,10 +33,14 @@ export const localEffectGitRunner: LocalGitRunner = async (root, args) => {
   });
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
+    const isCustom = gitBinary() !== "git";
+    const hint = isCustom
+      ? `git executable not found at ${gitBinary()} — verify the path or check your --git-bin / IDEASPACES_GIT_BIN setting.`
+      : GIT_MISSING_HINT;
     return {
       ok: false,
       stdout: "",
-      stderr: code === "ENOENT" ? GIT_MISSING_HINT : `git could not run: ${result.error.message}`,
+      stderr: code === "ENOENT" ? hint : `git could not run: ${result.error.message}`,
       code: null,
     };
   }
@@ -82,7 +86,11 @@ export function canonicalRepoRoot(cwd = process.cwd()): string {
   });
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
-    throw new Error(code === "ENOENT" ? GIT_MISSING_HINT : result.error.message);
+    const isCustom = gitBinary() !== "git";
+    const hint = isCustom
+      ? `git executable not found at ${gitBinary()} — verify the path or check your --git-bin / IDEASPACES_GIT_BIN setting.`
+      : GIT_MISSING_HINT;
+    throw new Error(code === "ENOENT" ? hint : result.error.message);
   }
   if (result.status !== 0 || !result.stdout?.trim()) {
     throw new Error(result.stderr?.trim() || "not inside a git repository");
