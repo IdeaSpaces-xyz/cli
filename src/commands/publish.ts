@@ -44,7 +44,7 @@ import {
   identityEmail as formatIdentityEmail,
   identityName as formatIdentityName,
 } from "../auth/identity.js";
-import { gitBinary, normalizeRepoUrl, sanitizedGitEnvironment } from "../git.js";
+import { gitBinary, normalizeRepoUrl } from "../git.js";
 import { hasRootAction } from "../root-actions.js";
 import {
   inspectLocalRootIdentity,
@@ -65,10 +65,7 @@ interface PublishFlags {
 }
 
 function runGit(cwd: string, args: string[]): { ok: boolean; stderr: string; stdout: string } {
-  const r = spawnSync(gitBinary(), ["-C", cwd, ...args], {
-    encoding: "utf-8",
-    env: sanitizedGitEnvironment(),
-  });
+  const r = spawnSync(gitBinary(), ["-C", cwd, ...args], { encoding: "utf-8" });
   // ENOENT and friends — git not on PATH. spawnSync returns status: null and
   // sets r.error; without this guard the caller surfaces an empty-stderr 1.
   if (r.error) {
@@ -98,10 +95,7 @@ interface SizeOffender {
 }
 
 export function preflightSize(cwd: string): SizeOffender[] {
-  const r = spawnSync(gitBinary(), ["-C", cwd, "ls-files", "-z"], {
-    encoding: "utf-8",
-    env: sanitizedGitEnvironment(),
-  });
+  const r = spawnSync(gitBinary(), ["-C", cwd, "ls-files", "-z"], { encoding: "utf-8" });
   if (r.error) throw new Error(`git not available: ${r.error.message}`);
   if (r.status !== 0) {
     throw new Error(r.stderr.trim() || "git ls-files failed while checking blob sizes");
@@ -214,10 +208,7 @@ async function checkMarkdownFrontmatterSyntax(cwd: string): Promise<string | nul
 }
 
 function trackedMarkdownFiles(cwd: string): string[] {
-  const r = spawnSync(gitBinary(), ["-C", cwd, "ls-files", "-z", "--", "*.md"], {
-    encoding: "utf-8",
-    env: sanitizedGitEnvironment(),
-  });
+  const r = spawnSync(gitBinary(), ["-C", cwd, "ls-files", "-z", "--", "*.md"], { encoding: "utf-8" });
   if (r.error) throw new Error(`git not available: ${r.error.message}`);
   if (r.status !== 0) {
     throw new Error(r.stderr.trim() || "git ls-files failed while checking markdown identities");
