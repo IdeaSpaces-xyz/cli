@@ -25,12 +25,18 @@ import {
   setTeamShare,
   removeTeamShare,
   getSpaceAccess,
+  getNodePublicAccess,
+  listNodeGrants,
+  listNodeGrantEvents,
+  fetchContentTree,
   setSpaceAccess,
   UnauthorizedError,
   type ShareGrade,
   type ShareCapability,
   type PersonShareAddResult,
   type PersonShareStanding,
+  type NodeGrant,
+  type NodePublicAccessResponse,
 } from "../auth/api.js";
 import { loadConfig, type LoadedConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding } from "../auth/resolve-space.js";
@@ -42,7 +48,7 @@ import type { CommandDef, GlobalFlags } from "../types.js";
 type Flags = Record<string, string | boolean>;
 
 const USAGE =
-  "ideaspaces share <person|team|list|remove|resend|history|visibility> …";
+  "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> …";
 
 /**
  * The grades a Space is shared at. One per invitation, mutually exclusive.
@@ -475,6 +481,95 @@ async function listProductAccess(rest: string[], flags: Flags, output: Output): 
   return 0;
 }
 
+/** Recursively read the hosted Content tree: an outline omits directory identity rows. */
+async function accessTargets(config: LoadedConfig, root: string): Promise<Array<{ path: string; node_id: string }>> {
+  const queue = [""];
+  const targets: Array<{ path: string; node_id: string }> = [];
+  const seen = new Set<string>([root]);
+  while (queue.length) {
+    const path = queue.shift()!;
+    const tree = await fetchContentTree(config, root, path);
+    for (const child of tree.children) {
+      if (child.type === "dir") {
+        if (!child.node_id) throw new Error(`Cannot inspect access at ${child.path}: the hosted directory has no Node identity yet. Retry after indexing completes.`);
+        queue.push(child.path);
+      }
+      if (child.node_id && !seen.has(child.node_id) &&
+          (child.type === "dir" || child.node_type === "note")) {
+        seen.add(child.node_id);
+        targets.push({ path: child.path, node_id: child.node_id });
+      }
+    }
+  }
+  return targets;
+}
+
+async function accessStatus(rest: string[], flags: Flags, output: Output): Promise<number> {
+  if (rest.length > 1 || (rest.length && repoFlag(flags))) {
+    output.error("Usage: ideaspaces share status [<repo-url>|--repo <url>]");
+    return 1;
+  }
+  const config = requireConfig(output);
+  if (!config) return 1;
+  const target = await resolveTarget(rest[0] ?? repoFlag(flags), config, output);
+  if (!target) return 1;
+  const repoId = await repoIdForRoot(config, target);
+  const [visibility, people, teams, invites, rootGrants, targets] = await Promise.all([
+    getSpaceAccess(config, repoId), listPersonShares(config, target),
+    listTeamShares(config, target), listPersonShareInvites(config, target),
+    listNodeGrants(config, repoId, target), accessTargets(config, target),
+  ]);
+  // Bound in-flight calls, not coverage. An inaccessible path is an error,
+  // never a silently missing private/public item in an agent's answer.
+  const paths: Array<{ path: string; node_id: string; public_access: NodePublicAccessResponse; grants: NodeGrant[] }> = [];
+  for (let i = 0; i < targets.length; i += 8) {
+    const batch = await Promise.all(targets.slice(i, i + 8).map(async ({ path, node_id }) => {
+      const [public_access, grants] = await Promise.all([
+        getNodePublicAccess(config, repoId, node_id), listNodeGrants(config, repoId, node_id),
+      ]);
+      return { path, node_id, public_access, grants };
+    }));
+    paths.push(...batch);
+  }
+  const exceptions = paths.filter(({ public_access, grants }) =>
+    public_access.effective_read_public !== visibility.read_public ||
+    public_access.read_public || grants.some(({ grantee }) => grantee !== "public") ||
+    Object.entries(public_access.publication_policy).some(([key, value]) =>
+      value !== visibility.publication_policy[key as keyof typeof visibility.publication_policy]),
+  );
+  const result = {
+    repo_id: repoId, root_node_id: target,
+    visibility: visibility.read_public ? "public" : "private",
+    root: { access: visibility, grants: rootGrants },
+    paths: exceptions, paths_scanned: paths.length,
+    people, teams, pending_invites: invites.invites,
+  };
+  output.result(result,
+    `${result.visibility} — ${exceptions.length} path${exceptions.length === 1 ? "" : "s"} with distinct access or policy (${paths.length} checked).\n` +
+    `People: ${people.standings.length}; teams: ${teams.relationships.length}; root grants: ${rootGrants.length}. Use --json for exact grants and signals.`);
+  return 0;
+}
+
+async function accessLog(rest: string[], flags: Flags, output: Output): Promise<number> {
+  if (rest.length > 1 || (rest.length && repoFlag(flags))) {
+    output.error("Usage: ideaspaces share log [<repo-url>|--repo <url>] [--node <node-id>]");
+    return 1;
+  }
+  const config = requireConfig(output);
+  if (!config) return 1;
+  const root = await resolveTarget(rest[0] ?? repoFlag(flags), config, output);
+  if (!root) return 1;
+  const repoId = await repoIdForRoot(config, root);
+  const nodeId = flagStr(flags, "node") ?? root;
+  const events = await listNodeGrantEvents(config, repoId, nodeId);
+  output.result(
+    { repo_id: repoId, node_id: nodeId, scope: "node_grants_only", complete_repo_log: false, events },
+    `Grant events for ${nodeId} only (not a repo-wide log; publication and ownership changes absent).\n` +
+      events.map((event) => `${event.at}  ${event.by}  ${event.action} ${event.grantee} ${event.capability} (${event.source})`).join("\n"),
+  );
+  return 0;
+}
+
 async function removeProductAccess(
   rest: string[],
   flags: Flags,
@@ -713,6 +808,10 @@ async function run(
 ): Promise<number> {
   try {
     switch (sub) {
+      case "status":
+        return await accessStatus(rest, flags, output);
+      case "log":
+        return await accessLog(rest, flags, output);
       case "person":
         return await shareWithPerson(rest, flags, output);
       case "team":
@@ -766,13 +865,15 @@ async function run(
 
 export const shareCommand: CommandDef = {
   name: "share",
-  description: "Share a Space and manage recipient access",
+  description: "Inspect and manage a Space's access, public paths and grant log",
   usage: USAGE,
   examples: [
     "ideaspaces share person someone@example.com --grade explore",
     "ideaspaces share person @someone --grade fork",
     "ideaspaces share person someone@example.com --grade collaborate --history",
     "ideaspaces share team acme.com --grade collaborate",
+    "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 --json",
+    "ideaspaces share log --json  # per-node grant events until the repo activity feed ships",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",
     "ideaspaces share history @someone off",

@@ -192,7 +192,19 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/repos/{repoId}/nodes/{nodeId}/grant-events"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repos/{repoId}/nodes/{nodeId}/grants"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/repos/{repoId}/nodes/{nodeId}/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/repos/{repoId}/nodes/{nodeId}/public-access"
     },
     {
       "method": "GET",
