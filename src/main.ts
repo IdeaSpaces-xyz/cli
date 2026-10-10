@@ -43,6 +43,10 @@ installSyncWriter(process.stderr, 2);
 
 const { global, command, args, flags } = parseArgs(process.argv.slice(2));
 
+if (global.gitBin) {
+  process.env.IDEASPACES_GIT_BIN = global.gitBin;
+}
+
 if (!command || global.help && !command) {
   printHelp();
   process.exit(0);

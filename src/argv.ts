@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { GlobalFlags } from "./types.js";
 
 const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
@@ -56,9 +57,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
         if (key === "git-bin") {
-          global.gitBin = value;
-          flags["git-bin"] = value;
-          process.env.IDEASPACES_GIT_BIN = value;
+          if (!value.trim()) throw new Error("--git-bin requires a path argument");
+          global.gitBin = resolve(value);
           continue;
         }
 
@@ -80,11 +80,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
         global.repo = argv[++i];
         continue;
       }
-      if (key === "git-bin" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-        const val = argv[++i];
-        global.gitBin = val;
-        flags["git-bin"] = val;
-        process.env.IDEASPACES_GIT_BIN = val;
+      if (key === "git-bin") {
+        if (i + 1 >= argv.length || argv[i + 1].startsWith("--")) {
+          throw new Error("--git-bin requires a path argument");
+        }
+        global.gitBin = resolve(argv[++i]);
         continue;
       }
       // Command-specific flag with value

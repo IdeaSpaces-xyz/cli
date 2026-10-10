@@ -68,21 +68,17 @@ describe("parseArgs", () => {
     expect(parsed.flags.message).toBe("second");
   });
 
-  it("parses --git-bin flag and sets IDEASPACES_GIT_BIN", () => {
-    const prev = process.env.IDEASPACES_GIT_BIN;
-    try {
-      const parsed = parseArgs(["status", "doctor", "--git-bin", "/custom/git"]);
-      expect(parsed.global.gitBin).toBe("/custom/git");
-      expect(parsed.flags["git-bin"]).toBe("/custom/git");
-      expect(process.env.IDEASPACES_GIT_BIN).toBe("/custom/git");
+  it("parses --git-bin flag to absolute path without mutating process.env", () => {
+    const parsed = parseArgs(["status", "doctor", "--git-bin", "custom/git"]);
+    expect(parsed.global.gitBin).toMatch(/[/\\]custom[/\\]git$/);
 
-      const eqParsed = parseArgs(["status", "doctor", "--git-bin=/custom/git2"]);
-      expect(eqParsed.global.gitBin).toBe("/custom/git2");
-      expect(eqParsed.flags["git-bin"]).toBe("/custom/git2");
-      expect(process.env.IDEASPACES_GIT_BIN).toBe("/custom/git2");
-    } finally {
-      if (prev !== undefined) process.env.IDEASPACES_GIT_BIN = prev;
-      else delete process.env.IDEASPACES_GIT_BIN;
-    }
+    const eqParsed = parseArgs(["status", "doctor", "--git-bin=/custom/git2"]);
+    expect(eqParsed.global.gitBin).toBe("/custom/git2");
+  });
+
+  it("throws when --git-bin is missing a path argument", () => {
+    expect(() => parseArgs(["status", "doctor", "--git-bin"])).toThrow(/--git-bin requires a path argument/);
+    expect(() => parseArgs(["status", "doctor", "--git-bin", "--json"])).toThrow(/--git-bin requires a path argument/);
+    expect(() => parseArgs(["status", "doctor", "--git-bin="])).toThrow(/--git-bin requires a path argument/);
   });
 });
