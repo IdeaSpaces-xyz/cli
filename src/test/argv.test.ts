@@ -74,6 +74,9 @@ describe("parseArgs", () => {
 
     const eqParsed = parseArgs(["status", "doctor", "--git-bin=/custom/git2"]);
     expect(eqParsed.global.gitBin).toBe("/custom/git2");
+
+    const bareParsed = parseArgs(["status", "doctor", "--git-bin", "git"]);
+    expect(bareParsed.global.gitBin).toBe("git");
   });
 
   it("throws when --git-bin is missing a path argument", () => {

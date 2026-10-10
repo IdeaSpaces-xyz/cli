@@ -2,6 +2,12 @@ import { resolve } from "node:path";
 import type { GlobalFlags } from "./types.js";
 
 const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
+
+function parseGitBin(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error("--git-bin requires a path argument");
+  return trimmed.includes("/") || trimmed.includes("\\") ? resolve(trimmed) : trimmed;
+}
 function setFlag(flags: Record<string, string | boolean>, key: string, value: string): void {
   if (key === "reach") {
     // Only agent run consumes this array; keep paths with commas intact.
@@ -57,8 +63,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
         if (key === "git-bin") {
-          if (!value.trim()) throw new Error("--git-bin requires a path argument");
-          global.gitBin = resolve(value);
+          global.gitBin = parseGitBin(value);
           continue;
         }
 
@@ -84,7 +89,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (i + 1 >= argv.length || argv[i + 1].startsWith("--")) {
           throw new Error("--git-bin requires a path argument");
         }
-        global.gitBin = resolve(argv[++i]);
+        global.gitBin = parseGitBin(argv[++i]);
         continue;
       }
       // Command-specific flag with value

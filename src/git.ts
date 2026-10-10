@@ -69,7 +69,7 @@ export type GitAvailability =
  */
 export function gitAvailability(): GitAvailability {
   const bin = gitBinary();
-  const isCustom = Boolean(process.env.IDEASPACES_GIT_BIN && process.env.IDEASPACES_GIT_BIN !== "git");
+  const isCustom = bin !== "git";
   const result = spawnSync(bin, ["--version"], { encoding: "utf-8" });
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
@@ -109,6 +109,7 @@ export function gitAvailable(): boolean {
 
 function git(args: string[], cwd?: string): { ok: boolean; out: string; err: string } {
   const bin = gitBinary();
+  const isCustom = bin !== "git";
   const r = spawnSync(bin, args, { encoding: "utf-8", cwd });
   // ENOENT & friends — git not on PATH. spawnSync sets r.error and leaves
   // status null; surface the actionable hint instead of a blank "git … failed".
@@ -118,7 +119,7 @@ function git(args: string[], cwd?: string): { ok: boolean; out: string; err: str
       ok: false,
       out: "",
       err: code === "ENOENT"
-        ? (bin !== "git" ? `git not found at ${bin} — verify the path or unset IDEASPACES_GIT_BIN.` : GIT_MISSING_HINT)
+        ? (isCustom ? `git not found at ${bin} — verify the path or unset IDEASPACES_GIT_BIN.` : GIT_MISSING_HINT)
         : `git could not run: ${r.error.message}`,
     };
   }
