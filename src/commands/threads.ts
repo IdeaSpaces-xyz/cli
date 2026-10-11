@@ -194,12 +194,13 @@ function writerName(explicit?: string): string {
 // Keep this per verb: accepting a valid flag on the wrong verb is also a false promise.
 const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
   Object.entries({
-    list: "new space depth kind since",
+    list: "new space depth kind since limit scope order cursor",
     locate: "",
     open: "depth new ack since post map member checkout pin position",
     read: "depth new ack kind since post map member checkout pin position",
     new: "about",
     post: "map member checkout reply-to kind author name summary supersedes message",
+    posts: "space scope limit since depth order cursor",
     close: "map reply-to kind author name summary supersedes message",
     render: "",
     init: "",
@@ -221,9 +222,10 @@ export function threadFlagError(verb: string, flags: Flags): string | undefined 
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
+  usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
   examples: [
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
+    "ideaspaces threads posts [--space n_…] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary]",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
     "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",
@@ -253,7 +255,7 @@ export const threadsCommand: CommandDef = {
     try {
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
-      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
+      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || sub === "posts" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
           return threadsCommand.run(["open", rest[0]], flags, global);
         }
