@@ -54,7 +54,7 @@ import { HOSTED_THREAD_ID as HOSTED, NODE_ID, threadFlagError, type Flags } from
 
 const USAGE = "ideaspaces threads <list|posts|read|send|reply|add|close|rename|expand> ...";
 const LIST_USAGE =
-  "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request|post>] [--depth <name|summary|full>] (for --limit, --order, and --cursor, use threads posts)";
+  "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
 const POSTS_USAGE =
   "ideaspaces threads posts [x_thread_id] [--space <space_node_id>] [--scope <inbox|followed>] [--limit <number>] [--since <position|note_node_id|ISO date>] [--depth <name|summary>] [--order <newer|older>] [--cursor <token>]";
 const READ_USAGE =
@@ -145,7 +145,7 @@ function participantsText(participants: InboxParticipant[]): string {
   return participants.map(participantLabel).join(", ");
 }
 
-type InboxKind = "message" | "reframe" | "request" | "post";
+type InboxKind = "message" | "reframe" | "request";
 type ReadDepth = "name" | "summary" | "children" | "surface" | "full";
 
 export function threadBadges(grade?: ThreadGrade, closed?: boolean): string {
@@ -342,8 +342,12 @@ function parsePosition(value: string | boolean | undefined, output: Output): num
 
 function parseKind(value: string | boolean | undefined, output: Output): InboxKind | null | undefined {
   if (value === undefined) return undefined;
-  if (value === "message" || value === "reframe" || value === "request" || value === "post") return value;
-  output.error("--kind must be one of: message, reframe, request, post.");
+  if (value === "post") {
+    output.error("To list hosted posts across Threads, use `ideaspaces threads posts`.");
+    return null;
+  }
+  if (value === "message" || value === "reframe" || value === "request") return value;
+  output.error("--kind must be one of: message, reframe, request.");
   return null;
 }
 
@@ -418,13 +422,6 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
   if (since === null) return 1;
   const kind = parseKind(flags.kind, output);
   if (kind === null) return 1;
-  if (kind === "post") {
-    if (flags.new) {
-      output.error("--new cannot be combined with --kind post; use ideaspaces threads posts with --since or cursor pagination.");
-      return 1;
-    }
-    return posts(rest, flags, output);
-  }
   if (flags.new && kind === "request") {
     output.error("--new cannot be combined with --kind request because access requests have no followed cursor. Use --kind request, optionally with --since <position>.");
     return 1;

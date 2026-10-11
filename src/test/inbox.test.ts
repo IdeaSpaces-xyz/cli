@@ -1812,24 +1812,10 @@ describe("inbox", () => {
       expect(parsed.items[0].name).toBe(postA.name);
     });
 
-    it("routes threads list --kind post to posts listing", async () => {
-      fetchThreadPostsMock.mockResolvedValue({
-        items: [postA],
-        next_cursor: null,
-      });
-
-      const code = await threadsCommand.run(["list"], { kind: "post" }, JSON_GLOBAL);
-      expect(code).toBe(0);
-      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
-        scope: "inbox",
-        order: "newer",
-      });
-    });
-
-    it("refuses --new combined with threads list --kind post", async () => {
-      const code = await threadsCommand.run(["list"], { kind: "post", new: true }, TEXT_GLOBAL);
+    it("directs threads list --kind post callers to threads posts", async () => {
+      const code = await threadsCommand.run(["list"], { kind: "post" }, TEXT_GLOBAL);
       expect(code).toBe(1);
-      expect(stderr()).toContain("--new cannot be combined with --kind post");
+      expect(stderr()).toContain("To list hosted posts across Threads, use `ideaspaces threads posts`.");
     });
 
     it("refuses --limit on threads list without --kind post", async () => {
