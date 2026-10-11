@@ -50,18 +50,13 @@ import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 import { appendAddressMemberToMapFile } from "./map-edit.js";
 import { humanGrade, parseGrade } from "./request.js";
-import { threadFlagError } from "./threads.js";
-
-type Flags = Record<string, string | boolean>;
-
-const HOSTED = /^x_[0-9a-f]{24}$/;
-const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
+import { HOSTED_THREAD_ID as HOSTED, NODE_ID, threadFlagError, type Flags } from "./thread-flags.js";
 
 const USAGE = "ideaspaces threads <list|posts|read|send|reply|add|close|rename|expand> ...";
 const LIST_USAGE =
   "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request|post>] [--depth <name|summary|full>]";
 const POSTS_USAGE =
-  "ideaspaces threads posts [thread_id] [--space <space_node_id>] [--scope <inbox|followed>] [--limit <number>] [--since <position|post_id|ISO date>] [--depth <name|summary>] [--order <newer|older>]";
+  "ideaspaces threads posts [x_thread_id] [--space <space_node_id>] [--scope <inbox|followed>] [--limit <number>] [--since <position|note_node_id|ISO date>] [--depth <name|summary>] [--order <newer|older>] [--cursor <token>]";
 const READ_USAGE =
   "ideaspaces threads read <thread_id> [--new|--since <position|ISO date|note_node_id>] [--post <note_node_id>] [--kind <message|reframe>] [--depth <name|summary|children|surface|full>] [--ack]";
 const SEND_USAGE =
@@ -150,7 +145,7 @@ function participantsText(participants: InboxParticipant[]): string {
   return participants.map(participantLabel).join(", ");
 }
 
-type InboxKind = "message" | "reframe" | "request" | "post" | "posts";
+type InboxKind = "message" | "reframe" | "request" | "post";
 type ReadDepth = "name" | "summary" | "children" | "surface" | "full";
 
 export function threadBadges(grade?: ThreadGrade, closed?: boolean): string {
@@ -347,7 +342,7 @@ function parsePosition(value: string | boolean | undefined, output: Output): num
 
 function parseKind(value: string | boolean | undefined, output: Output): InboxKind | null | undefined {
   if (value === undefined) return undefined;
-  if (value === "message" || value === "reframe" || value === "request" || value === "post" || value === "posts") return value;
+  if (value === "message" || value === "reframe" || value === "request" || value === "post") return value;
   output.error("--kind must be one of: message, reframe, request, post.");
   return null;
 }
@@ -423,7 +418,11 @@ async function list(rest: string[], flags: Flags, output: Output): Promise<numbe
   if (since === null) return 1;
   const kind = parseKind(flags.kind, output);
   if (kind === null) return 1;
-  if (kind === "post" || kind === "posts") {
+  if (kind === "post") {
+    if (flags.new) {
+      output.error("--new cannot be combined with --kind post; use ideaspaces threads posts with --since or cursor pagination.");
+      return 1;
+    }
     return posts(rest, flags, output);
   }
   if (flags.new && kind === "request") {
@@ -1043,20 +1042,25 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
     output.error("Invalid --space: must be a Space node_id (n_…).");
     return 1;
   }
-  const scope = flagString(flags, "scope")?.trim();
-  if (scope !== undefined && scope !== "inbox" && scope !== "followed") {
-    output.error("--scope must be inbox or followed.");
-    return 1;
+  const scopeRaw = flagString(flags, "scope")?.trim();
+  let scopeVal: "inbox" | "followed" | undefined;
+  if (scopeRaw !== undefined) {
+    if (scopeRaw === "inbox" || scopeRaw === "followed") {
+      scopeVal = scopeRaw;
+    } else {
+      output.error("--scope must be inbox or followed.");
+      return 1;
+    }
   }
   if (threadId && space) {
     output.error("Cannot combine a Thread ID with --space.");
     return 1;
   }
-  if (threadId && scope) {
+  if (threadId && scopeVal) {
     output.error("Cannot combine a Thread ID with --scope.");
     return 1;
   }
-  if (space && scope) {
+  if (space && scopeVal) {
     output.error("Cannot combine --space with --scope.");
     return 1;
   }
@@ -1111,8 +1115,11 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
     return 1;
   }
 
-  const orderVal = flagString(flags, "order") ?? "newer";
-  if (orderVal !== "newer" && orderVal !== "older") {
+  const orderRaw = flagString(flags, "order") ?? "newer";
+  let orderVal: "newer" | "older";
+  if (orderRaw === "newer" || orderRaw === "older") {
+    orderVal = orderRaw;
+  } else {
     output.error("--order must be newer or older.");
     return 1;
   }
@@ -1121,14 +1128,14 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
 
   return runAuthenticated(output, async (config) => {
     const query: ThreadPostsQuery = {
-      order: orderVal as "newer" | "older",
+      order: orderVal,
     };
     if (threadId) {
       query.thread_id = threadId;
     } else if (space) {
       query.space_id = space;
-    } else if (scope) {
-      query.scope = scope as "inbox" | "followed";
+    } else if (scopeVal) {
+      query.scope = scopeVal;
     } else {
       query.scope = "inbox";
     }
@@ -1139,15 +1146,24 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
 
     const response = await fetchThreadPosts(config, query);
     let items = response.items;
+    let filteredByDate = false;
     if (sinceDate !== undefined) {
+      const originalCount = items.length;
       items = items.filter((item) => Date.parse(item.created_at) > sinceDate!);
+      if (items.length < originalCount) {
+        filteredByDate = true;
+      }
     }
 
     let text: string;
     if (!items.length) {
-      text = "No hosted posts found.";
+      if (filteredByDate && response.next_cursor) {
+        text = `No hosted posts newer than ${sinceVal} on this page. More posts: ideaspaces threads posts --cursor ${response.next_cursor}`;
+      } else {
+        text = "No hosted posts found.";
+      }
     } else {
-      text = items
+      const postLines = items
         .map((post) => {
           const actor = post.actor_ref === post.author_ref ? "" : ` via ${post.actor_ref}`;
           const header = `${post.thread_name}  (${post.exchange_id})\n  [${post.position}] ${post.note_node_id} · ${post.created_at} · ${post.author_ref}${actor} — ${post.name}`;
@@ -1157,6 +1173,12 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
           return `${header}\n  ${post.summary}`;
         })
         .join("\n\n");
+
+      if (response.next_cursor) {
+        text = `${postLines}\n\nMore posts: ideaspaces threads posts --cursor ${response.next_cursor}`;
+      } else {
+        text = postLines;
+      }
     }
 
     output.result({ items, next_cursor: response.next_cursor }, text);
@@ -1171,6 +1193,10 @@ export const hostedThreadsCommand: CommandDef = {
   examples: [
     "ideaspaces threads list --new --depth name",
     "ideaspaces threads list --space n_0123456789abcdef01234567",
+    "ideaspaces threads posts --limit 10",
+    "ideaspaces threads posts --space n_0123456789abcdef01234567",
+    "ideaspaces threads posts x_0123456789abcdef01234567 --limit 5",
+    "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads read x_example --new --depth full --ack  # JSON includes your_grade",
     "ideaspaces threads list --kind message --json  # each hosted row includes your_grade",
     "ideaspaces threads expand x_example 0",

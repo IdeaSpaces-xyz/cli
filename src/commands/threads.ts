@@ -15,10 +15,11 @@ import {
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
   type LocalThread,
 } from "../local/threads.js";
+import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./thread-flags.js";
 
-const HOSTED = /^x_[0-9a-f]{24}$/;
+export { threadFlagError } from "./thread-flags.js";
+
 const KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure"]);
-type Flags = Record<string, string | boolean>;
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
 }
@@ -189,34 +190,6 @@ function writerName(explicit?: string): string {
   const result = spawnSync(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
-}
-// A misspelled disclosure flag must not silently return a broader Thread read.
-// Keep this per verb: accepting a valid flag on the wrong verb is also a false promise.
-const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
-  Object.entries({
-    list: "new space depth kind since limit scope order cursor",
-    locate: "",
-    open: "depth new ack since post map member checkout pin position",
-    read: "depth new ack kind since post map member checkout pin position",
-    new: "about",
-    post: "map member checkout reply-to kind author name summary supersedes message",
-    posts: "space scope limit since depth order cursor",
-    close: "map reply-to kind author name summary supersedes message",
-    render: "",
-    init: "",
-    push: "remote",
-    send: "space about map share share-roots space-map name summary message send-id grade",
-    reply: "map name summary message send-id reply-to",
-    expand: "",
-    add: "grade",
-    rename: "name",
-  }).map(([verb, names]) => [verb, new Set(names ? names.split(" ") : [])]),
-);
-
-export function threadFlagError(verb: string, flags: Flags): string | undefined {
-  const known = THREAD_FLAGS[verb];
-  const unknown = known && Object.keys(flags).find((flag) => !known.has(flag));
-  return unknown ? `Unknown flag for threads ${verb}: --${unknown}. Run ideaspaces threads --help for supported flags.` : undefined;
 }
 
 export const threadsCommand: CommandDef = {

@@ -1761,19 +1761,54 @@ describe("inbox", () => {
       });
     });
 
+    it("renders next_cursor hint in human output when more pages exist", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: "cursor_token_abc",
+      });
+
+      const code = await threadsCommand.run(["posts"], {}, TEXT_GLOBAL);
+      expect(code).toBe(0);
+      const out = stdout();
+      expect(out).toContain("More posts: ideaspaces threads posts --cursor cursor_token_abc");
+    });
+
+    it("renders hint when date filter leaves no items on a page with next_cursor", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postB],
+        next_cursor: "cursor_token_xyz",
+      });
+
+      const code = await threadsCommand.run(["posts"], { since: "2026-10-11T12:00:00.000Z" }, TEXT_GLOBAL);
+      expect(code).toBe(0);
+      const out = stdout();
+      expect(out).toContain("No hosted posts newer than 2026-10-11T12:00:00.000Z on this page. More posts: ideaspaces threads posts --cursor cursor_token_xyz");
+    });
+
     it("routes threads list --kind post to posts listing", async () => {
       fetchThreadPostsMock.mockResolvedValue({
         items: [postA],
         next_cursor: null,
       });
 
-      const code = await threadsCommand.run(["list"], { kind: "post", limit: "5" }, JSON_GLOBAL);
+      const code = await threadsCommand.run(["list"], { kind: "post" }, JSON_GLOBAL);
       expect(code).toBe(0);
       expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
         scope: "inbox",
         order: "newer",
-        limit: 5,
       });
+    });
+
+    it("refuses --new combined with threads list --kind post", async () => {
+      const code = await threadsCommand.run(["list"], { kind: "post", new: true }, TEXT_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("--new cannot be combined with --kind post");
+    });
+
+    it("refuses --limit on threads list without --kind post", async () => {
+      const code = await threadsCommand.run(["list"], { limit: "5" }, TEXT_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("Unknown flag for threads list: --limit");
     });
 
     it("refuses unknown flags on threads posts", async () => {
