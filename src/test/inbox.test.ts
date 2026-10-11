@@ -358,7 +358,7 @@ describe("inbox", () => {
     expect(textLines[3]).toBe("  n_direct_reply · note.replied · 2026-10-06T13:00:00Z · Direct Reply · in_reply_to n_open");
   });
 
-  it("passes --reply-to when replying to a hosted Thread", async () => {
+  it("passes and validates --reply-to when replying to a hosted Thread", async () => {
     replyToExchangeMock.mockResolvedValue({
       exchange_id: "x_tree",
       note_node_id: "n_reply_new",
@@ -371,7 +371,7 @@ describe("inbox", () => {
 
     expect(await inboxCommand.run(
       ["reply", "x_tree"],
-      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "n_legacy_reply" },
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "n_legacy_reply, n_other_reply, n_legacy_reply" },
       JSON_GLOBAL,
     )).toBe(0);
 
@@ -382,9 +382,64 @@ describe("inbox", () => {
         name: "Answer",
         summary: "My answer",
         markdown: "Here is the response",
-        in_reply_to: ["n_legacy_reply"],
+        in_reply_to: ["n_legacy_reply", "n_other_reply"],
       }),
     );
+
+    // Rejects empty or boolean --reply-to
+    stderrChunks = [];
+    expect(await inboxCommand.run(
+      ["reply", "x_tree"],
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": true },
+      TEXT_GLOBAL,
+    )).toBe(1);
+    expect(stderr()).toContain("--reply-to must name one or more Note ids");
+
+    stderrChunks = [];
+    expect(await inboxCommand.run(
+      ["reply", "x_tree"],
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "   " },
+      TEXT_GLOBAL,
+    )).toBe(1);
+    expect(stderr()).toContain("--reply-to must name one or more Note ids");
+
+    // Rejects invalid note ids
+    stderrChunks = [];
+    expect(await inboxCommand.run(
+      ["reply", "x_tree"],
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "invalid_id" },
+      TEXT_GLOBAL,
+    )).toBe(1);
+    expect(stderr()).toContain("--reply-to must name valid Note ids");
+  });
+
+  it("safely handles circular and cyclic reply graphs without crashing or omitting nodes", async () => {
+    const cyclicMessages = [
+      { ...message, note_node_id: "n_a", name: "Node A", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: ["n_b"] },
+      { ...message, note_node_id: "n_b", name: "Node B", created_at: "2026-10-06T11:00:00Z", position: 2, in_reply_to: ["n_a"] },
+    ];
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: "x_cycle",
+      name: "Cyclic Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 2,
+      messages: cyclicMessages,
+      subject: { opening_note_id: "n_a", current_note_id: "n_a" },
+    });
+
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_cycle"], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    // Must not throw circular JSON error
+    const parsed = JSON.parse(stdout());
+    expect(parsed.messages.length).toBeGreaterThan(0);
+
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_cycle"], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("n_a");
+    expect(stdout()).toContain("n_b");
   });
 
   it("renders preserved Map context without losing the question", async () => {

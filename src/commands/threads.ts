@@ -230,6 +230,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads add x_<id> @handle --grade view  # preview; add --yes to grant as hosted owner",
     "ideaspaces threads rename x_<id> --name 'New title'  # applies immediately; hosted owner only",
     "ideaspaces threads send @handle --grade view --name 'Question' --summary 'One decision' --message '…'",
+    "ideaspaces threads reply x_<id> --name 'Answer' --summary 'Summary' --message '…' [--reply-to n_…]",
     "ideaspaces threads list --kind message --json  # hosted rows include your_grade and closed",
     "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",

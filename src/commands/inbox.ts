@@ -174,6 +174,11 @@ function inboxItemText(item: InboxItem): string {
   ].join("\n");
 }
 
+/**
+ * Resolves effective in_reply_to parent IDs for a hosted message.
+ * Pre-#1017 messages did not persist in_reply_to on the server (empty array);
+ * to ensure a connected disclosure tree, legacy replies fall back to the opening note.
+ */
 export function effectiveInReplyTo(message: ExchangeMessageSummary, openingId?: string): string[] {
   if (message.note_node_id === openingId) {
     return message.in_reply_to ?? [];
@@ -207,6 +212,15 @@ export function hostedChildTree(messages: ExchangeMessage[], openingId?: string)
       children: [],
     });
   }
+
+  function isAncestor(potentialAncestor: HostedThreadChild, target: HostedThreadChild): boolean {
+    if (potentialAncestor === target) return true;
+    for (const child of potentialAncestor.children) {
+      if (isAncestor(child, target)) return true;
+    }
+    return false;
+  }
+
   const roots: HostedThreadChild[] = [];
   for (const m of messages) {
     const node = nodes.get(m.note_node_id)!;
@@ -214,7 +228,7 @@ export function hostedChildTree(messages: ExchangeMessage[], openingId?: string)
     let isChild = false;
     for (const parentId of inReplyTo) {
       const parent = nodes.get(parentId);
-      if (parent && parent !== node) {
+      if (parent && !isAncestor(node, parent)) {
         parent.children.push(node);
         isChild = true;
       }
@@ -223,6 +237,23 @@ export function hostedChildTree(messages: ExchangeMessage[], openingId?: string)
       roots.push(node);
     }
   }
+
+  const reachable = new Set<string>();
+  function markReachable(n: HostedThreadChild) {
+    if (reachable.has(n.id)) return;
+    reachable.add(n.id);
+    for (const child of n.children) markReachable(child);
+  }
+  for (const root of roots) markReachable(root);
+
+  for (const m of messages) {
+    if (!reachable.has(m.note_node_id)) {
+      const orphaned = nodes.get(m.note_node_id)!;
+      roots.push(orphaned);
+      markReachable(orphaned);
+    }
+  }
+
   return roots;
 }
 
@@ -881,11 +912,24 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
     output.error(`Usage: ${REPLY_USAGE}`);
     return 1;
   }
+  let replyTo: string[] | undefined;
+  if (flags["reply-to"] !== undefined) {
+    const raw = flags["reply-to"];
+    if (typeof raw !== "string" || !raw.trim()) {
+      output.error("--reply-to must name one or more Note ids (n_…), separated by commas.");
+      return 1;
+    }
+    const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!ids.length || ids.some((id) => !/^n_[a-zA-Z0-9_-]+$/.test(id))) {
+      output.error("--reply-to must name valid Note ids (n_…), separated by commas.");
+      return 1;
+    }
+    replyTo = Array.from(new Set(ids));
+  }
   const selection = loadMapSelection(flags, output);
   if (selection === null) return 1;
   const note = await writeBody(flags, output);
   if (!note) return 1;
-  const replyTo = flagString(flags, "reply-to")?.split(",").map((s) => s.trim()).filter(Boolean);
   return runAuthenticated(output, async (config) => {
     const result = await replyToExchange(config, exchangeId, {
       ...note,
@@ -974,6 +1018,7 @@ export const hostedThreadsCommand: CommandDef = {
     "ideaspaces threads add x_example @colleague --grade participate  # preview; add --yes to grant as owner",
     "ideaspaces threads close x_example  # preview; add --yes to close as owner",
     "ideaspaces threads rename x_example --name 'New title'  # applies immediately; owner only",
+    "ideaspaces threads reply x_example --reply-to n_0123456789abcdef01234567 --name 'Answer' --summary 'Summary' --message 'Here is the response'",
     "ideaspaces threads send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --map selection.json --share viewer --name 'Question' --summary 'One decision' --message 'What should happen next?'",
