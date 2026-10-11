@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { canResumeClaudeConversation } from "../claude/local-conversations.js";
 import {
   claudeConfigDir,
   claudeProjectDir,
   claudeProjectSlug,
   claudeSessionFile,
+  canResumeClaudeConversation,
   getClaudeConversation,
   isClaudeConversationId,
   listClaudeConversations,

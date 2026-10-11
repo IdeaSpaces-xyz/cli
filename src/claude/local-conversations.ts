@@ -42,7 +42,7 @@ export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude");
 }
 
-/** The project slug Claude Code derives from a cwd: every non-alphanumeric → `-`. */
+/** The project slug Claude Code derives from the physical cwd: every non-alphanumeric → `-`. */
 function slugOf(path: string): string {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");
 }
@@ -60,6 +60,11 @@ export function claudeProjectSlug(cwd: string): string {
 /** Where Claude Code keeps the sessions started in `cwd`. */
 export function claudeProjectDir(cwd: string, env: NodeJS.ProcessEnv = process.env): string {
   return join(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
+}
+
+/** Older sessions may have been started using the unresolved spelling of a symlinked cwd. */
+function legacyClaudeProjectDir(cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(claudeConfigDir(env), "projects", slugOf(resolve(cwd)));
 }
 
 /** Mint a fresh conversation id — Claude Code requires a UUID for `--session-id`. */
@@ -85,8 +90,7 @@ export function claudeSessionFile(cwd: string, convId: string, env: NodeJS.Proce
   const projectDir = claudeProjectDir(cwd, env);
   const file = join(projectDir, `${convId}.jsonl`);
   if (existsSync(file)) return file;
-  // Older sessions may have been started using the unresolved spelling of a symlinked cwd.
-  const unresolvedDir = join(claudeConfigDir(env), "projects", slugOf(resolve(cwd)));
+  const unresolvedDir = legacyClaudeProjectDir(cwd, env);
   if (unresolvedDir !== projectDir) {
     const fallbackFile = join(unresolvedDir, `${convId}.jsonl`);
     if (existsSync(fallbackFile)) return fallbackFile;
@@ -246,6 +250,8 @@ export function canResumeClaudeConversation(contextRoot: string, convId: string)
   const file = claudeSessionFile(contextRoot, convId);
   if (!file) return false;
   try {
+    // The file may live under the physical or the legacy spelling; both are
+    // derived from this cwd, and the UUID guard prevents walking outside them.
     if (!isContained(realpathSync(dirname(file)), realpathSync(file))) return false;
     const text = readFileSync(file, "utf8");
     let sawIdentity = false;
@@ -300,13 +306,14 @@ export function getClaudeConversation(contextRoot: string, convId: string, env: 
 /** List the Claude Code sessions started in this context, newest-first. */
 export function listClaudeConversations(contextRoot: string, env: NodeJS.ProcessEnv = process.env): ConversationsResponse {
   const dir = claudeProjectDir(contextRoot, env);
-  const legacyDir = join(claudeConfigDir(env), "projects", slugOf(resolve(contextRoot)));
-  const dirs = [...new Set([dir, legacyDir])].filter((path) => existsSync(path));
+  const dirs = [...new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync(path));
   const summaries: ConversationSummary[] = [];
   const seen = new Set<string>();
-  for (const path of dirs.flatMap((folder) => readdirSync(folder)
+  // The physical directory comes first and wins if both hold the same session id.
+  const files = dirs.flatMap((folder) => readdirSync(folder)
     .filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6)))
-    .map((f) => join(folder, f)))) {
+    .map((f) => join(folder, f)));
+  for (const path of files) {
     const fileId = basename(path, ".jsonl");
     if (seen.has(fileId)) continue;
     seen.add(fileId);
