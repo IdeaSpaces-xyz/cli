@@ -54,7 +54,7 @@ import { HOSTED_THREAD_ID as HOSTED, NODE_ID, threadFlagError, type Flags } from
 
 const USAGE = "ideaspaces threads <list|posts|read|send|reply|add|close|rename|expand> ...";
 const LIST_USAGE =
-  "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request|post>] [--depth <name|summary|full>]";
+  "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request|post>] [--depth <name|summary|full>] (for --limit, --order, and --cursor, use threads posts)";
 const POSTS_USAGE =
   "ideaspaces threads posts [x_thread_id] [--space <space_node_id>] [--scope <inbox|followed>] [--limit <number>] [--since <position|note_node_id|ISO date>] [--depth <name|summary>] [--order <newer|older>] [--cursor <token>]";
 const READ_USAGE =
@@ -1027,6 +1027,28 @@ async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Fl
   });
 }
 
+function nextPostsCommand(opts: {
+  threadId?: string;
+  space?: string;
+  scope?: string;
+  limit?: number;
+  sinceVal?: string;
+  depthVal?: string;
+  orderVal?: string;
+  cursor: string;
+}): string {
+  const parts = ["ideaspaces threads posts"];
+  if (opts.threadId) parts.push(opts.threadId);
+  if (opts.space) parts.push(`--space ${opts.space}`);
+  if (opts.scope && opts.scope !== "inbox") parts.push(`--scope ${opts.scope}`);
+  if (opts.limit !== undefined) parts.push(`--limit ${opts.limit}`);
+  if (opts.sinceVal) parts.push(`--since ${opts.sinceVal}`);
+  if (opts.depthVal && opts.depthVal !== "summary") parts.push(`--depth ${opts.depthVal}`);
+  if (opts.orderVal && opts.orderVal !== "newer") parts.push(`--order ${opts.orderVal}`);
+  parts.push(`--cursor ${opts.cursor}`);
+  return parts.join(" ");
+}
+
 async function posts(rest: string[], flags: Flags, output: Output): Promise<number> {
   if (rest.length > 1) {
     output.error(`Usage: ${POSTS_USAGE}`);
@@ -1155,10 +1177,23 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
       }
     }
 
+    const nextCmd = response.next_cursor
+      ? nextPostsCommand({
+          threadId,
+          space,
+          scope: scopeVal,
+          limit,
+          sinceVal,
+          depthVal,
+          orderVal,
+          cursor: response.next_cursor,
+        })
+      : null;
+
     let text: string;
     if (!items.length) {
-      if (filteredByDate && response.next_cursor) {
-        text = `No hosted posts newer than ${sinceVal} on this page. More posts: ideaspaces threads posts --cursor ${response.next_cursor}`;
+      if (filteredByDate && nextCmd) {
+        text = `No hosted posts newer than ${sinceVal} on this page. More posts: ${nextCmd}`;
       } else {
         text = "No hosted posts found.";
       }
@@ -1174,8 +1209,8 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
         })
         .join("\n\n");
 
-      if (response.next_cursor) {
-        text = `${postLines}\n\nMore posts: ideaspaces threads posts --cursor ${response.next_cursor}`;
+      if (nextCmd) {
+        text = `${postLines}\n\nMore posts: ${nextCmd}`;
       } else {
         text = postLines;
       }

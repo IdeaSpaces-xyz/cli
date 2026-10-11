@@ -1761,19 +1761,19 @@ describe("inbox", () => {
       });
     });
 
-    it("renders next_cursor hint in human output when more pages exist", async () => {
+    it("renders next_cursor hint in human output preserving target and flags", async () => {
       fetchThreadPostsMock.mockResolvedValue({
         items: [postA],
         next_cursor: "cursor_token_abc",
       });
 
-      const code = await threadsCommand.run(["posts"], {}, TEXT_GLOBAL);
+      const code = await threadsCommand.run(["posts"], { space: TARGET, limit: "5", depth: "name", order: "older" }, TEXT_GLOBAL);
       expect(code).toBe(0);
       const out = stdout();
-      expect(out).toContain("More posts: ideaspaces threads posts --cursor cursor_token_abc");
+      expect(out).toContain(`More posts: ideaspaces threads posts --space ${TARGET} --limit 5 --depth name --order older --cursor cursor_token_abc`);
     });
 
-    it("renders hint when date filter leaves no items on a page with next_cursor", async () => {
+    it("renders hint when date filter leaves no items on a page with next_cursor preserving since", async () => {
       fetchThreadPostsMock.mockResolvedValue({
         items: [postB],
         next_cursor: "cursor_token_xyz",
@@ -1782,7 +1782,20 @@ describe("inbox", () => {
       const code = await threadsCommand.run(["posts"], { since: "2026-10-11T12:00:00.000Z" }, TEXT_GLOBAL);
       expect(code).toBe(0);
       const out = stdout();
-      expect(out).toContain("No hosted posts newer than 2026-10-11T12:00:00.000Z on this page. More posts: ideaspaces threads posts --cursor cursor_token_xyz");
+      expect(out).toContain("No hosted posts newer than 2026-10-11T12:00:00.000Z on this page. More posts: ideaspaces threads posts --since 2026-10-11T12:00:00.000Z --cursor cursor_token_xyz");
+    });
+
+    it("preserves wire summary in --json output even with --depth name", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { depth: "name" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout());
+      expect(parsed.items[0].summary).toBe(postA.summary);
+      expect(parsed.items[0].name).toBe(postA.name);
     });
 
     it("routes threads list --kind post to posts listing", async () => {
