@@ -332,6 +332,7 @@ describe("inbox", () => {
           {
             id: "n_legacy_reply",
             in_reply_to: ["n_open"],
+            in_reply_to_inferred: true,
             children: [
               {
                 id: "n_nested_reply",
@@ -353,7 +354,7 @@ describe("inbox", () => {
     expect(await inboxCommand.run(["read", "x_tree"], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
     const textLines = stdout().trim().split("\n");
     expect(textLines[0]).toBe("n_open · inquiry.opened · 2026-10-06T10:00:00Z · Opening · in_reply_to —");
-    expect(textLines[1]).toBe("  n_legacy_reply · note.replied · 2026-10-06T11:00:00Z · Legacy Reply · in_reply_to n_open");
+    expect(textLines[1]).toBe("  n_legacy_reply · note.replied · 2026-10-06T11:00:00Z · Legacy Reply · in_reply_to n_open (inferred)");
     expect(textLines[2]).toBe("    n_nested_reply · note.replied · 2026-10-06T12:00:00Z · Nested Reply · in_reply_to n_legacy_reply");
     expect(textLines[3]).toBe("  n_direct_reply · note.replied · 2026-10-06T13:00:00Z · Direct Reply · in_reply_to n_open");
   });
@@ -514,8 +515,12 @@ describe("inbox", () => {
     stdoutChunks = [];
     expect(await inboxCommand.run(["read", legacyFilteredId], { depth: "children", new: true }, JSON_GLOBAL)).toBe(0);
     const parsedLegacy = JSON.parse(stdout());
-    // In the filtered view without the opening note, legacy replies surface as visible roots
+    // With the opening before the cursor, inferred legacy replies surface as visible roots.
     expect(parsedLegacy.messages.map((m: { id: string }) => m.id)).toEqual(["n_leg1", "n_leg2"]);
+    expect(parsedLegacy.messages[0]).toMatchObject({ in_reply_to: ["n_root"], in_reply_to_inferred: true });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", legacyFilteredId], { depth: "summary", new: true }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages[0]).toMatchObject({ in_reply_to: ["n_root"], in_reply_to_inferred: true });
 
     // 5. Node replies to both root and sibling: in_reply_to: [n_root, n_a]
     const siblingMessages = [

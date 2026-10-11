@@ -41,7 +41,7 @@ import {
   parseExchangeMapSelection,
   type ExchangeMapSelection,
 } from "../exchange-map-selection.js";
-import { reconstructThreadTimeline, type ThreadKind, type ThreadNode, type ThreadPost } from "@ideaspaces/protocol";
+import { reconstructThreadTimeline, type ThreadNode, type ThreadPost } from "@ideaspaces/protocol";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 import { appendAddressMemberToMapFile } from "./map-edit.js";
@@ -190,6 +190,10 @@ export function effectiveInReplyTo(message: ExchangeMessageSummary, openingId?: 
   return openingId ? [openingId] : [];
 }
 
+export function isInferredParent(message: ExchangeMessageSummary, openingId?: string): boolean {
+  return !!openingId && message.note_node_id !== openingId && !message.in_reply_to?.length;
+}
+
 export interface HostedThreadChild {
   id: string;
   note_node_id: string;
@@ -197,13 +201,15 @@ export interface HostedThreadChild {
   date: string | null;
   name: string;
   in_reply_to: string[];
+  in_reply_to_inferred?: true;
   children: HostedThreadChild[];
 }
 
 export function hostedToThreadPosts(messages: ExchangeMessage[], openingId?: string): ThreadPost[] {
   return messages.map((m) => ({
     id: m.note_node_id,
-    kind: m.action as ThreadKind,
+    // ThreadPost is used only for the protocol timeline; hosted actions are not local Thread kinds.
+    kind: "post" as const,
     date: m.created_at,
     inReplyTo: effectiveInReplyTo(m, openingId),
     references: [],
@@ -215,6 +221,7 @@ export function hostedToThreadPosts(messages: ExchangeMessage[], openingId?: str
 
 export function hostedChildTree(messages: ExchangeMessage[], openingId?: string): HostedThreadChild[] {
   const posts = hostedToThreadPosts(messages, openingId);
+  const byId = new Map(messages.map((message) => [message.note_node_id, message]));
   const nodeMap = new Map<string, ThreadNode>();
   for (const post of posts) {
     nodeMap.set(post.id, { post, parents: [...post.inReplyTo], children: [] });
@@ -230,6 +237,7 @@ export function hostedChildTree(messages: ExchangeMessage[], openingId?: string)
   const seen = new Set<string>();
   function project(node: ThreadNode): HostedThreadChild {
     seen.add(node.post.id);
+    const source = byId.get(node.post.id)!;
     const children: HostedThreadChild[] = [];
     for (const child of node.children) {
       if (!seen.has(child.post.id)) {
@@ -239,10 +247,11 @@ export function hostedChildTree(messages: ExchangeMessage[], openingId?: string)
     return {
       id: node.post.id,
       note_node_id: node.post.id,
-      kind: node.post.kind,
-      date: node.post.date ?? null,
-      name: node.post.frontmatter.name ?? node.post.id,
+      kind: source.action,
+      date: source.created_at,
+      name: source.name,
       in_reply_to: node.post.inReplyTo,
+      ...(isInferredParent(source, openingId) ? { in_reply_to_inferred: true as const } : {}),
       children,
     };
   }
@@ -267,7 +276,7 @@ export function formatHostedChildrenText(roots: HostedThreadChild[]): string {
   const lines: string[] = [];
   function visit(nodes: HostedThreadChild[], indent: number) {
     for (const node of nodes) {
-      const parentList = node.in_reply_to.join(", ") || "—";
+      const parentList = (node.in_reply_to.join(", ") || "—") + (node.in_reply_to_inferred ? " (inferred)" : "");
       const dateText = node.date ?? "undated";
       lines.push(
         `${"  ".repeat(indent)}${node.note_node_id} · ${node.kind} · ${dateText} · ${node.name} · in_reply_to ${parentList}`,
@@ -615,7 +624,8 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
     const openingId = exchange.subject?.opening_note_id ?? exchange.messages[0]?.note_node_id;
     const projected = post || depth === "surface" || depth === "full" ? messages : depth === "name" ? [] : depth === "children" ? hostedChildTree(messages, openingId) : messages.map((message) => ({
       id: message.note_node_id, note_node_id: message.note_node_id, kind: message.action, date: message.created_at, name: message.name,
-      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref, in_reply_to: effectiveInReplyTo(message, openingId) } : {}),
+      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref, in_reply_to: effectiveInReplyTo(message, openingId),
+        ...(isInferredParent(message, openingId) ? { in_reply_to_inferred: true } : {}) } : {}),
     }));
     const data = {
       ...exchange,
