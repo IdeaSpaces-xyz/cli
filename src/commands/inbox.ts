@@ -41,6 +41,7 @@ import {
   parseExchangeMapSelection,
   type ExchangeMapSelection,
 } from "../exchange-map-selection.js";
+import { reconstructThreadTimeline, type ThreadKind, type ThreadNode, type ThreadPost } from "@ideaspaces/protocol";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 import { appendAddressMemberToMapFile } from "./map-edit.js";
@@ -193,78 +194,69 @@ export interface HostedThreadChild {
   id: string;
   note_node_id: string;
   kind: string;
-  date: string;
+  date: string | null;
   name: string;
   in_reply_to: string[];
   children: HostedThreadChild[];
 }
 
+export function hostedToThreadPosts(messages: ExchangeMessage[], openingId?: string): ThreadPost[] {
+  return messages.map((m) => ({
+    id: m.note_node_id,
+    kind: m.action as ThreadKind,
+    date: m.created_at,
+    inReplyTo: effectiveInReplyTo(m, openingId),
+    references: [],
+    frontmatter: { id: m.note_node_id, name: m.name, summary: m.summary },
+    body: m.markdown,
+    path: `${String(m.position).padStart(8, "0")}-${m.note_node_id}`,
+  }));
+}
+
 export function hostedChildTree(messages: ExchangeMessage[], openingId?: string): HostedThreadChild[] {
-  const nodes = new Map<string, HostedThreadChild>();
-  for (const m of messages) {
-    nodes.set(m.note_node_id, {
-      id: m.note_node_id,
-      note_node_id: m.note_node_id,
-      kind: m.action,
-      date: m.created_at,
-      name: m.name,
-      in_reply_to: effectiveInReplyTo(m, openingId),
-      children: [],
-    });
+  const posts = hostedToThreadPosts(messages, openingId);
+  const nodeMap = new Map<string, ThreadNode>();
+  for (const post of posts) {
+    nodeMap.set(post.id, { post, parents: [...post.inReplyTo], children: [] });
   }
-
-  function isAncestor(potentialAncestor: HostedThreadChild, target: HostedThreadChild): boolean {
-    if (potentialAncestor === target) return true;
-    for (const child of potentialAncestor.children) {
-      if (isAncestor(child, target)) return true;
-    }
-    return false;
-  }
-
-  const roots: HostedThreadChild[] = [];
-  for (const m of messages) {
-    const node = nodes.get(m.note_node_id)!;
-    const inReplyTo = node.in_reply_to;
-    let isChild = false;
-    for (const parentId of inReplyTo) {
-      const parent = nodes.get(parentId);
-      if (parent && !isAncestor(node, parent)) {
-        parent.children.push(node);
-        isChild = true;
-      }
-    }
-    if (!isChild) {
-      roots.push(node);
+  for (const post of posts) {
+    const childNode = nodeMap.get(post.id)!;
+    for (const pId of post.inReplyTo) {
+      const parentNode = nodeMap.get(pId);
+      if (parentNode) parentNode.children.push(childNode);
     }
   }
 
-  const reachable = new Set<string>();
-  function markReachable(n: HostedThreadChild) {
-    if (reachable.has(n.id)) return;
-    reachable.add(n.id);
-    for (const child of n.children) markReachable(child);
+  const seen = new Set<string>();
+  function project(node: ThreadNode): HostedThreadChild {
+    seen.add(node.post.id);
+    return {
+      id: node.post.id,
+      note_node_id: node.post.id,
+      kind: node.post.kind,
+      date: node.post.date ?? null,
+      name: node.post.frontmatter.name ?? node.post.id,
+      in_reply_to: node.post.inReplyTo,
+      children: node.children.filter((child) => !seen.has(child.post.id)).map(project),
+    };
   }
-  for (const root of roots) markReachable(root);
 
-  for (const m of messages) {
-    if (!reachable.has(m.note_node_id)) {
-      const orphaned = nodes.get(m.note_node_id)!;
-      roots.push(orphaned);
-      markReachable(orphaned);
+  const timeline = reconstructThreadTimeline(posts);
+  const roots = timeline.roots.map(project);
+  for (const post of timeline.posts) {
+    if (!seen.has(post.id)) {
+      const node = nodeMap.get(post.id);
+      if (node) roots.push(project(node));
     }
   }
-
   return roots;
 }
 
 export function formatHostedChildrenText(roots: HostedThreadChild[]): string {
   const lines: string[] = [];
-  const seen = new Set<string>();
   function visit(nodes: HostedThreadChild[], indent: number) {
     for (const node of nodes) {
-      if (seen.has(node.id)) continue;
-      seen.add(node.id);
-      lines.push(`${"  ".repeat(indent)}${node.note_node_id} · ${node.kind} · ${node.date} · ${node.name} · in_reply_to ${node.in_reply_to.join(", ") || "—"}`);
+      lines.push(`${"  ".repeat(indent)}${node.note_node_id} · ${node.kind} · ${node.date ?? "undated"} · ${node.name} · in_reply_to ${node.in_reply_to.join(", ") || "—"}`);
       visit(node.children, indent + 1);
     }
   }
@@ -920,7 +912,7 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
       return 1;
     }
     const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!ids.length || ids.some((id) => !/^n_[a-zA-Z0-9_-]+$/.test(id))) {
+    if (!ids.length || ids.some((id) => !NODE_ID.test(id))) {
       output.error("--reply-to must name valid Note ids (n_…), separated by commas.");
       return 1;
     }

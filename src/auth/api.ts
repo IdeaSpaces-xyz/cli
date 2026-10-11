@@ -591,7 +591,6 @@ export interface ExchangeMessageSummary {
   created_at: string;
   event_at: string;
   in_reply_to?: string[];
-  references?: string[];
 }
 
 export interface ExchangeMessage extends ExchangeMessageSummary {
@@ -658,7 +657,6 @@ export interface ExchangeNoteWrite {
   markdown: string;
   map?: MapBlock;
   in_reply_to?: string[];
-  references?: string[];
 }
 
 export interface InquirySendBody extends ExchangeNoteWrite {

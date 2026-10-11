@@ -369,9 +369,11 @@ describe("inbox", () => {
       author_ref: "person:user_1",
     });
 
+    const parent1 = "n_" + "1".repeat(24);
+    const parent2 = "n_" + "2".repeat(24);
     expect(await inboxCommand.run(
       ["reply", "x_tree"],
-      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "n_legacy_reply, n_other_reply, n_legacy_reply" },
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": `${parent1}, ${parent2}, ${parent1}` },
       JSON_GLOBAL,
     )).toBe(0);
 
@@ -382,7 +384,7 @@ describe("inbox", () => {
         name: "Answer",
         summary: "My answer",
         markdown: "Here is the response",
-        in_reply_to: ["n_legacy_reply", "n_other_reply"],
+        in_reply_to: [parent1, parent2],
       }),
     );
 
@@ -413,13 +415,15 @@ describe("inbox", () => {
     expect(stderr()).toContain("--reply-to must name valid Note ids");
   });
 
-  it("safely handles circular and cyclic reply graphs without crashing or omitting nodes", async () => {
+  it("safely handles circular, multi-parent and filtered reply graphs without crashing or duplicating subtrees", async () => {
+    // 1. Cyclic reply graph
+    const cycleId = "x_" + "c".repeat(24);
     const cyclicMessages = [
       { ...message, note_node_id: "n_a", name: "Node A", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: ["n_b"] },
       { ...message, note_node_id: "n_b", name: "Node B", created_at: "2026-10-06T11:00:00Z", position: 2, in_reply_to: ["n_a"] },
     ];
     fetchExchangeMock.mockResolvedValue({
-      exchange_id: "x_cycle",
+      exchange_id: cycleId,
       name: "Cyclic Thread",
       your_grade: "manage",
       target_node_id: null,
@@ -431,15 +435,70 @@ describe("inbox", () => {
     });
 
     stdoutChunks = [];
-    expect(await inboxCommand.run(["read", "x_cycle"], { depth: "children" }, JSON_GLOBAL)).toBe(0);
-    // Must not throw circular JSON error
-    const parsed = JSON.parse(stdout());
-    expect(parsed.messages.length).toBeGreaterThan(0);
+    expect(await inboxCommand.run(["read", cycleId], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    const parsedCycle = JSON.parse(stdout());
+    expect(parsedCycle.messages).toHaveLength(1);
+    expect(parsedCycle.messages[0].id).toBe("n_a");
+    expect(parsedCycle.messages[0].children).toHaveLength(1);
+    expect(parsedCycle.messages[0].children[0].id).toBe("n_b");
+    expect(parsedCycle.messages[0].children[0].children).toHaveLength(0);
+
+    // 2. Multi-parent diamond (merge)
+    const diamondId = "x_" + "d".repeat(24);
+    const diamondMessages = [
+      { ...message, note_node_id: "n_root", name: "Root", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: [] },
+      { ...message, note_node_id: "n_left", name: "Left", created_at: "2026-10-06T11:00:00Z", position: 2, in_reply_to: ["n_root"] },
+      { ...message, note_node_id: "n_right", name: "Right", created_at: "2026-10-06T12:00:00Z", position: 3, in_reply_to: ["n_root"] },
+      { ...message, note_node_id: "n_merge", name: "Merge", created_at: "2026-10-06T13:00:00Z", position: 4, in_reply_to: ["n_left", "n_right"] },
+    ];
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: diamondId,
+      name: "Diamond Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 4,
+      messages: diamondMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
 
     stdoutChunks = [];
-    expect(await inboxCommand.run(["read", "x_cycle"], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
-    expect(stdout()).toContain("n_a");
-    expect(stdout()).toContain("n_b");
+    expect(await inboxCommand.run(["read", diamondId], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    const parsedDiamond = JSON.parse(stdout());
+    expect(parsedDiamond.messages).toHaveLength(1);
+    const root = parsedDiamond.messages[0];
+    expect(root.id).toBe("n_root");
+    expect(root.children).toHaveLength(2);
+    // Merge node is attached under first traversed parent, not duplicated under both
+    const totalMergeNodes = (root.children[0].children.length) + (root.children[1].children.length);
+    expect(totalMergeNodes).toBe(1);
+
+    // 3. Filtered read with --new where parent is before cursor
+    const filteredId = "x_" + "f".repeat(24);
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: filteredId,
+      name: "Filtered Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 1, // cursor past n_root
+      latest_position: 4,
+      messages: diamondMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", filteredId], { depth: "children", new: true }, JSON_GLOBAL)).toBe(0);
+    const parsedFiltered = JSON.parse(stdout());
+    // n_left and n_right become roots of the visible tree
+    expect(parsedFiltered.messages.map((m: { id: string }) => m.id)).toEqual(["n_left", "n_right"]);
+
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", diamondId], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("n_root");
+    expect(stdout()).toContain("  n_left");
+    expect(stdout()).toContain("  n_right");
+    expect(stdout()).toContain("    n_merge");
   });
 
   it("renders preserved Map context without losing the question", async () => {
