@@ -63,6 +63,10 @@ describe("parseSessionJsonl", () => {
     expect(parsed.messages).toHaveLength(2);
     expect(parsed.preview).toBe("Actual question");
     expect(parsed.messageCount).toBe(1);
+    const mention = parseSessionJsonl(notifyFixture + "\n" + JSON.stringify({
+      type: "message", message: { role: "user", content: [{ type: "text", text: "I saw <task-notification> in the transcript" }] },
+    }), "t");
+    expect(mention.messageCount).toBe(2);
   });
 });
 

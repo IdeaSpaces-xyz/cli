@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { canResumeClaudeConversation } from "../claude/local-conversations.js";
 import {
   claudeConfigDir,
   claudeProjectDir,
@@ -148,6 +149,13 @@ describe("parseClaudeSessionJsonl", () => {
     expect(parsed.preview).toBe("User prompt after notification");
     expect(parsed.messageCount).toBe(1);
   });
+
+  it("counts a person message that only mentions the notification marker", () => {
+    const prompt = "I saw <task-notification> in the transcript";
+    const parsed = parseClaudeSessionJsonl(JSON.stringify({ type: "user", message: { role: "user", content: prompt } }), "t");
+    expect(parsed.preview).toBe(prompt);
+    expect(parsed.messageCount).toBe(1);
+  });
 });
 
 describe("Claude conversations on disk", () => {
@@ -173,6 +181,44 @@ describe("Claude conversations on disk", () => {
     expect(claudeSessionFile(ctx, ID, env)).toBe(join(claudeProjectDir(ctx, env), `${ID}.jsonl`));
     expect(claudeSessionFile(ctx, "33333333-3333-4333-8333-333333333333", env)).toBeNull();
     expect(claudeSessionFile("/elsewhere", ID, env)).toBeNull();
+  });
+
+  it("resolves symlinked cwd and also reads sessions under the older unresolved slug", async () => {
+    const real = join(cfg, "real");
+    const alias = join(cfg, "alias");
+    await mkdir(real);
+    await symlink(real, alias, "dir");
+    const actualDir = claudeProjectDir(real, env);
+    const legacyDir = join(cfg, "projects", resolve(alias).replace(/[^a-zA-Z0-9]/gu, "-"));
+    expect(claudeProjectDir(alias, env)).toBe(actualDir);
+    await mkdir(actualDir, { recursive: true });
+    await mkdir(legacyDir, { recursive: true });
+    await writeFile(join(actualDir, `${ID}.jsonl`), `{"type":"user","message":{"role":"user","content":"real"},"sessionId":"${ID}"}\n`);
+    expect(claudeSessionFile(alias, ID, env)).toBe(join(actualDir, `${ID}.jsonl`));
+    const otherId = "33333333-3333-4333-8333-333333333333";
+    await writeFile(join(legacyDir, `${otherId}.jsonl`), `{"type":"user","message":{"role":"user","content":"legacy"},"sessionId":"${otherId}"}\n`);
+    expect(claudeSessionFile(alias, otherId, env)).toBe(join(legacyDir, `${otherId}.jsonl`));
+    expect(listClaudeConversations(alias, env).total).toBe(2);
+  });
+
+  it("refuses resume when a session contains only a task notification", async () => {
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = cfg;
+    const context = join(cfg, "context");
+    try {
+      await mkdir(context);
+      const dir = claudeProjectDir(context);
+      await mkdir(dir, { recursive: true });
+      const file = join(dir, `${ID}.jsonl`);
+      const entry = (content: string) => JSON.stringify({ type: "user", sessionId: ID, cwd: context, message: { role: "user", content } });
+      await writeFile(file, entry("<task-notification><status>stopped</status></task-notification>") + "\n");
+      expect(canResumeClaudeConversation(context, ID)).toBe(false);
+      await writeFile(file, entry("<task-notification><status>stopped</status></task-notification>") + "\n" + entry("I saw <task-notification> in the transcript") + "\n");
+      expect(canResumeClaudeConversation(context, ID)).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previous;
+    }
   });
 
   it("get returns the ConversationDetail shape, or an empty one for an unsent id", () => {

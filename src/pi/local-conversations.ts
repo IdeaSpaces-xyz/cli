@@ -24,6 +24,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "n
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { isContained } from "../local/contained-path.js";
+import { isTaskNotification } from "../local/task-notification.js";
 import type {
   ConversationDetail,
   ConversationHistoryMessage,
@@ -90,7 +91,7 @@ export function parseSessionJsonl(text: string, fallbackTs: string): ParsedSessi
       const role = m.role;
       if (role === "user") {
         const content = textOf(m.content);
-        const isNotification = content.includes("<task-notification>");
+        const isNotification = isTaskNotification(content);
         messages.push({ role: "user", content, created_at: created });
         if (!isNotification) {
           if (!preview) preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
@@ -159,7 +160,7 @@ export function canResumePiConversation(contextRoot: string, convId: string): bo
     const header = JSON.parse(text.split("\n", 1)[0] ?? "") as { type?: string; id?: string; cwd?: string };
     if (header.type !== "session" || header.id !== convId ||
         !header.cwd || realpathSync(header.cwd) !== realpathSync(contextRoot)) return false;
-    return getLocalConversation(contextRoot, convId).history.some((m) => m.role === "user");
+    return getLocalConversation(contextRoot, convId).history.some((m) => m.role === "user" && !isTaskNotification(m.content));
   } catch {
     return false;
   }
