@@ -517,6 +517,35 @@ describe("inbox", () => {
     // In the filtered view without the opening note, legacy replies surface as visible roots
     expect(parsedLegacy.messages.map((m: { id: string }) => m.id)).toEqual(["n_leg1", "n_leg2"]);
 
+    // 5. Node replies to both root and sibling: in_reply_to: [n_root, n_a]
+    const siblingMessages = [
+      { ...message, note_node_id: "n_root", name: "Root", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: [] },
+      { ...message, note_node_id: "n_a", name: "A", created_at: "2026-10-06T11:00:00Z", position: 2, in_reply_to: ["n_root"] },
+      { ...message, note_node_id: "n_b", name: "B", created_at: "2026-10-06T12:00:00Z", position: 3, in_reply_to: ["n_root", "n_a"] },
+    ];
+    const siblingId = "x_" + "s".repeat(24);
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: siblingId,
+      name: "Sibling Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 3,
+      messages: siblingMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", siblingId], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    const parsedSibling = JSON.parse(stdout());
+    expect(parsedSibling.messages).toHaveLength(1);
+    const sibRoot = parsedSibling.messages[0];
+    expect(sibRoot.id).toBe("n_root");
+    // n_b must only appear once in the whole tree (under n_a, not also as direct child of n_root)
+    const directChildIds = sibRoot.children.map((c: { id: string }) => c.id);
+    expect(directChildIds).toEqual(["n_a"]);
+    expect(sibRoot.children[0].children.map((c: { id: string }) => c.id)).toEqual(["n_b"]);
+
     fetchExchangeMock.mockResolvedValue({
       exchange_id: diamondId,
       name: "Diamond Thread",

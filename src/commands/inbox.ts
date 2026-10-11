@@ -230,6 +230,12 @@ export function hostedChildTree(messages: ExchangeMessage[], openingId?: string)
   const seen = new Set<string>();
   function project(node: ThreadNode): HostedThreadChild {
     seen.add(node.post.id);
+    const children: HostedThreadChild[] = [];
+    for (const child of node.children) {
+      if (!seen.has(child.post.id)) {
+        children.push(project(child));
+      }
+    }
     return {
       id: node.post.id,
       note_node_id: node.post.id,
@@ -237,12 +243,17 @@ export function hostedChildTree(messages: ExchangeMessage[], openingId?: string)
       date: node.post.date ?? null,
       name: node.post.frontmatter.name ?? node.post.id,
       in_reply_to: node.post.inReplyTo,
-      children: node.children.filter((child) => !seen.has(child.post.id)).map(project),
+      children,
     };
   }
 
   const timeline = reconstructThreadTimeline(posts);
-  const roots = timeline.roots.map(project);
+  const roots: HostedThreadChild[] = [];
+  for (const rootNode of timeline.roots) {
+    if (!seen.has(rootNode.post.id)) {
+      roots.push(project(rootNode));
+    }
+  }
   for (const post of timeline.posts) {
     if (!seen.has(post.id)) {
       const node = nodeMap.get(post.id);
@@ -604,7 +615,7 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
     const openingId = exchange.subject?.opening_note_id ?? exchange.messages[0]?.note_node_id;
     const projected = post || depth === "surface" || depth === "full" ? messages : depth === "name" ? [] : depth === "children" ? hostedChildTree(messages, openingId) : messages.map((message) => ({
       id: message.note_node_id, note_node_id: message.note_node_id, kind: message.action, date: message.created_at, name: message.name,
-      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref, in_reply_to: message.in_reply_to ?? [] } : {}),
+      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref, in_reply_to: effectiveInReplyTo(message, openingId) } : {}),
     }));
     const data = {
       ...exchange,

@@ -102,9 +102,15 @@ function childTree(posts: LocalThread["posts"]): ThreadChild[] {
   const seen = new Set<string>();
   const project = (node: ThreadNode): ThreadChild => {
     seen.add(node.post.id);
+    const children: ThreadChild[] = [];
+    for (const child of node.children) {
+      if (!seen.has(child.post.id)) {
+        children.push(project(child));
+      }
+    }
     return { id: node.post.id, kind: node.post.kind, date: node.post.date ?? null,
       name: node.post.frontmatter.name ?? node.post.id, in_reply_to: node.post.inReplyTo,
-      children: node.children.filter((child) => !seen.has(child.post.id)).map(project) };
+      children };
   };
   return reconstructThreadTimeline(posts).roots.map(project);
 }
