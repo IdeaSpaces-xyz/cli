@@ -103,7 +103,9 @@ export function loadThread(dir: string): LocalThread {
   }
   const ordered = reconstructThreadTimeline(posts).posts;
   return {
-    path, slug: basename(path), thread_id: [...posts].sort((a, b) => a.path.localeCompare(b.path))[0]?.id ?? null,
+    // Canonical opening-post identity: immutable dated filenames sort by creation stamp.
+    // Use code-unit order so a machine's locale cannot change the chosen id.
+    path, slug: basename(path), thread_id: [...posts].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.id ?? null,
     name: typeof fm.name === "string" ? fm.name : basename(path),
     summary: typeof fm.summary === "string" ? fm.summary : "", posts: ordered, warnings,
     closed: ordered.some((p) => p.kind === "closure"), readme,

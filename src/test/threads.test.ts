@@ -151,6 +151,8 @@ describe("local Threads", () => {
 
   it("locates an opening id after a move and refuses ambiguous copies", async () => {
     const from = fixture(); const to = fixture(); process.env.HOME = from;
+    const empty = createThread("empty", "Empty", from);
+    expect(loadThread(empty.path).thread_id).toBeNull();
     const thread = createThread("before", "Before", from);
     const opening = appendPost(thread.path, { body: "Opening" }).post.id;
     const old = process.cwd(); process.chdir(from);
@@ -160,16 +162,23 @@ describe("local Threads", () => {
     const run = async (roots: string[]) => { out = ""; expect(await threadsCommand.run(["locate", opening, ...roots], {}, { json: true, quiet: true, yes: false, help: false })).toBe(0); return JSON.parse(out); };
     try {
       expect((await run([from, to])).status).toBe("found");
+      expect((await run([from])).matches).toHaveLength(1);
       const moved = join(to, "_threads", "after"); mkdirSync(join(to, "_threads")); renameSync(thread.path, moved);
       expect(loadThread(moved).thread_id).toBe(opening);
       expect((await run([from, to])).matches[0].path).toBe(loadThread(moved).path);
       expect((await run([from])).status).toBe("not_found");
       mkdirSync(join(from, "nested"));
-      expect(await threadsCommand.run(["locate", opening, join(from, "nested")], {}, { json: true, quiet: true, yes: false, help: false })).toBe(1);
+      const flags = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["locate", opening, join(from, "nested")], {}, flags)).toBe(1);
+      expect(await threadsCommand.run(["locate", opening, join(from, "missing")], {}, flags)).toBe(1);
+      symlinkSync(to, join(from, "alias"));
+      expect(await threadsCommand.run(["locate", opening, join(from, "alias")], {}, flags)).toBe(1);
+      expect(await threadsCommand.run(["locate", "not-an-id", from], {}, flags)).toBe(1);
       const duplicate = join(from, "_threads", "copy");
       // A copied Thread carries the same opening id; never guess which copy the person meant.
       const { cpSync } = await import("node:fs"); cpSync(moved, duplicate, { recursive: true });
       expect((await run([from, to])).status).toBe("ambiguous");
+      expect(threadFlagError("locate", { typo: true })).toContain("--typo");
     } finally { process.stdout.write = write; process.chdir(old); }
   });
 

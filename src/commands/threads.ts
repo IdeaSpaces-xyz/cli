@@ -224,7 +224,7 @@ export const threadsCommand: CommandDef = {
   usage: "ideaspaces threads <list|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
   examples: [
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
-    "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # explicit local search scope; ambiguous copies are not resolved",
+    "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
     "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
@@ -262,6 +262,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "locate") {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0])) throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
         const matches = [...new Map(rest.slice(1).flatMap((root) => {
+          if (!existsSync(resolve(root))) throw new Error(`Space root not found: ${root}. Supply an existing folder with _agent/agreement.md.`);
           if (lstatSync(resolve(root)).isSymbolicLink()) throw new Error(`Refusing symlink Space root: ${root}`);
           const requested = realpathSync(resolve(root));
           if (threadBase(requested) !== requested) throw new Error(`Not a Space root: ${root}. Supply the folder with _agent/agreement.md.`);
@@ -270,7 +271,7 @@ export const threadsCommand: CommandDef = {
           .filter((thread) => thread.thread_id === rest[0]).map((thread) => [thread.path, thread])).values()];
         const status = matches.length === 1 ? "found" : matches.length ? "ambiguous" : "not_found";
         output.result({ status, thread_id: rest[0], matches: matches.map(({ path, slug, name }) => ({ path, slug, name })) },
-          status === "found" ? matches[0].path : status === "ambiguous" ? `Ambiguous Thread id: ${matches.length} locations. Select a Space explicitly.` : "Thread not found in the supplied Space roots.");
+          status === "found" ? matches[0].path : status === "ambiguous" ? `Ambiguous Thread id: ${matches.length} locations. Select a Space explicitly:\n${matches.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the supplied Space roots.");
         return 0;
       }
       if (sub === "list") {

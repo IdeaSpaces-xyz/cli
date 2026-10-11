@@ -58,11 +58,11 @@ function observedThread(path: string): { thread_id: string; path: string } | und
 
 /** A direct _threads/ file read/write is a Thread observation, not a generic
  * folder read. Only immediate children of a local Thread qualify. */
-function threadForFile(file: string): { thread_id: string; path: string } | undefined {
+function threadForFile(file: string, observe = observedThread): { thread_id: string; path: string } | undefined {
   const parent = dirname(file);
   const directory = dirname(parent).endsWith(`${sep}_threads`) ? parent
     : parent.endsWith(`${sep}_agent`) && dirname(dirname(parent)).endsWith(`${sep}_threads`) ? dirname(parent) : null;
-  return directory ? observedThread(directory) : undefined;
+  return directory ? observe(directory) : undefined;
 }
 
 /** Only a successful local CLI post/close JSON envelope names the written file.
@@ -101,6 +101,11 @@ export function harvestLocalFiles(
   workingRoot: string = launchCwd,
 ): LocalWorkspaceSurface {
   const ws: LocalWorkspaceSurface = { ...emptyWorkspaceSurface(), file_coordinates: {}, threads: [] };
+  const checked = new Map<string, ReturnType<typeof observedThread>>();
+  const observe = (path: string) => {
+    if (!checked.has(path)) checked.set(path, observedThread(path));
+    return checked.get(path);
+  };
   const addThread = (candidate: { thread_id: string; path: string } | undefined, action: "read" | "write") => {
     if (candidate && !ws.threads.some((item) => item.thread_id === candidate.thread_id && item.path === candidate.path && item.action === action))
       ws.threads.push({ ...candidate, action });
@@ -136,12 +141,12 @@ export function harvestLocalFiles(
           const target = row as Record<string, unknown>;
           if (typeof target.path !== "string" || !isAbsolute(target.path) ||
               (target.source !== undefined && target.source !== "local")) continue;
-          const match = observedThread(target.path);
+          const match = observe(target.path);
           if (match && match.thread_id === target.thread_id) addThread(match, "read");
         }
       }
     }
-    if (postPath) addThread(threadForFile(postPath), "write");
+    if (postPath) addThread(threadForFile(postPath, observe), "write");
     const kind = postPath || MODIFIED_TOOLS.has(tool.name) ? "modified"
       : READ_TOOLS.has(tool.name) ? "read" : undefined;
     if (!kind) continue;
@@ -206,7 +211,7 @@ export function harvestLocalFiles(
         }
         roots.set(directory, scope);
       }
-      if (!isDir && (bucket === "read" || bucket === "modified")) addThread(threadForFile(absolute), bucket === "read" ? "read" : "write");
+      if (!isDir && (bucket === "read" || bucket === "modified")) addThread(threadForFile(absolute, observe), bucket === "read" ? "read" : "write");
       ws.file_coordinates[absolute] = {
         ...scope,
         path: relative(scope.root, absolute).split("\\").join("/"),
