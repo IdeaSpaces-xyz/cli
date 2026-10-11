@@ -52,6 +52,18 @@ describe("parseSessionJsonl", () => {
     expect(s.messages[3]).toMatchObject({ role: "assistant", content: "Hi!" });
     expect(s.messages[3].tool_calls).toBeUndefined();
   });
+
+  it("handles task notifications without taking conversation preview or message count", () => {
+    const notifyFixture = [
+      `{"type":"session","version":3,"id":"conv_notify","timestamp":"2026-07-02T13:00:00.000Z","cwd":"/ctx"}`,
+      `{"type":"message","id":"n1","parentId":"0","timestamp":"2026-07-02T13:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\\nstatus: stopped\\n</task-notification>"}]}}`,
+      `{"type":"message","id":"u1","parentId":"n1","timestamp":"2026-07-02T13:00:02.000Z","message":{"role":"user","content":[{"type":"text","text":"Actual question"}]}}`,
+    ].join("\n");
+    const parsed = parseSessionJsonl(notifyFixture, "2026-07-02T13:00:03.000Z");
+    expect(parsed.messages).toHaveLength(2);
+    expect(parsed.preview).toBe("Actual question");
+    expect(parsed.messageCount).toBe(1);
+  });
 });
 
 describe("mintConversationId", () => {

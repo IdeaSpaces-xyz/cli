@@ -129,6 +129,25 @@ describe("parseClaudeSessionJsonl", () => {
     expect(parsed.name).toBeNull();
     expect(parsed.preview).toBe("");
   });
+
+  it("handles task notifications as system messages without taking conversation preview or message count", () => {
+    const jsonl = [
+      `{"type":"user","message":{"role":"user","content":"<task-notification>\\n<status>stopped</status>\\n<summary>Background command stopped</summary>\\n</task-notification>"},"origin":{"kind":"task-notification"},"timestamp":"2026-09-22T10:00:00.000Z","sessionId":"${ID}"}`,
+      `{"type":"user","message":{"role":"user","content":"User prompt after notification"},"timestamp":"2026-09-22T10:00:05.000Z","sessionId":"${ID}"}`,
+    ].join("\n");
+    const parsed = parseClaudeSessionJsonl(jsonl, "t");
+    expect(parsed.messages).toHaveLength(2);
+    expect(parsed.messages[0]).toMatchObject({
+      role: "user",
+      content: "<task-notification>\n<status>stopped</status>\n<summary>Background command stopped</summary>\n</task-notification>",
+    });
+    expect(parsed.messages[1]).toMatchObject({
+      role: "user",
+      content: "User prompt after notification",
+    });
+    expect(parsed.preview).toBe("User prompt after notification");
+    expect(parsed.messageCount).toBe(1);
+  });
 });
 
 describe("Claude conversations on disk", () => {

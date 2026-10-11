@@ -90,9 +90,12 @@ export function parseSessionJsonl(text: string, fallbackTs: string): ParsedSessi
       const role = m.role;
       if (role === "user") {
         const content = textOf(m.content);
+        const isNotification = content.includes("<task-notification>");
         messages.push({ role: "user", content, created_at: created });
-        if (!preview) preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
-        count += 1;
+        if (!isNotification) {
+          if (!preview) preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
+          count += 1;
+        }
       } else if (role === "assistant") {
         const parts = Array.isArray(m.content) ? (m.content as Record<string, unknown>[]) : [];
         const toolCalls = parts
