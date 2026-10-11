@@ -121,6 +121,9 @@ describe("local Threads", () => {
       const opened = await run(threadsCommand, ["new", "decision"], { about: "Decision" });
       const opening = loadThread(join(root, "_threads", "decision")).posts[0];
       expect(opened.opening_post_id).toBe(opening.id);
+      expect(opened.thread_id).toBe(opening.id);
+      expect((await run(threadsCommand, ["open", "decision"], { depth: "name" })).thread.thread_id).toBe(opening.id);
+      expect((await run(threadsCommand, ["list"], { depth: "name" })).threads[0].thread_id).toBe(opening.id);
       expect(opened.date).toBe(opening.date);
       expect(readFileSync(join(root, "_threads", "decision", opening.path), "utf8")).toContain(`date: ${opening.date}`);
       expect((await run(threadsCommand, ["list"], { new: true })).threads[0].count).toBe(1);
@@ -133,6 +136,7 @@ describe("local Threads", () => {
       expect(joined.kind).toBe("post");
       const listed = (await run(threadsCommand, ["list"])).threads[0];
       expect(listed.source).toBe("local");
+      expect(listed.thread_id).toBe(opening.id);
       expect(listed.latest_activity_at).toBe(loadThread(join(root, "_threads", "decision")).posts.at(-1)?.date);
       expect((await run(threadsCommand, ["render", "decision"])).timeline).toHaveLength(4);
       expect((await run(searchCommand, ["Cold"], { threads: true })).results[0].path).toContain("_threads/decision/");
@@ -143,6 +147,30 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["list"], {}, flags)).toBe(1);
       expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(1);
     } finally { process.chdir(previous); process.stdout.write = old; }
+  });
+
+  it("locates an opening id after a move and refuses ambiguous copies", async () => {
+    const from = fixture(); const to = fixture(); process.env.HOME = from;
+    const thread = createThread("before", "Before", from);
+    const opening = appendPost(thread.path, { body: "Opening" }).post.id;
+    const old = process.cwd(); process.chdir(from);
+    const write = process.stdout.write;
+    let out = "";
+    process.stdout.write = ((value: string) => { out += value; return true; }) as typeof process.stdout.write;
+    const run = async (roots: string[]) => { out = ""; expect(await threadsCommand.run(["locate", opening, ...roots], {}, { json: true, quiet: true, yes: false, help: false })).toBe(0); return JSON.parse(out); };
+    try {
+      expect((await run([from, to])).status).toBe("found");
+      const moved = join(to, "_threads", "after"); mkdirSync(join(to, "_threads")); renameSync(thread.path, moved);
+      expect(loadThread(moved).thread_id).toBe(opening);
+      expect((await run([from, to])).matches[0].path).toBe(loadThread(moved).path);
+      expect((await run([from])).status).toBe("not_found");
+      mkdirSync(join(from, "nested"));
+      expect(await threadsCommand.run(["locate", opening, join(from, "nested")], {}, { json: true, quiet: true, yes: false, help: false })).toBe(1);
+      const duplicate = join(from, "_threads", "copy");
+      // A copied Thread carries the same opening id; never guess which copy the person meant.
+      const { cpSync } = await import("node:fs"); cpSync(moved, duplicate, { recursive: true });
+      expect((await run([from, to])).status).toBe("ambiguous");
+    } finally { process.stdout.write = write; process.chdir(old); }
   });
 
   it("accepts a documented flag per verb before enforcing unknown-flag rejection", () => {

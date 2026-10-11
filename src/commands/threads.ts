@@ -63,7 +63,7 @@ function localRows(threads: LocalThread[], newOnly: boolean) {
     if (!newOnly) return true;
     const seen = readCursor(thread);
     return thread.posts.some((post) => !seen.has(post.id));
-  }).map((thread) => ({ source: "local" as const, id: thread.path, slug: thread.slug, name: thread.name,
+  }).map((thread) => ({ source: "local" as const, id: thread.path, thread_id: thread.thread_id, slug: thread.slug, name: thread.name,
     summary: thread.summary, count: thread.posts.length, closed: thread.closed,
     latest_activity_at: latestLocalActivity(thread.posts) }));
 }
@@ -195,6 +195,7 @@ function writerName(explicit?: string): string {
 const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
   Object.entries({
     list: "new space depth kind since",
+    locate: "",
     open: "depth new ack since post map member checkout pin position",
     read: "depth new ack kind since post map member checkout pin position",
     new: "about",
@@ -220,9 +221,10 @@ export function threadFlagError(verb: string, flags: Flags): string | undefined 
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
+  usage: "ideaspaces threads <list|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
   examples: [
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
+    "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # explicit local search scope; ambiguous copies are not resolved",
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
     "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
@@ -256,6 +258,20 @@ export const threadsCommand: CommandDef = {
           return threadsCommand.run(["open", rest[0]], flags, global);
         }
         return hostedThreadsCommand.run(args, flags, global);
+      }
+      if (sub === "locate") {
+        if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0])) throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
+        const matches = [...new Map(rest.slice(1).flatMap((root) => {
+          if (lstatSync(resolve(root)).isSymbolicLink()) throw new Error(`Refusing symlink Space root: ${root}`);
+          const requested = realpathSync(resolve(root));
+          if (threadBase(requested) !== requested) throw new Error(`Not a Space root: ${root}. Supply the folder with _agent/agreement.md.`);
+          return listLocal(requested);
+        })
+          .filter((thread) => thread.thread_id === rest[0]).map((thread) => [thread.path, thread])).values()];
+        const status = matches.length === 1 ? "found" : matches.length ? "ambiguous" : "not_found";
+        output.result({ status, thread_id: rest[0], matches: matches.map(({ path, slug, name }) => ({ path, slug, name })) },
+          status === "found" ? matches[0].path : status === "ambiguous" ? `Ambiguous Thread id: ${matches.length} locations. Select a Space explicitly.` : "Thread not found in the supplied Space roots.");
+        return 0;
       }
       if (sub === "list") {
         if (flags.depth === "children" || flags.depth === "surface") throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
@@ -315,7 +331,7 @@ export const threadsCommand: CommandDef = {
         }
         const rows = [...local, ...hosted].map((row) => {
           if (rung === "name") return { source: row.source, id: row.id, name: row.name,
-            ...(row.source === "local" ? { latest_activity_at: row.latest_activity_at } : { ...(row.your_grade ? { your_grade: row.your_grade } : {}), ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
+            ...(row.source === "local" ? { thread_id: row.thread_id, latest_activity_at: row.latest_activity_at } : { ...(row.your_grade ? { your_grade: row.your_grade } : {}), ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }
@@ -343,7 +359,7 @@ export const threadsCommand: CommandDef = {
         } catch (err) {
           throw new Error(`Thread created at ${thread.path}, but opening post was not written: ${err instanceof Error ? err.message : String(err)}. Use threads post ${thread.slug} --message <opening-text> to complete it; do not rerun threads new.`);
         }
-        output.result({ path: thread.path, slug: thread.slug, opening_post_id: opening.post.id, date: opening.post.date },
+        output.result({ path: thread.path, slug: thread.slug, thread_id: opening.post.id, opening_post_id: opening.post.id, date: opening.post.date },
           `Created local Thread: ${thread.path}`); return 0;
       }
       if (sub === "open") {
@@ -416,7 +432,7 @@ export const threadsCommand: CommandDef = {
           : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;
-        output.result({ thread: { path: thread.path, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
+        output.result({ thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
           closed: thread.closed, ...(frame ? { frame } : {}) }, posts: projected,
           ...(rawPost ? { raw_post: rawPost } : {}),
           ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), acknowledged: ack },

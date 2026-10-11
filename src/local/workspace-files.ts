@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, statSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { repoRoot } from "../git.js";
-import { resolveLocalThread } from "./threads.js";
+import { loadThread, resolveLocalThread } from "./threads.js";
 import { emptyWorkspaceSurface, type KeeperWorkspaceSurface, type ToolInvocation } from "@ideaspaces/sdk";
 
 export interface LocalFileCoordinate {
@@ -13,6 +13,8 @@ export interface LocalFileCoordinate {
 export interface LocalWorkspaceSurface extends KeeperWorkspaceSurface {
   /** Absolute identity → portable path inside its owning local repo/folder. */
   file_coordinates: Record<string, LocalFileCoordinate>;
+  /** Local Thread identities touched during this turn; no hosted or guessed shell observations. */
+  threads: Array<{ thread_id: string; path: string; action: "read" | "write" }>;
 }
 
 const MODIFIED_TOOLS = new Set(["write", "edit", "is_write", "is_commit"]);
@@ -36,19 +38,40 @@ const READ_TOOLS = new Set([
 
 const THREAD_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure"]);
 
-/** Only the successful CLI `threads post` JSON envelope names the written file.
- * Pi returns {content:[{type:"text",text:json}]}; Claude's structured MCP
- * result is the content array itself. Never infer a post from the Thread dir. */
-function writtenThreadPost(tool: ToolInvocation, cwd: string): string | undefined {
-  if (tool.name !== "is_threads" || tool.args.action !== "post" || tool.isError) return undefined;
+function toolJson(tool: ToolInvocation): unknown {
   const result = tool.result;
   const blocks = Array.isArray(result) ? result
     : result && typeof result === "object" && "content" in result ? (result as { content: unknown }).content : null;
-  if (!Array.isArray(blocks) || blocks.length !== 1) return undefined;
+  if (!Array.isArray(blocks) || blocks.length !== 1) return null;
   const block: unknown = blocks[0];
-  if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "text" || typeof (block as { text?: unknown }).text !== "string") return undefined;
+  if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "text" || typeof (block as { text?: unknown }).text !== "string") return null;
+  try { return JSON.parse((block as { text: string }).text); } catch { return null; }
+}
+
+function observedThread(path: string): { thread_id: string; path: string } | undefined {
   try {
-    const post: unknown = JSON.parse((block as { text: string }).text);
+    const thread = loadThread(path);
+    if (dirname(thread.path).split(sep).at(-1) !== "_threads") return undefined;
+    return thread.thread_id ? { thread_id: thread.thread_id, path: thread.path } : undefined;
+  } catch { return undefined; }
+}
+
+/** A direct _threads/ file read/write is a Thread observation, not a generic
+ * folder read. Only immediate children of a local Thread qualify. */
+function threadForFile(file: string): { thread_id: string; path: string } | undefined {
+  const parent = dirname(file);
+  const directory = dirname(parent).endsWith(`${sep}_threads`) ? parent
+    : parent.endsWith(`${sep}_agent`) && dirname(dirname(parent)).endsWith(`${sep}_threads`) ? dirname(parent) : null;
+  return directory ? observedThread(directory) : undefined;
+}
+
+/** Only a successful local CLI post/close JSON envelope names the written file.
+ * Pi returns {content:[{type:"text",text:json}]}; Claude's structured MCP
+ * result is the content array itself. Never infer a post from the Thread dir. */
+function writtenThreadPost(tool: ToolInvocation, cwd: string): string | undefined {
+  if (tool.name !== "is_threads" || (tool.args.action !== "post" && tool.args.action !== "close") || tool.isError) return undefined;
+  try {
+    const post: unknown = toolJson(tool);
     if (!post || typeof post !== "object") return undefined;
     const { id, path, kind } = post as Record<string, unknown>;
     if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) ||
@@ -77,7 +100,11 @@ export function harvestLocalFiles(
   launchCwd: string,
   workingRoot: string = launchCwd,
 ): LocalWorkspaceSurface {
-  const ws: LocalWorkspaceSurface = { ...emptyWorkspaceSurface(), file_coordinates: {} };
+  const ws: LocalWorkspaceSurface = { ...emptyWorkspaceSurface(), file_coordinates: {}, threads: [] };
+  const addThread = (candidate: { thread_id: string; path: string } | undefined, action: "read" | "write") => {
+    if (candidate && !ws.threads.some((item) => item.thread_id === candidate.thread_id && item.path === candidate.path && item.action === action))
+      ws.threads.push({ ...candidate, action });
+  };
   const roots = new Map<string, { root: string; root_kind: "repo" | "folder" }>();
   const knownFolderRoots = [...new Set([workingRoot, launchCwd].map((root) => {
     try { return realpathSync.native(root); } catch { return resolve(root); }
@@ -98,6 +125,23 @@ export function harvestLocalFiles(
       cwd = isAbsolute(tool.args.root) ? resolve(tool.args.root) : resolve(launchCwd, tool.args.root);
     }
     const postPath = writtenThreadPost(tool, cwd);
+    if (tool.name === "is_threads") {
+      const data = toolJson(tool);
+      if (data && typeof data === "object") {
+        const object = data as Record<string, unknown>;
+        const candidates = tool.args.action === "list" && Array.isArray(object.threads) ? object.threads
+          : tool.args.action === "open" && object.thread ? [object.thread] : [];
+        for (const row of candidates) {
+          if (!row || typeof row !== "object") continue;
+          const target = row as Record<string, unknown>;
+          if (typeof target.path !== "string" || !isAbsolute(target.path) ||
+              (target.source !== undefined && target.source !== "local")) continue;
+          const match = observedThread(target.path);
+          if (match && match.thread_id === target.thread_id) addThread(match, "read");
+        }
+      }
+    }
+    if (postPath) addThread(threadForFile(postPath), "write");
     const kind = postPath || MODIFIED_TOOLS.has(tool.name) ? "modified"
       : READ_TOOLS.has(tool.name) ? "read" : undefined;
     if (!kind) continue;
@@ -162,6 +206,7 @@ export function harvestLocalFiles(
         }
         roots.set(directory, scope);
       }
+      if (!isDir && (bucket === "read" || bucket === "modified")) addThread(threadForFile(absolute), bucket === "read" ? "read" : "write");
       ws.file_coordinates[absolute] = {
         ...scope,
         path: relative(scope.root, absolute).split("\\").join("/"),
