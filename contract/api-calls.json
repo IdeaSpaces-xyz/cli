@@ -208,6 +208,10 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/threads/posts"
+    },
+    {
+      "method": "GET",
       "path": "/auth/me"
     }
   ]

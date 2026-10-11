@@ -11,6 +11,7 @@ const {
   fetchInboxMock,
   fetchExchangeMock,
   fetchSpaceThreadsMock,
+  fetchThreadPostsMock,
   acknowledgeSubscriptionMock,
   fetchExchangeMapMemberMock,
   fetchSubscriptionEventsMock,
@@ -24,6 +25,7 @@ const {
   fetchInboxMock: vi.fn(),
   fetchExchangeMock: vi.fn(),
   fetchSpaceThreadsMock: vi.fn(),
+  fetchThreadPostsMock: vi.fn(),
   acknowledgeSubscriptionMock: vi.fn(),
   fetchExchangeMapMemberMock: vi.fn(),
   fetchSubscriptionEventsMock: vi.fn(),
@@ -42,6 +44,7 @@ vi.mock("../auth/api.js", async (importOriginal) => {
     fetchInbox: fetchInboxMock,
     fetchExchange: fetchExchangeMock,
     fetchSpaceThreads: fetchSpaceThreadsMock,
+    fetchThreadPosts: fetchThreadPostsMock,
     acknowledgeSubscription: acknowledgeSubscriptionMock,
     fetchExchangeMapMember: fetchExchangeMapMemberMock,
     fetchSubscriptionEvents: fetchSubscriptionEventsMock,
@@ -73,6 +76,7 @@ beforeEach(() => {
   fetchInboxMock.mockReset();
   fetchExchangeMock.mockReset();
   fetchSpaceThreadsMock.mockReset();
+  fetchThreadPostsMock.mockReset();
   acknowledgeSubscriptionMock.mockReset();
   fetchExchangeMapMemberMock.mockReset();
   fetchSubscriptionEventsMock.mockReset().mockResolvedValue([]);
@@ -1559,5 +1563,339 @@ describe("inbox", () => {
     });
     expect(stdout()).toContain("Replied in thread x_target.");
     unlinkSync(selectionFile);
+  });
+
+  describe("hosted threads posts (S2)", () => {
+    const postA = {
+      exchange_id: "x_370b406e6f835d1d47607e5f",
+      thread_name: "Home",
+      note_node_id: "n_925c59c697bbf2fe40260b32",
+      name: "Tested AI reply flow",
+      summary: "Tested AI draft before send",
+      author_ref: "person:ernests",
+      actor_ref: "person:ernests",
+      surface: "human" as const,
+      action: "note.replied",
+      position: 68,
+      created_at: "2026-10-11T12:00:00.000Z",
+      in_reply_to: ["n_ff79032f2df6f315ea28b0f0"],
+    };
+    const postB = {
+      exchange_id: "x_fc304b5542b3c76844384a88",
+      thread_name: "Lets check this",
+      note_node_id: "n_cc39c71f6d33021bb81eca18",
+      name: "Lets check this",
+      summary: "Lets check this summary",
+      author_ref: "person:other",
+      actor_ref: "agent:bot",
+      surface: "agent" as const,
+      action: "inquiry.opened",
+      position: 67,
+      created_at: "2026-10-11T11:00:00.000Z",
+      in_reply_to: [],
+    };
+
+    it("lists newest hosted posts across Threads under the default inbox scope", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA, postB],
+        next_cursor: "eyJwIjo2NywibyI6ImRlc2MifQ==",
+      });
+
+      const code = await threadsCommand.run(["posts"], { limit: "10" }, TEXT_GLOBAL);
+      expect(code).toBe(0);
+      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
+        scope: "inbox",
+        order: "newer",
+        limit: 10,
+      });
+
+      const out = stdout();
+      expect(out).toContain("Home  (x_370b406e6f835d1d47607e5f)");
+      expect(out).toContain("[68] n_925c59c697bbf2fe40260b32 · 2026-10-11T12:00:00.000Z · person:ernests — Tested AI reply flow");
+      expect(out).toContain("Tested AI draft before send");
+      expect(out).toContain("Lets check this  (x_fc304b5542b3c76844384a88)");
+      expect(out).toContain("[67] n_cc39c71f6d33021bb81eca18 · 2026-10-11T11:00:00.000Z · person:other via agent:bot — Lets check this");
+      expect(out).toContain("Lets check this summary");
+    });
+
+    it("returns JSON rows matching S1 schema with next_cursor", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], {}, JSON_GLOBAL);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout());
+      expect(parsed).toEqual({
+        items: [postA],
+        next_cursor: null,
+      });
+    });
+
+    it("filters --since <post id> by forwarding after to server", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { since: "n_cc39c71f6d33021bb81eca18" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
+        scope: "inbox",
+        order: "newer",
+        after: "n_cc39c71f6d33021bb81eca18",
+      });
+    });
+
+    it("filters --since <position> by forwarding integer position to server", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { since: "67" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
+        scope: "inbox",
+        order: "newer",
+        after: "67",
+      });
+    });
+
+    it("filters --since <ISO date> client-side", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA, postB],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { since: "2026-10-11T11:30:00.000Z" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
+        scope: "inbox",
+        order: "newer",
+      });
+      const parsed = JSON.parse(stdout());
+      expect(parsed.items).toHaveLength(1);
+      expect(parsed.items[0].note_node_id).toBe(postA.note_node_id);
+    });
+
+    it("supports space listing with the same row shape", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { space: TARGET }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
+        space_id: TARGET,
+        order: "newer",
+      });
+      const parsed = JSON.parse(stdout());
+      expect(parsed).toEqual({
+        items: [postA],
+        next_cursor: null,
+      });
+    });
+
+    it("supports single thread listing with the same row shape", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts", "x_370b406e6f835d1d47607e5f"], {}, JSON_GLOBAL);
+      expect(code).toBe(0);
+      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
+        thread_id: "x_370b406e6f835d1d47607e5f",
+        order: "newer",
+      });
+      const parsed = JSON.parse(stdout());
+      expect(parsed).toEqual({
+        items: [postA],
+        next_cursor: null,
+      });
+    });
+
+    it("supports --scope followed", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { scope: "followed" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
+        scope: "followed",
+        order: "newer",
+      });
+    });
+
+    it("renders name depth without summary", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { depth: "name" }, TEXT_GLOBAL);
+      expect(code).toBe(0);
+      const out = stdout();
+      expect(out).toContain("Home  (x_370b406e6f835d1d47607e5f)");
+      expect(out).toContain("[68] n_925c59c697bbf2fe40260b32 · 2026-10-11T12:00:00.000Z · person:ernests — Tested AI reply flow");
+      expect(out).not.toContain("Tested AI draft before send");
+    });
+
+    it("supports --order older and passes cursor", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postB],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { order: "older", cursor: "token123" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      expect(fetchThreadPostsMock).toHaveBeenCalledWith(CFG, {
+        scope: "inbox",
+        order: "older",
+        cursor: "token123",
+      });
+    });
+
+    it("renders next_cursor hint in human output preserving target and flags", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: "cursor_token_abc",
+      });
+
+      const code = await threadsCommand.run(["posts"], { space: TARGET, limit: "5", depth: "name", order: "older" }, TEXT_GLOBAL);
+      expect(code).toBe(0);
+      const out = stdout();
+      expect(out).toContain(`More posts: ideaspaces threads posts --space ${TARGET} --limit 5 --depth name --order older --cursor cursor_token_abc`);
+    });
+
+    it("renders hint when date filter leaves items newer with next_cursor preserving since", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: "cursor_token_xyz",
+      });
+
+      const code = await threadsCommand.run(["posts"], { since: "2026-10-11T11:30:00.000Z" }, TEXT_GLOBAL);
+      expect(code).toBe(0);
+      const out = stdout();
+      expect(out).toContain("More posts: ideaspaces threads posts --since 2026-10-11T11:30:00.000Z --cursor cursor_token_xyz");
+    });
+
+    it("stops pagination when date filter encounters an item older than cutoff", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA, postB],
+        next_cursor: "cursor_token_xyz",
+      });
+
+      const code = await threadsCommand.run(["posts"], { since: "2026-10-11T11:30:00.000Z" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout());
+      expect(parsed.items).toHaveLength(1);
+      expect(parsed.items[0].note_node_id).toBe(postA.note_node_id);
+      expect(parsed.next_cursor).toBeNull();
+    });
+
+    it("preserves wire summary in --json output even with --depth name", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA],
+        next_cursor: null,
+      });
+
+      const code = await threadsCommand.run(["posts"], { depth: "name" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout());
+      expect(parsed.items[0].summary).toBe(postA.summary);
+      expect(parsed.items[0].name).toBe(postA.name);
+    });
+
+    it("directs threads list --kind post callers to threads posts", async () => {
+      const code = await threadsCommand.run(["list"], { kind: "post" }, TEXT_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("To list hosted posts across Threads, use `ideaspaces threads posts`.");
+    });
+
+    it("refuses --limit on threads list without --kind post", async () => {
+      const code = await threadsCommand.run(["list"], { limit: "5" }, TEXT_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("Unknown flag for threads list: --limit");
+    });
+
+    it("refuses unknown flags on threads posts", async () => {
+      const code = await threadsCommand.run(["posts"], { bogus: "value" }, TEXT_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("Unknown flag for threads posts: --bogus");
+      expect(fetchThreadPostsMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses conflicting targets and invalid arguments", async () => {
+      expect(await threadsCommand.run(["posts", "x_370b406e6f835d1d47607e5f"], { space: TARGET }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Cannot combine a Thread ID with --space.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts", "x_370b406e6f835d1d47607e5f"], { scope: "followed" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Cannot combine a Thread ID with --scope.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { space: TARGET, scope: "followed" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Cannot combine --space with --scope.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts", "x_short"], {}, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Invalid thread ID: x_short");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { space: "bad_node" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Invalid --space: must be a Space node_id");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { scope: "invalid" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("--scope must be inbox or followed.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { limit: "0" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("--limit must be an integer between 1 and 1000.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { limit: "1001" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("--limit must be an integer between 1 and 1000.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { since: "2026-10-11T12:00:00.000Z", order: "older" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Cannot combine --since <ISO date> with --order older");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { since: "not-a-date-or-id" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("--since needs a position, post id (n_…), or ISO date.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { depth: "full" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("--depth must be name or summary for post listings.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { order: "asc" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("--order must be newer or older.");
+
+      stderrChunks = [];
+      expect(await threadsCommand.run(["posts", "x_1", "x_2"], {}, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Usage: ideaspaces threads posts");
+    });
+
+    it("refuses when not logged in", async () => {
+      loadConfigMock.mockReturnValue(null);
+      const code = await threadsCommand.run(["posts"], {}, TEXT_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("Not logged in. Run `ideaspaces login`.");
+    });
+
+    it("handles session expiration", async () => {
+      fetchThreadPostsMock.mockRejectedValue(new UnauthorizedError("Token expired"));
+      const code = await threadsCommand.run(["posts"], {}, TEXT_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("Session expired. Run `ideaspaces login`.");
+    });
   });
 });

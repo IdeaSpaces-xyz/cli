@@ -185,7 +185,7 @@ describe("local Threads", () => {
   it("accepts a documented flag per verb before enforcing unknown-flag rejection", () => {
     for (const [verb, flag] of Object.entries({
       list: "depth", open: "post", read: "since", new: "about", post: "reply-to",
-      close: "message", render: "", init: "", push: "remote", send: "grade",
+      posts: "limit", close: "message", render: "", init: "", push: "remote", send: "grade",
       reply: "send-id", expand: "", add: "grade", rename: "name",
     })) {
       expect(threadFlagError(verb, flag ? { [flag]: "value" } : {}), verb).toBeUndefined();
@@ -198,7 +198,7 @@ describe("local Threads", () => {
     process.stderr.write = ((chunk: string) => { errors += chunk; return true; }) as typeof process.stderr.write;
     try {
       const global = { json: false, quiet: true, yes: false, help: false };
-      for (const verb of ["list", "open", "read", "new", "post", "close", "render", "init", "push", "send", "reply", "expand", "add", "rename"]) {
+      for (const verb of ["list", "open", "read", "new", "post", "posts", "close", "render", "init", "push", "send", "reply", "expand", "add", "rename"]) {
         errors = "";
         expect(await threadsCommand.run([verb, "somewhere"], { unknown: "value" }, global)).toBe(1);
         expect(errors).toContain(`Unknown flag for threads ${verb}: --unknown`);

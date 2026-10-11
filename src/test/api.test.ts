@@ -16,6 +16,7 @@ import {
   setTeamShare,
   removeTeamShare,
   fetchInbox,
+  fetchThreadPosts,
   fetchExchange,
   fetchExchangeMapMember,
   listSubscriptions,
@@ -576,6 +577,8 @@ describe("direct Inbox API", () => {
       members: [{ address: "hostname:example.com", depth: "summary" as const }],
     };
     await fetchInbox(config);
+    await fetchThreadPosts(config, { scope: "followed", limit: 10, after: "n_post_1", order: "newer" });
+    await fetchThreadPosts(config, { space_id: "n_0123456789abcdef01234567", cursor: "token" });
     await fetchExchange(config, "x_one");
     await fetchExchangeMapMember(config, "x_one", 0);
     await fetchContentTree(config, "n_0123456789abcdef01234567", "notes/current");
@@ -590,6 +593,8 @@ describe("direct Inbox API", () => {
 
     expect(calls.map((call) => [call.init?.method ?? "GET", call.url])).toEqual([
       ["GET", "http://api.test/api/v1/inbox"],
+      ["GET", "http://api.test/api/v1/threads/posts?scope=followed&limit=10&after=n_post_1&order=newer"],
+      ["GET", "http://api.test/api/v1/threads/posts?space_id=n_0123456789abcdef01234567&cursor=token"],
       ["GET", "http://api.test/api/v1/exchanges/x_one"],
       ["GET", "http://api.test/api/v1/exchanges/x_one/map/members/0"],
       ["GET", "http://api.test/api/v1/content/n_0123456789abcdef01234567/tree/notes/current"],
@@ -597,13 +602,13 @@ describe("direct Inbox API", () => {
       ["POST", "http://api.test/api/v1/inquiries"],
       ["POST", "http://api.test/api/v1/exchanges/x_one/replies"],
     ]);
-    expect(JSON.parse(String(calls[5].init?.body))).toMatchObject({
+    expect(JSON.parse(String(calls[7].init?.body))).toMatchObject({
       send_id: "send-one",
       target_node_id: "n_target",
       recipient: { username: "two" },
       map,
     });
-    expect(JSON.parse(String(calls[6].init?.body))).toMatchObject({ send_id: "reply-one" });
+    expect(JSON.parse(String(calls[8].init?.body))).toMatchObject({ send_id: "reply-one" });
     for (const call of calls) {
       expect((call.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
     }

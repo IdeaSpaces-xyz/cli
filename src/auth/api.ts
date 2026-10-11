@@ -789,6 +789,55 @@ export async function fetchInbox(
   return request<InboxResponse>(config, "GET", `${API_V1}/inbox`, undefined, opts);
 }
 
+export interface ThreadPostSummary {
+  exchange_id: string;
+  thread_name: string;
+  note_node_id: string;
+  name: string;
+  summary: string;
+  author_ref: string;
+  actor_ref: string;
+  surface: "human" | "agent";
+  action: string;
+  position: number;
+  created_at: string;
+  in_reply_to: string[];
+}
+
+export interface ThreadPostsPageResponse {
+  items: ThreadPostSummary[];
+  next_cursor: string | null;
+}
+
+export interface ThreadPostsQuery {
+  scope?: "inbox" | "followed";
+  space_id?: string;
+  thread_id?: string;
+  limit?: number;
+  after?: string;
+  cursor?: string;
+  order?: "newer" | "older";
+}
+
+/** Posts across Threads under a container scope, space, or single Thread, newest first. */
+export async function fetchThreadPosts(
+  config: ApiConfig,
+  query?: ThreadPostsQuery,
+  opts?: RequestOptions,
+): Promise<ThreadPostsPageResponse> {
+  const params = new URLSearchParams();
+  if (query?.scope) params.set("scope", query.scope);
+  if (query?.space_id) params.set("space_id", query.space_id);
+  if (query?.thread_id) params.set("thread_id", query.thread_id);
+  if (query?.limit !== undefined) params.set("limit", String(query.limit));
+  if (query?.after) params.set("after", query.after);
+  if (query?.cursor) params.set("cursor", query.cursor);
+  if (query?.order) params.set("order", query.order);
+  const queryString = params.toString();
+  const path = `${API_V1}/threads/posts${queryString ? `?${queryString}` : ""}`;
+  return request<ThreadPostsPageResponse>(config, "GET", path, undefined, opts);
+}
+
 /** Complete immutable message history for one exchange. Non-parties receive the same 404 as absent ids. */
 export async function fetchExchange(
   config: ApiConfig,

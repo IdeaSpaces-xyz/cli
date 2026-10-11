@@ -13,6 +13,7 @@ import {
   fetchInbox,
   fetchSpaceThreads,
   fetchSubscriptionEvents,
+  fetchThreadPosts,
   listSubscriptions,
   replyToExchange,
   renameExchange,
@@ -33,6 +34,9 @@ import {
   type PersonShareAddResult,
   type ShareGrade,
   type ThreadGrade,
+  type ThreadPostSummary,
+  type ThreadPostsPageResponse,
+  type ThreadPostsQuery,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import {
@@ -46,14 +50,13 @@ import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 import { appendAddressMemberToMapFile } from "./map-edit.js";
 import { humanGrade, parseGrade } from "./request.js";
+import { HOSTED_THREAD_ID as HOSTED, NODE_ID, threadFlagError, type Flags } from "./thread-flags.js";
 
-type Flags = Record<string, string | boolean>;
-
-const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
-
-const USAGE = "ideaspaces threads <list|read|send|reply|add|close|rename|expand> ...";
+const USAGE = "ideaspaces threads <list|posts|read|send|reply|add|close|rename|expand> ...";
 const LIST_USAGE =
   "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
+const POSTS_USAGE =
+  "ideaspaces threads posts [x_thread_id] [--space <space_node_id>] [--scope <inbox|followed>] [--limit <number>] [--since <position|note_node_id|ISO date>] [--depth <name|summary>] [--order <newer|older>] [--cursor <token>]";
 const READ_USAGE =
   "ideaspaces threads read <thread_id> [--new|--since <position|ISO date|note_node_id>] [--post <note_node_id>] [--kind <message|reframe>] [--depth <name|summary|children|surface|full>] [--ack]";
 const SEND_USAGE =
@@ -339,6 +342,10 @@ function parsePosition(value: string | boolean | undefined, output: Output): num
 
 function parseKind(value: string | boolean | undefined, output: Output): InboxKind | null | undefined {
   if (value === undefined) return undefined;
+  if (value === "post") {
+    output.error("To list hosted posts across Threads, use `ideaspaces threads posts`.");
+    return null;
+  }
   if (value === "message" || value === "reframe" || value === "request") return value;
   output.error("--kind must be one of: message, reframe, request.");
   return null;
@@ -1017,6 +1024,210 @@ async function manage(sub: "add" | "close" | "rename", rest: string[], flags: Fl
   });
 }
 
+function nextPostsCommand(opts: {
+  threadId?: string;
+  space?: string;
+  scope?: string;
+  limit?: number;
+  sinceVal?: string;
+  depthVal: "name" | "summary";
+  orderVal: "newer" | "older";
+  cursor: string;
+}): string {
+  const parts = ["ideaspaces threads posts"];
+  if (opts.threadId) parts.push(opts.threadId);
+  if (opts.space) parts.push(`--space ${opts.space}`);
+  if (opts.scope && opts.scope !== "inbox") parts.push(`--scope ${opts.scope}`);
+  if (opts.limit !== undefined) parts.push(`--limit ${opts.limit}`);
+  if (opts.sinceVal) parts.push(`--since ${opts.sinceVal}`);
+  if (opts.depthVal !== "summary") parts.push(`--depth ${opts.depthVal}`);
+  if (opts.orderVal !== "newer") parts.push(`--order ${opts.orderVal}`);
+  parts.push(`--cursor ${opts.cursor}`);
+  return parts.join(" ");
+}
+
+async function posts(rest: string[], flags: Flags, output: Output): Promise<number> {
+  if (rest.length > 1) {
+    output.error(`Usage: ${POSTS_USAGE}`);
+    return 1;
+  }
+  const threadId = rest[0]?.trim();
+  if (threadId && !HOSTED.test(threadId)) {
+    output.error(`Invalid thread ID: ${threadId}. Expected x_ followed by 24 hex characters.`);
+    return 1;
+  }
+  const space = flagString(flags, "space")?.trim();
+  if (space !== undefined && !NODE_ID.test(space)) {
+    output.error("Invalid --space: must be a Space node_id (n_…).");
+    return 1;
+  }
+  const scopeRaw = flagString(flags, "scope")?.trim();
+  let scopeVal: "inbox" | "followed" | undefined;
+  if (scopeRaw !== undefined) {
+    if (scopeRaw === "inbox" || scopeRaw === "followed") {
+      scopeVal = scopeRaw;
+    } else {
+      output.error("--scope must be inbox or followed.");
+      return 1;
+    }
+  }
+  if (threadId && space) {
+    output.error("Cannot combine a Thread ID with --space.");
+    return 1;
+  }
+  if (threadId && scopeVal) {
+    output.error("Cannot combine a Thread ID with --scope.");
+    return 1;
+  }
+  if (space && scopeVal) {
+    output.error("Cannot combine --space with --scope.");
+    return 1;
+  }
+
+  let limit: number | undefined;
+  if (flags.limit !== undefined) {
+    const limitStr = flagString(flags, "limit")?.trim();
+    if (!limitStr || !/^\d+$/.test(limitStr)) {
+      output.error("--limit must be an integer between 1 and 1000.");
+      return 1;
+    }
+    limit = Number(limitStr);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) {
+      output.error("--limit must be an integer between 1 and 1000.");
+      return 1;
+    }
+  }
+
+  const sinceVal = flagString(flags, "since")?.trim();
+  let afterForServer: string | undefined;
+  let sinceDate: number | undefined;
+  if (flags.since !== undefined) {
+    if (!sinceVal) {
+      output.error("--since needs a position, post id (n_…), or ISO date.");
+      return 1;
+    }
+    if (/^\d+$/.test(sinceVal)) {
+      const pos = Number(sinceVal);
+      if (!Number.isSafeInteger(pos) || pos < 0) {
+        output.error("--since position must be a non-negative safe integer.");
+        return 1;
+      }
+      afterForServer = sinceVal;
+    } else if (NODE_ID.test(sinceVal)) {
+      afterForServer = sinceVal;
+    } else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(sinceVal)) {
+      const parsed = Date.parse(sinceVal);
+      if (Number.isNaN(parsed)) {
+        output.error("--since must be a valid ISO date.");
+        return 1;
+      }
+      sinceDate = parsed;
+    } else {
+      output.error("--since needs a position, post id (n_…), or ISO date.");
+      return 1;
+    }
+  }
+
+  if (flags.depth !== undefined && flags.depth !== "name" && flags.depth !== "summary") {
+    output.error("--depth must be name or summary for post listings.");
+    return 1;
+  }
+  const depthVal: "name" | "summary" = flags.depth === "name" ? "name" : "summary";
+
+  const orderRaw = flagString(flags, "order") ?? "newer";
+  let orderVal: "newer" | "older";
+  if (orderRaw === "newer" || orderRaw === "older") {
+    orderVal = orderRaw;
+  } else {
+    output.error("--order must be newer or older.");
+    return 1;
+  }
+
+  if (sinceDate !== undefined && orderVal === "older") {
+    output.error("Cannot combine --since <ISO date> with --order older; use a post id or position instead.");
+    return 1;
+  }
+
+  const cursor = flagString(flags, "cursor")?.trim();
+
+  return runAuthenticated(output, async (config) => {
+    const query: ThreadPostsQuery = {
+      order: orderVal,
+    };
+    if (threadId) {
+      query.thread_id = threadId;
+    } else if (space) {
+      query.space_id = space;
+    } else if (scopeVal) {
+      query.scope = scopeVal;
+    } else {
+      query.scope = "inbox";
+    }
+
+    if (limit !== undefined) query.limit = limit;
+    if (afterForServer) query.after = afterForServer;
+    if (cursor) query.cursor = cursor;
+
+    const response = await fetchThreadPosts(config, query);
+    let items = response.items;
+    let nextCursor = response.next_cursor;
+    let filteredByDate = false;
+    if (sinceDate !== undefined) {
+      const originalCount = items.length;
+      const pastCutoff = items.some((item) => Date.parse(item.created_at) <= sinceDate!);
+      items = items.filter((item) => Date.parse(item.created_at) > sinceDate!);
+      if (items.length < originalCount) {
+        filteredByDate = true;
+      }
+      if (pastCutoff) {
+        nextCursor = null;
+      }
+    }
+
+    const nextCmd = nextCursor
+      ? nextPostsCommand({
+          threadId,
+          space,
+          scope: scopeVal,
+          limit,
+          sinceVal,
+          depthVal,
+          orderVal,
+          cursor: nextCursor,
+        })
+      : null;
+
+    let text: string;
+    if (!items.length) {
+      if (filteredByDate && nextCmd) {
+        text = `No hosted posts newer than ${sinceVal} on this page. More posts: ${nextCmd}`;
+      } else {
+        text = "No hosted posts found.";
+      }
+    } else {
+      const postLines = items
+        .map((post) => {
+          const actor = post.actor_ref === post.author_ref ? "" : ` via ${post.actor_ref}`;
+          const header = `${post.thread_name}  (${post.exchange_id})\n  [${post.position}] ${post.note_node_id} · ${post.created_at} · ${post.author_ref}${actor} — ${post.name}`;
+          if (depthVal === "name") {
+            return header;
+          }
+          return `${header}\n  ${post.summary}`;
+        })
+        .join("\n\n");
+
+      if (nextCmd) {
+        text = `${postLines}\n\nMore posts: ${nextCmd}`;
+      } else {
+        text = postLines;
+      }
+    }
+
+    output.result({ items, next_cursor: nextCursor }, text);
+    return 0;
+  });
+}
+
 export const hostedThreadsCommand: CommandDef = {
   name: "threads-hosted",
   description: "Send, read, and manage hosted Threads (management is owner-only)",
@@ -1024,6 +1235,10 @@ export const hostedThreadsCommand: CommandDef = {
   examples: [
     "ideaspaces threads list --new --depth name",
     "ideaspaces threads list --space n_0123456789abcdef01234567",
+    "ideaspaces threads posts --limit 10",
+    "ideaspaces threads posts --space n_0123456789abcdef01234567",
+    "ideaspaces threads posts x_0123456789abcdef01234567 --limit 5",
+    "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads read x_example --new --depth full --ack  # JSON includes your_grade",
     "ideaspaces threads list --kind message --json  # each hosted row includes your_grade",
     "ideaspaces threads expand x_example 0",
@@ -1042,9 +1257,16 @@ export const hostedThreadsCommand: CommandDef = {
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
     const [sub, ...rest] = args;
+    const flagError = threadFlagError(sub ?? "", flags);
+    if (flagError) {
+      output.error(flagError);
+      return 1;
+    }
     switch (sub) {
       case "list":
         return list(rest, flags, output);
+      case "posts":
+        return posts(rest, flags, output);
       case "read":
         return read(rest, flags, output);
       case "send":

@@ -15,10 +15,11 @@ import {
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
   type LocalThread,
 } from "../local/threads.js";
+import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./thread-flags.js";
 
-const HOSTED = /^x_[0-9a-f]{24}$/;
+export { threadFlagError } from "./thread-flags.js";
+
 const KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure"]);
-type Flags = Record<string, string | boolean>;
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
 }
@@ -190,40 +191,15 @@ function writerName(explicit?: string): string {
   if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
 }
-// A misspelled disclosure flag must not silently return a broader Thread read.
-// Keep this per verb: accepting a valid flag on the wrong verb is also a false promise.
-const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
-  Object.entries({
-    list: "new space depth kind since",
-    locate: "",
-    open: "depth new ack since post map member checkout pin position",
-    read: "depth new ack kind since post map member checkout pin position",
-    new: "about",
-    post: "map member checkout reply-to kind author name summary supersedes message",
-    close: "map reply-to kind author name summary supersedes message",
-    render: "",
-    init: "",
-    push: "remote",
-    send: "space about map share share-roots space-map name summary message send-id grade",
-    reply: "map name summary message send-id reply-to",
-    expand: "",
-    add: "grade",
-    rename: "name",
-  }).map(([verb, names]) => [verb, new Set(names ? names.split(" ") : [])]),
-);
-
-export function threadFlagError(verb: string, flags: Flags): string | undefined {
-  const known = THREAD_FLAGS[verb];
-  const unknown = known && Object.keys(flags).find((flag) => !known.has(flag));
-  return unknown ? `Unknown flag for threads ${verb}: --${unknown}. Run ideaspaces threads --help for supported flags.` : undefined;
-}
 
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
+  usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
   examples: [
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
+    "ideaspaces threads posts [--space n_…] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary] [--order newer|older]",
+    "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
     "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",
@@ -253,7 +229,7 @@ export const threadsCommand: CommandDef = {
     try {
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
-      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
+      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || sub === "posts" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
           return threadsCommand.run(["open", rest[0]], flags, global);
         }
