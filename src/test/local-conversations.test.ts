@@ -9,6 +9,7 @@ import {
   getLocalConversation,
   listLocalConversations,
   localSessionDir,
+  canResumePiConversation,
 } from "../pi/local-conversations.js";
 
 // A fixture mirroring pi's real v3 session JSONL (captured from a live run).
@@ -96,6 +97,17 @@ describe("get / list over a context session dir", () => {
     expect(d.history).toHaveLength(4);
     expect(d.active_turn).toBeNull();
     expect(d.turn_count).toBe(3);
+  });
+
+  it("does not resume a notification-only Pi transcript", async () => {
+    const id = "notify-only";
+    const file = join(localSessionDir(ctx), `2026-07-02T13-00-00-000Z_${id}.jsonl`);
+    const header = JSON.stringify({ type: "session", id, cwd: ctx });
+    const message = (content: string) => JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: content }] } });
+    await writeFile(file, header + "\n" + message("<task-notification><status>stopped</status></task-notification>") + "\n");
+    expect(canResumePiConversation(ctx, id)).toBe(false);
+    await writeFile(file, header + "\n" + message("<task-notification><status>stopped</status></task-notification>") + "\n" + message("I saw <task-notification> in the transcript") + "\n");
+    expect(canResumePiConversation(ctx, id)).toBe(true);
   });
 
   it("getLocalConversation returns an empty detail for an unknown id", () => {

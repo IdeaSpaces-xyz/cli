@@ -196,9 +196,17 @@ describe("Claude conversations on disk", () => {
     await writeFile(join(actualDir, `${ID}.jsonl`), `{"type":"user","message":{"role":"user","content":"real"},"sessionId":"${ID}"}\n`);
     expect(claudeSessionFile(alias, ID, env)).toBe(join(actualDir, `${ID}.jsonl`));
     const otherId = "33333333-3333-4333-8333-333333333333";
-    await writeFile(join(legacyDir, `${otherId}.jsonl`), `{"type":"user","message":{"role":"user","content":"legacy"},"sessionId":"${otherId}"}\n`);
+    await writeFile(join(legacyDir, `${otherId}.jsonl`), `{"type":"user","message":{"role":"user","content":"legacy"},"cwd":"${real}","sessionId":"${otherId}"}\n`);
     expect(claudeSessionFile(alias, otherId, env)).toBe(join(legacyDir, `${otherId}.jsonl`));
     expect(listClaudeConversations(alias, env).total).toBe(2);
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = cfg;
+    try {
+      expect(canResumeClaudeConversation(alias, otherId)).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previous;
+    }
   });
 
   it("refuses resume when a session contains only a task notification", async () => {
