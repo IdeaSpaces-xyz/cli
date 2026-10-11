@@ -192,7 +192,7 @@ it("defaults navigation/ls with omitted path to . while unscoped search tools sk
   expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo", kind: "directory" });
 });
 
-it("harvests only successful local is_threads post result files for Pi and normalized Claude", () => {
+it("harvests successful local is_threads post and close files for Pi and normalized Claude", () => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-thread-post-"))); dirs.push(dir);
   execFileSync("git", ["init", "-q", dir]);
   mkdirSync(join(dir, "_agent"));
@@ -212,12 +212,13 @@ it("harvests only successful local is_threads post result files for Pi and norma
     { name: "is_threads", args: { action: "close", path: "probe" }, result: { content: [{ type: "text", text: JSON.stringify(closure) }] }, isError: false },
   ];
   const ws = harvestLocalFiles(invocations, dir);
-  expect(ws.modified).toEqual([piPost.path, claudePost.path]);
+  expect(ws.modified).toEqual([piPost.path, claudePost.path, closure.path]);
   expect(ws.deleted).toEqual([]);
+  expect(ws.threads).toEqual([{ thread_id: run("open", "probe").thread.thread_id, path: realpathSync.native(join(dir, "_threads/probe")), action: "write" }]);
   for (const path of [piPost.path, claudePost.path]) {
     expect(ws.file_coordinates[path]).toEqual({ root: dir, root_kind: "repo", path: `_threads/probe/${basename(path)}`, kind: "file" });
   }
-  expect(ws.file_coordinates[closure.path]).toBeUndefined();
+  expect(ws.file_coordinates[closure.path]).toEqual({ root: dir, root_kind: "repo", path: `_threads/probe/${basename(closure.path)}`, kind: "file" });
 
   const bad = [
     tool("is_threads", { action: "list", path: "probe" }),
@@ -235,6 +236,33 @@ it("harvests only successful local is_threads post result files for Pi and norma
   mkdirSync(join(dir, "nested"));
   const nested = harvestLocalFiles([{ ...invocations[0], args: { action: "post", path: "probe", cwd: join(dir, "nested") } }], dir);
   expect(nested.modified).toEqual([piPost.path]);
+});
+
+it("reports verified local Thread reads and writes from tools and direct files", () => {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-thread-observations-"))); dirs.push(dir);
+  execFileSync("git", ["init", "-q", dir]);
+  mkdirSync(join(dir, "_agent")); writeFileSync(join(dir, "_agent/agreement.md"), "---\nname: Fixture\n---\n");
+  const cli = join(process.cwd(), "bundle/ideaspaces.js");
+  const run = (...args: string[]) => JSON.parse(execFileSync(process.execPath, [cli, "--json", "threads", ...args], { cwd: dir, encoding: "utf8" }));
+  const created = run("new", "probe", "--about", "Disposable proof");
+  const opened = run("open", "probe", "--depth", "summary");
+  const listed = run("list", dir);
+  const post = run("post", "probe", "--message", "Test", "--author", "Fixture");
+  const wrap = (data: unknown) => ({ content: [{ type: "text", text: JSON.stringify(data) }] });
+  const readme = join(created.path, "README.md");
+  const ws = harvestLocalFiles([
+    { name: "is_threads", args: { action: "list", path: dir }, result: wrap(listed), isError: false },
+    normalizeClaudeInvocation({ name: "mcp__plugin_ideaspaces_core__is_threads", args: { action: "open", path: "probe" }, result: [{ type: "text", text: JSON.stringify(opened) }], isError: false }),
+    tool("read", { path: readme }), tool("write", { path: readme }),
+    { name: "is_threads", args: { action: "post", path: "probe" }, result: wrap(post), isError: false },
+    { name: "is_threads", args: { action: "open", path: "probe" }, result: wrap({ thread: { path: created.path, thread_id: "msg_forged" } }), isError: false },
+  ], dir);
+  expect(ws.threads).toEqual([
+    { thread_id: created.thread_id, path: created.path, action: "read" },
+    { thread_id: created.thread_id, path: created.path, action: "write" },
+  ]);
+  expect(ws.read).toContain(readme);
+  expect(ws.modified).toContain(post.path);
 });
 
 it.skipIf(process.platform === "win32")("skips a path whose file state cannot be read", () => {
