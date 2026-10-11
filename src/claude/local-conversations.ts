@@ -27,8 +27,9 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { isContained } from "../local/contained-path.js";
+import { isTaskNotification } from "../local/task-notification.js";
 import type {
   ConversationDetail,
   ConversationHistoryMessage,
@@ -41,14 +42,29 @@ export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude");
 }
 
-/** The project slug Claude Code derives from a cwd: every non-alphanumeric → `-`. */
+/** The project slug Claude Code derives from the physical cwd: every non-alphanumeric → `-`. */
+function slugOf(path: string): string {
+  return path.replace(/[^a-zA-Z0-9]/gu, "-");
+}
+
 export function claudeProjectSlug(cwd: string): string {
-  return resolve(cwd).replace(/[^a-zA-Z0-9]/gu, "-");
+  let resolved = resolve(cwd);
+  try {
+    resolved = realpathSync(resolved);
+  } catch {
+    /* fallback to resolve(cwd) */
+  }
+  return slugOf(resolved);
 }
 
 /** Where Claude Code keeps the sessions started in `cwd`. */
 export function claudeProjectDir(cwd: string, env: NodeJS.ProcessEnv = process.env): string {
   return join(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
+}
+
+/** Older sessions may have been started using the unresolved spelling of a symlinked cwd. */
+function legacyClaudeProjectDir(cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+  return join(claudeConfigDir(env), "projects", slugOf(resolve(cwd)));
 }
 
 /** Mint a fresh conversation id — Claude Code requires a UUID for `--session-id`. */
@@ -71,8 +87,15 @@ export function isClaudeConversationId(id: string): boolean {
  * Guards the id so a caller can never read outside the project dir. */
 export function claudeSessionFile(cwd: string, convId: string, env: NodeJS.ProcessEnv = process.env): string | null {
   if (!isClaudeConversationId(convId)) return null;
-  const file = join(claudeProjectDir(cwd, env), `${convId}.jsonl`);
-  return existsSync(file) ? file : null;
+  const projectDir = claudeProjectDir(cwd, env);
+  const file = join(projectDir, `${convId}.jsonl`);
+  if (existsSync(file)) return file;
+  const unresolvedDir = legacyClaudeProjectDir(cwd, env);
+  if (unresolvedDir !== projectDir) {
+    const fallbackFile = join(unresolvedDir, `${convId}.jsonl`);
+    if (existsSync(fallbackFile)) return fallbackFile;
+  }
+  return null;
 }
 
 interface ParsedSession {
@@ -172,9 +195,12 @@ export function parseClaudeSessionJsonl(text: string, fallbackTs: string): Parse
             continue;
           }
         }
+        const isNotification = isTaskNotification(content, e.origin as { kind?: string } | undefined);
         messages.push({ role: "user", content, created_at: created });
-        if (!preview) preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
-        count += 1;
+        if (!isNotification) {
+          if (!preview) preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
+          count += 1;
+        }
         continue;
       }
       if (!Array.isArray(m.content)) continue;
@@ -224,7 +250,9 @@ export function canResumeClaudeConversation(contextRoot: string, convId: string)
   const file = claudeSessionFile(contextRoot, convId);
   if (!file) return false;
   try {
-    if (!isContained(realpathSync(claudeProjectDir(contextRoot)), realpathSync(file))) return false;
+    // The file may live under the physical or the legacy spelling; both are
+    // derived from this cwd, and the UUID guard prevents walking outside them.
+    if (!isContained(realpathSync(dirname(file)), realpathSync(file))) return false;
     const text = readFileSync(file, "utf8");
     let sawIdentity = false;
     let sawRoot = false;
@@ -248,7 +276,7 @@ export function canResumeClaudeConversation(contextRoot: string, convId: string)
       }
       if (entry.sessionId === convId) sawIdentity = true;
     }
-    return sawIdentity && sawRoot && parseClaudeSessionJsonl(text, "").messages.some((m) => m.role === "user");
+    return sawIdentity && sawRoot && parseClaudeSessionJsonl(text, "").messages.some((m) => m.role === "user" && !isTaskNotification(m.content));
   } catch {
     return false;
   }
@@ -278,10 +306,17 @@ export function getClaudeConversation(contextRoot: string, convId: string, env: 
 /** List the Claude Code sessions started in this context, newest-first. */
 export function listClaudeConversations(contextRoot: string, env: NodeJS.ProcessEnv = process.env): ConversationsResponse {
   const dir = claudeProjectDir(contextRoot, env);
-  if (!existsSync(dir)) return { conversations: [], total: 0 };
+  const dirs = [...new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync(path));
   const summaries: ConversationSummary[] = [];
-  for (const f of readdirSync(dir).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6)))) {
-    const path = join(dir, f);
+  const seen = new Set<string>();
+  // The physical directory comes first and wins if both hold the same session id.
+  const files = dirs.flatMap((folder) => readdirSync(folder)
+    .filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6)))
+    .map((f) => join(folder, f)));
+  for (const path of files) {
+    const fileId = basename(path, ".jsonl");
+    if (seen.has(fileId)) continue;
+    seen.add(fileId);
     let text: string;
     try {
       text = readFileSync(path, "utf8");
@@ -290,7 +325,7 @@ export function listClaudeConversations(contextRoot: string, env: NodeJS.Process
     }
     const mtime = statSync(path).mtime.toISOString();
     const s = parseClaudeSessionJsonl(text, mtime);
-    const conversationId = s.id || f.slice(0, -6);
+    const conversationId = s.id || fileId;
     if (!s.messageCount) continue; // a session file with no visible turn is not a conversation yet
     summaries.push({
       conversation_id: conversationId,
