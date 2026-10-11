@@ -246,8 +246,8 @@ describe("inbox", () => {
 
   it("bounds hosted Thread disclosure and builds children reply tree using reply links", async () => {
     const dated = [
-      { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, markdown: "Old private body" },
-      { ...message, note_node_id: "n_second", created_at: "2026-10-07T00:00:00Z", position: 2, markdown: "Selected body" },
+      { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, in_reply_to: [], markdown: "Old private body" },
+      { ...message, note_node_id: "n_second", created_at: "2026-10-07T00:00:00Z", position: 2, in_reply_to: ["n_first"], markdown: "Selected body" },
     ];
     fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", name: "Thread", your_grade: "view", target_node_id: null,
       participants: [], cursor: 1, latest_position: 2, messages: dated, subject: { opening_note_id: "n_first", current_note_id: "n_first" } });
@@ -395,7 +395,7 @@ describe("inbox", () => {
       { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": true },
       TEXT_GLOBAL,
     )).toBe(1);
-    expect(stderr()).toContain("--reply-to must name one or more Note ids");
+    expect(stderr()).toContain("--reply-to must name one or more valid Note ids");
 
     stderrChunks = [];
     expect(await inboxCommand.run(
@@ -403,7 +403,7 @@ describe("inbox", () => {
       { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "   " },
       TEXT_GLOBAL,
     )).toBe(1);
-    expect(stderr()).toContain("--reply-to must name one or more Note ids");
+    expect(stderr()).toContain("--reply-to must name one or more valid Note ids");
 
     // Rejects invalid note ids
     stderrChunks = [];
@@ -412,7 +412,7 @@ describe("inbox", () => {
       { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "invalid_id" },
       TEXT_GLOBAL,
     )).toBe(1);
-    expect(stderr()).toContain("--reply-to must name valid Note ids");
+    expect(stderr()).toContain("--reply-to must name one or more valid Note ids");
   });
 
   it("safely handles circular, multi-parent and filtered reply graphs without crashing or duplicating subtrees", async () => {
@@ -493,6 +493,41 @@ describe("inbox", () => {
     // n_left and n_right become roots of the visible tree
     expect(parsedFiltered.messages.map((m: { id: string }) => m.id)).toEqual(["n_left", "n_right"]);
 
+    // 4. Filtered read with --new on legacy replies (empty server in_reply_to)
+    const legacyThreadMessages = [
+      { ...message, note_node_id: "n_root", name: "Root", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: [] },
+      { ...message, note_node_id: "n_leg1", name: "Legacy 1", created_at: "2026-10-06T11:00:00Z", position: 2, action: "note.replied" as const, in_reply_to: [] },
+      { ...message, note_node_id: "n_leg2", name: "Legacy 2", created_at: "2026-10-06T12:00:00Z", position: 3, action: "note.replied" as const, in_reply_to: [] },
+    ];
+    const legacyFilteredId = "x_" + "e".repeat(24);
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: legacyFilteredId,
+      name: "Legacy Filtered",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 1, // cursor past n_root
+      latest_position: 3,
+      messages: legacyThreadMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", legacyFilteredId], { depth: "children", new: true }, JSON_GLOBAL)).toBe(0);
+    const parsedLegacy = JSON.parse(stdout());
+    // In the filtered view without the opening note, legacy replies surface as visible roots
+    expect(parsedLegacy.messages.map((m: { id: string }) => m.id)).toEqual(["n_leg1", "n_leg2"]);
+
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: diamondId,
+      name: "Diamond Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 4,
+      messages: diamondMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
     stdoutChunks = [];
     expect(await inboxCommand.run(["read", diamondId], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
     expect(stdout()).toContain("n_root");

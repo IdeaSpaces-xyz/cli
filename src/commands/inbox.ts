@@ -256,7 +256,11 @@ export function formatHostedChildrenText(roots: HostedThreadChild[]): string {
   const lines: string[] = [];
   function visit(nodes: HostedThreadChild[], indent: number) {
     for (const node of nodes) {
-      lines.push(`${"  ".repeat(indent)}${node.note_node_id} · ${node.kind} · ${node.date ?? "undated"} · ${node.name} · in_reply_to ${node.in_reply_to.join(", ") || "—"}`);
+      const parentList = node.in_reply_to.join(", ") || "—";
+      const dateText = node.date ?? "undated";
+      lines.push(
+        `${"  ".repeat(indent)}${node.note_node_id} · ${node.kind} · ${dateText} · ${node.name} · in_reply_to ${parentList}`,
+      );
       visit(node.children, indent + 1);
     }
   }
@@ -600,7 +604,7 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
     const openingId = exchange.subject?.opening_note_id ?? exchange.messages[0]?.note_node_id;
     const projected = post || depth === "surface" || depth === "full" ? messages : depth === "name" ? [] : depth === "children" ? hostedChildTree(messages, openingId) : messages.map((message) => ({
       id: message.note_node_id, note_node_id: message.note_node_id, kind: message.action, date: message.created_at, name: message.name,
-      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref, in_reply_to: effectiveInReplyTo(message, openingId) } : {}),
+      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref, in_reply_to: message.in_reply_to ?? [] } : {}),
     }));
     const data = {
       ...exchange,
@@ -907,13 +911,9 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
   let replyTo: string[] | undefined;
   if (flags["reply-to"] !== undefined) {
     const raw = flags["reply-to"];
-    if (typeof raw !== "string" || !raw.trim()) {
-      output.error("--reply-to must name one or more Note ids (n_…), separated by commas.");
-      return 1;
-    }
-    const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    const ids = typeof raw === "string" ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
     if (!ids.length || ids.some((id) => !NODE_ID.test(id))) {
-      output.error("--reply-to must name valid Note ids (n_…), separated by commas.");
+      output.error("--reply-to must name one or more valid Note ids (n_…), separated by commas.");
       return 1;
     }
     replyTo = Array.from(new Set(ids));
