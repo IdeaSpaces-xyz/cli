@@ -1131,11 +1131,11 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
     }
   }
 
-  const depthVal = (flags.depth === "name" ? "name" : "summary") as "name" | "summary";
   if (flags.depth !== undefined && flags.depth !== "name" && flags.depth !== "summary") {
     output.error("--depth must be name or summary for post listings.");
     return 1;
   }
+  const depthVal: "name" | "summary" = flags.depth === "name" ? "name" : "summary";
 
   const orderRaw = flagString(flags, "order") ?? "newer";
   let orderVal: "newer" | "older";
@@ -1173,16 +1173,21 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
 
     const response = await fetchThreadPosts(config, query);
     let items = response.items;
+    let nextCursor = response.next_cursor;
     let filteredByDate = false;
     if (sinceDate !== undefined) {
       const originalCount = items.length;
+      const pastCutoff = items.some((item) => Date.parse(item.created_at) <= sinceDate!);
       items = items.filter((item) => Date.parse(item.created_at) > sinceDate!);
       if (items.length < originalCount) {
         filteredByDate = true;
       }
+      if (pastCutoff) {
+        nextCursor = null;
+      }
     }
 
-    const nextCmd = response.next_cursor
+    const nextCmd = nextCursor
       ? nextPostsCommand({
           threadId,
           space,
@@ -1191,7 +1196,7 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
           sinceVal,
           depthVal,
           orderVal,
-          cursor: response.next_cursor,
+          cursor: nextCursor,
         })
       : null;
 
@@ -1221,7 +1226,7 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
       }
     }
 
-    output.result({ items, next_cursor: response.next_cursor }, text);
+    output.result({ items, next_cursor: nextCursor }, text);
     return 0;
   });
 }

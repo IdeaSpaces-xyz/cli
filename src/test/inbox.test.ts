@@ -1773,16 +1773,30 @@ describe("inbox", () => {
       expect(out).toContain(`More posts: ideaspaces threads posts --space ${TARGET} --limit 5 --depth name --order older --cursor cursor_token_abc`);
     });
 
-    it("renders hint when date filter leaves no items on a page with next_cursor preserving since", async () => {
+    it("renders hint when date filter leaves items newer with next_cursor preserving since", async () => {
       fetchThreadPostsMock.mockResolvedValue({
-        items: [postB],
+        items: [postA],
         next_cursor: "cursor_token_xyz",
       });
 
-      const code = await threadsCommand.run(["posts"], { since: "2026-10-11T12:00:00.000Z" }, TEXT_GLOBAL);
+      const code = await threadsCommand.run(["posts"], { since: "2026-10-11T11:30:00.000Z" }, TEXT_GLOBAL);
       expect(code).toBe(0);
       const out = stdout();
-      expect(out).toContain("No hosted posts newer than 2026-10-11T12:00:00.000Z on this page. More posts: ideaspaces threads posts --since 2026-10-11T12:00:00.000Z --cursor cursor_token_xyz");
+      expect(out).toContain("More posts: ideaspaces threads posts --since 2026-10-11T11:30:00.000Z --cursor cursor_token_xyz");
+    });
+
+    it("stops pagination when date filter encounters an item older than cutoff", async () => {
+      fetchThreadPostsMock.mockResolvedValue({
+        items: [postA, postB],
+        next_cursor: "cursor_token_xyz",
+      });
+
+      const code = await threadsCommand.run(["posts"], { since: "2026-10-11T11:30:00.000Z" }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout());
+      expect(parsed.items).toHaveLength(1);
+      expect(parsed.items[0].note_node_id).toBe(postA.note_node_id);
+      expect(parsed.next_cursor).toBeNull();
     });
 
     it("preserves wire summary in --json output even with --depth name", async () => {
