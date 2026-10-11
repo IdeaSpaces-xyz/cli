@@ -20,6 +20,7 @@ import {
   UnauthorizedError,
   type ExchangeMapMemberResponse,
   type ExchangeMessage,
+  type ExchangeMessageSummary,
   type ExchangeManagementResponse,
   type ExchangeNoteWrite,
   type ExchangeReadResponse,
