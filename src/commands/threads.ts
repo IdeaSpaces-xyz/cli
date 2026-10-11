@@ -198,7 +198,7 @@ const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
     init: "",
     push: "remote",
     send: "space about map share share-roots space-map name summary message send-id grade",
-    reply: "map name summary message send-id",
+    reply: "map name summary message send-id reply-to",
     expand: "",
     add: "grade",
     rename: "name",
