@@ -20,6 +20,7 @@ import {
   UnauthorizedError,
   type ExchangeMapMemberResponse,
   type ExchangeMessage,
+  type ExchangeMessageSummary,
   type ExchangeManagementResponse,
   type ExchangeNoteWrite,
   type ExchangeReadResponse,
@@ -40,6 +41,7 @@ import {
   parseExchangeMapSelection,
   type ExchangeMapSelection,
 } from "../exchange-map-selection.js";
+import { reconstructThreadTimeline, type ThreadNode, type ThreadPost } from "@ideaspaces/protocol";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 import { appendAddressMemberToMapFile } from "./map-edit.js";
@@ -59,7 +61,7 @@ const SEND_USAGE =
 const EXPAND_USAGE = "ideaspaces threads expand <thread_id> <member_ordinal>";
 const MAX_SELECTION_FILE_BYTES = 128 * 1024;
 const REPLY_USAGE =
-  "ideaspaces threads reply <thread_id> [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
+  "ideaspaces threads reply <thread_id> [--reply-to <node_id,...>] [--map <selection.json>] --name <title> --summary <summary> [--message <markdown>] [--send-id <id>]";
 
 function flagString(flags: Flags, name: string): string | undefined {
   return typeof flags[name] === "string" ? flags[name] : undefined;
@@ -173,6 +175,119 @@ function inboxItemText(item: InboxItem): string {
   ].join("\n");
 }
 
+/**
+ * Resolves effective in_reply_to parent IDs for a hosted message.
+ * Pre-#1017 messages did not persist in_reply_to on the server (empty array);
+ * to ensure a connected disclosure tree, legacy replies fall back to the opening note.
+ */
+export function effectiveInReplyTo(message: ExchangeMessageSummary, openingId?: string): string[] {
+  if (message.note_node_id === openingId) {
+    return message.in_reply_to ?? [];
+  }
+  if (message.in_reply_to && message.in_reply_to.length > 0) {
+    return message.in_reply_to;
+  }
+  return openingId ? [openingId] : [];
+}
+
+export function isInferredParent(message: ExchangeMessageSummary, openingId?: string): boolean {
+  return !!openingId && message.note_node_id !== openingId && !message.in_reply_to?.length;
+}
+
+export interface HostedThreadChild {
+  id: string;
+  note_node_id: string;
+  kind: string;
+  date: string | null;
+  name: string;
+  in_reply_to: string[];
+  in_reply_to_inferred?: true;
+  children: HostedThreadChild[];
+}
+
+export function hostedToThreadPosts(messages: ExchangeMessage[], openingId?: string): ThreadPost[] {
+  return messages.map((m) => ({
+    id: m.note_node_id,
+    // ThreadPost is used only for the protocol timeline; hosted actions are not local Thread kinds.
+    kind: "post" as const,
+    date: m.created_at,
+    inReplyTo: effectiveInReplyTo(m, openingId),
+    references: [],
+    frontmatter: { id: m.note_node_id, name: m.name, summary: m.summary },
+    body: m.markdown,
+    path: `${String(m.position).padStart(8, "0")}-${m.note_node_id}`,
+  }));
+}
+
+export function hostedChildTree(messages: ExchangeMessage[], openingId?: string): HostedThreadChild[] {
+  const posts = hostedToThreadPosts(messages, openingId);
+  const byId = new Map(messages.map((message) => [message.note_node_id, message]));
+  const nodeMap = new Map<string, ThreadNode>();
+  for (const post of posts) {
+    nodeMap.set(post.id, { post, parents: [...post.inReplyTo], children: [] });
+  }
+  for (const post of posts) {
+    const childNode = nodeMap.get(post.id)!;
+    for (const pId of post.inReplyTo) {
+      const parentNode = nodeMap.get(pId);
+      if (parentNode) parentNode.children.push(childNode);
+    }
+  }
+
+  const seen = new Set<string>();
+  function project(node: ThreadNode): HostedThreadChild {
+    seen.add(node.post.id);
+    const source = byId.get(node.post.id)!;
+    const children: HostedThreadChild[] = [];
+    for (const child of node.children) {
+      if (!seen.has(child.post.id)) {
+        children.push(project(child));
+      }
+    }
+    return {
+      id: node.post.id,
+      note_node_id: node.post.id,
+      kind: source.action,
+      date: source.created_at,
+      name: source.name,
+      in_reply_to: node.post.inReplyTo,
+      ...(isInferredParent(source, openingId) ? { in_reply_to_inferred: true as const } : {}),
+      children,
+    };
+  }
+
+  const timeline = reconstructThreadTimeline(posts);
+  const roots: HostedThreadChild[] = [];
+  for (const rootNode of timeline.roots) {
+    if (!seen.has(rootNode.post.id)) {
+      roots.push(project(rootNode));
+    }
+  }
+  for (const post of timeline.posts) {
+    if (!seen.has(post.id)) {
+      const node = nodeMap.get(post.id);
+      if (node) roots.push(project(node));
+    }
+  }
+  return roots;
+}
+
+export function formatHostedChildrenText(roots: HostedThreadChild[]): string {
+  const lines: string[] = [];
+  function visit(nodes: HostedThreadChild[], indent: number) {
+    for (const node of nodes) {
+      const parentList = (node.in_reply_to.join(", ") || "—") + (node.in_reply_to_inferred ? " (inferred)" : "");
+      const dateText = node.date ?? "undated";
+      lines.push(
+        `${"  ".repeat(indent)}${node.note_node_id} · ${node.kind} · ${dateText} · ${node.name} · in_reply_to ${parentList}`,
+      );
+      visit(node.children, indent + 1);
+    }
+  }
+  visit(roots, 0);
+  return lines.join("\n");
+}
+
 export function exchangeText(
   exchange: ExchangeReadResponse,
   messages: ExchangeMessage[] = exchange.messages,
@@ -189,7 +304,6 @@ export function exchangeText(
     ...(exchange.target_node_id ? [`About ${exchange.target_node_id}`] : []),
     `Participants: ${participantsText(exchange.participants)}`,
     `Cursor: ${exchange.cursor ?? "not followed"} · Latest: ${exchange.latest_position}`,
-    ...(depth === "summary" ? ["Reply parents unavailable in hosted Threads; posts are listed in time order."] : []),
   ];
   for (const message of messages) {
     const author = exchange.participants.find(
@@ -507,21 +621,21 @@ async function read(rest: string[], flags: Flags, output: Output): Promise<numbe
       acknowledged = await acknowledgeSubscription(config, row.id, exchange.latest_position);
     }
 
-    const projected = post || depth === "surface" || depth === "full" ? messages : depth === "name" ? [] : messages.map((message) => ({
+    const openingId = exchange.subject?.opening_note_id ?? exchange.messages[0]?.note_node_id;
+    const projected = post || depth === "surface" || depth === "full" ? messages : depth === "name" ? [] : depth === "children" ? hostedChildTree(messages, openingId) : messages.map((message) => ({
       id: message.note_node_id, note_node_id: message.note_node_id, kind: message.action, date: message.created_at, name: message.name,
-      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref } : {}),
+      ...(depth === "summary" ? { summary: message.summary, author: message.author_ref, in_reply_to: effectiveInReplyTo(message, openingId),
+        ...(isInferredParent(message, openingId) ? { in_reply_to_inferred: true } : {}) } : {}),
     }));
     const data = {
       ...exchange,
       messages: projected,
-      ...(depth === "summary" || depth === "children" ? { reply_links_unavailable: true } : {}),
       ...(kind === "reframe" ? { events } : {}),
       ...(acknowledged ? { acknowledged_cursor: acknowledged.cursor } : {}),
     };
     const empty = kind === "reframe" ? "No new reframe events." : "No messages after that position.";
     const text = depth === "children" && !post
-      ? ["Hosted reply parents unavailable; showing flat post order.", ...messages.map((message) =>
-        `${message.note_node_id} · ${message.action} · ${message.created_at} · ${message.name} · in_reply_to unavailable`)].join("\n")
+      ? formatHostedChildrenText(projected as HostedThreadChild[])
       : exchangeText(exchange, messages, post ? "full" : depth);
     output.result(data, messages.length ? text : empty);
     return 0;
@@ -815,6 +929,16 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
     output.error(`Usage: ${REPLY_USAGE}`);
     return 1;
   }
+  let replyTo: string[] | undefined;
+  if (flags["reply-to"] !== undefined) {
+    const raw = flags["reply-to"];
+    const ids = typeof raw === "string" ? raw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    if (!ids.length || ids.some((id) => !NODE_ID.test(id))) {
+      output.error("--reply-to must name one or more valid Note ids (n_…), separated by commas.");
+      return 1;
+    }
+    replyTo = Array.from(new Set(ids));
+  }
   const selection = loadMapSelection(flags, output);
   if (selection === null) return 1;
   const note = await writeBody(flags, output);
@@ -822,6 +946,7 @@ async function reply(rest: string[], flags: Flags, output: Output): Promise<numb
   return runAuthenticated(output, async (config) => {
     const result = await replyToExchange(config, exchangeId, {
       ...note,
+      ...(replyTo?.length ? { in_reply_to: replyTo } : {}),
       ...(selection ? { map: selection.map } : {}),
     });
     output.result(result, `Replied in thread ${result.exchange_id}.`);
@@ -906,6 +1031,7 @@ export const hostedThreadsCommand: CommandDef = {
     "ideaspaces threads add x_example @colleague --grade participate  # preview; add --yes to grant as owner",
     "ideaspaces threads close x_example  # preview; add --yes to close as owner",
     "ideaspaces threads rename x_example --name 'New title'  # applies immediately; owner only",
+    "ideaspaces threads reply x_example --reply-to n_0123456789abcdef01234567 --name 'Answer' --summary 'Summary' --message 'Here is the response'",
     "ideaspaces threads send @owner --map selection.json --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --about n_0123456789abcdef01234567 --name 'Question' --summary 'One decision' --message 'What should happen next?'",
     "ideaspaces threads send @owner --map selection.json --share viewer --name 'Question' --summary 'One decision' --message 'What should happen next?'",

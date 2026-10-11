@@ -244,17 +244,17 @@ describe("inbox", () => {
     expect(stderr()).toContain("valid ISO date");
   });
 
-  it("bounds hosted Thread disclosure and selects one immutable Note by id", async () => {
+  it("bounds hosted Thread disclosure and builds children reply tree using reply links", async () => {
     const dated = [
-      { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, markdown: "Old private body" },
-      { ...message, note_node_id: "n_second", created_at: "2026-10-07T00:00:00Z", position: 2, markdown: "Selected body" },
+      { ...message, note_node_id: "n_first", created_at: "2026-10-06T00:00:00Z", position: 1, in_reply_to: [], markdown: "Old private body" },
+      { ...message, note_node_id: "n_second", created_at: "2026-10-07T00:00:00Z", position: 2, in_reply_to: ["n_first"], markdown: "Selected body" },
     ];
     fetchExchangeMock.mockResolvedValue({ exchange_id: "x_one", name: "Thread", your_grade: "view", target_node_id: null,
-      participants: [], cursor: 1, latest_position: 2, messages: dated });
+      participants: [], cursor: 1, latest_position: 2, messages: dated, subject: { opening_note_id: "n_first", current_note_id: "n_first" } });
     expect(await inboxCommand.run(["read", "x_one"], { depth: "summary", new: true }, JSON_GLOBAL)).toBe(0);
     let result = JSON.parse(stdout());
-    expect(result.messages).toMatchObject([{ id: "n_second", kind: "inquiry.opened", date: "2026-10-07T00:00:00Z" }]);
-    expect(result.messages[0]).not.toHaveProperty("in_reply_to");
+    expect(result.messages).toMatchObject([{ id: "n_second", kind: "inquiry.opened", date: "2026-10-07T00:00:00Z", in_reply_to: ["n_first"] }]);
+    expect(result).not.toHaveProperty("reply_links_unavailable");
     expect(stdout()).not.toContain("Selected body");
     stdoutChunks = [];
     expect(await inboxCommand.run(["read", "x_one"], { depth: "name" }, JSON_GLOBAL)).toBe(0);
@@ -275,12 +275,299 @@ describe("inbox", () => {
     expect(JSON.parse(stdout()).messages[0].markdown).toBe("Selected body"); // --post means one full post.
     stdoutChunks = [];
     expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, JSON_GLOBAL)).toBe(0);
-    expect(JSON.parse(stdout())).toMatchObject({ reply_links_unavailable: true, messages: [{ id: "n_first" }, { id: "n_second" }] });
-    expect(JSON.parse(stdout()).messages[0]).not.toHaveProperty("in_reply_to");
+    expect(JSON.parse(stdout())).toMatchObject({
+      messages: [
+        {
+          id: "n_first",
+          note_node_id: "n_first",
+          in_reply_to: [],
+          children: [
+            {
+              id: "n_second",
+              note_node_id: "n_second",
+              in_reply_to: ["n_first"],
+              children: [],
+            },
+          ],
+        },
+      ],
+    });
+    expect(JSON.parse(stdout())).not.toHaveProperty("reply_links_unavailable");
     expect(stdout()).not.toContain("Old private body");
     stdoutChunks = [];
     expect(await inboxCommand.run(["read", "x_one"], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
-    expect(stdout()).toContain("flat post order");
+    expect(stdout()).not.toContain("flat post order");
+    expect(stdout()).not.toContain("unavailable");
+    expect(stdout()).toContain("n_first · inquiry.opened · 2026-10-06T00:00:00Z · Question · in_reply_to —");
+    expect(stdout()).toContain("  n_second · inquiry.opened · 2026-10-07T00:00:00Z · Question · in_reply_to n_first");
+  });
+
+  it("nests multi-tier hosted replies and pre-#1017 replies under the opening post", async () => {
+    const threadMessages = [
+      { ...message, note_node_id: "n_open", name: "Opening", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: [] },
+      { ...message, note_node_id: "n_legacy_reply", name: "Legacy Reply", created_at: "2026-10-06T11:00:00Z", position: 2, action: "note.replied" as const, in_reply_to: [] },
+      { ...message, note_node_id: "n_nested_reply", name: "Nested Reply", created_at: "2026-10-06T12:00:00Z", position: 3, action: "note.replied" as const, in_reply_to: ["n_legacy_reply"] },
+      { ...message, note_node_id: "n_direct_reply", name: "Direct Reply", created_at: "2026-10-06T13:00:00Z", position: 4, action: "note.replied" as const, in_reply_to: ["n_open"] },
+    ];
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: "x_tree",
+      name: "Tree Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 4,
+      messages: threadMessages,
+      subject: { opening_note_id: "n_open", current_note_id: "n_open" },
+    });
+
+    expect(await inboxCommand.run(["read", "x_tree"], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    const json = JSON.parse(stdout());
+    expect(json).not.toHaveProperty("reply_links_unavailable");
+    expect(json.messages).toMatchObject([
+      {
+        id: "n_open",
+        in_reply_to: [],
+        children: [
+          {
+            id: "n_legacy_reply",
+            in_reply_to: ["n_open"],
+            in_reply_to_inferred: true,
+            children: [
+              {
+                id: "n_nested_reply",
+                in_reply_to: ["n_legacy_reply"],
+                children: [],
+              },
+            ],
+          },
+          {
+            id: "n_direct_reply",
+            in_reply_to: ["n_open"],
+            children: [],
+          },
+        ],
+      },
+    ]);
+
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", "x_tree"], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
+    const textLines = stdout().trim().split("\n");
+    expect(textLines[0]).toBe("n_open · inquiry.opened · 2026-10-06T10:00:00Z · Opening · in_reply_to —");
+    expect(textLines[1]).toBe("  n_legacy_reply · note.replied · 2026-10-06T11:00:00Z · Legacy Reply · in_reply_to n_open (inferred)");
+    expect(textLines[2]).toBe("    n_nested_reply · note.replied · 2026-10-06T12:00:00Z · Nested Reply · in_reply_to n_legacy_reply");
+    expect(textLines[3]).toBe("  n_direct_reply · note.replied · 2026-10-06T13:00:00Z · Direct Reply · in_reply_to n_open");
+  });
+
+  it("passes and validates --reply-to when replying to a hosted Thread", async () => {
+    replyToExchangeMock.mockResolvedValue({
+      exchange_id: "x_tree",
+      note_node_id: "n_reply_new",
+      event_id: "evt_1",
+      position: 5,
+      created_at: "2026-10-08T00:00:00Z",
+      target_node_id: null,
+      author_ref: "person:user_1",
+    });
+
+    const parent1 = "n_" + "1".repeat(24);
+    const parent2 = "n_" + "2".repeat(24);
+    expect(await inboxCommand.run(
+      ["reply", "x_tree"],
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": `${parent1}, ${parent2}, ${parent1}` },
+      JSON_GLOBAL,
+    )).toBe(0);
+
+    expect(replyToExchangeMock).toHaveBeenCalledWith(
+      CFG,
+      "x_tree",
+      expect.objectContaining({
+        name: "Answer",
+        summary: "My answer",
+        markdown: "Here is the response",
+        in_reply_to: [parent1, parent2],
+      }),
+    );
+
+    // Rejects empty or boolean --reply-to
+    stderrChunks = [];
+    expect(await inboxCommand.run(
+      ["reply", "x_tree"],
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": true },
+      TEXT_GLOBAL,
+    )).toBe(1);
+    expect(stderr()).toContain("--reply-to must name one or more valid Note ids");
+
+    stderrChunks = [];
+    expect(await inboxCommand.run(
+      ["reply", "x_tree"],
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "   " },
+      TEXT_GLOBAL,
+    )).toBe(1);
+    expect(stderr()).toContain("--reply-to must name one or more valid Note ids");
+
+    // Rejects invalid note ids
+    stderrChunks = [];
+    expect(await inboxCommand.run(
+      ["reply", "x_tree"],
+      { name: "Answer", summary: "My answer", message: "Here is the response", "reply-to": "invalid_id" },
+      TEXT_GLOBAL,
+    )).toBe(1);
+    expect(stderr()).toContain("--reply-to must name one or more valid Note ids");
+  });
+
+  it("safely handles circular, multi-parent and filtered reply graphs without crashing or duplicating subtrees", async () => {
+    // 1. Cyclic reply graph
+    const cycleId = "x_" + "c".repeat(24);
+    const cyclicMessages = [
+      { ...message, note_node_id: "n_a", name: "Node A", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: ["n_b"] },
+      { ...message, note_node_id: "n_b", name: "Node B", created_at: "2026-10-06T11:00:00Z", position: 2, in_reply_to: ["n_a"] },
+    ];
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: cycleId,
+      name: "Cyclic Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 2,
+      messages: cyclicMessages,
+      subject: { opening_note_id: "n_a", current_note_id: "n_a" },
+    });
+
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", cycleId], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    const parsedCycle = JSON.parse(stdout());
+    expect(parsedCycle.messages).toHaveLength(1);
+    expect(parsedCycle.messages[0].id).toBe("n_a");
+    expect(parsedCycle.messages[0].children).toHaveLength(1);
+    expect(parsedCycle.messages[0].children[0].id).toBe("n_b");
+    expect(parsedCycle.messages[0].children[0].children).toHaveLength(0);
+
+    // 2. Multi-parent diamond (merge)
+    const diamondId = "x_" + "d".repeat(24);
+    const diamondMessages = [
+      { ...message, note_node_id: "n_root", name: "Root", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: [] },
+      { ...message, note_node_id: "n_left", name: "Left", created_at: "2026-10-06T11:00:00Z", position: 2, in_reply_to: ["n_root"] },
+      { ...message, note_node_id: "n_right", name: "Right", created_at: "2026-10-06T12:00:00Z", position: 3, in_reply_to: ["n_root"] },
+      { ...message, note_node_id: "n_merge", name: "Merge", created_at: "2026-10-06T13:00:00Z", position: 4, in_reply_to: ["n_left", "n_right"] },
+    ];
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: diamondId,
+      name: "Diamond Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 4,
+      messages: diamondMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
+
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", diamondId], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    const parsedDiamond = JSON.parse(stdout());
+    expect(parsedDiamond.messages).toHaveLength(1);
+    const root = parsedDiamond.messages[0];
+    expect(root.id).toBe("n_root");
+    expect(root.children).toHaveLength(2);
+    // Merge node is attached under first traversed parent, not duplicated under both
+    const totalMergeNodes = (root.children[0].children.length) + (root.children[1].children.length);
+    expect(totalMergeNodes).toBe(1);
+
+    // 3. Filtered read with --new where parent is before cursor
+    const filteredId = "x_" + "f".repeat(24);
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: filteredId,
+      name: "Filtered Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 1, // cursor past n_root
+      latest_position: 4,
+      messages: diamondMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", filteredId], { depth: "children", new: true }, JSON_GLOBAL)).toBe(0);
+    const parsedFiltered = JSON.parse(stdout());
+    // n_left and n_right become roots of the visible tree
+    expect(parsedFiltered.messages.map((m: { id: string }) => m.id)).toEqual(["n_left", "n_right"]);
+
+    // 4. Filtered read with --new on legacy replies (empty server in_reply_to)
+    const legacyThreadMessages = [
+      { ...message, note_node_id: "n_root", name: "Root", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: [] },
+      { ...message, note_node_id: "n_leg1", name: "Legacy 1", created_at: "2026-10-06T11:00:00Z", position: 2, action: "note.replied" as const, in_reply_to: [] },
+      { ...message, note_node_id: "n_leg2", name: "Legacy 2", created_at: "2026-10-06T12:00:00Z", position: 3, action: "note.replied" as const, in_reply_to: [] },
+    ];
+    const legacyFilteredId = "x_" + "e".repeat(24);
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: legacyFilteredId,
+      name: "Legacy Filtered",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 1, // cursor past n_root
+      latest_position: 3,
+      messages: legacyThreadMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", legacyFilteredId], { depth: "children", new: true }, JSON_GLOBAL)).toBe(0);
+    const parsedLegacy = JSON.parse(stdout());
+    // With the opening before the cursor, inferred legacy replies surface as visible roots.
+    expect(parsedLegacy.messages.map((m: { id: string }) => m.id)).toEqual(["n_leg1", "n_leg2"]);
+    expect(parsedLegacy.messages[0]).toMatchObject({ in_reply_to: ["n_root"], in_reply_to_inferred: true });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", legacyFilteredId], { depth: "summary", new: true }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout()).messages[0]).toMatchObject({ in_reply_to: ["n_root"], in_reply_to_inferred: true });
+
+    // 5. Node replies to both root and sibling: in_reply_to: [n_root, n_a]
+    const siblingMessages = [
+      { ...message, note_node_id: "n_root", name: "Root", created_at: "2026-10-06T10:00:00Z", position: 1, in_reply_to: [] },
+      { ...message, note_node_id: "n_a", name: "A", created_at: "2026-10-06T11:00:00Z", position: 2, in_reply_to: ["n_root"] },
+      { ...message, note_node_id: "n_b", name: "B", created_at: "2026-10-06T12:00:00Z", position: 3, in_reply_to: ["n_root", "n_a"] },
+    ];
+    const siblingId = "x_" + "s".repeat(24);
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: siblingId,
+      name: "Sibling Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 3,
+      messages: siblingMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", siblingId], { depth: "children" }, JSON_GLOBAL)).toBe(0);
+    const parsedSibling = JSON.parse(stdout());
+    expect(parsedSibling.messages).toHaveLength(1);
+    const sibRoot = parsedSibling.messages[0];
+    expect(sibRoot.id).toBe("n_root");
+    // n_b must only appear once in the whole tree (under n_a, not also as direct child of n_root)
+    const directChildIds = sibRoot.children.map((c: { id: string }) => c.id);
+    expect(directChildIds).toEqual(["n_a"]);
+    expect(sibRoot.children[0].children.map((c: { id: string }) => c.id)).toEqual(["n_b"]);
+
+    fetchExchangeMock.mockResolvedValue({
+      exchange_id: diamondId,
+      name: "Diamond Thread",
+      your_grade: "manage",
+      target_node_id: null,
+      participants: [],
+      cursor: 0,
+      latest_position: 4,
+      messages: diamondMessages,
+      subject: { opening_note_id: "n_root", current_note_id: "n_root" },
+    });
+    stdoutChunks = [];
+    expect(await inboxCommand.run(["read", diamondId], { depth: "children" }, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("n_root");
+    expect(stdout()).toContain("  n_left");
+    expect(stdout()).toContain("  n_right");
+    expect(stdout()).toContain("    n_merge");
   });
 
   it("renders preserved Map context without losing the question", async () => {

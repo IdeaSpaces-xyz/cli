@@ -102,9 +102,15 @@ function childTree(posts: LocalThread["posts"]): ThreadChild[] {
   const seen = new Set<string>();
   const project = (node: ThreadNode): ThreadChild => {
     seen.add(node.post.id);
+    const children: ThreadChild[] = [];
+    for (const child of node.children) {
+      if (!seen.has(child.post.id)) {
+        children.push(project(child));
+      }
+    }
     return { id: node.post.id, kind: node.post.kind, date: node.post.date ?? null,
       name: node.post.frontmatter.name ?? node.post.id, in_reply_to: node.post.inReplyTo,
-      children: node.children.filter((child) => !seen.has(child.post.id)).map(project) };
+      children };
   };
   return reconstructThreadTimeline(posts).roots.map(project);
 }
@@ -198,7 +204,7 @@ const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
     init: "",
     push: "remote",
     send: "space about map share share-roots space-map name summary message send-id grade",
-    reply: "map name summary message send-id",
+    reply: "map name summary message send-id reply-to",
     expand: "",
     add: "grade",
     rename: "name",
@@ -230,6 +236,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads add x_<id> @handle --grade view  # preview; add --yes to grant as hosted owner",
     "ideaspaces threads rename x_<id> --name 'New title'  # applies immediately; hosted owner only",
     "ideaspaces threads send @handle --grade view --name 'Question' --summary 'One decision' --message '…'",
+    "ideaspaces threads reply x_<id> --name 'Answer' --summary 'Summary' --message '…' [--reply-to n_…]",
     "ideaspaces threads list --kind message --json  # hosted rows include your_grade and closed",
     "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
