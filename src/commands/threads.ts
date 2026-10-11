@@ -198,7 +198,8 @@ export const threadsCommand: CommandDef = {
   usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
   examples: [
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
-    "ideaspaces threads posts [--space n_…] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary]",
+    "ideaspaces threads posts [--space n_…] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary] [--order newer|older]",
+    "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|full] [--new] [--ack]",
     "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",

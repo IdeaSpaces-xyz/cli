@@ -1864,6 +1864,10 @@ describe("inbox", () => {
       expect(stderr()).toContain("--limit must be an integer between 1 and 1000.");
 
       stderrChunks = [];
+      expect(await threadsCommand.run(["posts"], { since: "2026-10-11T12:00:00.000Z", order: "older" }, TEXT_GLOBAL)).toBe(1);
+      expect(stderr()).toContain("Cannot combine --since <ISO date> with --order older");
+
+      stderrChunks = [];
       expect(await threadsCommand.run(["posts"], { since: "not-a-date-or-id" }, TEXT_GLOBAL)).toBe(1);
       expect(stderr()).toContain("--since needs a position, post id (n_…), or ISO date.");
 

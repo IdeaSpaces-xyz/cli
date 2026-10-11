@@ -1033,8 +1033,8 @@ function nextPostsCommand(opts: {
   scope?: string;
   limit?: number;
   sinceVal?: string;
-  depthVal?: string;
-  orderVal?: string;
+  depthVal: "name" | "summary";
+  orderVal: "newer" | "older";
   cursor: string;
 }): string {
   const parts = ["ideaspaces threads posts"];
@@ -1043,8 +1043,8 @@ function nextPostsCommand(opts: {
   if (opts.scope && opts.scope !== "inbox") parts.push(`--scope ${opts.scope}`);
   if (opts.limit !== undefined) parts.push(`--limit ${opts.limit}`);
   if (opts.sinceVal) parts.push(`--since ${opts.sinceVal}`);
-  if (opts.depthVal && opts.depthVal !== "summary") parts.push(`--depth ${opts.depthVal}`);
-  if (opts.orderVal && opts.orderVal !== "newer") parts.push(`--order ${opts.orderVal}`);
+  if (opts.depthVal !== "summary") parts.push(`--depth ${opts.depthVal}`);
+  if (opts.orderVal !== "newer") parts.push(`--order ${opts.orderVal}`);
   parts.push(`--cursor ${opts.cursor}`);
   return parts.join(" ");
 }
@@ -1131,8 +1131,8 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
     }
   }
 
-  const depthVal = flagString(flags, "depth") ?? "summary";
-  if (depthVal !== "name" && depthVal !== "summary") {
+  const depthVal = (flags.depth === "name" ? "name" : "summary") as "name" | "summary";
+  if (flags.depth !== undefined && flags.depth !== "name" && flags.depth !== "summary") {
     output.error("--depth must be name or summary for post listings.");
     return 1;
   }
@@ -1143,6 +1143,11 @@ async function posts(rest: string[], flags: Flags, output: Output): Promise<numb
     orderVal = orderRaw;
   } else {
     output.error("--order must be newer or older.");
+    return 1;
+  }
+
+  if (sinceDate !== undefined && orderVal === "older") {
+    output.error("Cannot combine --since <ISO date> with --order older; use a post id or position instead.");
     return 1;
   }
 
