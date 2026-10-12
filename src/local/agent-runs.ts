@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { win32, join } from "node:path";
 import { configDir } from "../auth/config-dir.js";
 
 export type AgentRunStatus = "running" | "completed" | "failed" | "interrupted" | "cancelled";
@@ -25,14 +25,9 @@ export interface ListAgentRunsOptions {
   limit?: number;
 }
 
-export function normalizeAgentPath(p: string): string {
-  return p.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
-}
-
 export function agentDisplayName(agentPath: string): string {
-  const norm = normalizeAgentPath(agentPath);
-  const parts = norm.split("/");
-  return parts.pop() || agentPath;
+  const trimmed = agentPath.replace(/[\\/]+$/, "");
+  return win32.basename(trimmed) || agentPath;
 }
 
 export function recordAgentRun(record: AgentRunRecord): void {
@@ -80,12 +75,14 @@ export function listAgentRuns(options: ListAgentRunsOptions = {}): AgentRunRecor
     runs = runs.filter((r) => r.parent_id === options.parentId);
   }
   if (options.agent !== undefined && options.agent.trim()) {
-    const raw = normalizeAgentPath(options.agent.trim());
+    const raw = options.agent.trim().replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
     if (raw) {
       runs = runs.filter((r) => {
-        const norm = normalizeAgentPath(r.agent);
-        return norm === raw || norm.endsWith(`/${raw}`) || agentDisplayName(r.agent) === raw;
+        const norm = r.agent.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
+        return norm === raw || norm.endsWith(`/${raw}`);
       });
+    } else {
+      runs = [];
     }
   }
 
