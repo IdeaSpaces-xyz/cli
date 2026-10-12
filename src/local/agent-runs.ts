@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { configDir } from "../auth/config-dir.js";
 
 export type AgentRunStatus = "running" | "completed" | "failed" | "interrupted" | "cancelled";
@@ -71,7 +71,7 @@ export function listAgentRuns(options: ListAgentRunsOptions = {}): AgentRunRecor
   }
   if (options.agent !== undefined && options.agent.trim()) {
     const match = options.agent.trim();
-    runs = runs.filter((r) => r.agent === match || r.agent.endsWith(`/${match}`));
+    runs = runs.filter((r) => r.agent === match || r.agent.endsWith(`/${match}`) || r.agent.endsWith(`\\${match}`));
   }
 
   // Sort newest first by started_at descending
@@ -93,7 +93,7 @@ export function formatAgentRunsText(runs: AgentRunRecord[], parentFilter?: strin
 
   return runs
     .map((run) => {
-      const agentName = run.agent.split("/").pop() || run.agent;
+      const agentName = basename(run.agent) || run.agent;
       const parentPart = run.parent_id ? ` (parent: ${run.parent_id})` : "";
       const convPart = run.conversation_id ? ` · conv: ${run.conversation_id}` : "";
       return `${agentName} · ${run.harness} · ${run.model || "unreported model"} · ${run.status} — runId: ${run.run_id}${parentPart}${convPart}`;
