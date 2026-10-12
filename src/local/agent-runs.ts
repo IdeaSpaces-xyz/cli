@@ -25,8 +25,13 @@ export interface ListAgentRunsOptions {
   limit?: number;
 }
 
+export function normalizeAgentPath(p: string): string {
+  return p.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
+}
+
 export function agentDisplayName(agentPath: string): string {
-  const parts = agentPath.replace(/[\\/]+$/, "").split(/[\\/]/);
+  const norm = normalizeAgentPath(agentPath);
+  const parts = norm.split("/");
   return parts.pop() || agentPath;
 }
 
@@ -75,11 +80,13 @@ export function listAgentRuns(options: ListAgentRunsOptions = {}): AgentRunRecor
     runs = runs.filter((r) => r.parent_id === options.parentId);
   }
   if (options.agent !== undefined && options.agent.trim()) {
-    const raw = options.agent.trim().replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
-    runs = runs.filter((r) => {
-      const normalizedAgent = r.agent.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
-      return normalizedAgent === raw || normalizedAgent.endsWith(`/${raw}`) || agentDisplayName(r.agent) === raw;
-    });
+    const raw = normalizeAgentPath(options.agent.trim());
+    if (raw) {
+      runs = runs.filter((r) => {
+        const norm = normalizeAgentPath(r.agent);
+        return norm === raw || norm.endsWith(`/${raw}`) || agentDisplayName(r.agent) === raw;
+      });
+    }
   }
 
   // Sort newest first by started_at descending

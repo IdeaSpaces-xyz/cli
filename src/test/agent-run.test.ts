@@ -7,7 +7,7 @@ import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { agentDisplayName } from "../local/agent-runs.js";
+import { agentDisplayName, normalizeAgentPath } from "../local/agent-runs.js";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
 import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
@@ -1291,6 +1291,9 @@ process.stdin.on("data", (chunk) => {
     expect(agentDisplayName("/path/to/agents/scout/")).toBe("scout");
     expect(agentDisplayName("C:\\path\\to\\agents\\scout\\")).toBe("scout");
     expect(agentDisplayName("scout")).toBe("scout");
+
+    expect(normalizeAgentPath("/a/b/c/")).toBe("a/b/c");
+    expect(normalizeAgentPath("C:\\a\\b\\c\\")).toBe("C:/a/b/c");
   });
 
   it("records failed status when child run fails", async () => {

@@ -448,14 +448,14 @@ async function cmdRun(
   }
 
   const extraOrientation = thread ? `${povOrientation}\n\n${thread.orientation}` : povOrientation;
-  const onSigInt = () => {
+  const onSig = (sig: NodeJS.Signals) => {
     finishRun("interrupted");
-    process.exit(130);
+    process.off("SIGINT", onSigInt);
+    process.off("SIGTERM", onSigTerm);
+    process.kill(process.pid, sig);
   };
-  const onSigTerm = () => {
-    finishRun("interrupted");
-    process.exit(143);
-  };
+  const onSigInt = () => onSig("SIGINT");
+  const onSigTerm = () => onSig("SIGTERM");
   process.once("SIGINT", onSigInt);
   process.once("SIGTERM", onSigTerm);
 
