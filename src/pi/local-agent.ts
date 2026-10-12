@@ -35,7 +35,7 @@ import {
   type ToolInvocation,
 } from "@ideaspaces/sdk";
 import { launchMapEnv } from "../local/address-read.js";
-import { discloseLaunch, type ThreadReadReceipt } from "../local/send-options.js";
+import { discloseLaunch, piStateModel, type ThreadReadReceipt } from "../local/send-options.js";
 
 /** Non-agent stdout kinds we skip (command acks + fire-and-forget UI chrome). */
 const NON_AGENT_TYPES = new Set(["response", "extension_ui_request"]);
@@ -234,6 +234,8 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
   // Ask whether the session is already named before we prompt, so we can derive
   // a first-message name only for a fresh conversation.
   let sessionName: string | undefined;
+  // The model Pi resolved for this session, as Pi reports it — not the --model pattern.
+  let observedModel: string | null = null;
   const send = (obj: Record<string, unknown>): void => {
     try {
       pi.stdin.write(`${JSON.stringify(obj)}\n`);
@@ -259,6 +261,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         if (type === "response" && msg.command === "get_state" && msg.success !== false) {
           const data = msg.data as { sessionName?: string } | undefined;
           sessionName = data?.sessionName;
+          observedModel = piStateModel(data);
         }
         if (type === "response" && msg.success === false && msg.command === "prompt") {
           yield translator.error("pi_error", String(msg.error ?? "prompt failed"));
@@ -272,6 +275,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
           yield discloseLaunch(ke, {
             cwd: opts.repoPath, added_dirs: [], permission_mode: null,
             allowed_tools: null, runtime: "pi", model: opts.piModel ?? ke.model_tier,
+            model_requested: opts.piModel ?? null, model_observed: observedModel,
             extensions: opts.extensionPaths, trust: opts.trust === "saved" ? "saved" : "explicit",
             thread: opts.threadReceipt,
           });

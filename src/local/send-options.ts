@@ -3,15 +3,45 @@ import type { ThreadReadReceipt } from "./thread-launch.js";
 
 export type { ThreadReadReceipt };
 
+/**
+ * Which model ran, kept apart from which was asked for. `model_requested` is the
+ * override passed to the runtime; `model_observed` is what the runtime itself
+ * reported for this turn. Either is null when absent — a launcher must never
+ * present a request, or the "local" tier label, as the model that ran.
+ */
+export interface LaunchModelReport {
+  model_requested: string | null;
+  model_observed: string | null;
+}
+
 /** One CLI-local disclosure shape for both runtime translators. Required reach fields catch drift. */
 type LocalLaunchReach = Required<Pick<KeeperMessageStartEvent,
   "cwd" | "added_dirs" | "permission_mode" | "allowed_tools" | "runtime" | "model"
->> & Pick<KeeperMessageStartEvent, "extensions" | "trust" | "allowed_tools_semantics" | "shell_available"> & {
+>> & Pick<KeeperMessageStartEvent, "extensions" | "trust" | "allowed_tools_semantics" | "shell_available"> & LaunchModelReport & {
   thread?: ThreadReadReceipt;
 };
 
-export function discloseLaunch(event: Extract<KeeperStreamEvent, { type: "message_start" }>, reach: LocalLaunchReach): KeeperMessageStartEvent & { thread?: ThreadReadReceipt } {
+export type LocalMessageStartEvent = KeeperMessageStartEvent & LaunchModelReport & { thread?: ThreadReadReceipt };
+
+export function discloseLaunch(event: Extract<KeeperStreamEvent, { type: "message_start" }>, reach: LocalLaunchReach): LocalMessageStartEvent {
   return { ...event, ...reach };
+}
+
+/** A runtime-reported model id, or null when it is missing or not a printable bounded string. */
+export function reportedModel(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 200 || /[\u0000-\u001f\u007f]/.test(trimmed)) return null;
+  return trimmed;
+}
+
+/** Pi's `get_state` model object → `provider/id`, or null when Pi reported none. */
+export function piStateModel(state: unknown): string | null {
+  const model = (state as { model?: { provider?: unknown; id?: unknown } } | undefined)?.model;
+  const id = reportedModel(model?.id);
+  if (!id) return null;
+  const provider = reportedModel(model?.provider);
+  return provider ? `${provider}/${id}` : id;
 }
 
 export interface LocalSendOptions {
