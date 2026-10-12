@@ -1,5 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { win32, join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join, resolve, win32 } from "node:path";
+import { parseFrontmatter } from "@ideaspaces/protocol";
 import { configDir } from "../auth/config-dir.js";
 
 export type AgentRunStatus = "running" | "completed" | "failed" | "interrupted" | "cancelled";
@@ -9,6 +10,7 @@ export interface AgentRunRecord {
   parent_id: string | null;
   parent_tool_use_id?: string | null;
   agent: string;
+  task?: string | null;
   harness: "pi" | "claude";
   model: string | null;
   model_requested?: string | null;
@@ -28,6 +30,52 @@ export interface ListAgentRunsOptions {
 export function agentDisplayName(agentPath: string): string {
   const trimmed = agentPath.replace(/[\\/]+$/, "");
   return win32.basename(trimmed) || agentPath;
+}
+
+export function deriveTask(message?: string, cwd: string = process.cwd()): string | null {
+  if (!message || typeof message !== "string") return null;
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+
+  // 1. Check if the message is or starts with a path to a post
+  let candidatePath = trimmed;
+  if (trimmed.includes(" — ")) {
+    candidatePath = trimmed.split(" — ")[0].trim();
+  } else if (trimmed.includes("\n")) {
+    candidatePath = trimmed.split("\n")[0].trim();
+  }
+  candidatePath = candidatePath.replace(/^["']|["']$/g, "");
+
+  const resolvedPath = isAbsolute(candidatePath) ? candidatePath : resolve(cwd, candidatePath);
+  try {
+    if (existsSync(resolvedPath) && statSync(resolvedPath).isFile()) {
+      const content = readFileSync(resolvedPath, "utf8");
+      const fm = parseFrontmatter(content);
+      if (fm && typeof fm.name === "string" && fm.name.trim()) {
+        return fm.name.trim();
+      }
+    }
+  } catch {
+    // Fall through to text extraction
+  }
+
+  // 2. Handle agent-launch patterns: --ask and --consult
+  let text = trimmed;
+  if (text.includes(" — a question")) {
+    text = text.split(" — a question")[0].trim();
+  } else if (text.includes(" — a consult")) {
+    text = text.split(" — a consult")[0].trim();
+  } else if (text.includes(" — a dispatch")) {
+    text = text.split(" — a dispatch")[0].trim();
+  }
+
+  if (text.includes("Ceiling for this run:")) {
+    text = text.split("Ceiling for this run:")[0].trim();
+  }
+
+  // 3. Otherwise take the first line, trimmed
+  const firstLine = text.split(/\r?\n/).map((l) => l.trim()).find(Boolean) || "";
+  return firstLine.slice(0, 300) || null;
 }
 
 export function recordAgentRun(record: AgentRunRecord): void {
@@ -108,7 +156,8 @@ export function formatAgentRunsText(runs: AgentRunRecord[], parentFilter?: strin
       const agentName = agentDisplayName(run.agent);
       const parentPart = run.parent_id ? ` (parent: ${run.parent_id})` : "";
       const convPart = run.conversation_id ? ` · conv: ${run.conversation_id}` : "";
-      return `${agentName} · ${run.harness} · ${run.model || "unreported model"} · ${run.status} — runId: ${run.run_id}${parentPart}${convPart}`;
+      const taskPart = run.task ? ` · "${run.task}"` : "";
+      return `${agentName}${taskPart} · ${run.harness} · ${run.model || "unreported model"} · ${run.status} — runId: ${run.run_id}${parentPart}${convPart}`;
     })
     .join("\n");
 }

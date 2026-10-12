@@ -14,6 +14,7 @@ import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent-capabilities.js";
 import {
+  deriveTask,
   formatAgentRunsText,
   listAgentRuns,
   recordAgentRun,
@@ -379,12 +380,14 @@ async function cmdRun(
   const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? null;
   const parentToolUseId = flagString(flags, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
   const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID()}`;
+  const task = flagString(flags, "task") ?? deriveTask(message, process.cwd());
 
   const runRecord: AgentRunRecord = {
     run_id: runId,
     parent_id: parentId,
     parent_tool_use_id: parentToolUseId,
     agent: povPath,
+    task,
     harness: runtime,
     model: model ?? null,
     model_requested: model ?? null,

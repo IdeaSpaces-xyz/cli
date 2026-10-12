@@ -1190,6 +1190,7 @@ process.stdin.on("data", (chunk) => {
     expect(record.parent_id).toBe("parent-session-123");
     expect(record.parent_tool_use_id).toBe("toolu_01abc");
     expect(record.agent).toBe(realpathSync.native(dir));
+    expect(record.task).toBe("hello claude");
     expect(record.harness).toBe("claude");
     expect(record.model).toBe("claude-fake");
     expect(record.status).toBe("completed");
@@ -1211,8 +1212,83 @@ process.stdin.on("data", (chunk) => {
 
     stdoutChunks = [];
     expect(await agentCmd.run(["runs"], {}, { json: false, quiet: false, yes: false, help: false })).toBe(0);
-    expect(stdout()).toContain("claude · claude-fake · completed — runId: ");
+    expect(stdout()).toContain('· "hello claude" · claude · claude-fake · completed — runId: ');
     expect(stdout()).toContain("(parent: parent-session-123)");
+  });
+
+  it("derives task from dispatch post name, ask question, and consult message", async () => {
+    const dir = makeAgentDir("run-task-derive-test-");
+    const fakeBin = join(dir, "fake-claude");
+    writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    // 1. Post path in message
+    const postFile = join(dir, "dispatch.md");
+    writeFileSync(
+      postFile,
+      `---
+id: msg_test_123
+date: 2026-10-12T15:00:00.000Z
+kind: post
+name: "Dispatch: UI/UX builds M1 then SH"
+author: steward
+---
+Post body
+`,
+    );
+
+    stdoutChunks = [];
+    await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "claude",
+        model: "sonnet",
+        message: `${postFile} — a dispatch addressed to you. Read it and do it; post your result in that Thread...`,
+        "claude-bin": fakeBin,
+        "run-id": "run-post-task",
+      },
+      JSON_GLOBAL,
+    );
+
+    // 2. Ask question format
+    stdoutChunks = [];
+    await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "claude",
+        model: "sonnet",
+        message: "What is the capital of France? — a question, answered in your reply only. Read what you need; write nothing, post nothing.",
+        "claude-bin": fakeBin,
+        "run-id": "run-ask-task",
+      },
+      JSON_GLOBAL,
+    );
+
+    // 3. Consult format
+    stdoutChunks = [];
+    await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "claude",
+        model: "sonnet",
+        message: "Review the authentication flow — a consult from integrator, about the Thread at _threads/auth.",
+        "claude-bin": fakeBin,
+        "run-id": "run-consult-task",
+      },
+      JSON_GLOBAL,
+    );
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, JSON_GLOBAL)).toBe(0);
+    const runs = JSON.parse(stdout()).runs;
+    const postRun = runs.find((r: any) => r.run_id === "run-post-task");
+    const askRun = runs.find((r: any) => r.run_id === "run-ask-task");
+    const consultRun = runs.find((r: any) => r.run_id === "run-consult-task");
+
+    expect(postRun.task).toBe("Dispatch: UI/UX builds M1 then SH");
+    expect(askRun.task).toBe("What is the capital of France?");
+    expect(consultRun.task).toBe("Review the authentication flow");
   });
 
   it("inherits parent_id from PI_SESSION_ID when --parent is omitted", async () => {

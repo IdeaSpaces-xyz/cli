@@ -50,6 +50,7 @@ interface ParsedSession {
   messageCount: number;
   preview: string;
   updatedAt: string;
+  modelTier: string | null;
 }
 
 /** Join the `text` parts of a pi content array (drops thinking/toolCall parts). */
@@ -70,6 +71,7 @@ export function parseSessionJsonl(text: string, fallbackTs: string): ParsedSessi
   let preview = "";
   let count = 0;
   let lastTs = fallbackTs;
+  let modelTier: string | null = null;
 
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
@@ -82,6 +84,9 @@ export function parseSessionJsonl(text: string, fallbackTs: string): ParsedSessi
     }
     if (e.type === "session") {
       if (typeof e.id === "string") id = e.id;
+    } else if (e.type === "model_change") {
+      if (typeof e.modelId === "string" && e.modelId) modelTier = e.modelId;
+      else if (typeof e.model === "string" && e.model) modelTier = e.model;
     } else if (e.type === "session_info") {
       if (typeof e.name === "string" && e.name.trim()) name = e.name;
     } else if (e.type === "message" && e.message && typeof e.message === "object") {
@@ -98,6 +103,9 @@ export function parseSessionJsonl(text: string, fallbackTs: string): ParsedSessi
           count += 1;
         }
       } else if (role === "assistant") {
+        if (typeof m.model === "string" && m.model) modelTier = m.model;
+        else if (typeof m.model_requested === "string" && m.model_requested) modelTier = m.model_requested;
+        else if (typeof m.model_observed === "string" && m.model_observed) modelTier = m.model_observed;
         const parts = Array.isArray(m.content) ? (m.content as Record<string, unknown>[]) : [];
         const toolCalls = parts
           .filter((c) => c.type === "toolCall")
@@ -127,7 +135,7 @@ export function parseSessionJsonl(text: string, fallbackTs: string): ParsedSessi
     }
   }
 
-  return { id, name, messages, messageCount: count, preview, updatedAt: lastTs };
+  return { id, name, messages, messageCount: count, preview, updatedAt: lastTs, modelTier };
 }
 
 /** Locate a session file by conversation id — filename suffix, then header id. */
@@ -183,6 +191,7 @@ export function getLocalConversation(contextRoot: string, convId: string): Conve
     active_turn: null,
     turn_count: s.messageCount,
     updated_at: s.updatedAt,
+    ...(s.modelTier ? { model_tier: s.modelTier } : {}),
   };
 }
 
