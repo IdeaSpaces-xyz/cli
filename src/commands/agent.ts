@@ -448,6 +448,17 @@ async function cmdRun(
   }
 
   const extraOrientation = thread ? `${povOrientation}\n\n${thread.orientation}` : povOrientation;
+  const onSigInt = () => {
+    finishRun("interrupted");
+    process.exit(130);
+  };
+  const onSigTerm = () => {
+    finishRun("interrupted");
+    process.exit(143);
+  };
+  process.once("SIGINT", onSigInt);
+  process.once("SIGTERM", onSigTerm);
+
   let exitCode = 1;
   try {
     exitCode = await local.send(forwardFlags, output, {
@@ -458,6 +469,8 @@ async function cmdRun(
     });
     return exitCode;
   } finally {
+    process.off("SIGINT", onSigInt);
+    process.off("SIGTERM", onSigTerm);
     finishRun(exitCode === 0 ? "completed" : "failed");
   }
 }
