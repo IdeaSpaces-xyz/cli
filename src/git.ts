@@ -549,7 +549,7 @@ const HISTORY_LOG_FORMAT =
   "%(trailers:key=Op,valueonly,separator=%x2C)%x1f" +
   "%(trailers:key=Conversation,valueonly,separator=%x2C)%x1f" +
   "%(trailers:key=Turn,valueonly,separator=%x2C)%x1f" +
-  "%(trailers:key=Co-authored-by,valueonly,separator=%x2C)%x1f" +
+  "%(trailers:key=Co-authored-by,valueonly,separator=%x1e)%x1f" +
   "%(trailers:key=Change-Id,valueonly,separator=%x2C)";
 
 export function parseHistoryLogLine(line: string): GitHistoryEntry | null {
@@ -583,7 +583,7 @@ export function parseHistoryLogLine(line: string): GitHistoryEntry | null {
   const coAuthoredBy = parts[7]?.trim();
   if (coAuthoredBy) {
     const authors = coAuthoredBy
-      .split(",")
+      .split("\x1e")
       .map((a) => a.trim())
       .filter(Boolean);
     if (authors.length > 0) entry.co_authored_by = authors;
@@ -617,7 +617,14 @@ export function getFileHistory(
     ],
     cwd,
   );
-  if (!r.ok || !r.out) return [];
+  if (!r.ok) {
+    // Empty repo / unborn HEAD has no commits yet
+    if (r.err.includes("does not have any commits") || r.err.includes("fatal: bad default revision 'HEAD'")) {
+      return [];
+    }
+    throw new GitError(r.err || r.out || `git log failed for ${relPath}`);
+  }
+  if (!r.out) return [];
   const entries: GitHistoryEntry[] = [];
   for (const line of r.out.split("\n")) {
     const trimmed = line.trim();

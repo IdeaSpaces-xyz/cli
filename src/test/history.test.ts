@@ -36,7 +36,7 @@ async function commitNote(
   file: string,
   content: string,
   message: string,
-  options?: { date?: string; trailers?: Record<string, string> },
+  options?: { date?: string; trailers?: Record<string, string | string[]> },
 ): Promise<string> {
   const fullPath = join(tmp, file);
   await fs.mkdir(join(fullPath, ".."), { recursive: true });
@@ -45,7 +45,15 @@ async function commitNote(
 
   let fullMessage = message;
   if (options?.trailers) {
-    fullMessage += "\n\n" + Object.entries(options.trailers).map(([k, v]) => `${k}: ${v}`).join("\n");
+    const lines: string[] = [];
+    for (const [k, v] of Object.entries(options.trailers)) {
+      if (Array.isArray(v)) {
+        for (const item of v) lines.push(`${k}: ${item}`);
+      } else {
+        lines.push(`${k}: ${v}`);
+      }
+    }
+    fullMessage += "\n\n" + lines.join("\n");
   }
 
   git(["commit", "-q", "-m", fullMessage], { date: options?.date });
@@ -87,7 +95,7 @@ describe("getFileHistory & getFileHistoryDetails", () => {
       date: "2026-10-01T12:00:00+0000",
       trailers: {
         "Change-Id": "chg_initial_123",
-        "Co-authored-by": "Bob <bob@example.test>, Carol <carol@example.test>",
+        "Co-authored-by": ["Bob <bob@example.test>", "Carol <carol@example.test>"],
         "Op": "create",
         "Conversation": "c_thread123",
         "Turn": "3",
@@ -157,6 +165,19 @@ describe("getFileHistory & getFileHistoryDetails", () => {
     const details = getFileHistoryDetails("renamed.md", { cwd: tmp });
     expect(details.total).toBe(3);
     expect(details.created).toBe("2022-01-01 10:00:00 +0000");
+  });
+
+  it("handles co-authors with commas in their names without corrupting values", async () => {
+    const sha = await commitNote("notes/comma.md", "# Comma", "Commit with comma author", {
+      date: "2026-10-01T12:00:00+0000",
+      trailers: {
+        "Co-authored-by": "Doe, Jane <j@example.test>",
+      },
+    });
+
+    const entries = getFileHistory("notes/comma.md", { cwd: tmp });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.co_authored_by).toEqual(["Doe, Jane <j@example.test>"]);
   });
 
   it("returns empty history for untracked / non-existent file", () => {
@@ -238,5 +259,17 @@ describe("ideaspaces node history (clone)", () => {
     const parsed = JSON.parse(stdout());
     expect(parsed.path).toBe("sub/dir/note.md");
     expect(parsed.total).toBe(1);
+  });
+
+  it("refuses paths outside repository", async () => {
+    const code = await nodeCommand.run(["history", "../outside.md"], { cwd: tmp }, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Path is outside repository");
+  });
+
+  it("errors when note is not found and has no history", async () => {
+    const code = await nodeCommand.run(["history", "does-not-exist.md"], { cwd: tmp }, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Note not found: does-not-exist.md");
   });
 });

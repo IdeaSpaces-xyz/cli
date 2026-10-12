@@ -1,4 +1,5 @@
-import { relative, resolve, sep } from "node:path";
+import { existsSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fetchNode, fetchNodeHistory, putFile, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { getFileHistoryDetails, GitError, repoRoot } from "../git.js";
@@ -19,12 +20,38 @@ const USAGE =
 const USAGE_GET = "ideaspaces node get <repo_id> <node_id>";
 const USAGE_PUT = "ideaspaces node put <repo_id> <path> [--content TEXT]  (else reads stdin)";
 const USAGE_HISTORY =
-  "ideaspaces node history <path>  (in a clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
+  "ideaspaces node history <path>  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
 
 function toRepoRelativePath(repoRootPath: string, inputPath: string, cwd = process.cwd()): string {
   const absPath = resolve(cwd, inputPath);
   const rel = relative(repoRootPath, absPath);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(`Path is outside repository: ${inputPath}`);
+  }
   return rel.split(sep).join("/");
+}
+
+function formatHistoryHuman(data: {
+  path: string;
+  total: number;
+  created: string | null;
+  history: Array<{ sha: string; date: string; author: string; message: string; change_id?: string }>;
+}): string {
+  let human = `${data.path} (${data.total} commit${data.total === 1 ? "" : "s"}, created ${data.created ?? "uncommitted"})`;
+  if (data.history.length > 0) {
+    const lines = data.history.map((e) => {
+      const shortSha = e.sha.slice(0, 8);
+      const date = e.date.slice(0, 10);
+      const change = e.change_id ? ` [${e.change_id}]` : "";
+      return `  ${shortSha} ${date} ${e.author}: ${e.message}${change}`;
+    });
+    human += "\n" + lines.join("\n");
+  }
+  return human;
+}
+
+function formatErrorMessage(err: unknown): string {
+  return err instanceof GitError ? err.message : err instanceof Error ? err.message : String(err);
 }
 
 async function readStdin(): Promise<string> {
@@ -60,7 +87,7 @@ async function cmdGet(args: string[], output: Output): Promise<number> {
       output.error("Session expired. Run `ideaspaces login`.");
       return 1;
     }
-    output.error(err instanceof Error ? err.message : String(err));
+    output.error(formatErrorMessage(err));
     return 1;
   }
 }
@@ -90,7 +117,7 @@ async function cmdPut(args: string[], flags: Flags, output: Output): Promise<num
       output.error("Session expired. Run `ideaspaces login`.");
       return 1;
     }
-    output.error(err instanceof Error ? err.message : String(err));
+    output.error(formatErrorMessage(err));
     return 1;
   }
 }
@@ -109,18 +136,30 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
       const probeDir = typeof flags.cwd === "string" ? resolve(process.cwd(), flags.cwd) : process.cwd();
       root = repoRoot(probeDir);
     } catch (err) {
-      output.error(err instanceof GitError ? err.message : err instanceof Error ? err.message : String(err));
+      output.error(formatErrorMessage(err));
       return 1;
     }
 
-    const relPath = toRepoRelativePath(
-      root,
-      targetPath,
-      typeof flags.cwd === "string" ? resolve(process.cwd(), flags.cwd) : process.cwd(),
-    );
+    let relPath: string;
+    try {
+      relPath = toRepoRelativePath(
+        root,
+        targetPath,
+        typeof flags.cwd === "string" ? resolve(process.cwd(), flags.cwd) : process.cwd(),
+      );
+    } catch (err) {
+      output.error(formatErrorMessage(err));
+      return 1;
+    }
 
     try {
       const details = getFileHistoryDetails(relPath, { cwd: root, maxEntries: 20 });
+      const fullPath = resolve(root, relPath);
+      if (details.total === 0 && !existsSync(fullPath)) {
+        output.error(`Note not found: ${targetPath}`);
+        return 1;
+      }
+
       const res = {
         path: relPath,
         created: details.created,
@@ -128,20 +167,10 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
         history: details.entries,
       };
 
-      let human = `${res.path} (${res.total} commit${res.total === 1 ? "" : "s"}, created ${res.created ?? "uncommitted"})`;
-      if (res.history.length > 0) {
-        const lines = res.history.map((e) => {
-          const shortSha = e.sha.slice(0, 8);
-          const date = e.date.slice(0, 10);
-          const change = e.change_id ? ` [${e.change_id}]` : "";
-          return `  ${shortSha} ${date} ${e.author}: ${e.message}${change}`;
-        });
-        human += "\n" + lines.join("\n");
-      }
-      output.result(res, human);
+      output.result(res, formatHistoryHuman(res));
       return 0;
     } catch (err) {
-      output.error(err instanceof GitError ? err.message : err instanceof Error ? err.message : String(err));
+      output.error(formatErrorMessage(err));
       return 1;
     }
   }
@@ -156,24 +185,14 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
 
     try {
       const data = await fetchNodeHistory(config, repoId, nodeId);
-      let human = `${data.path} (${data.total} commit${data.total === 1 ? "" : "s"}, created ${data.created ?? "uncommitted"})`;
-      if (data.history && data.history.length > 0) {
-        const lines = data.history.map((e) => {
-          const shortSha = e.sha.slice(0, 8);
-          const date = e.date.slice(0, 10);
-          const change = e.change_id ? ` [${e.change_id}]` : "";
-          return `  ${shortSha} ${date} ${e.author}: ${e.message}${change}`;
-        });
-        human += "\n" + lines.join("\n");
-      }
-      output.result(data, human);
+      output.result(data, formatHistoryHuman(data));
       return 0;
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         output.error("Session expired. Run `ideaspaces login`.");
         return 1;
       }
-      output.error(err instanceof Error ? err.message : String(err));
+      output.error(formatErrorMessage(err));
       return 1;
     }
   }
