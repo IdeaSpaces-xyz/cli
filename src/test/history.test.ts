@@ -276,6 +276,42 @@ describe("ideaspaces node history (clone)", () => {
     }
   });
 
+  it("reports history for a deleted note that has git history", async () => {
+    await commitNote("notes/to-delete.md", "content", "create note");
+    git(["rm", "notes/to-delete.md"]);
+    git(["commit", "-q", "-m", "delete note"]);
+
+    const code = await nodeCommand.run(["history", "notes/to-delete.md"], { cwd: tmp }, JSON_GLOBAL);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout());
+    expect(parsed.path).toBe("notes/to-delete.md");
+    expect(parsed.total).toBe(2);
+    expect(parsed.history[0]?.message).toBe("delete note");
+  });
+
+  it("supports --limit to adjust page size", async () => {
+    await commitNote("notes/lim.md", "v1", "c1");
+    await commitNote("notes/lim.md", "v2", "c2");
+    await commitNote("notes/lim.md", "v3", "c3");
+
+    const code = await nodeCommand.run(["history", "notes/lim.md"], { cwd: tmp, limit: "2" }, JSON_GLOBAL);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout());
+    expect(parsed.total).toBe(3);
+    expect(parsed.history).toHaveLength(2);
+  });
+
+  it("errors when run outside a git repository", async () => {
+    const nonRepo = realpathSync(await mkdtemp(join(tmpdir(), "is-cli-norepo-")));
+    try {
+      const code = await nodeCommand.run(["history", "note.md"], { cwd: nonRepo }, JSON_GLOBAL);
+      expect(code).toBe(1);
+      expect(stderr()).toContain("not inside a git repository");
+    } finally {
+      await rm(nonRepo, { recursive: true, force: true });
+    }
+  });
+
   it("errors when note is not found and has no history", async () => {
     const code = await nodeCommand.run(["history", "does-not-exist.md"], { cwd: tmp }, JSON_GLOBAL);
     expect(code).toBe(1);

@@ -193,7 +193,7 @@ describe("node history (hosted)", () => {
     expect(stderr()).toContain("Session expired");
   });
 
-  it("formats human output for hosted history", async () => {
+  it("formats human output for hosted history and resolves authors map names", async () => {
     loadConfigMock.mockReturnValue(CFG);
     fetchNodeHistoryMock.mockResolvedValue({
       node_id: "n1",
@@ -205,10 +205,17 @@ describe("node history (hosted)", () => {
           sha: "480e48b645b238382d61a357fde1ec50ef551fa1",
           message: "Revise design note",
           date: "2026-10-12 10:45:00 +0000",
-          author: "Alice",
+          author: "person:user_1",
           change_id: "chg_update_456",
         },
       ],
+      authors: {
+        "person:user_1": {
+          kind: "person",
+          name: "Alice",
+          username: "alice",
+        },
+      },
     });
 
     const code = await nodeCommand.run(["history", "repo_abc", "n1"], {}, TEXT_GLOBAL);
@@ -217,5 +224,13 @@ describe("node history (hosted)", () => {
     const out = stdout();
     expect(out).toContain("notes/design.md (1 commit, created 2026-10-01 12:00:00 +0000)");
     expect(out).toContain("480e48b6 2026-10-12 Alice: Revise design note [chg_update_456]");
+  });
+
+  it("surfaces API errors when hosted history fails", async () => {
+    loadConfigMock.mockReturnValue(CFG);
+    fetchNodeHistoryMock.mockRejectedValue(new Error("404: Node not found"));
+    const code = await nodeCommand.run(["history", "repo_abc", "n1"], {}, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("Node not found");
   });
 });

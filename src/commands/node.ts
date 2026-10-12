@@ -2,13 +2,13 @@ import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fetchNode, fetchNodeHistory, putFile, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { getFileHistoryDetails, GitError, repoRoot } from "../git.js";
+import { getFileHistoryDetails, repoRoot } from "../git.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
 
-// Resolve / write / history a note by id or path. Backs the desktop/web conversation
+// Resolve / write / history a node by id or path. Backs the desktop/web conversation
 // workspace strip + preview (a conversation's `workspace` is bare node-ids),
 // the preview's online edit (`put` → server file write, no clone needed), and
 // note byline & version history (`history` → clone git log or hosted node history).
@@ -16,24 +16,18 @@ type Flags = Record<string, string | boolean>;
 // Bare usage — `main.ts` adds the "Usage:" label for `--help`; error paths add
 // it explicitly. Keeps `usage:` consistent with the other commands' fields.
 const USAGE =
-  "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ... | history <path> | history <repo_id> <node_id>>";
+  "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ... | history <path> [--limit N] | history <repo_id> <node_id>>";
 const USAGE_GET = "ideaspaces node get <repo_id> <node_id>";
 const USAGE_PUT = "ideaspaces node put <repo_id> <path> [--content TEXT]  (else reads stdin)";
-const USAGE_HISTORY =
-  "ideaspaces node history <path>  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
+export const USAGE_HISTORY =
+  "ideaspaces node history <path> [--limit N]  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
 
 function toRepoRelativePath(repoRootPath: string, inputPath: string, cwd = process.cwd()): string {
   const realCwd = existsSync(cwd) ? realpathSync.native(cwd) : cwd;
   const absPath = resolve(realCwd, inputPath);
   const realAbsPath = existsSync(absPath) ? realpathSync.native(absPath) : absPath;
   const rel = relative(repoRootPath, realAbsPath);
-  if (
-    rel === ".." ||
-    rel.startsWith(`..${sep}`) ||
-    rel.startsWith("../") ||
-    rel.startsWith("..\\") ||
-    isAbsolute(rel)
-  ) {
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new Error(`Path is outside repository: ${inputPath}`);
   }
   return rel.split(sep).join("/");
@@ -44,6 +38,7 @@ function formatHistoryHuman(data: {
   total: number;
   created: string | null;
   history: Array<{ sha: string; date: string; author: string; message: string; change_id?: string }>;
+  authors?: Record<string, { kind?: string; name?: string; username?: string }>;
 }): string {
   const countLabel =
     data.total > data.history.length
@@ -55,7 +50,8 @@ function formatHistoryHuman(data: {
       const shortSha = e.sha.slice(0, 8);
       const date = e.date.slice(0, 10);
       const change = e.change_id ? ` [${e.change_id}]` : "";
-      return `  ${shortSha} ${date} ${e.author}: ${e.message}${change}`;
+      const authorName = data.authors?.[e.author]?.name || data.authors?.[e.author]?.username || e.author;
+      return `  ${shortSha} ${date} ${authorName}: ${e.message}${change}`;
     });
     human += "\n" + lines.join("\n");
   }
@@ -156,8 +152,11 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
       return 1;
     }
 
+    const limit = typeof flags.limit === "string" ? parseInt(flags.limit, 10) : typeof flags.limit === "number" ? flags.limit : 20;
+    const maxEntries = Number.isFinite(limit) && limit > 0 ? limit : 20;
+
     try {
-      const details = getFileHistoryDetails(relPath, { cwd: root, maxEntries: 20 });
+      const details = getFileHistoryDetails(relPath, { cwd: root, maxEntries });
       const fullPath = resolve(root, relPath);
       if (details.total === 0 && !existsSync(fullPath)) {
         output.error(`Note not found: ${targetPath}`);
@@ -218,6 +217,7 @@ export const nodeCommand: CommandDef = {
     "ideaspaces node put repo_abc notes/a.md --content '# Hi'",
     "cat a.md | ideaspaces node put repo_abc notes/a.md --json",
     "ideaspaces node history notes/a.md --json",
+    "ideaspaces node history notes/a.md --limit 50 --json",
     "ideaspaces node history repo_abc node_xyz --json",
   ],
   async run(args, flags, global: GlobalFlags) {
