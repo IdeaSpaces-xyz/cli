@@ -267,6 +267,30 @@ describe("ideaspaces node history (clone)", () => {
     expect(stderr()).toContain("Path is outside repository");
   });
 
+  it("handles paths with leading dots like ..special.md that are inside the repo", async () => {
+    await commitNote("..special.md", "content", "dot dot file");
+    const code = await nodeCommand.run(["history", "..special.md"], { cwd: tmp }, JSON_GLOBAL);
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout());
+    expect(parsed.path).toBe("..special.md");
+    expect(parsed.total).toBe(1);
+  });
+
+  it("handles symlinked repository paths cleanly", async () => {
+    await commitNote("notes/sym.md", "content", "sym commit");
+    const linkPath = join(tmpdir(), `is-history-symlink-${Date.now()}`);
+    await fs.symlink(tmp, linkPath, "dir");
+    try {
+      const code = await nodeCommand.run(["history", "notes/sym.md"], { cwd: linkPath }, JSON_GLOBAL);
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout());
+      expect(parsed.path).toBe("notes/sym.md");
+      expect(parsed.total).toBe(1);
+    } finally {
+      await rm(linkPath, { force: true });
+    }
+  });
+
   it("errors when note is not found and has no history", async () => {
     const code = await nodeCommand.run(["history", "does-not-exist.md"], { cwd: tmp }, JSON_GLOBAL);
     expect(code).toBe(1);

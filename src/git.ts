@@ -546,11 +546,11 @@ export interface FileHistoryDetails {
 
 const HISTORY_LOG_FORMAT =
   "%H%x1f%s%x1f%ai%x1f%an%x1f" +
-  "%(trailers:key=Op,valueonly,separator=%x2C)%x1f" +
-  "%(trailers:key=Conversation,valueonly,separator=%x2C)%x1f" +
-  "%(trailers:key=Turn,valueonly,separator=%x2C)%x1f" +
+  "%(trailers:key=Op,valueonly,separator=%x1e)%x1f" +
+  "%(trailers:key=Conversation,valueonly,separator=%x1e)%x1f" +
+  "%(trailers:key=Turn,valueonly,separator=%x1e)%x1f" +
   "%(trailers:key=Co-authored-by,valueonly,separator=%x1e)%x1f" +
-  "%(trailers:key=Change-Id,valueonly,separator=%x2C)";
+  "%(trailers:key=Change-Id,valueonly,separator=%x1e)";
 
 export function parseHistoryLogLine(line: string): GitHistoryEntry | null {
   const parts = line.split("\x1f");
@@ -569,14 +569,15 @@ export function parseHistoryLogLine(line: string): GitHistoryEntry | null {
   };
 
   const op = parts[4]?.trim();
-  if (op) entry.op = op;
+  if (op) entry.op = op.split("\x1e")[0]?.trim() || undefined;
 
   const conversationId = parts[5]?.trim();
-  if (conversationId) entry.conversation_id = conversationId;
+  if (conversationId) entry.conversation_id = conversationId.split("\x1e")[0]?.trim() || undefined;
 
   const turnStr = parts[6]?.trim();
   if (turnStr) {
-    const turn = parseInt(turnStr, 10);
+    const rawTurn = turnStr.split("\x1e")[0]?.trim() || "";
+    const turn = parseInt(rawTurn, 10);
     if (!Number.isNaN(turn)) entry.turn = turn;
   }
 
@@ -590,7 +591,7 @@ export function parseHistoryLogLine(line: string): GitHistoryEntry | null {
   }
 
   const changeId = parts[8]?.trim();
-  if (changeId) entry.change_id = changeId;
+  if (changeId) entry.change_id = changeId.split("\x1e")[0]?.trim() || undefined;
 
   return entry;
 }
@@ -604,8 +605,11 @@ export function getFileHistory(
   relPath: string,
   options?: { maxEntries?: number; cwd?: string },
 ): GitHistoryEntry[] {
-  const maxEntries = options?.maxEntries ?? 20;
   const cwd = options?.cwd;
+  const head = git(["rev-parse", "--verify", "-q", "HEAD"], cwd);
+  if (!head.ok) return [];
+
+  const maxEntries = options?.maxEntries ?? 20;
   const r = git(
     [
       "log",
@@ -618,10 +622,6 @@ export function getFileHistory(
     cwd,
   );
   if (!r.ok) {
-    // Empty repo / unborn HEAD has no commits yet
-    if (r.err.includes("does not have any commits") || r.err.includes("fatal: bad default revision 'HEAD'")) {
-      return [];
-    }
     throw new GitError(r.err || r.out || `git log failed for ${relPath}`);
   }
   if (!r.out) return [];

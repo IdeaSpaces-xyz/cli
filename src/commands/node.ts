@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fetchNode, fetchNodeHistory, putFile, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
@@ -19,13 +19,21 @@ const USAGE =
   "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ... | history <path> | history <repo_id> <node_id>>";
 const USAGE_GET = "ideaspaces node get <repo_id> <node_id>";
 const USAGE_PUT = "ideaspaces node put <repo_id> <path> [--content TEXT]  (else reads stdin)";
-const USAGE_HISTORY =
+export const USAGE_HISTORY =
   "ideaspaces node history <path>  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
 
 function toRepoRelativePath(repoRootPath: string, inputPath: string, cwd = process.cwd()): string {
-  const absPath = resolve(cwd, inputPath);
-  const rel = relative(repoRootPath, absPath);
-  if (rel.startsWith("..") || isAbsolute(rel)) {
+  const realCwd = existsSync(cwd) ? realpathSync.native(cwd) : cwd;
+  const absPath = resolve(realCwd, inputPath);
+  const realAbsPath = existsSync(absPath) ? realpathSync.native(absPath) : absPath;
+  const rel = relative(repoRootPath, realAbsPath);
+  if (
+    rel === ".." ||
+    rel.startsWith(`..${sep}`) ||
+    rel.startsWith("../") ||
+    rel.startsWith("..\\") ||
+    isAbsolute(rel)
+  ) {
     throw new Error(`Path is outside repository: ${inputPath}`);
   }
   return rel.split(sep).join("/");
@@ -177,6 +185,10 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
 
   if (args.length === 2) {
     const [repoId, nodeId] = args;
+    if (!repoId || !nodeId) {
+      output.error(`Usage: ${USAGE_HISTORY}`);
+      return 1;
+    }
     const config = loadConfig();
     if (!config) {
       output.error("Not logged in. Run `ideaspaces login`.");
