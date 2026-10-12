@@ -75,7 +75,7 @@ export const LIST_USAGE =
 export const CAPABILITIES_USAGE = "ideaspaces agent capabilities [--json]";
 
 export const USAGE =
-  `ideaspaces agent <run|runs|list|capabilities> … (run ${RUN_ARGS}; runs [--parent <id>] [--json]; list --map <file> [--json]; capabilities [--json])`;
+  `ideaspaces agent <run|runs|list|capabilities> … (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; list --map <file> [--json]; capabilities [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -386,6 +386,8 @@ async function cmdRun(
     agent: povPath,
     harness: runtime,
     model: model ?? null,
+    model_requested: model ?? null,
+    model_observed: null,
     conversation_id: flags.conversation ? String(flags.conversation) : null,
     status: "running",
     started_at: new Date().toISOString(),
@@ -403,9 +405,13 @@ async function cmdRun(
 
   function handleRunEvent(event: KeeperStreamEvent): KeeperStreamEvent {
     if (event.type === "message_start") {
-      const msgStart = event as { conversation_id?: string; model_observed?: string | null };
+      const msgStart = event as { conversation_id?: string; model_observed?: string | null; model_requested?: string | null };
       if (typeof msgStart.conversation_id === "string") runRecord.conversation_id = msgStart.conversation_id;
-      if (typeof msgStart.model_observed === "string") runRecord.model = msgStart.model_observed;
+      if (msgStart.model_observed !== undefined) {
+        runRecord.model_observed = msgStart.model_observed;
+        if (msgStart.model_observed) runRecord.model = msgStart.model_observed;
+      }
+      if (msgStart.model_requested !== undefined) runRecord.model_requested = msgStart.model_requested;
       recordAgentRun(runRecord);
     } else if (event.type === "turn_complete") {
       finishRun("completed");
@@ -441,6 +447,12 @@ async function cmdRun(
   }
 
   const extraOrientation = thread ? `${povOrientation}\n\n${thread.orientation}` : povOrientation;
+  const onSig = () => {
+    finishRun("interrupted");
+  };
+  process.once("SIGINT", onSig);
+  process.once("SIGTERM", onSig);
+
   let exitCode = 1;
   try {
     exitCode = await local.send(forwardFlags, output, {
@@ -451,6 +463,8 @@ async function cmdRun(
     });
     return exitCode;
   } finally {
+    process.off("SIGINT", onSig);
+    process.off("SIGTERM", onSig);
     finishRun(exitCode === 0 ? "completed" : "failed");
   }
 }

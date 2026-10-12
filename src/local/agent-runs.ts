@@ -11,6 +11,8 @@ export interface AgentRunRecord {
   agent: string;
   harness: "pi" | "claude";
   model: string | null;
+  model_requested?: string | null;
+  model_observed?: string | null;
   conversation_id: string | null;
   status: AgentRunStatus;
   started_at: string;
