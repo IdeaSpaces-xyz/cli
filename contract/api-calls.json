@@ -188,6 +188,10 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/repos/{repoId}/nodes/{nodeId}/history"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/subscriptions"
     },
     {
