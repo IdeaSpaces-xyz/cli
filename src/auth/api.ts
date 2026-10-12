@@ -1115,6 +1115,49 @@ export async function fetchNode(
   );
 }
 
+export interface NodeHistoryEntry {
+  sha: string;
+  message: string;
+  date: string;
+  author: string;
+  op?: string;
+  conversation_id?: string;
+  turn?: number;
+  co_authored_by?: string[];
+  change_id?: string;
+}
+
+export interface NodeHistoryResponse {
+  node_id?: string | null;
+  path: string;
+  created: string | null;
+  total: number;
+  history: NodeHistoryEntry[];
+  authors?: Record<string, {
+    kind: string;
+    name?: string;
+    username?: string;
+  }>;
+}
+
+/**
+ * Fetch a node's commit history (`GET /api/v1/repos/{id}/nodes/{nodeId}/history`).
+ */
+export async function fetchNodeHistory(
+  config: ApiConfig,
+  repoId: string,
+  nodeId: string,
+  opts?: RequestOptions,
+): Promise<NodeHistoryResponse> {
+  return request<NodeHistoryResponse>(
+    config,
+    "GET",
+    `${API_V1}/repos/${encodeURIComponent(repoId)}/nodes/${encodeURIComponent(nodeId)}/history`,
+    undefined,
+    opts,
+  );
+}
+
 export interface WriteFileResponse {
   path: string;
   commit_sha: string;

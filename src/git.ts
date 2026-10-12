@@ -526,6 +526,154 @@ export function markPrivateThreadsWorktree(cwd: string): void {
   writeFileSync(join(dir, PRIVATE_THREADS_MARKER), "private threads branch\n", { flag: "wx", mode: 0o600 });
 }
 
+export interface GitHistoryEntry {
+  sha: string;
+  message: string;
+  date: string;
+  author: string;
+  op?: string;
+  conversation_id?: string;
+  turn?: number;
+  co_authored_by?: string[];
+  change_id?: string;
+}
+
+export interface FileHistoryDetails {
+  entries: GitHistoryEntry[];
+  total: number;
+  created: string | null;
+}
+
+const HISTORY_LOG_FORMAT =
+  "%H%x1f%s%x1f%ai%x1f%an%x1f" +
+  "%(trailers:key=Op,valueonly,separator=%x1e)%x1f" +
+  "%(trailers:key=Conversation,valueonly,separator=%x1e)%x1f" +
+  "%(trailers:key=Turn,valueonly,separator=%x1e)%x1f" +
+  "%(trailers:key=Co-authored-by,valueonly,separator=%x1e)%x1f" +
+  "%(trailers:key=Change-Id,valueonly,separator=%x1e)";
+
+export function parseHistoryLogLine(line: string): GitHistoryEntry | null {
+  const parts = line.split("\x1f");
+  if (parts.length < 4) return null;
+  const sha = parts[0]?.trim();
+  const message = parts[1] ?? "";
+  const date = parts[2]?.trim();
+  const author = parts[3]?.trim();
+  if (!sha || !date || !author) return null;
+
+  const entry: GitHistoryEntry = {
+    sha,
+    message,
+    date,
+    author,
+  };
+
+  const op = parts[4]?.trim();
+  if (op) entry.op = op.split("\x1e")[0]?.trim() || undefined;
+
+  const conversationId = parts[5]?.trim();
+  if (conversationId) entry.conversation_id = conversationId.split("\x1e")[0]?.trim() || undefined;
+
+  const turnStr = parts[6]?.trim();
+  if (turnStr) {
+    const rawTurn = turnStr.split("\x1e")[0]?.trim() || "";
+    const turn = parseInt(rawTurn, 10);
+    if (!Number.isNaN(turn)) entry.turn = turn;
+  }
+
+  const coAuthoredBy = parts[7]?.trim();
+  if (coAuthoredBy) {
+    const authors = coAuthoredBy
+      .split("\x1e")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    if (authors.length > 0) entry.co_authored_by = authors;
+  }
+
+  const changeId = parts[8]?.trim();
+  if (changeId) entry.change_id = changeId.split("\x1e")[0]?.trim() || undefined;
+
+  return entry;
+}
+
+/**
+ * Get git commit history for a specific file, newest commits first.
+ *
+ * Tracks across file renames (--follow).
+ */
+export function getFileHistory(
+  relPath: string,
+  options?: { maxEntries?: number; cwd?: string },
+): GitHistoryEntry[] {
+  const cwd = options?.cwd;
+  const head = git(["rev-parse", "--verify", "-q", "HEAD"], cwd);
+  if (!head.ok) return [];
+
+  const maxEntries = options?.maxEntries ?? 20;
+  const r = git(
+    [
+      "log",
+      "--follow",
+      `--max-count=${maxEntries}`,
+      `--format=${HISTORY_LOG_FORMAT}`,
+      "--",
+      relPath,
+    ],
+    cwd,
+  );
+  if (!r.ok) {
+    throw new GitError(r.err || r.out || `git log failed for ${relPath}`);
+  }
+  if (!r.out) return [];
+  const entries: GitHistoryEntry[] = [];
+  for (const line of r.out.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const entry = parseHistoryLogLine(trimmed);
+    if (entry) entries.push(entry);
+  }
+  return entries;
+}
+
+/**
+ * Get git commit history for a specific file along with total commit count and created date.
+ *
+ * Tracks across file renames (--follow).
+ */
+export function getFileHistoryDetails(
+  relPath: string,
+  options?: { maxEntries?: number; cwd?: string },
+): FileHistoryDetails {
+  const maxEntries = options?.maxEntries ?? 20;
+  const cwd = options?.cwd;
+  const entries = getFileHistory(relPath, { maxEntries, cwd });
+
+  let total: number;
+  let created: string | null = null;
+
+  if (entries.length < maxEntries) {
+    total = entries.length;
+    created = entries.length > 0 ? (entries[entries.length - 1]?.date ?? null) : null;
+  } else {
+    const r = git(["log", "--follow", "--format=%ai", "--", relPath], cwd);
+    if (!r.ok) {
+      throw new GitError(r.err || r.out || `git log failed for ${relPath}`);
+    }
+    const dates = r.out
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    total = dates.length;
+    created = dates.length > 0 ? dates[dates.length - 1]! : (entries[entries.length - 1]?.date ?? null);
+  }
+
+  return {
+    entries,
+    total,
+    created,
+  };
+}
+
 export function push(cwd?: string): void {
   // Marker lives in the linked worktree's gitdir. `git worktree move` preserves
   // it even when the checkout is renamed away from `_threads/`.

@@ -1,19 +1,62 @@
-import { fetchNode, putFile, UnauthorizedError } from "../auth/api.js";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
+import { fetchNode, fetchNodeHistory, putFile, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
+import { getFileHistoryDetails, repoRoot } from "../git.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
 
-// Resolve / write a node by id or path. Backs the desktop/web conversation
-// workspace strip + preview (a conversation's `workspace` is bare node-ids), and
-// the preview's online edit (`put` → server file write, no clone needed).
+// Resolve / write / history a node by id or path. Backs the desktop/web conversation
+// workspace strip + preview (a conversation's `workspace` is bare node-ids),
+// the preview's online edit (`put` → server file write, no clone needed), and
+// note byline & version history (`history` → clone git log or hosted node history).
 
 // Bare usage — `main.ts` adds the "Usage:" label for `--help`; error paths add
 // it explicitly. Keeps `usage:` consistent with the other commands' fields.
-const USAGE = "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ...>";
+const USAGE =
+  "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ... | history <path> [--limit N] | history <repo_id> <node_id>>";
 const USAGE_GET = "ideaspaces node get <repo_id> <node_id>";
 const USAGE_PUT = "ideaspaces node put <repo_id> <path> [--content TEXT]  (else reads stdin)";
+export const USAGE_HISTORY =
+  "ideaspaces node history <path> [--limit N]  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
+
+function toRepoRelativePath(repoRootPath: string, inputPath: string, cwd = process.cwd()): string {
+  const realCwd = existsSync(cwd) ? realpathSync.native(cwd) : cwd;
+  const absPath = resolve(realCwd, inputPath);
+  const realAbsPath = existsSync(absPath) ? realpathSync.native(absPath) : absPath;
+  const rel = relative(repoRootPath, realAbsPath);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error(`Path is outside repository: ${inputPath}`);
+  }
+  return rel.split(sep).join("/");
+}
+
+function formatHistoryHuman(data: {
+  path: string;
+  total: number;
+  created: string | null;
+  history: Array<{ sha: string; date: string; author: string; message: string; change_id?: string }>;
+  authors?: Record<string, { kind?: string; name?: string; username?: string }>;
+}): string {
+  const countLabel =
+    data.total > data.history.length
+      ? `showing ${data.history.length} of ${data.total} commits`
+      : `${data.total} commit${data.total === 1 ? "" : "s"}`;
+  let human = `${data.path} (${countLabel}, created ${data.created ?? "uncommitted"})`;
+  if (data.history.length > 0) {
+    const lines = data.history.map((e) => {
+      const shortSha = e.sha.slice(0, 8);
+      const date = e.date.slice(0, 10);
+      const change = e.change_id ? ` [${e.change_id}]` : "";
+      const authorName = data.authors?.[e.author]?.name || data.authors?.[e.author]?.username || e.author;
+      return `  ${shortSha} ${date} ${authorName}: ${e.message}${change}`;
+    });
+    human += "\n" + lines.join("\n");
+  }
+  return human;
+}
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
@@ -83,14 +126,111 @@ async function cmdPut(args: string[], flags: Flags, output: Output): Promise<num
   }
 }
 
+// Read a note's commit history in a local clone (`node history <path>`) or hosted (`node history <repo_id> <node_id>`).
+async function cmdHistory(args: string[], flags: Flags, output: Output): Promise<number> {
+  if (args.length === 1) {
+    const [targetPath] = args;
+    if (!targetPath) {
+      output.error(`Usage: ${USAGE_HISTORY}`);
+      return 1;
+    }
+
+    const probeDir = typeof flags.cwd === "string" ? resolve(process.cwd(), flags.cwd) : process.cwd();
+    let root: string;
+    try {
+      root = repoRoot(probeDir);
+    } catch (err) {
+      output.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+
+    let relPath: string;
+    try {
+      relPath = toRepoRelativePath(root, targetPath, probeDir);
+    } catch (err) {
+      output.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+
+    const fullPath = resolve(root, relPath);
+    if (relPath === "" || (existsSync(fullPath) && statSync(fullPath).isDirectory())) {
+      output.error("node history requires a file path, not a directory.");
+      return 1;
+    }
+
+    let maxEntries = 20;
+    if (flags.limit !== undefined) {
+      const rawLimit = typeof flags.limit === "string" ? flags.limit.trim() : "";
+      if (!rawLimit || !/^\d+$/.test(rawLimit) || parseInt(rawLimit, 10) <= 0) {
+        output.error("Invalid --limit: must be a positive integer.");
+        return 1;
+      }
+      maxEntries = parseInt(rawLimit, 10);
+    }
+
+    try {
+      const details = getFileHistoryDetails(relPath, { cwd: root, maxEntries });
+      if (details.total === 0 && !existsSync(fullPath)) {
+        output.error(`Note not found: ${targetPath}`);
+        return 1;
+      }
+
+      const res = {
+        path: relPath,
+        created: details.created,
+        total: details.total,
+        history: details.entries,
+      };
+
+      output.result(res, formatHistoryHuman(res));
+      return 0;
+    } catch (err) {
+      output.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+  }
+
+  if (args.length === 2) {
+    const [repoId, nodeId] = args;
+    if (!repoId || !nodeId) {
+      output.error(`Usage: ${USAGE_HISTORY}`);
+      return 1;
+    }
+    const config = loadConfig();
+    if (!config) {
+      output.error("Not logged in. Run `ideaspaces login`.");
+      return 1;
+    }
+
+    try {
+      const data = await fetchNodeHistory(config, repoId, nodeId);
+      output.result(data, formatHistoryHuman(data));
+      return 0;
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        output.error("Session expired. Run `ideaspaces login`.");
+        return 1;
+      }
+      output.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+  }
+
+  output.error(`Usage: ${USAGE_HISTORY}`);
+  return 1;
+}
+
 export const nodeCommand: CommandDef = {
   name: "node",
-  description: "Resolve (get) or write (put) a note — by id or path (use --json for the full node)",
+  description: "Resolve (get), write (put), or view version history (history) of a note — by id or path (use --json for structured data)",
   usage: USAGE,
   examples: [
     "ideaspaces node get repo_abc node_xyz --json",
     "ideaspaces node put repo_abc notes/a.md --content '# Hi'",
     "cat a.md | ideaspaces node put repo_abc notes/a.md --json",
+    "ideaspaces node history notes/a.md --json",
+    "ideaspaces node history notes/a.md --limit 50 --json",
+    "ideaspaces node history repo_abc node_xyz --json",
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
@@ -100,6 +240,8 @@ export const nodeCommand: CommandDef = {
         return cmdGet(rest, output);
       case "put":
         return cmdPut(rest, flags, output);
+      case "history":
+        return cmdHistory(rest, flags, output);
       default:
         output.error(`Usage: ${USAGE}`);
         return 1;
