@@ -1362,4 +1362,51 @@ process.stdin.on("data", (chunk) => {
     const probe2 = JSON.parse(delta2.delta.replace(/^pi:/, ""));
     expect(probe2.approved).toBe(true);
   });
+
+  it("agent run defaults Pi trust to saved and passes -a only on explicit", async () => {
+    const dir = makeAgentDir("agent-run-trust-test-");
+    const fakeBin = join(dir, "fake-pi");
+    writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    stdoutChunks = [];
+    const code1 = await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "pi",
+        message: "policy_probe",
+        ext: `${fakeBin},${fakeBin}`,
+        "pi-bin": fakeBin,
+      },
+      JSON_GLOBAL,
+    );
+    expect(code1).toBe(0);
+    const lines1 = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    const start1 = lines1.find((e) => e.type === "message_start");
+    expect(start1.trust).toBe("saved");
+    const delta1 = lines1.find((e) => e.type === "text_delta");
+    const probe1 = JSON.parse(delta1.delta.replace(/^pi:/, ""));
+    expect(probe1.approved).toBe(false);
+
+    stdoutChunks = [];
+    const code2 = await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "pi",
+        message: "policy_probe",
+        ext: `${fakeBin},${fakeBin}`,
+        "pi-bin": fakeBin,
+        "pi-trust": "explicit",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code2).toBe(0);
+    const lines2 = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    const start2 = lines2.find((e) => e.type === "message_start");
+    expect(start2.trust).toBe("explicit");
+    const delta2 = lines2.find((e) => e.type === "text_delta");
+    const probe2 = JSON.parse(delta2.delta.replace(/^pi:/, ""));
+    expect(probe2.approved).toBe(true);
+  });
 });
