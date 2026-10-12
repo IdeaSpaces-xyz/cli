@@ -32,7 +32,7 @@ import {
   type ToolInvocation,
 } from "@ideaspaces/sdk";
 import { readJsonLines } from "../local/jsonl.js";
-import { discloseLaunch, resolveAddedDirs, type ThreadReadReceipt } from "../local/send-options.js";
+import { discloseLaunch, reportedModel, resolveAddedDirs, type ThreadReadReceipt } from "../local/send-options.js";
 import { harvestLocalFiles } from "../local/workspace-files.js";
 import { claudeSessionFile } from "./local-conversations.js";
 import { claudeToolBaseName, normalizeClaudeInvocation } from "./tool-names.js";
@@ -180,6 +180,14 @@ export function buildClaudeEnv(auth: ClaudeAuthMode, base: NodeJS.ProcessEnv = p
   return env;
 }
 
+/** The model a Claude stream-json record names: `system/init.model` or `assistant.message.model`. */
+export function claudeRecordModel(record: unknown): string | null {
+  const r = record as { type?: unknown; subtype?: unknown; model?: unknown; message?: { model?: unknown } } | null;
+  if (r?.type === "system" && r.subtype === "init") return reportedModel(r.model);
+  if (r?.type === "assistant") return reportedModel(r.message?.model);
+  return null;
+}
+
 /** The last position an `is_navigate` moved to, for `turn_complete.position`. */
 function lastPosition(tools: ToolInvocation[]): string {
   for (let i = tools.length - 1; i >= 0; i--) {
@@ -265,11 +273,14 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
 
   const addedDirs = resolveAddedDirs(opts);
   const allowedTools = opts.allowedTools ?? (opts.readOnly ? ["Read", "Grep", "Glob"] : null);
+  // The model Claude Code reports (init, else the first assistant message) — not the --model alias.
+  let observedModel: string | null = null;
 
   try {
     for await (const line of readJsonLines(claude.stdout)) {
       const record = parseClaudeStreamLine(line);
       if (!record) continue; // Claude Code prints some failures as prose before its result line
+      observedModel ??= claudeRecordModel(record);
       for (const ke of translator.translate(record)) {
         if (ke.type === "message_start") {
           yield discloseLaunch(ke, {
@@ -278,6 +289,7 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
             allowed_tools: allowedTools ?? null, allowed_tools_semantics: "preapproval",
             shell_available: !opts.readOnly, runtime: "claude",
             model: opts.model ?? ke.model_tier,
+            model_requested: opts.model ?? null, model_observed: observedModel,
             thread: opts.threadReceipt,
           });
           continue;

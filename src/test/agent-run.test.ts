@@ -631,7 +631,9 @@ process.stdin.on("data", (chunk) => {
     if (!line) continue;
     const command = JSON.parse(line);
     if (command.type === "get_state") {
-      console.log(JSON.stringify({ type: "response", command: "get_state", success: true, data: { sessionName: "Agent run test" } }));
+      const pattern = args.includes("--model") ? args[args.indexOf("--model") + 1] : "";
+      const model = command.id === "__state" ?{ provider: "fake", id: pattern ? "resolved-" + pattern.split("/").pop() : "default-model" } : undefined;
+      console.log(JSON.stringify({ type: "response", command: "get_state", success: true, data: { sessionName: "Agent run test", model } }));
     }
     if (command.type === "prompt") {
       if (command.message.includes("auth_fail")) {
@@ -830,6 +832,39 @@ process.stdin.on("data", (chunk) => {
       "claude-effort": "high", "read-only": true, "permission-mode": "dontAsk" }, JSON_GLOBAL)).toBe(0);
     const claudeDone = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "turn_complete");
     expect(JSON.parse(claudeDone.result.response)).toEqual({ readOnly: true, effort: "high" });
+  });
+
+  it("reports the requested and the runtime-observed model separately", async () => {
+    const dir = makeAgentDir();
+    const pi = join(dir, "pi-test-bin");
+    const claude = join(dir, "claude-test-bin");
+    writeFileSync(join(dir, "pi-test-bin.cjs"), FAKE_PI);
+    writeFileSync(join(dir, "claude-test-bin.cjs"), FAKE_CLAUDE);
+    writeFileSync(pi, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "pi-test-bin.cjs")}" "$@"\n`);
+    writeFileSync(claude, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "claude-test-bin.cjs")}" "$@"\n`);
+    chmodSync(pi, 0o755); chmodSync(claude, 0o755);
+    const start = () => stdout().trim().split("\n").map((line) => JSON.parse(line)).find((e) => e.type === "message_start");
+
+    // No override: "local" stays the legacy tier label, never the observed model.
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", ext: pi, "pi-bin": pi }, JSON_GLOBAL)).toBe(0);
+    expect(start()).toMatchObject({ runtime: "pi", model: "local", model_requested: null, model_observed: "fake/default-model" });
+    stdoutChunks = [];
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "hi", ext: pi, "pi-bin": pi, model: "openai/gpt-x" }, JSON_GLOBAL)).toBe(0);
+    expect(start()).toMatchObject({ model: "openai/gpt-x", model_requested: "openai/gpt-x", model_observed: "fake/resolved-gpt-x" });
+    stdoutChunks = [];
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "claude-bin": claude, model: "sonnet" }, JSON_GLOBAL)).toBe(0);
+    expect(start()).toMatchObject({ runtime: "claude", model_requested: "sonnet", model_observed: "claude-fake" });
+    stdoutChunks = [];
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hi", "claude-bin": claude }, JSON_GLOBAL)).toBe(0);
+    expect(start()).toMatchObject({ model_requested: null, model_observed: "claude-fake" });
+  });
+
+  it("publishes agent-run guarantees as data, never as help prose", async () => {
+    expect(await agentCmd.run(["capabilities"], {}, JSON_GLOBAL)).toBe(0);
+    const caps = JSON.parse(stdout());
+    expect(caps).toMatchObject({ schema: "ideaspaces.agent-run.capabilities", version: 1 });
+    expect(caps.features).toEqual(expect.arrayContaining(["pi.explicit-extensions", "pi.skill-isolation", "pi.trust",
+      "claude.read-only", "claude.effort", "model.requested-observed"]));
   });
 
   it("loads the selected Agreement into both child runtimes rather than relying on parent hooks", async () => {

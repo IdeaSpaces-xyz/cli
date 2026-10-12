@@ -9,6 +9,7 @@ import { enteredThroughRoot, isContained } from "../local/contained-path.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
+import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent-capabilities.js";
 import {
   resolveAgentPov,
   revalidateAgentPov,
@@ -60,8 +61,10 @@ export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
+export const CAPABILITIES_USAGE = "ideaspaces agent capabilities [--json]";
+
 export const USAGE =
-  `ideaspaces agent <run|list> … (run ${RUN_ARGS}; list --map <file> [--json])`;
+  `ideaspaces agent <run|list|capabilities> … (run ${RUN_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -416,11 +419,12 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
+    description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
+      "ideaspaces agent capabilities --json  # machine-readable run guarantees for launchers",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",
       "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts --pi-trust saved --pi-thinking high",
@@ -438,6 +442,11 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
           return cmdRun(rest, flags, local, output);
         case "list":
           return cmdList(flags, global, output);
+        case "capabilities": {
+          const caps = agentRunCapabilities();
+          output.result(caps, formatAgentRunCapabilities(caps));
+          return 0;
+        }
         default:
           output.error(`Usage: ${USAGE}`);
           return 1;
