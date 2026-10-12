@@ -1,6 +1,9 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import type { KeeperStreamEvent } from "@ideaspaces/sdk";
+import type { LocalMessageStartEvent } from "../local/send-options.js";
 import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
@@ -10,6 +13,12 @@ import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, typ
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent-capabilities.js";
+import {
+  formatAgentRunsText,
+  listAgentRuns,
+  recordAgentRun,
+  type AgentRunRecord,
+} from "../local/agent-runs.js";
 import {
   resolveAgentPov,
   revalidateAgentPov,
@@ -55,8 +64,11 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
+
+export const RUNS_USAGE =
+  "ideaspaces agent runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]";
 
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
@@ -64,7 +76,7 @@ export const LIST_USAGE =
 export const CAPABILITIES_USAGE = "ideaspaces agent capabilities [--json]";
 
 export const USAGE =
-  `ideaspaces agent <run|list|capabilities> … (run ${RUN_ARGS}; list --map <file> [--json]; capabilities [--json])`;
+  `ideaspaces agent <run|runs|list|capabilities> … (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; list --map <file> [--json]; capabilities [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -363,31 +375,127 @@ async function cmdRun(
     agentRun: true,
     resumeOnly: flags.conversation !== undefined,
   };
-  if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
-  // Hosted conversations are private drafts; only the person can send a hosted reply.
-  if (thread.kind === "hosted") return local.send(forwardFlags, output, {
-    ...launchOptions, extraOrientation: `${povOrientation}\n\n${thread.orientation}`, threadReceipt: thread.receipt,
-  });
-  let snapshotWritten = false;
-  return local.send(forwardFlags, output, {
-    ...launchOptions,
-    extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
-    threadReceipt: thread.receipt,
-    onEvent(event) {
-      if (event.type !== "turn_complete") return event;
-      if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
-      const response = event.result.response;
-      if (!response?.trim()) throw new Error("Agent completed without a closing response.");
-      const { post, path } = appendPost(thread.directory, {
-        body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
-        summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
-        kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
-      });
-      snapshotWritten = true;
-      output.progress(`Thread snapshot: ${path}`);
-      return withThreadSnapshot(event, post.id, path);
-    },
-  });
+
+  const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? null;
+  const parentToolUseId = flagString(flags, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
+  const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID()}`;
+
+  const runRecord: AgentRunRecord = {
+    run_id: runId,
+    parent_id: parentId,
+    parent_tool_use_id: parentToolUseId,
+    agent: povPath,
+    harness: runtime,
+    model: model ?? null,
+    model_requested: model ?? null,
+    model_observed: null,
+    conversation_id: flags.conversation ? String(flags.conversation) : null,
+    status: "running",
+    started_at: new Date().toISOString(),
+    ended_at: null,
+  };
+  recordAgentRun(runRecord);
+
+  function finishRun(status: AgentRunRecord["status"]) {
+    if (runRecord.ended_at === null) {
+      runRecord.status = status;
+      runRecord.ended_at = new Date().toISOString();
+      recordAgentRun(runRecord);
+    }
+  }
+
+  function handleRunEvent(event: KeeperStreamEvent): KeeperStreamEvent {
+    if (event.type === "message_start") {
+      const msgStart = event as LocalMessageStartEvent;
+      if (typeof msgStart.conversation_id === "string") runRecord.conversation_id = msgStart.conversation_id;
+      if (msgStart.model_observed !== undefined) {
+        runRecord.model_observed = msgStart.model_observed;
+        if (msgStart.model_observed) runRecord.model = msgStart.model_observed;
+      }
+      if (msgStart.model_requested !== undefined) runRecord.model_requested = msgStart.model_requested;
+      recordAgentRun(runRecord);
+    } else if (event.type === "turn_complete") {
+      finishRun("completed");
+    } else if (event.type === "error") {
+      finishRun("failed");
+    } else if (event.type === "cancelled") {
+      finishRun("cancelled");
+    }
+    return event;
+  }
+
+  let onEvent = handleRunEvent;
+  if (thread && thread.kind !== "hosted") {
+    let snapshotWritten = false;
+    const baseOnEvent = onEvent;
+    onEvent = (event) => {
+      let current = event;
+      if (event.type === "turn_complete") {
+        if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
+        const response = event.result.response;
+        if (!response?.trim()) throw new Error("Agent completed without a closing response.");
+        const { post, path } = appendPost(thread.directory, {
+          body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
+          summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
+          kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+        });
+        snapshotWritten = true;
+        output.progress(`Thread snapshot: ${path}`);
+        current = withThreadSnapshot(event, post.id, path);
+      }
+      return baseOnEvent(current);
+    };
+  }
+
+  const extraOrientation = thread ? `${povOrientation}\n\n${thread.orientation}` : povOrientation;
+  const onSig = (sig: NodeJS.Signals) => {
+    finishRun("interrupted");
+    process.off("SIGINT", onSigInt);
+    process.off("SIGTERM", onSigTerm);
+    process.kill(process.pid, sig);
+  };
+  const onSigInt = () => onSig("SIGINT");
+  const onSigTerm = () => onSig("SIGTERM");
+  process.once("SIGINT", onSigInt);
+  process.once("SIGTERM", onSigTerm);
+
+  let exitCode = 1;
+  try {
+    exitCode = await local.send(forwardFlags, output, {
+      ...launchOptions,
+      extraOrientation,
+      threadReceipt: thread?.receipt,
+      onEvent,
+    });
+    return exitCode;
+  } finally {
+    process.off("SIGINT", onSigInt);
+    process.off("SIGTERM", onSigTerm);
+    finishRun(exitCode === 0 ? "completed" : "failed");
+  }
+}
+
+function cmdRuns(
+  flags: Flags,
+  output: Output,
+): number {
+  const parentId = flagString(flags, "parent");
+  const agentFilter = flagString(flags, "agent");
+  const limitRaw = flagString(flags, "limit");
+  let limit: number | undefined;
+  if (limitRaw !== undefined) {
+    const parsed = parseInt(limitRaw, 10);
+    if (isNaN(parsed) || parsed <= 0 || String(parsed) !== limitRaw.trim()) {
+      output.error("Invalid --limit: must be a positive integer");
+      return 1;
+    }
+    limit = parsed;
+  }
+
+  const runs = listAgentRuns({ parentId, agent: agentFilter, limit });
+  const text = formatAgentRunsText(runs, parentId);
+  output.result({ runs, total: runs.length }, text);
+  return 0;
 }
 
 function cmdList(
@@ -424,6 +532,9 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
+      "ideaspaces agent runs",
+      "ideaspaces agent runs --parent <id> --json",
+      "ideaspaces agent runs --agent scout --limit 10",
       "ideaspaces agent capabilities --json  # machine-readable run guarantees for launchers",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",
@@ -440,6 +551,8 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       switch (sub) {
         case "run":
           return cmdRun(rest, flags, local, output);
+        case "runs":
+          return cmdRuns(flags, output);
         case "list":
           return cmdList(flags, global, output);
         case "capabilities": {

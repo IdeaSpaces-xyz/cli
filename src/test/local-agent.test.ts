@@ -64,6 +64,10 @@ describe("buildPiArgs (pi rpc argv)", () => {
 
   it("adds --no-extensions so explicit extensions are authoritative (no global double-load)", () => {
     expect(buildPiArgs(baseOpts)).toContain("--no-extensions");
+  });
+
+  it("defaults trust to saved (no -a unasked) and passes -a only on explicit trust", () => {
+    expect(buildPiArgs(baseOpts)).not.toContain("-a");
     expect(buildPiArgs({ ...baseOpts, trust: "saved" })).not.toContain("-a");
     expect(buildPiArgs({ ...baseOpts, trust: "explicit" })).toContain("-a");
   });

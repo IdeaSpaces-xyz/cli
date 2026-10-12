@@ -6,7 +6,7 @@ import { appendPost, createThread, initWorktree, loadThread } from "../local/thr
 import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
 import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
@@ -241,7 +241,14 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], agentRun: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      expect.objectContaining({
+        extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))],
+        skillPaths: [],
+        addedDirs: [],
+        agentRun: true,
+        resumeOnly: false,
+        extraOrientation: expect.stringContaining("# Agreement"),
+      }),
     );
   });
 
@@ -427,7 +434,14 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], agentRun: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      expect.objectContaining({
+        extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))],
+        skillPaths: [],
+        addedDirs: [],
+        agentRun: true,
+        resumeOnly: false,
+        extraOrientation: expect.stringContaining("# Agreement"),
+      }),
     );
   });
 
@@ -454,7 +468,7 @@ describe("agent run — command options & validation", () => {
         message: "Check space",
       }),
       expect.anything(),
-      {
+      expect.objectContaining({
         extensionPaths: [],
         skillPaths: [],
         addedDirs: [realpathSync.native(space)],
@@ -462,7 +476,7 @@ describe("agent run — command options & validation", () => {
         agentRun: true,
         resumeOnly: false,
         extraOrientation: expect.stringContaining("# Scout Agreement"),
-      },
+      }),
     );
   });
 
@@ -491,7 +505,7 @@ describe("agent run — command options & validation", () => {
         message: "Check reach",
       }),
       expect.anything(),
-      {
+      expect.objectContaining({
         extensionPaths: [],
         skillPaths: [],
         addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
@@ -499,7 +513,7 @@ describe("agent run — command options & validation", () => {
         agentRun: true,
         resumeOnly: false,
         extraOrientation: expect.stringContaining("# Scout Agreement"),
-      },
+      }),
     );
   });
 
@@ -874,6 +888,7 @@ process.stdin.on("data", (chunk) => {
         "claude.effort",
         "claude.permission-mode",
         "model.requested-observed",
+        "run.records",
       ],
     });
   });
@@ -1138,5 +1153,260 @@ process.stdin.on("data", (chunk) => {
     expect(lines.map((e) => e.type)).toContain("error");
     const err = lines.find((e) => e.type === "error");
     expect(err.message).toContain("Authentication failed");
+  });
+
+  it("writes run records on agent run and reads them back via agent runs", async () => {
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout())).toEqual({ runs: [], total: 0 });
+
+    const dir = makeAgentDir("run-record-test-");
+    const fakeBin = join(dir, "fake-claude");
+    writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    stdoutChunks = [];
+    const code = await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "claude",
+        model: "sonnet",
+        message: "hello claude",
+        "claude-bin": fakeBin,
+        parent: "parent-session-123",
+        "parent-tool-use-id": "toolu_01abc",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(0);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, JSON_GLOBAL)).toBe(0);
+    const allRuns = JSON.parse(stdout());
+    expect(allRuns.total).toBe(1);
+    const record = allRuns.runs[0];
+    expect(record.parent_id).toBe("parent-session-123");
+    expect(record.parent_tool_use_id).toBe("toolu_01abc");
+    expect(record.agent).toBe(realpathSync.native(dir));
+    expect(record.harness).toBe("claude");
+    expect(record.model).toBe("claude-fake");
+    expect(record.status).toBe("completed");
+    expect(record.conversation_id).toBeTruthy();
+    expect(record.started_at).toBeTruthy();
+    expect(record.ended_at).toBeTruthy();
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], { parent: "parent-session-123" }, JSON_GLOBAL)).toBe(0);
+    const filtered = JSON.parse(stdout());
+    expect(filtered.total).toBe(1);
+    expect(filtered.runs[0].run_id).toBe(record.run_id);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], { parent: "different-parent" }, JSON_GLOBAL)).toBe(0);
+    const none = JSON.parse(stdout());
+    expect(none.total).toBe(0);
+    expect(none.runs).toEqual([]);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, { json: false, quiet: false, yes: false, help: false })).toBe(0);
+    expect(stdout()).toContain("claude · claude-fake · completed — runId: ");
+    expect(stdout()).toContain("(parent: parent-session-123)");
+  });
+
+  it("inherits parent_id from PI_SESSION_ID when --parent is omitted", async () => {
+    const dir = makeAgentDir("run-env-parent-test-");
+    const fakeBin = join(dir, "fake-claude");
+    writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    process.env.PI_SESSION_ID = "pi-parent-456";
+    try {
+      stdoutChunks = [];
+      const code = await agentCmd.run(
+        ["run", dir],
+        {
+          runtime: "claude",
+          model: "sonnet",
+          message: "hello from pi child",
+          "claude-bin": fakeBin,
+        },
+        JSON_GLOBAL,
+      );
+      expect(code).toBe(0);
+
+      stdoutChunks = [];
+      expect(await agentCmd.run(["runs"], { parent: "pi-parent-456" }, JSON_GLOBAL)).toBe(0);
+      const res = JSON.parse(stdout());
+      expect(res.total).toBe(1);
+      expect(res.runs[0].parent_id).toBe("pi-parent-456");
+    } finally {
+      delete process.env.PI_SESSION_ID;
+    }
+  });
+
+  it("validates --limit and filters by --agent and --limit", async () => {
+    stdoutChunks = [];
+    stderrChunks = [];
+    expect(await agentCmd.run(["runs"], { limit: "invalid" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid --limit: must be a positive integer");
+
+    stdoutChunks = [];
+    stderrChunks = [];
+    expect(await agentCmd.run(["runs"], { limit: "0" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid --limit: must be a positive integer");
+
+    const dirA = makeAgentDir("agent-a-");
+    const dirB = makeAgentDir("agent-b-");
+    const fakeBinA = join(dirA, "fake-claude");
+    writeFileSync(join(dirA, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBinA, `#!/bin/sh\nexec "${process.execPath}" "${join(dirA, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBinA, 0o755);
+
+    const fakeBinB = join(dirB, "fake-claude");
+    writeFileSync(join(dirB, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBinB, `#!/bin/sh\nexec "${process.execPath}" "${join(dirB, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBinB, 0o755);
+
+    await agentCmd.run(["run", dirA], { runtime: "claude", message: "m1", "claude-bin": fakeBinA }, JSON_GLOBAL);
+    await agentCmd.run(["run", dirB], { runtime: "claude", message: "m2", "claude-bin": fakeBinB }, JSON_GLOBAL);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], { agent: basename(dirA) }, JSON_GLOBAL)).toBe(0);
+    const runsA = JSON.parse(stdout());
+    expect(runsA.total).toBe(1);
+    expect(runsA.runs[0].agent).toBe(realpathSync.native(dirA));
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], { limit: "1" }, JSON_GLOBAL)).toBe(0);
+    const runsLimit = JSON.parse(stdout());
+    expect(runsLimit.total).toBe(1);
+  });
+
+  it("records failed status when child run fails", async () => {
+    const dir = makeAgentDir("failed-run-test-");
+    const fakeBin = join(dir, "fake-claude");
+    writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    const code = await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "claude",
+        model: "sonnet",
+        message: "auth_fail trigger",
+        "claude-bin": fakeBin,
+      },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, JSON_GLOBAL)).toBe(0);
+    const allRuns = JSON.parse(stdout());
+    const failedRun = allRuns.runs.find((r: { agent: string }) => r.agent === realpathSync.native(dir));
+    expect(failedRun).toBeTruthy();
+    expect(failedRun.status).toBe("failed");
+    expect(failedRun.ended_at).toBeTruthy();
+  });
+
+  it("conversation send --local defaults Pi trust to saved and passes -a only on explicit", async () => {
+    const dir = makeAgentDir("conv-send-trust-test-");
+    const fakeBin = join(dir, "fake-pi");
+    writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    const convCmd = makeConversationCommand(composeLocalConversationOps({ pi: piConversationOps, claude: claudeConversationOps }));
+
+    stdoutChunks = [];
+    const code1 = await convCmd.run(
+      ["send", dir, "conv1"],
+      {
+        local: true,
+        runtime: "pi",
+        message: "policy_probe",
+        ext: `${fakeBin},${fakeBin}`,
+        "pi-bin": fakeBin,
+      },
+      JSON_GLOBAL,
+    );
+    expect(code1).toBe(0);
+    const lines1 = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    const start1 = lines1.find((e) => e.type === "message_start");
+    expect(start1.trust).toBe("saved");
+    const delta1 = lines1.find((e) => e.type === "text_delta");
+    const probe1 = JSON.parse(delta1.delta.replace(/^pi:/, ""));
+    expect(probe1.approved).toBe(false);
+
+    stdoutChunks = [];
+    const code2 = await convCmd.run(
+      ["send", dir, "conv1"],
+      {
+        local: true,
+        runtime: "pi",
+        message: "policy_probe",
+        ext: `${fakeBin},${fakeBin}`,
+        "pi-bin": fakeBin,
+        "pi-trust": "explicit",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code2).toBe(0);
+    const lines2 = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    const start2 = lines2.find((e) => e.type === "message_start");
+    expect(start2.trust).toBe("explicit");
+    const delta2 = lines2.find((e) => e.type === "text_delta");
+    const probe2 = JSON.parse(delta2.delta.replace(/^pi:/, ""));
+    expect(probe2.approved).toBe(true);
+  });
+
+  it("agent run defaults Pi trust to saved and passes -a only on explicit", async () => {
+    const dir = makeAgentDir("agent-run-trust-test-");
+    const fakeBin = join(dir, "fake-pi");
+    writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    stdoutChunks = [];
+    const code1 = await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "pi",
+        message: "policy_probe",
+        ext: `${fakeBin},${fakeBin}`,
+        "pi-bin": fakeBin,
+      },
+      JSON_GLOBAL,
+    );
+    expect(code1).toBe(0);
+    const lines1 = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    const start1 = lines1.find((e) => e.type === "message_start");
+    expect(start1.trust).toBe("saved");
+    const delta1 = lines1.find((e) => e.type === "text_delta");
+    const probe1 = JSON.parse(delta1.delta.replace(/^pi:/, ""));
+    expect(probe1.approved).toBe(false);
+
+    stdoutChunks = [];
+    const code2 = await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "pi",
+        message: "policy_probe",
+        ext: `${fakeBin},${fakeBin}`,
+        "pi-bin": fakeBin,
+        "pi-trust": "explicit",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code2).toBe(0);
+    const lines2 = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    const start2 = lines2.find((e) => e.type === "message_start");
+    expect(start2.trust).toBe("explicit");
+    const delta2 = lines2.find((e) => e.type === "text_delta");
+    const probe2 = JSON.parse(delta2.delta.replace(/^pi:/, ""));
+    expect(probe2.approved).toBe(true);
   });
 });
