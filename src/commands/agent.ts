@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { KeeperStreamEvent } from "@ideaspaces/sdk";
+import type { LocalMessageStartEvent } from "../local/send-options.js";
 import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
@@ -405,7 +406,7 @@ async function cmdRun(
 
   function handleRunEvent(event: KeeperStreamEvent): KeeperStreamEvent {
     if (event.type === "message_start") {
-      const msgStart = event as { conversation_id?: string; model_observed?: string | null; model_requested?: string | null };
+      const msgStart = event as LocalMessageStartEvent;
       if (typeof msgStart.conversation_id === "string") runRecord.conversation_id = msgStart.conversation_id;
       if (msgStart.model_observed !== undefined) {
         runRecord.model_observed = msgStart.model_observed;
