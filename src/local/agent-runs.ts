@@ -24,12 +24,16 @@ export interface ListAgentRunsOptions {
 }
 
 export function recordAgentRun(record: AgentRunRecord): void {
-  const dir = configDir();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+  try {
+    const dir = configDir();
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+    const file = join(dir, "agent-runs.jsonl");
+    appendFileSync(file, `${JSON.stringify(record)}\n`, { mode: 0o600, encoding: "utf8" });
+  } catch {
+    // Bookkeeping must never crash the run
   }
-  const file = join(dir, "agent-runs.jsonl");
-  appendFileSync(file, `${JSON.stringify(record)}\n`, "utf8");
 }
 
 export function listAgentRuns(options: ListAgentRunsOptions = {}): AgentRunRecord[] {

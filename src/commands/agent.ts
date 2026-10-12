@@ -375,7 +375,7 @@ async function cmdRun(
     resumeOnly: flags.conversation !== undefined,
   };
 
-  const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? process.env.IDEASPACES_CONVERSATION_ID ?? null;
+  const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? null;
   const parentToolUseId = flagString(flags, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
   const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID()}`;
 
@@ -393,6 +393,14 @@ async function cmdRun(
   };
   recordAgentRun(runRecord);
 
+  function finishRun(status: AgentRunRecord["status"]) {
+    if (runRecord.ended_at === null) {
+      runRecord.status = status;
+      runRecord.ended_at = new Date().toISOString();
+      recordAgentRun(runRecord);
+    }
+  }
+
   function handleRunEvent(event: KeeperStreamEvent): KeeperStreamEvent {
     if (event.type === "message_start") {
       const msgStart = event as { conversation_id?: string; model_observed?: string | null };
@@ -400,71 +408,50 @@ async function cmdRun(
       if (typeof msgStart.model_observed === "string") runRecord.model = msgStart.model_observed;
       recordAgentRun(runRecord);
     } else if (event.type === "turn_complete") {
-      runRecord.status = "completed";
-      runRecord.ended_at = new Date().toISOString();
-      recordAgentRun(runRecord);
+      finishRun("completed");
     } else if (event.type === "error") {
-      runRecord.status = "failed";
-      runRecord.ended_at = new Date().toISOString();
-      recordAgentRun(runRecord);
+      finishRun("failed");
     } else if (event.type === "cancelled") {
-      runRecord.status = "cancelled";
-      runRecord.ended_at = new Date().toISOString();
-      recordAgentRun(runRecord);
+      finishRun("cancelled");
     }
     return event;
   }
 
+  let onEvent = handleRunEvent;
+  if (thread && thread.kind !== "hosted") {
+    let snapshotWritten = false;
+    const baseOnEvent = onEvent;
+    onEvent = (event) => {
+      let current = event;
+      if (event.type === "turn_complete") {
+        if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
+        const response = event.result.response;
+        if (!response?.trim()) throw new Error("Agent completed without a closing response.");
+        const { post, path } = appendPost(thread.directory, {
+          body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
+          summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
+          kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+        });
+        snapshotWritten = true;
+        output.progress(`Thread snapshot: ${path}`);
+        current = withThreadSnapshot(event, post.id, path);
+      }
+      return baseOnEvent(current);
+    };
+  }
+
+  const extraOrientation = thread ? `${povOrientation}\n\n${thread.orientation}` : povOrientation;
   let exitCode = 1;
   try {
-    if (!thread) {
-      exitCode = await local.send(forwardFlags, output, {
-        ...launchOptions,
-        extraOrientation: povOrientation,
-        onEvent: handleRunEvent,
-      });
-      return exitCode;
-    }
-    // Hosted conversations are private drafts; only the person can send a hosted reply.
-    if (thread.kind === "hosted") {
-      exitCode = await local.send(forwardFlags, output, {
-        ...launchOptions,
-        extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
-        threadReceipt: thread.receipt,
-        onEvent: handleRunEvent,
-      });
-      return exitCode;
-    }
-    let snapshotWritten = false;
     exitCode = await local.send(forwardFlags, output, {
       ...launchOptions,
-      extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
-      threadReceipt: thread.receipt,
-      onEvent(event) {
-        let current = event;
-        if (event.type === "turn_complete") {
-          if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
-          const response = event.result.response;
-          if (!response?.trim()) throw new Error("Agent completed without a closing response.");
-          const { post, path } = appendPost(thread.directory, {
-            body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
-            summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
-            kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
-          });
-          snapshotWritten = true;
-          output.progress(`Thread snapshot: ${path}`);
-          current = withThreadSnapshot(event, post.id, path);
-        }
-        return handleRunEvent(current);
-      },
+      extraOrientation,
+      threadReceipt: thread?.receipt,
+      onEvent,
     });
     return exitCode;
   } finally {
-    if (runRecord.ended_at === null) {
-      runRecord.status = exitCode === 0 ? "completed" : "failed";
-      runRecord.ended_at = new Date().toISOString();
-      recordAgentRun(runRecord);
-    }
+    finishRun(exitCode === 0 ? "completed" : "failed");
   }
 }
 
@@ -475,9 +462,17 @@ function cmdRuns(
   const parentId = flagString(flags, "parent");
   const agentFilter = flagString(flags, "agent");
   const limitRaw = flagString(flags, "limit");
-  const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
+  let limit: number | undefined;
+  if (limitRaw !== undefined) {
+    const parsed = parseInt(limitRaw, 10);
+    if (isNaN(parsed) || parsed <= 0 || String(parsed) !== limitRaw.trim()) {
+      output.error("Invalid --limit: must be a positive integer");
+      return 1;
+    }
+    limit = parsed;
+  }
 
-  const runs = listAgentRuns({ parentId, agent: agentFilter, limit: isNaN(limit!) ? undefined : limit });
+  const runs = listAgentRuns({ parentId, agent: agentFilter, limit });
   const text = formatAgentRunsText(runs, parentId);
   output.result({ runs, total: runs.length }, text);
   return 0;
@@ -517,6 +512,9 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
+      "ideaspaces agent runs",
+      "ideaspaces agent runs --parent <id> --json",
+      "ideaspaces agent runs --agent scout --limit 10",
       "ideaspaces agent capabilities --json  # machine-readable run guarantees for launchers",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",

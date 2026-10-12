@@ -6,7 +6,7 @@ import { appendPost, createThread, initWorktree, loadThread } from "../local/thr
 import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
 import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
@@ -1244,5 +1244,71 @@ process.stdin.on("data", (chunk) => {
     } finally {
       delete process.env.PI_SESSION_ID;
     }
+  });
+
+  it("validates --limit and filters by --agent and --limit", async () => {
+    stdoutChunks = [];
+    stderrChunks = [];
+    expect(await agentCmd.run(["runs"], { limit: "invalid" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid --limit: must be a positive integer");
+
+    stdoutChunks = [];
+    stderrChunks = [];
+    expect(await agentCmd.run(["runs"], { limit: "0" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid --limit: must be a positive integer");
+
+    const dirA = makeAgentDir("agent-a-");
+    const dirB = makeAgentDir("agent-b-");
+    const fakeBinA = join(dirA, "fake-claude");
+    writeFileSync(join(dirA, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBinA, `#!/bin/sh\nexec "${process.execPath}" "${join(dirA, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBinA, 0o755);
+
+    const fakeBinB = join(dirB, "fake-claude");
+    writeFileSync(join(dirB, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBinB, `#!/bin/sh\nexec "${process.execPath}" "${join(dirB, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBinB, 0o755);
+
+    await agentCmd.run(["run", dirA], { runtime: "claude", message: "m1", "claude-bin": fakeBinA }, JSON_GLOBAL);
+    await agentCmd.run(["run", dirB], { runtime: "claude", message: "m2", "claude-bin": fakeBinB }, JSON_GLOBAL);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], { agent: basename(dirA) }, JSON_GLOBAL)).toBe(0);
+    const runsA = JSON.parse(stdout());
+    expect(runsA.total).toBe(1);
+    expect(runsA.runs[0].agent).toBe(realpathSync.native(dirA));
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], { limit: "1" }, JSON_GLOBAL)).toBe(0);
+    const runsLimit = JSON.parse(stdout());
+    expect(runsLimit.total).toBe(1);
+  });
+
+  it("records failed status when child run fails", async () => {
+    const dir = makeAgentDir("failed-run-test-");
+    const fakeBin = join(dir, "fake-claude");
+    writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    const code = await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "claude",
+        model: "sonnet",
+        message: "auth_fail trigger",
+        "claude-bin": fakeBin,
+      },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(1);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, JSON_GLOBAL)).toBe(0);
+    const allRuns = JSON.parse(stdout());
+    const failedRun = allRuns.runs.find((r: { agent: string }) => r.agent === realpathSync.native(dir));
+    expect(failedRun).toBeTruthy();
+    expect(failedRun.status).toBe("failed");
+    expect(failedRun.ended_at).toBeTruthy();
   });
 });
