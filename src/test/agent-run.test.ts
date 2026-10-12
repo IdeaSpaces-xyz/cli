@@ -7,7 +7,7 @@ import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { agentDisplayName, formatAgentRunsText, listAgentRuns } from "../local/agent-runs.js";
+import { agentDisplayName, deriveTask, formatAgentRunsText, listAgentRuns } from "../local/agent-runs.js";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
 import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
@@ -1289,6 +1289,70 @@ Post body
     expect(postRun.task).toBe("Dispatch: UI/UX builds M1 then SH");
     expect(askRun.task).toBe("What is the capital of France?");
     expect(consultRun.task).toBe("Review the authentication flow");
+
+    // 4. Explicit --task override
+    stdoutChunks = [];
+    await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "claude",
+        model: "sonnet",
+        message: "Some message",
+        task: "Explicit task name",
+        "claude-bin": fakeBin,
+        "run-id": "run-explicit-task",
+      },
+      JSON_GLOBAL,
+    );
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, JSON_GLOBAL)).toBe(0);
+    const explicitRun = JSON.parse(stdout()).runs.find((r: any) => r.run_id === "run-explicit-task");
+    expect(explicitRun.task).toBe("Explicit task name");
+  });
+
+  it("deriveTask unit tests cover post names, prompts, sanitization and edge cases", () => {
+    const dir = tempDir("derive-task-unit-");
+    const postFile = join(dir, "post.md");
+    writeFileSync(
+      postFile,
+      `---
+id: msg_abc
+date: 2026-10-12T15:00:00.000Z
+kind: post
+name: "Post Name From Frontmatter"
+author: scout
+---
+Body text
+`,
+    );
+
+    // From file path directly
+    expect(deriveTask(postFile, dir)).toBe("Post Name From Frontmatter");
+    // From dispatch message with file path
+    expect(deriveTask(`${postFile} — a dispatch addressed to you. Read it...`, dir)).toBe("Post Name From Frontmatter");
+    // Non-existent .md path falls back to first line
+    expect(deriveTask("missing.md — a dispatch addressed to you", dir)).toBe("missing.md");
+    // Markdown without frontmatter name falls back to first line
+    const bareMd = join(dir, "bare.md");
+    writeFileSync(bareMd, "# Bare Title\nbody");
+    expect(deriveTask(bareMd, dir)).toBe(bareMd);
+
+    // Ask format
+    expect(deriveTask("Why is the sky blue? — a question, answered in your reply only.", dir)).toBe("Why is the sky blue?");
+    // Consult format
+    expect(deriveTask("Look at logs — a consult from backend, about the Thread...", dir)).toBe("Look at logs");
+    // Ceiling note
+    expect(deriveTask("Run migration Ceiling for this run: 10 minutes.", dir)).toBe("Run migration");
+    // Multi-line message
+    expect(deriveTask("First line\nSecond line\nThird line", dir)).toBe("First line");
+    // Empty and whitespace messages
+    expect(deriveTask("", dir)).toBeNull();
+    expect(deriveTask("   \n\n  ", dir)).toBeNull();
+    expect(deriveTask(undefined, dir)).toBeNull();
+
+    // Long message truncation to 300 chars
+    const long = "A".repeat(400);
+    expect(deriveTask(long, dir)?.length).toBe(300);
   });
 
   it("inherits parent_id from PI_SESSION_ID when --parent is omitted", async () => {

@@ -37,30 +37,32 @@ export function deriveTask(message?: string, cwd: string = process.cwd()): strin
   const trimmed = message.trim();
   if (!trimmed) return null;
 
-  // 1. Check if the message is or starts with a path to a post
-  let candidatePath = trimmed;
-  if (trimmed.includes(" — ")) {
-    candidatePath = trimmed.split(" — ")[0].trim();
-  } else if (trimmed.includes("\n")) {
-    candidatePath = trimmed.split("\n")[0].trim();
+  // Split on first line first
+  const firstLine = trimmed.split(/\r?\n/).map((l) => l.trim()).find(Boolean) || "";
+  if (!firstLine) return null;
+
+  // 1. Check if the first line is or begins with a markdown post path
+  let candidatePath = firstLine;
+  if (firstLine.includes(" — ")) {
+    candidatePath = firstLine.split(" — ")[0].trim();
   }
   candidatePath = candidatePath.replace(/^["']|["']$/g, "");
 
-  const resolvedPath = isAbsolute(candidatePath) ? candidatePath : resolve(cwd, candidatePath);
-  try {
-    if (existsSync(resolvedPath) && statSync(resolvedPath).isFile()) {
+  if (candidatePath.endsWith(".md") || candidatePath.endsWith(".markdown")) {
+    const resolvedPath = isAbsolute(candidatePath) ? candidatePath : resolve(cwd, candidatePath);
+    try {
       const content = readFileSync(resolvedPath, "utf8");
       const fm = parseFrontmatter(content);
       if (fm && typeof fm.name === "string" && fm.name.trim()) {
         return fm.name.trim();
       }
+    } catch {
+      // Fall through to text extraction
     }
-  } catch {
-    // Fall through to text extraction
   }
 
-  // 2. Handle agent-launch patterns: --ask and --consult
-  let text = trimmed;
+  // 2. Handle agent-launch patterns: --ask, --consult, --dispatch
+  let text = firstLine;
   if (text.includes(" — a question")) {
     text = text.split(" — a question")[0].trim();
   } else if (text.includes(" — a consult")) {
@@ -73,9 +75,8 @@ export function deriveTask(message?: string, cwd: string = process.cwd()): strin
     text = text.split("Ceiling for this run:")[0].trim();
   }
 
-  // 3. Otherwise take the first line, trimmed
-  const firstLine = text.split(/\r?\n/).map((l) => l.trim()).find(Boolean) || "";
-  return firstLine.slice(0, 300) || null;
+  const sanitized = text.replace(/[\x00-\x1F\x7F]/g, "").trim();
+  return (sanitized.length > 300 ? sanitized.slice(0, 300) : sanitized) || null;
 }
 
 export function recordAgentRun(record: AgentRunRecord): void {
@@ -156,8 +157,10 @@ export function formatAgentRunsText(runs: AgentRunRecord[], parentFilter?: strin
       const agentName = agentDisplayName(run.agent);
       const parentPart = run.parent_id ? ` (parent: ${run.parent_id})` : "";
       const convPart = run.conversation_id ? ` · conv: ${run.conversation_id}` : "";
-      const taskPart = run.task ? ` · "${run.task}"` : "";
-      return `${agentName}${taskPart} · ${run.harness} · ${run.model || "unreported model"} · ${run.status} — runId: ${run.run_id}${parentPart}${convPart}`;
+      const taskDisplay = run.task
+        ? ` · "${run.task.length > 80 ? `${run.task.slice(0, 77)}...` : run.task}"`
+        : "";
+      return `${agentName}${taskDisplay} · ${run.harness} · ${run.model || "unreported model"} · ${run.status} — runId: ${run.run_id}${parentPart}${convPart}`;
     })
     .join("\n");
 }
