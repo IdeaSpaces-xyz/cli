@@ -97,7 +97,7 @@ export interface LocalTurnOptions {
   /** pi thinking level (`--thinking`), if overriding the model/session default.
    * Omitted → pi keeps its default; one of {@link PI_THINKING_LEVELS} otherwise. */
   thinkingLevel?: PiThinkingLevel;
-  /** Project-resource trust. Legacy desktop turns explicitly approve; fellow launches default to saved trust. */
+  /** Project-resource trust. Defaults to saved trust; explicit passes -a to approve all project resources. */
   trust?: "saved" | "explicit";
   /** pi executable. Default "pi" (from PATH). */
   piBin?: string;
@@ -136,7 +136,7 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
     "--session-id", opts.conversationId,
     "--session-dir", opts.sessionDir,
   ];
-  if (opts.trust !== "saved") args.push("-a");
+  if (opts.trust === "explicit") args.push("-a");
   // The extensions we pass are authoritative: a local turn must load exactly
   // these (the desktop's bundled, pinned set), NOT also whatever the user has
   // globally `pi install`ed — the same extension loaded twice hard-errors on

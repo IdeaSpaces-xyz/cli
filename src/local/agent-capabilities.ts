@@ -22,6 +22,8 @@ export const AGENT_RUN_FEATURES = {
   "claude.permission-mode": "--permission-mode selects a Claude Code permission mode (bypass refused).",
   /** `message_start` carries `model_requested` and `model_observed`, each a string or null. */
   "model.requested-observed": "message_start reports model_requested and model_observed separately; null means none requested or none reported.",
+  /** `agent run` writes run records queryable via `agent runs`. */
+  "run.records": "agent run writes run records (parent, agent, harness, model, conversation) read by agent runs.",
 } as const;
 
 export type AgentRunFeature = keyof typeof AGENT_RUN_FEATURES;

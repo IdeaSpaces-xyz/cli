@@ -241,7 +241,14 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], agentRun: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      expect.objectContaining({
+        extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))],
+        skillPaths: [],
+        addedDirs: [],
+        agentRun: true,
+        resumeOnly: false,
+        extraOrientation: expect.stringContaining("# Agreement"),
+      }),
     );
   });
 
@@ -427,7 +434,14 @@ describe("agent run — command options & validation", () => {
         message: "Analyze data",
       }),
       expect.anything(),
-      { extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))], skillPaths: [], addedDirs: [], agentRun: true, resumeOnly: false, extraOrientation: expect.stringContaining("# Agreement") },
+      expect.objectContaining({
+        extensionPaths: [realpathSync.native(join(dir, "_agent", "agreement.md"))],
+        skillPaths: [],
+        addedDirs: [],
+        agentRun: true,
+        resumeOnly: false,
+        extraOrientation: expect.stringContaining("# Agreement"),
+      }),
     );
   });
 
@@ -454,7 +468,7 @@ describe("agent run — command options & validation", () => {
         message: "Check space",
       }),
       expect.anything(),
-      {
+      expect.objectContaining({
         extensionPaths: [],
         skillPaths: [],
         addedDirs: [realpathSync.native(space)],
@@ -462,7 +476,7 @@ describe("agent run — command options & validation", () => {
         agentRun: true,
         resumeOnly: false,
         extraOrientation: expect.stringContaining("# Scout Agreement"),
-      },
+      }),
     );
   });
 
@@ -491,7 +505,7 @@ describe("agent run — command options & validation", () => {
         message: "Check reach",
       }),
       expect.anything(),
-      {
+      expect.objectContaining({
         extensionPaths: [],
         skillPaths: [],
         addedDirs: [realpathSync.native(space), realpathSync.native(otherDir)],
@@ -499,7 +513,7 @@ describe("agent run — command options & validation", () => {
         agentRun: true,
         resumeOnly: false,
         extraOrientation: expect.stringContaining("# Scout Agreement"),
-      },
+      }),
     );
   });
 
@@ -874,6 +888,7 @@ process.stdin.on("data", (chunk) => {
         "claude.effort",
         "claude.permission-mode",
         "model.requested-observed",
+        "run.records",
       ],
     });
   });
@@ -1138,5 +1153,96 @@ process.stdin.on("data", (chunk) => {
     expect(lines.map((e) => e.type)).toContain("error");
     const err = lines.find((e) => e.type === "error");
     expect(err.message).toContain("Authentication failed");
+  });
+
+  it("writes run records on agent run and reads them back via agent runs", async () => {
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout())).toEqual({ runs: [], total: 0 });
+
+    const dir = makeAgentDir("run-record-test-");
+    const fakeBin = join(dir, "fake-claude");
+    writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    stdoutChunks = [];
+    const code = await agentCmd.run(
+      ["run", dir],
+      {
+        runtime: "claude",
+        model: "sonnet",
+        message: "hello claude",
+        "claude-bin": fakeBin,
+        parent: "parent-session-123",
+        "parent-tool-use-id": "toolu_01abc",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code).toBe(0);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, JSON_GLOBAL)).toBe(0);
+    const allRuns = JSON.parse(stdout());
+    expect(allRuns.total).toBe(1);
+    const record = allRuns.runs[0];
+    expect(record.parent_id).toBe("parent-session-123");
+    expect(record.parent_tool_use_id).toBe("toolu_01abc");
+    expect(record.agent).toBe(realpathSync.native(dir));
+    expect(record.harness).toBe("claude");
+    expect(record.model).toBe("claude-fake");
+    expect(record.status).toBe("completed");
+    expect(record.conversation_id).toBeTruthy();
+    expect(record.started_at).toBeTruthy();
+    expect(record.ended_at).toBeTruthy();
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], { parent: "parent-session-123" }, JSON_GLOBAL)).toBe(0);
+    const filtered = JSON.parse(stdout());
+    expect(filtered.total).toBe(1);
+    expect(filtered.runs[0].run_id).toBe(record.run_id);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], { parent: "different-parent" }, JSON_GLOBAL)).toBe(0);
+    const none = JSON.parse(stdout());
+    expect(none.total).toBe(0);
+    expect(none.runs).toEqual([]);
+
+    stdoutChunks = [];
+    expect(await agentCmd.run(["runs"], {}, { json: false, quiet: false, yes: false, help: false })).toBe(0);
+    expect(stdout()).toContain("claude · claude-fake · completed — runId: ");
+    expect(stdout()).toContain("(parent: parent-session-123)");
+  });
+
+  it("inherits parent_id from PI_SESSION_ID when --parent is omitted", async () => {
+    const dir = makeAgentDir("run-env-parent-test-");
+    const fakeBin = join(dir, "fake-claude");
+    writeFileSync(join(dir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    process.env.PI_SESSION_ID = "pi-parent-456";
+    try {
+      stdoutChunks = [];
+      const code = await agentCmd.run(
+        ["run", dir],
+        {
+          runtime: "claude",
+          model: "sonnet",
+          message: "hello from pi child",
+          "claude-bin": fakeBin,
+        },
+        JSON_GLOBAL,
+      );
+      expect(code).toBe(0);
+
+      stdoutChunks = [];
+      expect(await agentCmd.run(["runs"], { parent: "pi-parent-456" }, JSON_GLOBAL)).toBe(0);
+      const res = JSON.parse(stdout());
+      expect(res.total).toBe(1);
+      expect(res.runs[0].parent_id).toBe("pi-parent-456");
+    } finally {
+      delete process.env.PI_SESSION_ID;
+    }
   });
 });

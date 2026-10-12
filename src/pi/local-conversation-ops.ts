@@ -81,7 +81,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     output.error(`Invalid thinking level "${piThinking}". Valid values: ${PI_THINKING_LEVELS.join(", ")}`);
     return 1;
   }
-  const trust = flags["pi-trust"] === undefined ? "explicit" : flags["pi-trust"];
+  const trust = flags["pi-trust"] === undefined ? "saved" : flags["pi-trust"];
   if (trust !== "saved" && trust !== "explicit") {
     output.error(`Invalid Pi trust policy "${String(trust)}". Valid values: saved, explicit`);
     return 1;

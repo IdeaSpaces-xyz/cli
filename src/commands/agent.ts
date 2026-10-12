@@ -1,6 +1,8 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import type { KeeperStreamEvent } from "@ideaspaces/sdk";
 import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
@@ -10,6 +12,12 @@ import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, typ
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent-capabilities.js";
+import {
+  formatAgentRunsText,
+  listAgentRuns,
+  recordAgentRun,
+  type AgentRunRecord,
+} from "../local/agent-runs.js";
 import {
   resolveAgentPov,
   revalidateAgentPov,
@@ -55,8 +63,11 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
+
+export const RUNS_USAGE =
+  "ideaspaces agent runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]";
 
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
@@ -64,7 +75,7 @@ export const LIST_USAGE =
 export const CAPABILITIES_USAGE = "ideaspaces agent capabilities [--json]";
 
 export const USAGE =
-  `ideaspaces agent <run|list|capabilities> … (run ${RUN_ARGS}; list --map <file> [--json]; capabilities [--json])`;
+  `ideaspaces agent <run|runs|list|capabilities> … (run ${RUN_ARGS}; runs [--parent <id>] [--json]; list --map <file> [--json]; capabilities [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -363,31 +374,113 @@ async function cmdRun(
     agentRun: true,
     resumeOnly: flags.conversation !== undefined,
   };
-  if (!thread) return local.send(forwardFlags, output, { ...launchOptions, extraOrientation: povOrientation });
-  // Hosted conversations are private drafts; only the person can send a hosted reply.
-  if (thread.kind === "hosted") return local.send(forwardFlags, output, {
-    ...launchOptions, extraOrientation: `${povOrientation}\n\n${thread.orientation}`, threadReceipt: thread.receipt,
-  });
-  let snapshotWritten = false;
-  return local.send(forwardFlags, output, {
-    ...launchOptions,
-    extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
-    threadReceipt: thread.receipt,
-    onEvent(event) {
-      if (event.type !== "turn_complete") return event;
-      if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
-      const response = event.result.response;
-      if (!response?.trim()) throw new Error("Agent completed without a closing response.");
-      const { post, path } = appendPost(thread.directory, {
-        body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
-        summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
-        kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+
+  const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? process.env.IDEASPACES_CONVERSATION_ID ?? null;
+  const parentToolUseId = flagString(flags, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
+  const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID()}`;
+
+  const runRecord: AgentRunRecord = {
+    run_id: runId,
+    parent_id: parentId,
+    parent_tool_use_id: parentToolUseId,
+    agent: povPath,
+    harness: runtime,
+    model: model ?? null,
+    conversation_id: flags.conversation ? String(flags.conversation) : null,
+    status: "running",
+    started_at: new Date().toISOString(),
+    ended_at: null,
+  };
+  recordAgentRun(runRecord);
+
+  function handleRunEvent(event: KeeperStreamEvent): KeeperStreamEvent {
+    if (event.type === "message_start") {
+      const msgStart = event as { conversation_id?: string; model_observed?: string | null };
+      if (typeof msgStart.conversation_id === "string") runRecord.conversation_id = msgStart.conversation_id;
+      if (typeof msgStart.model_observed === "string") runRecord.model = msgStart.model_observed;
+      recordAgentRun(runRecord);
+    } else if (event.type === "turn_complete") {
+      runRecord.status = "completed";
+      runRecord.ended_at = new Date().toISOString();
+      recordAgentRun(runRecord);
+    } else if (event.type === "error") {
+      runRecord.status = "failed";
+      runRecord.ended_at = new Date().toISOString();
+      recordAgentRun(runRecord);
+    } else if (event.type === "cancelled") {
+      runRecord.status = "cancelled";
+      runRecord.ended_at = new Date().toISOString();
+      recordAgentRun(runRecord);
+    }
+    return event;
+  }
+
+  let exitCode = 1;
+  try {
+    if (!thread) {
+      exitCode = await local.send(forwardFlags, output, {
+        ...launchOptions,
+        extraOrientation: povOrientation,
+        onEvent: handleRunEvent,
       });
-      snapshotWritten = true;
-      output.progress(`Thread snapshot: ${path}`);
-      return withThreadSnapshot(event, post.id, path);
-    },
-  });
+      return exitCode;
+    }
+    // Hosted conversations are private drafts; only the person can send a hosted reply.
+    if (thread.kind === "hosted") {
+      exitCode = await local.send(forwardFlags, output, {
+        ...launchOptions,
+        extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
+        threadReceipt: thread.receipt,
+        onEvent: handleRunEvent,
+      });
+      return exitCode;
+    }
+    let snapshotWritten = false;
+    exitCode = await local.send(forwardFlags, output, {
+      ...launchOptions,
+      extraOrientation: `${povOrientation}\n\n${thread.orientation}`,
+      threadReceipt: thread.receipt,
+      onEvent(event) {
+        let current = event;
+        if (event.type === "turn_complete") {
+          if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
+          const response = event.result.response;
+          if (!response?.trim()) throw new Error("Agent completed without a closing response.");
+          const { post, path } = appendPost(thread.directory, {
+            body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
+            summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
+            kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+          });
+          snapshotWritten = true;
+          output.progress(`Thread snapshot: ${path}`);
+          current = withThreadSnapshot(event, post.id, path);
+        }
+        return handleRunEvent(current);
+      },
+    });
+    return exitCode;
+  } finally {
+    if (runRecord.ended_at === null) {
+      runRecord.status = exitCode === 0 ? "completed" : "failed";
+      runRecord.ended_at = new Date().toISOString();
+      recordAgentRun(runRecord);
+    }
+  }
+}
+
+function cmdRuns(
+  flags: Flags,
+  output: Output,
+): number {
+  const parentId = flagString(flags, "parent");
+  const agentFilter = flagString(flags, "agent");
+  const limitRaw = flagString(flags, "limit");
+  const limit = limitRaw ? parseInt(limitRaw, 10) : undefined;
+
+  const runs = listAgentRuns({ parentId, agent: agentFilter, limit: isNaN(limit!) ? undefined : limit });
+  const text = formatAgentRunsText(runs, parentId);
+  output.result({ runs, total: runs.length }, text);
+  return 0;
 }
 
 function cmdList(
@@ -440,6 +533,8 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       switch (sub) {
         case "run":
           return cmdRun(rest, flags, local, output);
+        case "runs":
+          return cmdRuns(flags, output);
         case "list":
           return cmdList(flags, global, output);
         case "capabilities": {
