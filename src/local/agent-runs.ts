@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { win32, join } from "node:path";
 import { configDir } from "../auth/config-dir.js";
 
 export type AgentRunStatus = "running" | "completed" | "failed" | "interrupted" | "cancelled";
@@ -23,6 +23,11 @@ export interface ListAgentRunsOptions {
   parentId?: string;
   agent?: string;
   limit?: number;
+}
+
+export function agentDisplayName(agentPath: string): string {
+  const trimmed = agentPath.replace(/[\\/]+$/, "");
+  return win32.basename(trimmed) || agentPath;
 }
 
 export function recordAgentRun(record: AgentRunRecord): void {
@@ -70,8 +75,15 @@ export function listAgentRuns(options: ListAgentRunsOptions = {}): AgentRunRecor
     runs = runs.filter((r) => r.parent_id === options.parentId);
   }
   if (options.agent !== undefined && options.agent.trim()) {
-    const match = options.agent.trim();
-    runs = runs.filter((r) => r.agent === match || r.agent.endsWith(`/${match}`));
+    const raw = options.agent.trim().replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
+    if (raw) {
+      runs = runs.filter((r) => {
+        const norm = r.agent.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
+        return norm === raw || norm.endsWith(`/${raw}`);
+      });
+    } else {
+      runs = [];
+    }
   }
 
   // Sort newest first by started_at descending
@@ -93,7 +105,7 @@ export function formatAgentRunsText(runs: AgentRunRecord[], parentFilter?: strin
 
   return runs
     .map((run) => {
-      const agentName = run.agent.split("/").pop() || run.agent;
+      const agentName = agentDisplayName(run.agent);
       const parentPart = run.parent_id ? ` (parent: ${run.parent_id})` : "";
       const convPart = run.conversation_id ? ` · conv: ${run.conversation_id}` : "";
       return `${agentName} · ${run.harness} · ${run.model || "unreported model"} · ${run.status} — runId: ${run.run_id}${parentPart}${convPart}`;

@@ -7,6 +7,7 @@ import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { agentDisplayName, formatAgentRunsText, listAgentRuns } from "../local/agent-runs.js";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
 import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
@@ -1282,6 +1283,29 @@ process.stdin.on("data", (chunk) => {
     expect(await agentCmd.run(["runs"], { limit: "1" }, JSON_GLOBAL)).toBe(0);
     const runsLimit = JSON.parse(stdout());
     expect(runsLimit.total).toBe(1);
+  });
+
+  it("extracts agent display name and filters by relative and Windows agent paths", () => {
+    expect(agentDisplayName("/path/to/agents/scout")).toBe("scout");
+    expect(agentDisplayName("C:\\path\\to\\agents\\scout")).toBe("scout");
+    expect(agentDisplayName("/path/to/agents/scout/")).toBe("scout");
+    expect(agentDisplayName("C:\\path\\to\\agents\\scout\\")).toBe("scout");
+    expect(agentDisplayName("scout")).toBe("scout");
+
+    const formatted = formatAgentRunsText([
+      {
+        run_id: "run-win",
+        parent_id: null,
+        agent: "C:\\Workspace\\agents\\scout",
+        harness: "pi",
+        model: "gemini-3.7-flash",
+        conversation_id: "local-123",
+        status: "completed",
+        started_at: "2026-10-12T12:00:00.000Z",
+        ended_at: "2026-10-12T12:01:00.000Z",
+      },
+    ]);
+    expect(formatted).toContain("scout · pi · gemini-3.7-flash · completed — runId: run-win");
   });
 
   it("records failed status when child run fails", async () => {
