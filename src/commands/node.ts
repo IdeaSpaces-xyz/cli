@@ -8,7 +8,7 @@ import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
 
-// Resolve / write / history a node by id or path. Backs the desktop/web conversation
+// Resolve / write / history a note by id or path. Backs the desktop/web conversation
 // workspace strip + preview (a conversation's `workspace` is bare node-ids),
 // the preview's online edit (`put` → server file write, no clone needed), and
 // note byline & version history (`history` → clone git log or hosted node history).
@@ -19,7 +19,7 @@ const USAGE =
   "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ... | history <path> | history <repo_id> <node_id>>";
 const USAGE_GET = "ideaspaces node get <repo_id> <node_id>";
 const USAGE_PUT = "ideaspaces node put <repo_id> <path> [--content TEXT]  (else reads stdin)";
-export const USAGE_HISTORY =
+const USAGE_HISTORY =
   "ideaspaces node history <path>  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
 
 function toRepoRelativePath(repoRootPath: string, inputPath: string, cwd = process.cwd()): string {
@@ -45,7 +45,11 @@ function formatHistoryHuman(data: {
   created: string | null;
   history: Array<{ sha: string; date: string; author: string; message: string; change_id?: string }>;
 }): string {
-  let human = `${data.path} (${data.total} commit${data.total === 1 ? "" : "s"}, created ${data.created ?? "uncommitted"})`;
+  const countLabel =
+    data.total > data.history.length
+      ? `showing ${data.history.length} of ${data.total} commits`
+      : `${data.total} commit${data.total === 1 ? "" : "s"}`;
+  let human = `${data.path} (${countLabel}, created ${data.created ?? "uncommitted"})`;
   if (data.history.length > 0) {
     const lines = data.history.map((e) => {
       const shortSha = e.sha.slice(0, 8);
@@ -56,10 +60,6 @@ function formatHistoryHuman(data: {
     human += "\n" + lines.join("\n");
   }
   return human;
-}
-
-function formatErrorMessage(err: unknown): string {
-  return err instanceof GitError ? err.message : err instanceof Error ? err.message : String(err);
 }
 
 async function readStdin(): Promise<string> {
@@ -95,7 +95,7 @@ async function cmdGet(args: string[], output: Output): Promise<number> {
       output.error("Session expired. Run `ideaspaces login`.");
       return 1;
     }
-    output.error(formatErrorMessage(err));
+    output.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
 }
@@ -125,7 +125,7 @@ async function cmdPut(args: string[], flags: Flags, output: Output): Promise<num
       output.error("Session expired. Run `ideaspaces login`.");
       return 1;
     }
-    output.error(formatErrorMessage(err));
+    output.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
 }
@@ -139,24 +139,20 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
       return 1;
     }
 
+    const probeDir = typeof flags.cwd === "string" ? resolve(process.cwd(), flags.cwd) : process.cwd();
     let root: string;
     try {
-      const probeDir = typeof flags.cwd === "string" ? resolve(process.cwd(), flags.cwd) : process.cwd();
       root = repoRoot(probeDir);
     } catch (err) {
-      output.error(formatErrorMessage(err));
+      output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
 
     let relPath: string;
     try {
-      relPath = toRepoRelativePath(
-        root,
-        targetPath,
-        typeof flags.cwd === "string" ? resolve(process.cwd(), flags.cwd) : process.cwd(),
-      );
+      relPath = toRepoRelativePath(root, targetPath, probeDir);
     } catch (err) {
-      output.error(formatErrorMessage(err));
+      output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
 
@@ -178,7 +174,7 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
       output.result(res, formatHistoryHuman(res));
       return 0;
     } catch (err) {
-      output.error(formatErrorMessage(err));
+      output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
   }
@@ -204,7 +200,7 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
         output.error("Session expired. Run `ideaspaces login`.");
         return 1;
       }
-      output.error(formatErrorMessage(err));
+      output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
   }

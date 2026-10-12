@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getFileHistory, getFileHistoryDetails } from "../git.js";
 import { nodeCommand } from "../commands/node.js";
-import { historyCommand } from "../commands/history.js";
 import type { GlobalFlags } from "../types.js";
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
@@ -219,20 +218,6 @@ describe("ideaspaces node history (clone)", () => {
         },
       ],
     });
-  });
-
-  it("works with top-level history command alias", async () => {
-    await commitNote("notes/feature.md", "# Feature", "Add feature note", {
-      date: "2026-10-10T14:00:00+0000",
-      trailers: { "Change-Id": "chg_feat_01" },
-    });
-
-    const code = await historyCommand.run(["notes/feature.md"], { cwd: tmp }, JSON_GLOBAL);
-
-    expect(code).toBe(0);
-    const parsed = JSON.parse(stdout());
-    expect(parsed.path).toBe("notes/feature.md");
-    expect(parsed.history[0]?.change_id).toBe("chg_feat_01");
   });
 
   it("formats human output with short sha, date, author, message, change_id", async () => {
