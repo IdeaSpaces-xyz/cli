@@ -632,7 +632,7 @@ process.stdin.on("data", (chunk) => {
     const command = JSON.parse(line);
     if (command.type === "get_state") {
       const pattern = args.includes("--model") ? args[args.indexOf("--model") + 1] : "";
-      const model = command.id === "__state" ?{ provider: "fake", id: pattern ? "resolved-" + pattern.split("/").pop() : "default-model" } : undefined;
+      const model = command.id === "__state" ? { provider: "fake", id: pattern ? "resolved-" + pattern.split("/").pop() : "default-model" } : undefined;
       console.log(JSON.stringify({ type: "response", command: "get_state", success: true, data: { sessionName: "Agent run test", model } }));
     }
     if (command.type === "prompt") {
@@ -862,9 +862,20 @@ process.stdin.on("data", (chunk) => {
   it("publishes agent-run guarantees as data, never as help prose", async () => {
     expect(await agentCmd.run(["capabilities"], {}, JSON_GLOBAL)).toBe(0);
     const caps = JSON.parse(stdout());
-    expect(caps).toMatchObject({ schema: "ideaspaces.agent-run.capabilities", version: 1 });
-    expect(caps.features).toEqual(expect.arrayContaining(["pi.explicit-extensions", "pi.skill-isolation", "pi.trust",
-      "claude.read-only", "claude.effort", "model.requested-observed"]));
+    expect(caps).toEqual({
+      schema: "ideaspaces.agent-run.capabilities",
+      version: 1,
+      features: [
+        "pi.explicit-extensions",
+        "pi.skill-isolation",
+        "pi.trust",
+        "pi.thinking",
+        "claude.read-only",
+        "claude.effort",
+        "claude.permission-mode",
+        "model.requested-observed",
+      ],
+    });
   });
 
   it("loads the selected Agreement into both child runtimes rather than relying on parent hooks", async () => {
