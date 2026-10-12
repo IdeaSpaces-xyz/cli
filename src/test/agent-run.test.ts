@@ -1283,11 +1283,14 @@ process.stdin.on("data", (chunk) => {
     expect(await agentCmd.run(["runs"], { limit: "1" }, JSON_GLOBAL)).toBe(0);
     const runsLimit = JSON.parse(stdout());
     expect(runsLimit.total).toBe(1);
+  });
 
+  it("extracts agent display name and filters by relative and Windows agent paths", () => {
     expect(agentDisplayName("/path/to/agents/scout")).toBe("scout");
     expect(agentDisplayName("C:\\path\\to\\agents\\scout")).toBe("scout");
     expect(agentDisplayName("/path/to/agents/scout/")).toBe("scout");
     expect(agentDisplayName("C:\\path\\to\\agents\\scout\\")).toBe("scout");
+    expect(agentDisplayName("scout")).toBe("scout");
   });
 
   it("records failed status when child run fails", async () => {

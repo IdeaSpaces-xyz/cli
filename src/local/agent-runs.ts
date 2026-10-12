@@ -75,8 +75,11 @@ export function listAgentRuns(options: ListAgentRunsOptions = {}): AgentRunRecor
     runs = runs.filter((r) => r.parent_id === options.parentId);
   }
   if (options.agent !== undefined && options.agent.trim()) {
-    const match = options.agent.trim();
-    runs = runs.filter((r) => r.agent === match || agentDisplayName(r.agent) === match);
+    const raw = options.agent.trim().replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
+    runs = runs.filter((r) => {
+      const normalizedAgent = r.agent.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
+      return normalizedAgent === raw || normalizedAgent.endsWith(`/${raw}`) || agentDisplayName(r.agent) === raw;
+    });
   }
 
   // Sort newest first by started_at descending
