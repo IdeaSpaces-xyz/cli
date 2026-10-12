@@ -276,6 +276,28 @@ describe("ideaspaces node history (clone)", () => {
     }
   });
 
+  it("rejects directory paths and repository root", async () => {
+    const code = await nodeCommand.run(["history", "."], { cwd: tmp }, JSON_GLOBAL);
+    expect(code).toBe(1);
+    expect(stderr()).toContain("node history requires a file path, not a directory");
+
+    await fs.mkdir(join(tmp, "notes"), { recursive: true });
+    const codeDir = await nodeCommand.run(["history", "notes"], { cwd: tmp }, JSON_GLOBAL);
+    expect(codeDir).toBe(1);
+    expect(stderr()).toContain("node history requires a file path, not a directory");
+  });
+
+  it("validates --limit and rejects non-positive or non-integer values", async () => {
+    await commitNote("notes/a.md", "content", "c1");
+    const codeInvalid = await nodeCommand.run(["history", "notes/a.md"], { cwd: tmp, limit: "abc" }, JSON_GLOBAL);
+    expect(codeInvalid).toBe(1);
+    expect(stderr()).toContain("Invalid --limit: must be a positive integer");
+
+    const codeZero = await nodeCommand.run(["history", "notes/a.md"], { cwd: tmp, limit: "0" }, JSON_GLOBAL);
+    expect(codeZero).toBe(1);
+    expect(stderr()).toContain("Invalid --limit: must be a positive integer");
+  });
+
   it("reports history for a deleted note that has git history", async () => {
     await commitNote("notes/to-delete.md", "content", "create note");
     git(["rm", "notes/to-delete.md"]);

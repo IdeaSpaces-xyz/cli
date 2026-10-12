@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fetchNode, fetchNodeHistory, putFile, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
@@ -152,12 +152,24 @@ async function cmdHistory(args: string[], flags: Flags, output: Output): Promise
       return 1;
     }
 
-    const limit = typeof flags.limit === "string" ? parseInt(flags.limit, 10) : typeof flags.limit === "number" ? flags.limit : 20;
-    const maxEntries = Number.isFinite(limit) && limit > 0 ? limit : 20;
+    const fullPath = resolve(root, relPath);
+    if (relPath === "" || (existsSync(fullPath) && statSync(fullPath).isDirectory())) {
+      output.error("node history requires a file path, not a directory.");
+      return 1;
+    }
+
+    let maxEntries = 20;
+    if (flags.limit !== undefined) {
+      const rawLimit = typeof flags.limit === "string" ? flags.limit.trim() : "";
+      if (!rawLimit || !/^\d+$/.test(rawLimit) || parseInt(rawLimit, 10) <= 0) {
+        output.error("Invalid --limit: must be a positive integer.");
+        return 1;
+      }
+      maxEntries = parseInt(rawLimit, 10);
+    }
 
     try {
       const details = getFileHistoryDetails(relPath, { cwd: root, maxEntries });
-      const fullPath = resolve(root, relPath);
       if (details.total === 0 && !existsSync(fullPath)) {
         output.error(`Note not found: ${targetPath}`);
         return 1;
