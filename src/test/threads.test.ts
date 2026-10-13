@@ -239,13 +239,14 @@ describe("local Threads", () => {
       expect(named.posts).toEqual([]);
       expect(named.thread.frame).toMatchObject({ current_frame: "Today we decide.", goal: "Keep it honest.", done_when: "One reply is read." });
       const allSummaries = await open({ depth: "summary" });
-      expect(allSummaries.posts[0].summary).toBeNull();
+      expect(allSummaries.posts).toEqual([]);
       expect(out).not.toContain("Private opening");
       const summary = await open({ depth: "summary", since: first.post.id });
       expect(summary.posts).toMatchObject([{ id: second.post.id, in_reply_to: [first.post.id], author: "Agent B" }]);
       expect(out).not.toContain("Private reply");
       const children = await open({ depth: "children" });
-      expect(children.posts[0].children[0].id).toBe(second.post.id);
+      expect(children.posts).toEqual([]);
+      expect(children.branches[0].tip_id).toBe(second.post.id);
       expect(out).not.toContain("Private reply");
       const surface = await open({ depth: "surface", post: second.post.id });
       expect(surface.posts).toHaveLength(1);
@@ -290,7 +291,7 @@ describe("local Threads", () => {
     process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
     const flags = { json: true, quiet: false, yes: false, help: false };
     try {
-      expect(await threadsCommand.run(["read", "legacy"], {}, flags)).toBe(0);
+      expect(await threadsCommand.run(["read", "legacy"], { depth: "summary", limit: "10", order: "older" }, flags)).toBe(0);
       const posts = JSON.parse(out).posts;
       expect(posts.find((p: { id: string }) => p.id === "msg_day").date).toBe("2026-09-27");
       expect(posts.find((p: { id: string }) => p.id === "msg_bad").date).toBeNull();
@@ -471,7 +472,7 @@ describe("local Threads", () => {
       expect(raw).toContain("- friction");
       expect(raw).toContain("- ux");
 
-      const openedSummary = await run(["open", "tag-test"], { depth: "summary" });
+      const openedSummary = await run(["open", "tag-test"], { depth: "summary", limit: "10" });
       const taggedPost = openedSummary.posts.find((p: { id: string }) => p.id === posted.id);
       expect(taggedPost.tags).toEqual(["friction", "ux"]);
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }

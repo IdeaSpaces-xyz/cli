@@ -191,7 +191,7 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
   }, null);
 }
 
-export function resolveThreadParent(threadDir: string): ThreadParentInfo | null {
+export function resolveThreadParent(threadDir: string, knownThreads?: LocalThread[]): ThreadParentInfo | null {
   const agreement = join(threadDir, "_agent", "agreement.md");
   if (!existsSync(agreement)) return null;
   let content = "";
@@ -214,7 +214,7 @@ export function resolveThreadParent(threadDir: string): ThreadParentInfo | null 
   // 1. If attached_to is a msg_... id
   if (/^msg_[0-9a-f-]+$/i.test(attachedTo)) {
     try {
-      const threads = listLocal(spaceRoot);
+      const threads = knownThreads ?? listLocal(spaceRoot);
       for (const t of threads) {
         const match = t.posts.find((p) => p.id === attachedTo);
         if (match) {
@@ -240,7 +240,9 @@ export function resolveThreadParent(threadDir: string): ThreadParentInfo | null 
     : attachedTo.startsWith("_threads/")
     ? join(spaceRoot, attachedTo)
     : join(spaceRoot, "_threads", attachedTo);
-  if (existsSync(normPath) && lstatSync(normPath).isFile()) {
+  const threadsRoot = join(spaceRoot, "_threads");
+  if (existsSync(normPath) && !lstatSync(normPath).isSymbolicLink() && lstatSync(normPath).isFile() &&
+      dirname(dirname(normPath)) === threadsRoot && !lstatSync(dirname(normPath)).isSymbolicLink()) {
     try {
       const postContent = readFileSync(normPath, "utf8");
       const parsed = parseThreadPost(postContent, basename(normPath));
@@ -292,7 +294,7 @@ export function findChildThreads(targetThreadDir: string, postId?: string): Chil
 
   for (const t of allThreads) {
     if (t.path === targetThread.path) continue;
-    const parentInfo = resolveThreadParent(t.path);
+    const parentInfo = resolveThreadParent(t.path, allThreads);
     if (!parentInfo) continue;
 
     let matches = false;
@@ -304,12 +306,9 @@ export function findChildThreads(targetThreadDir: string, postId?: string): Chil
     } else if (parentInfo.slug === targetSlug) {
       matches = true;
       matchedPostId = parentInfo.id ?? null;
-    } else if (parentInfo.attached_to) {
-      if (parentInfo.attached_to.includes(`_threads/${targetSlug}/`) || parentInfo.attached_to.includes(`${targetSlug}/`)) {
-        matches = true;
-        const filePart = basename(parentInfo.attached_to);
-        matchedPostId = postPathToId.get(filePart) ?? null;
-      }
+    } else if (parentInfo.attached_to.startsWith(`_threads/${targetSlug}/`)) {
+      matches = true;
+      matchedPostId = postPathToId.get(basename(parentInfo.attached_to)) ?? null;
     }
 
     if (matches) {
