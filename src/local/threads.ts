@@ -156,12 +156,20 @@ export function loadThread(dir: string): LocalThread {
   };
 }
 
-export function listLocal(cwd = process.cwd()): LocalThread[] {
+export function listLocal(cwd = process.cwd(), onError?: (message: string) => void): LocalThread[] {
   const base = threadsDirectory(cwd);
   if (!existsSync(base)) return [];
   safeDirectory(base);
-  return readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory())
-    .map((e) => loadThread(join(base, e.name))).sort((a, b) => a.slug.localeCompare(b.slug));
+  const rows: LocalThread[] = [];
+  for (const entry of readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+    try {
+      rows.push(loadThread(join(base, entry.name)));
+    } catch (error) {
+      if (!onError) throw error;
+      onError(`Thread ${entry.name} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return rows.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
 export function createThread(slug: string, about: string, cwd = process.cwd()): LocalThread {
@@ -225,20 +233,27 @@ export function resolveThreadParent(threadDir: string): ThreadParentInfo | null 
   };
 }
 
-export function findChildThreads(targetThreadDir: string, postId?: string): ChildThreadInfo[] {
+export function findChildThreads(targetThreadDir: string, postId?: string, onError?: (message: string) => void): ChildThreadInfo[] {
   // A failed sibling read is not "no children". Let the caller report the
   // error rather than returning a false zero in child_threads_total.
   const spaceRoot = spaceForThread(targetThreadDir);
   const targetSlug = basename(targetThreadDir);
   const targetThread = loadThread(targetThreadDir);
-  const allThreads = listLocal(spaceRoot);
+  const allThreads = listLocal(spaceRoot, onError);
 
   const children: ChildThreadInfo[] = [];
   const targetPostIds = new Set(targetThread.posts.map((p) => p.id));
 
   for (const t of allThreads) {
     if (t.path === targetThread.path) continue;
-    const parentInfo = resolveThreadParent(t.path);
+    let parentInfo: ThreadParentInfo | null;
+    try {
+      parentInfo = resolveThreadParent(t.path);
+    } catch (error) {
+      if (!onError) throw error;
+      onError(`Thread ${t.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
     if (!parentInfo) continue;
 
     const matchedPostId = parentInfo.slug === targetSlug && parentInfo.id &&

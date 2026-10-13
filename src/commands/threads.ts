@@ -48,15 +48,23 @@ async function stdin(): Promise<string> {
 }
 
 
-function localRows(threads: LocalThread[], newOnly: boolean) {
+function localRows(threads: LocalThread[], newOnly: boolean, onError: (message: string) => void) {
   return threads.filter((thread) => {
     if (!newOnly) return true;
     const seen = readCursor(thread);
     return thread.posts.some((post) => !seen.has(post.id));
-  }).map((thread) => ({ source: "local" as const, id: thread.path, thread_id: thread.thread_id, slug: thread.slug, name: thread.name,
-    summary: thread.summary, count: thread.posts.length, closed: thread.closed,
-    latest_activity_at: latestLocalActivity(thread.posts),
-    parent: resolveThreadParent(thread.path) }));
+  }).map((thread) => {
+    let parent: ThreadParentInfo | null = null;
+    let parent_warning: string | undefined;
+    try { parent = resolveThreadParent(thread.path); }
+    catch (error) {
+      parent_warning = `Thread ${thread.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`;
+      onError(parent_warning);
+    }
+    return { source: "local" as const, id: thread.path, thread_id: thread.thread_id, slug: thread.slug, name: thread.name,
+      summary: thread.summary, count: thread.posts.length, closed: thread.closed,
+      latest_activity_at: latestLocalActivity(thread.posts), parent, ...(parent_warning ? { parent_warning } : {}) };
+  });
 }
 function reportDateWarnings(thread: LocalThread, output: Output): void {
   for (const warning of new Set(thread.warnings)) output.log(`Thread ${thread.slug}: ${warning}`);
@@ -105,6 +113,7 @@ function localText(
     childThreads?: ChildThreadInfo[];
     branchTotal?: number;
     childThreadTotal?: number;
+    childWarnings?: number;
     filtered?: boolean;
   },
 ): string {
@@ -161,8 +170,9 @@ function localText(
       const childLines = options.childThreads.map(
         (c) => `  ${c.slug}  ${clip(c.name, 200)}\n    attached to ${c.attached_to_post_id ?? c.attached_to} · ${c.count} posts · ${c.closed ? "closed" : "open"}${c.latest_activity_at ? ` · latest: ${c.latest_activity_at}` : ""}\n    summary: ${clip(c.summary || "(no summary)", 200)}`,
       );
-      parts.push(`Child Threads (${options.childThreads.length} of ${options.childThreadTotal ?? options.childThreads.length}):\n${childLines.join("\n")}`);
+      parts.push(`Child Threads (${options.childThreads.length} of ${options.childThreadTotal ?? options.childThreads.length} known):\n${childLines.join("\n")}`);
     }
+    if (options?.childWarnings) parts.push(`Child Thread lookup incomplete: ${options.childWarnings} unreadable sibling(s).`);
     return parts.join("\n\n");
   }
 
@@ -303,11 +313,13 @@ export const threadsCommand: CommandDef = {
         const cwd = rest[0] ? resolve(rest[0]) : process.cwd();
         let local: ReturnType<typeof localRows> = [];
         let localThreads: LocalThread[] = [];
+        let localWarnings = 0;
+        const warn = (message: string) => { output.log(message); localWarnings++; };
         if (!space) {
           try {
-            localThreads = listLocal(cwd);
+            localThreads = listLocal(cwd, warn);
             for (const thread of localThreads) reportDateWarnings(thread, output);
-            local = localRows(localThreads, newOnly);
+            local = localRows(localThreads, newOnly, warn);
           } catch (error) {
             // Outside a Space, hosted listing still works. A malformed Thread or
             // cursor inside a Space is not an empty list — fail visibly.
@@ -362,7 +374,7 @@ export const threadsCommand: CommandDef = {
           return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row ? row.closed : undefined)}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ threads: rows, hosted_checked: Boolean(config) }, (text || "No local Threads here.") + hint);
+        output.result({ threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
       if (sub === "new") {
@@ -458,13 +470,13 @@ export const threadsCommand: CommandDef = {
         const totalMatching = postId ? 1 : rangeCount;
         if (rung === "summary" && !filtered && !postId) posts = [];
         else if (!postId && rung !== "name" && rung !== "children") {
-          if (rung === "surface" && order !== "older") {
+          if (rung === "surface") {
             const head = posts.find((p) => p.kind === "snapshot" || p.kind === "reframe");
             const tail = posts.slice(-(limit ?? 5));
-            if (order === "newer") tail.reverse();
             posts = head && !tail.some((p) => p.id === head.id) ? [head, ...tail] : tail;
+            if (order === "newer") posts.reverse();
           } else {
-            if (order === "newer" || (rung === "summary" && !order)) posts = [...posts].reverse();
+            if (order === "newer") posts = [...posts].reverse();
             posts = posts.slice(0, limit ?? 10);
           }
         }
@@ -485,7 +497,9 @@ export const threadsCommand: CommandDef = {
         if (ack) acknowledge(thread, posts);
         const effectiveRung = postId ? "full" : rung;
         const parent = resolveThreadParent(thread.path);
-        const allChildThreads = postId ? findChildThreads(thread.path, postId) : effectiveRung === "children" ? findChildThreads(thread.path) : [];
+        let childWarnings = 0;
+        const warnChild = (message: string) => { output.log(message); childWarnings++; };
+        const allChildThreads = postId ? findChildThreads(thread.path, postId, warnChild) : effectiveRung === "children" ? findChildThreads(thread.path, undefined, warnChild) : [];
         const allBranches = effectiveRung === "children" ? computeBranches(thread.posts).sort((a, b) => (b.tip_date ?? "").localeCompare(a.tip_date ?? "")) : [];
         if (effectiveRung === "children" && order === "older") { allChildThreads.reverse(); allBranches.reverse(); }
         const childThreads = allChildThreads.slice(0, limit ?? 10);
@@ -509,19 +523,20 @@ export const threadsCommand: CommandDef = {
         } else if (rawPost) {
           humanText = rawPost;
           if (childThreads.length > 0) {
-            humanText += `\n\nChild Threads (${childThreads.length}):\n` + childThreads.map((c) => `  ${c.slug}  ${clip(c.name, 200)}\n    summary: ${clip(c.summary || "(no summary)", 200)}`).join("\n");
+            humanText += `\n\nChild Threads (${childThreads.length} of ${allChildThreads.length} known):\n` + childThreads.map((c) => `  ${c.slug}  ${clip(c.name, 200)}\n    summary: ${clip(c.summary || "(no summary)", 200)}`).join("\n");
           }
+          if (childWarnings) humanText += `\nChild Thread lookup incomplete: ${childWarnings} unreadable sibling(s).`;
         } else {
           humanText = localText(thread, boundedPosts, effectiveRung, {
-            frame, parent, snapshot, branches, childThreads, branchTotal: allBranches.length, childThreadTotal: allChildThreads.length, filtered,
+            frame, parent, snapshot, branches, childThreads, branchTotal: allBranches.length, childThreadTotal: allChildThreads.length, childWarnings, filtered,
           });
         }
 
-        output.result({ thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
+        output.result({ schema: "ideaspaces.local-thread.open.v2", thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
           closed: thread.closed, parent,
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
           ...(frame ? { frame } : {}) }, posts: projected,
-          ...(effectiveRung === "children" || postId ? { child_threads: childThreads, child_threads_total: allChildThreads.length } : {}),
+          ...(effectiveRung === "children" || postId ? { child_threads: childThreads, child_threads_total: allChildThreads.length, child_threads_complete: childWarnings === 0 } : {}),
           ...(effectiveRung === "children" ? { branches, branches_total: allBranches.length } : {}),
           ...(rawPost ? { raw_post: rawPost } : {}),
           ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), shown: posts.length, matching: totalMatching, acknowledged: ack },
@@ -555,7 +570,7 @@ export const threadsCommand: CommandDef = {
           kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map, tags,
           verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
-        output.result({ id: post.id, path, kind: post.kind }, `Appended ${post.kind}: ${path}`); return 0;
+        output.result({ id: post.id, path, kind: post.kind, in_reply_to: post.inReplyTo }, `Appended ${post.kind}: ${path}`); return 0;
       }
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");

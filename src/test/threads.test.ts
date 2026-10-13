@@ -190,7 +190,9 @@ describe("local Threads", () => {
       await run(threadsCommand, ["close", "decision"], { message: "Closing" });
       expect(loadThread(join(root, "_threads", "decision")).closed).toBe(true);
       writeFileSync(join(root, "_threads", "decision", "invalid.md"), "---\nkind: post\n---\nMissing id");
-      expect(await threadsCommand.run(["list"], {}, flags)).toBe(1);
+      text = "";
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      expect(JSON.parse(text).local_complete).toBe(false);
       expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(1);
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
@@ -398,7 +400,9 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["init"], {}, flags)).toBe(0);
       expect(git(join(root, "_threads"), "branch", "--show-current")).toBe("threads");
       const t = createThread("decision", "Decision", root);
-      appendPost(t.path, { body: "Team", author: "Agent" });
+      const teamPost = appendPost(t.path, { body: "Team", author: "Agent" });
+      expect(await threadsCommand.run(["open", "decision"], { post: teamPost.post.id }, flags)).toBe(0);
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
       git(join(root, "_threads"), "add", "decision");
       git(join(root, "_threads"), "commit", "-m", "post");
       expect(await threadsCommand.run(["push"], {}, flags)).toBe(1);
@@ -407,6 +411,31 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["push"], { remote: "team" }, flags)).toBe(0);
       expect(git(root, "ls-remote", "team", "refs/heads/threads")).toContain("refs/heads/threads");
     } finally { process.stdout.write = old; process.chdir(previous); }
+  });
+
+  it("reports an unreadable sibling as incomplete without hiding healthy Threads", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const healthy = createThread("healthy", "Healthy", root);
+    const opening = appendPost(healthy.path, { body: "Good" });
+    const bad = createThread("bad", "Bad", root);
+    writeFileSync(join(bad.path, "invalid.md"), "---\nkind: post\n---\nNo id");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: false, yes: false, help: false };
+    try {
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      expect(JSON.parse(out).local_complete).toBe(false);
+      expect(JSON.parse(out).threads).toHaveLength(1);
+      expect(err).toContain("Thread bad cannot be read");
+      out = ""; err = "";
+      expect(await threadsCommand.run(["open", "healthy"], { post: opening.post.id }, flags)).toBe(0);
+      expect(JSON.parse(out).child_threads_complete).toBe(false);
+      expect(JSON.parse(out).child_threads_total).toBe(0); // known lower bound, not proof of no children
+      expect(err).toContain("Thread bad cannot be read");
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
   it("resolves a separate orphan worktree at the authored commit, not HEAD", async () => {
@@ -508,6 +537,8 @@ describe("local Threads", () => {
       const p2 = thread.posts.find((p) => p.id === post2.id)!;
       expect(p1.inReplyTo).toEqual([openingId]);
       expect(p2.inReplyTo).toEqual([openingId]);
+      expect(post1.in_reply_to).toEqual([openingId]);
+      expect(post2.in_reply_to).toEqual([openingId]);
       const branchRead = await run(["open", "tree-test"], { depth: "children" });
       expect(branchRead.branches.map((b: { root_id: string }) => b.root_id).sort()).toEqual([post1.id, post2.id].sort());
 
@@ -658,7 +689,7 @@ describe("local Threads", () => {
       expect(surface.matching).toBe(4); // includes opening post before the snapshot
       out = "";
       expect(await threadsCommand.run(["open", "large"], { depth: "surface", order: "newer", limit: "1" }, flags)).toBe(0);
-      expect(JSON.parse(out).posts.map((p: { id: string }) => p.id)).toEqual([snapshot.post.id, last.post.id]);
+      expect(JSON.parse(out).posts.map((p: { id: string }) => p.id)).toEqual([last.post.id, snapshot.post.id]);
       out = "";
       expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "2" }, flags)).toBe(0);
       const preview = JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id);
