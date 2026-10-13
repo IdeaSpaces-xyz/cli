@@ -198,6 +198,15 @@ export class NetworkError extends Error {
   }
 }
 
+/** An aborted request may have completed server-side; unlike a connection
+ * failure, a timed-out write has an unknown outcome until it is read back. */
+export class RequestTimeoutError extends NetworkError {
+  constructor(message: string) {
+    super(message);
+    this.name = "RequestTimeoutError";
+  }
+}
+
 /**
  * Read through ambient credentials when present, then retry one authenticated
  * 401 without Authorization so an expired token cannot hide a public Space.
@@ -297,7 +306,7 @@ async function request<T>(
       const timedOut = err instanceof Error && err.name === "AbortError";
       if (timedOut && attempt < maxAttempts) continue; // warm-up retry
       if (timedOut) {
-        throw new NetworkError(unreachableMessage(config.apiUrl, true, `${method} ${path}`));
+        throw new RequestTimeoutError(unreachableMessage(config.apiUrl, true, `${method} ${path}`));
       }
       if (isConnectionFailure(err)) {
         throw new NetworkError(unreachableMessage(config.apiUrl, false, `${method} ${path}`));
@@ -1164,6 +1173,17 @@ export interface WriteFileResponse {
   node_id: string | null;
 }
 
+/** The hosted file read returns the raw note body, not rendered content. */
+interface ReadFileResponse {
+  path: string;
+  content: string;
+  last_commit_sha: string;
+  node_id: string | null;
+}
+
+const NODE_PUT_TIMEOUT_MS = 120_000;
+const NODE_PUT_VERIFY_TIMEOUT_MS = 15_000;
+
 // Encode each path segment individually — encodeURIComponent on the whole path
 // would turn `/` into %2F. Mirrors the server's files route.
 function filesPath(repoId: string, path: string): string {
@@ -1184,7 +1204,36 @@ export async function putFile(
   content: string,
   opts?: RequestOptions,
 ): Promise<WriteFileResponse> {
-  return request<WriteFileResponse>(config, "PUT", filesPath(repoId, path), { content }, opts);
+  const route = filesPath(repoId, path);
+  try {
+    // A save can outlive the generic 5-second read deadline. Do not retry a
+    // PUT: aborting the client does not cancel the server's commit.
+    return await request<WriteFileResponse>(config, "PUT", route, { content }, {
+      ...opts,
+      timeoutMs: opts?.timeoutMs ?? NODE_PUT_TIMEOUT_MS,
+    });
+  } catch (err) {
+    if (!(err instanceof RequestTimeoutError)) throw err;
+    // Check the same path with the same credentials. A match proves the
+    // requested state is present (including when an earlier write was equal).
+    // A mismatch/404 or failed read is inconclusive: the PUT may still be
+    // committing. Never submit a second write or claim the save was lost.
+    try {
+      const read = await request<ReadFileResponse>(config, "GET", route, undefined, {
+        timeoutMs: NODE_PUT_VERIFY_TIMEOUT_MS,
+        retry: false,
+      });
+      if (read.content === content && read.path === path) {
+        return { path: read.path, commit_sha: read.last_commit_sha, node_id: read.node_id };
+      }
+    } catch {
+      // Verification unavailable; keep the original timeout as the cause.
+    }
+    throw new NetworkError(
+      `Save confirmation timed out for ${path}. The server may still have saved it. ` +
+      "Check the note on the server before retrying; the write was not sent again.",
+    );
+  }
 }
 
 // ── Sharing: recipient relationships and public visibility ──────────────────
