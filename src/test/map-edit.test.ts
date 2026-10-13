@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, promises as fs } from "node:fs";
+import { existsSync, promises as fs, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -344,7 +344,11 @@ describe("map authoring", () => {
       const emptyOrientation = await loadMapOrientation(file, dir);
       expect(emptyOrientation.text).toContain('Name: "K3 Space"');
       expect(emptyOrientation.text).toContain('Summary: "Orientation test"');
-      expect(emptyOrientation.text).toContain("The Map is starting context, not a reach or access limit; its storage folder is not membership. Pointers grant no access.");
+      expect(emptyOrientation.text).toContain("This Map's roots are the Space.");
+      expect(emptyOrientation.text).toContain("This Space is empty: it has no roots. Work from the separate POV, say the Space is empty, and offer to add a root.");
+      expect(emptyOrientation.text).not.toContain(`working folder for new material): "${maps}"`);
+      expect(emptyOrientation.firstRoot).toBeUndefined();
+      expect(emptyOrientation.localRoots).toEqual([]);
       expect(emptyOrientation.text).toContain(`Edit this Space with ideaspaces map add "${resolve(file)}" or ideaspaces map remove "${resolve(file)}"; run ideaspaces map --help for forms.`);
       expect(emptyOrientation.text).toContain("This Space has no selected members.");
       expect(emptyOrientation.text).toContain("Agents in this Space (0):");
@@ -371,7 +375,12 @@ describe("map authoring", () => {
       expect(text).not.toContain("pin undefined");
       expect(text).not.toContain("drifted from pin undefined");
 
-      // Root resolution state
+      // Root resolution state and ordered working material (not the Map storage folder).
+      expect(orientation.firstRoot).toBe(realpathSync(agentDir));
+      expect(orientation.localRoots).toEqual([realpathSync(agentDir), realpathSync(repoDir)]);
+      expect(text).toContain(`First root (working folder for new material): "${realpathSync(agentDir)}"`);
+      expect(text).toContain("the POV is separate");
+      expect(text).not.toContain(`working folder for new material): "${maps}"`);
       expect(text).toContain(`[0] @specialist — ${agentId} — found at HEAD`);
       expect(text).toContain(`[1] @repo — ${repoId} — found at HEAD`);
       expect(text).toContain(`[2] @${absentId} — ${absentId} — unavailable here (no local checkout)`);
