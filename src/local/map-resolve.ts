@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { dirname } from "node:path";
 import {
   formatMapPositionAddress,
   inspectFrontmatterSyntax,
