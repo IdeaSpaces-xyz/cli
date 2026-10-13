@@ -72,6 +72,9 @@ describe("local Threads", () => {
     expect(() => createThread("../outside", "Bad", root)).toThrow(/slug/);
     expect(() => resolveLocalThread("../../outside", root)).toThrow();
     expect(() => appendPost(t.path, { body: "No", replyTo: ["missing"] })).toThrow(/reply-to/);
+    expect(() => appendPost(t.path, { body: "No", replyTo: ["latest"] })).toThrow(/no posts/);
+    expect(() => appendPost(t.path, { body: "No", tags: ["x".repeat(201)] })).toThrow(/Tags/);
+    expect(() => appendPost(t.path, { body: "No", tags: ["bad\nnewline"] })).toThrow(/Tags/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ sha: "HEAD" }], members: [] } })).toThrow(/Map/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567" }], members: [] } })).toThrow(/root 0.*no SHA/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }], members: [{ root: 0, position: "." }] } })).toThrow(/depth ceiling/);
@@ -458,6 +461,8 @@ describe("local Threads", () => {
       expect(err).toBe("");
       const p3 = loadThread(join(root, "_threads", "tree-test")).posts.find((p) => p.id === post3.id)!;
       expect(p3.inReplyTo).toEqual([post2.id]);
+      const joinPost = await run(["post", "tree-test"], { message: "Join", "reply-to": `latest,${post1.id}` });
+      expect(loadThread(join(root, "_threads", "tree-test")).posts.find((p) => p.id === joinPost.id)?.inReplyTo).toEqual([post3.id, post1.id]);
       const quiet = await threadsCommand.run(["post", "tree-test"], { message: "Quiet branch" }, { ...flags, quiet: true });
       expect(quiet).toBe(0);
       expect(err).toBe("");
@@ -492,7 +497,7 @@ describe("local Threads", () => {
       const taggedPost = openedSummary.posts.find((p: { id: string }) => p.id === posted.id);
       expect(taggedPost.tags).toEqual(["friction", "ux"]);
       expect(await threadsCommand.run(["post", "tag-test"], { message: "Bad", tags: "a,,b" }, flags)).toBe(1);
-      expect(err).toContain("non-empty comma-separated");
+      expect(err).toContain("Tags must be non-empty");
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
@@ -540,6 +545,13 @@ describe("local Threads", () => {
       expect(parentChildren.child_threads).toHaveLength(1);
       expect(parentChildren.child_threads[0]).toMatchObject({ slug: "child-thread", attached_to_post_id: pDecision.id });
       expect(parentChildren.branches.length).toBeGreaterThanOrEqual(1);
+      await run(["new", "sibling-child"], { about: "Sibling child" });
+      writeFileSync(join(root, "_threads", "sibling-child", "_agent", "agreement.md"),
+        `---\nname: Agreement — Sibling\nattached_to: _threads/parent-thread/${pDecision.path.split("/").pop()}\n---\n`);
+      const boundedChildren = await run(["open", "parent-thread"], { depth: "children", limit: "1" });
+      expect(boundedChildren.child_threads).toHaveLength(1);
+      expect(boundedChildren.child_threads_total).toBe(2);
+      expect(boundedChildren.branches_total).toBeGreaterThanOrEqual(1);
 
       // 4. depth: surface (shows snapshot and posts after it)
       const surfaceRead = await run(["open", "child-thread"], { depth: "surface" });
@@ -558,8 +570,9 @@ describe("local Threads", () => {
 
       // 6. --post <id> lists child threads that grew from that post
       const postRead = await run(["open", "parent-thread"], { post: pDecision.id });
-      expect(postRead.child_threads).toHaveLength(1);
-      expect(postRead.child_threads[0].slug).toBe("child-thread");
+      expect(postRead.child_threads).toHaveLength(2);
+      expect(postRead.child_threads_total).toBe(2);
+      expect(postRead.child_threads.map((t: { slug: string }) => t.slug).sort()).toEqual(["child-thread", "sibling-child"]);
 
       // 7. threads list carries parent
       const listRead = await run(["list"], { depth: "name" });
@@ -583,20 +596,28 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "1" }, flags)).toBe(0);
       const surface = JSON.parse(out);
       expect(surface.posts.map((p: { id: string }) => p.id)).toEqual([snapshot.post.id, last.post.id]);
+      expect(surface.matching).toBe(4); // includes opening post before the snapshot
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", order: "newer", limit: "1" }, flags)).toBe(0);
+      expect(JSON.parse(out).posts.map((p: { id: string }) => p.id)).toEqual([snapshot.post.id, last.post.id]);
       out = "";
       expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "2" }, flags)).toBe(0);
       const preview = JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id);
       expect(preview.body).toContain("body truncated; use --post");
+      expect(preview.body_truncated).toBe(true);
       out = "";
       expect(await threadsCommand.run(["open", "large"], { depth: "full", limit: "10" }, flags)).toBe(0);
       expect(JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id).body.trim()).toBe("Z".repeat(1200));
       out = "";
       expect(await threadsCommand.run(["open", "large"], { depth: "surface", ack: true }, flags)).toBe(1);
       expect(readCursor(loadThread(thread.path)).size).toBe(0);
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", new: true, ack: true, order: "older", limit: "10" }, flags)).toBe(1);
+      expect(readCursor(loadThread(thread.path)).size).toBe(0);
     } finally { process.stdout.write = writer; process.chdir(old); }
   });
 
-  it("resolves attached_to with msg_... id across Space threads", async () => {
+  it("does not resolve the deferred msg_ attachment form", async () => {
     const root = fixture(); process.env.HOME = root;
     git(root, "init", "-b", "main");
     git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
@@ -615,17 +636,16 @@ describe("local Threads", () => {
       const mainThread = await run(["new", "main-room"], { about: "Main room" });
       const priorityPost = await run(["post", "main-room"], { message: "Priority 1 item", name: "Priority 1", "reply-to": mainThread.opening_post_id });
 
-      // Sub-thread attached by msg_... id
-      const subThread = await run(["new", "sub-work"], { about: "Sub work" });
+      // The Agreement retains the authored value; the id grammar is not shipped.
+      await run(["new", "sub-work"], { about: "Sub work" });
       writeFileSync(join(root, "_threads", "sub-work", "_agent", "agreement.md"),
         `---\nname: Agreement — Sub Work\nsummary: Sub work summary\nattached_to: ${priorityPost.id}\n---\n# Sub Work\n`);
 
       const openSub = await run(["open", "sub-work"], { depth: "name" });
-      expect(openSub.thread.parent).toMatchObject({ id: priorityPost.id, slug: "main-room", name: "Priority 1" });
+      expect(openSub.thread.parent).toEqual({ attached_to: priorityPost.id });
 
       const openPostInMain = await run(["open", "main-room"], { post: priorityPost.id });
-      expect(openPostInMain.child_threads).toHaveLength(1);
-      expect(openPostInMain.child_threads[0].slug).toBe("sub-work");
+      expect(openPostInMain.child_threads).toEqual([]);
     } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
   });
 });

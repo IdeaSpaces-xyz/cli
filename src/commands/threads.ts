@@ -55,7 +55,7 @@ function localRows(threads: LocalThread[], newOnly: boolean) {
   }).map((thread) => ({ source: "local" as const, id: thread.path, thread_id: thread.thread_id, slug: thread.slug, name: thread.name,
     summary: thread.summary, count: thread.posts.length, closed: thread.closed,
     latest_activity_at: latestLocalActivity(thread.posts),
-    parent: resolveThreadParent(thread.path, threads) }));
+    parent: resolveThreadParent(thread.path) }));
 }
 function reportDateWarnings(thread: LocalThread, output: Output): void {
   for (const warning of new Set(thread.warnings)) output.log(`Thread ${thread.slug}: ${warning}`);
@@ -64,9 +64,12 @@ function reportDateWarnings(thread: LocalThread, output: Output): void {
 function clip(text: string, bytes: number): string {
   if (Buffer.byteLength(text) <= bytes) return text;
   let result = "";
+  let size = 0;
   for (const char of text) {
-    if (Buffer.byteLength(result + char) > bytes) break;
+    const charBytes = Buffer.byteLength(char);
+    if (size + charBytes > bytes) break;
     result += char;
+    size += charBytes;
   }
   return result + "…";
 }
@@ -99,6 +102,8 @@ function localText(
     snapshot?: LocalThread["posts"][number] | null;
     branches?: BranchInfo[];
     childThreads?: ChildThreadInfo[];
+    branchTotal?: number;
+    childThreadTotal?: number;
     filtered?: boolean;
   },
 ): string {
@@ -145,17 +150,17 @@ function localText(
   if (rung === "children") {
     const parts = [context];
     if (options?.parent) {
-      parts.push(`Parent: ${options.parent.attached_to}${options.parent.slug ? ` (${options.parent.slug})` : ""}`);
+      parts.push(`Parent: ${clip(options.parent.attached_to, 400)}${options.parent.slug ? ` (${options.parent.slug})` : ""}`);
     }
     const branches = options?.branches ?? [];
     if (branches.length) {
-      parts.push(`Branches (${branches.length} shown):\n${branches.map((b) => `  ${b.root_name} (${b.root_id}) → ${b.tip_name} (${b.tip_id}) · ${b.count} posts`).join("\n")}`);
+      parts.push(`Branches (${branches.length} of ${options?.branchTotal ?? branches.length}):\n${branches.map((b) => `  ${clip(b.root_name, 200)} (${b.root_id}) → ${clip(b.tip_name, 200)} (${b.tip_id}) · ${b.count} posts`).join("\n")}`);
     }
     if (options?.childThreads && options.childThreads.length > 0) {
       const childLines = options.childThreads.map(
         (c) => `  ${c.slug}  ${clip(c.name, 200)}\n    attached to ${c.attached_to_post_id ?? c.attached_to} · ${c.count} posts · ${c.closed ? "closed" : "open"}${c.latest_activity_at ? ` · latest: ${c.latest_activity_at}` : ""}\n    summary: ${clip(c.summary || "(no summary)", 200)}`,
       );
-      parts.push(`Child Threads (${options.childThreads.length}):\n${childLines.join("\n")}`);
+      parts.push(`Child Threads (${options.childThreads.length} of ${options.childThreadTotal ?? options.childThreads.length}):\n${childLines.join("\n")}`);
     }
     return parts.join("\n\n");
   }
@@ -249,7 +254,9 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
     "ideaspaces threads push --remote <team-remote>  # never origin/GitHub",
     "ideaspaces threads read x_<id> --new --ack  # hosted",
-    "ideaspaces threads open <slug|x_id> --depth name|summary|children|surface|full [--new|--since <date|id>] [--limit 10] [--order newer|older]  # local pages",
+    "ideaspaces threads open <slug> --depth children  # branch roots/tips and child Threads attached by post path",
+    "ideaspaces threads open <slug> --depth full --limit 10 --order older  # page history; --since <post-id> continues",
+    "ideaspaces threads open <slug> --post msg_<id>  # one exact post plus child Threads attached to it",
     "ideaspaces threads open <slug|x_id> --post <id>  # one post in full, regardless of --depth",
   ],
   async run(args, flags, global) {
@@ -417,7 +424,7 @@ export const threadsCommand: CommandDef = {
         if (flags.since !== undefined && !since) throw new Error("--since requires an ISO date or post id.");
         const newOnly = yes(flags, "new");
         if (newOnly && since) throw new Error("Use either --new or --since, not both.");
-        if (postId && (newOnly || since)) throw new Error("--post selects one immutable post; omit --new and --since, which select a range.");
+        if (postId && (newOnly || since || limit !== undefined || order)) throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
         const seen = newOnly ? readCursor(thread) : new Set<string>();
         let posts = thread.posts.filter((p) => !seen.has(p.id));
         if (since) {
@@ -430,6 +437,9 @@ export const threadsCommand: CommandDef = {
             posts = posts.filter((p) => p.date && Date.parse(p.date) > Date.parse(since));
           } else throw new Error(`--since needs a post id in this Thread or a valid ISO date: ${since}`);
         }
+        // Count the entire selected range before the surface head moves it.
+        // Unseen posts before a snapshot must not be silently acknowledged.
+        const rangeCount = posts.length;
         if (postId) {
           if (!thread.posts.some((p) => p.id === postId)) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
           posts = thread.posts.filter((p) => p.id === postId);
@@ -443,12 +453,13 @@ export const threadsCommand: CommandDef = {
         // Cold summary is a coordinate, not the entire timeline. Full is paged;
         // surface keeps the head and a bounded tail, with --post for exact bodies.
         const filtered = Boolean(since || newOnly || limit !== undefined);
-        const totalMatching = posts.length;
+        const totalMatching = postId ? 1 : rangeCount;
         if (rung === "summary" && !filtered && !postId) posts = [];
         else if (!postId && rung !== "name" && rung !== "children") {
-          if (rung === "surface" && !order) {
+          if (rung === "surface" && order !== "older") {
             const head = posts.find((p) => p.kind === "snapshot" || p.kind === "reframe");
             const tail = posts.slice(-(limit ?? 5));
+            if (order === "newer") tail.reverse();
             posts = head && !tail.some((p) => p.id === head.id) ? [head, ...tail] : tail;
           } else {
             if (order === "newer" || (rung === "summary" && !order)) posts = [...posts].reverse();
@@ -472,14 +483,16 @@ export const threadsCommand: CommandDef = {
         if (ack) acknowledge(thread, posts);
         const effectiveRung = postId ? "full" : rung;
         const parent = resolveThreadParent(thread.path);
-        const childThreads = postId ? findChildThreads(thread.path, postId).slice(0, limit ?? 10) : effectiveRung === "children" ? findChildThreads(thread.path).slice(0, limit ?? 10) : [];
-        const branches = effectiveRung === "children" ? computeBranches(thread.posts).sort((a, b) => (b.tip_date ?? "").localeCompare(a.tip_date ?? "")).slice(0, limit ?? 10) : [];
-        if (effectiveRung === "children" && order === "older") { childThreads.reverse(); branches.reverse(); }
+        const allChildThreads = postId ? findChildThreads(thread.path, postId) : effectiveRung === "children" ? findChildThreads(thread.path) : [];
+        const allBranches = effectiveRung === "children" ? computeBranches(thread.posts).sort((a, b) => (b.tip_date ?? "").localeCompare(a.tip_date ?? "")) : [];
+        if (effectiveRung === "children" && order === "older") { allChildThreads.reverse(); allBranches.reverse(); }
+        const childThreads = allChildThreads.slice(0, limit ?? 10);
+        const branches = allBranches.slice(0, limit ?? 10);
         const snapshot = findNewestSnapshot(thread.posts);
 
         // Surface keeps a bounded preview; full and --post retain exact bodies.
         const boundedPosts = !postId && effectiveRung === "surface"
-          ? posts.map((p) => ({ ...p, body: Buffer.byteLength(p.body) > 800
+          ? posts.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > 800, body: Buffer.byteLength(p.body) > 800
             ? `${clip(p.body, 800)} [body truncated; use --post ${p.id} for the complete post]` : p.body })) : posts;
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: clip(p.frontmatter.name ?? p.id, 200),
@@ -498,7 +511,7 @@ export const threadsCommand: CommandDef = {
           }
         } else {
           humanText = localText(thread, boundedPosts, effectiveRung, {
-            frame, parent, snapshot, branches, childThreads, filtered,
+            frame, parent, snapshot, branches, childThreads, branchTotal: allBranches.length, childThreadTotal: allChildThreads.length, filtered,
           });
         }
 
@@ -506,8 +519,8 @@ export const threadsCommand: CommandDef = {
           closed: thread.closed, parent,
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
           ...(frame ? { frame } : {}) }, posts: projected,
-          ...(childThreads.length ? { child_threads: childThreads } : {}),
-          ...(branches.length ? { branches } : {}),
+          ...(effectiveRung === "children" || postId ? { child_threads: childThreads, child_threads_total: allChildThreads.length } : {}),
+          ...(effectiveRung === "children" ? { branches, branches_total: allBranches.length } : {}),
           ...(rawPost ? { raw_post: rawPost } : {}),
           ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), shown: posts.length, matching: totalMatching, acknowledged: ack },
           humanText); return 0;
@@ -533,7 +546,7 @@ export const threadsCommand: CommandDef = {
         if (selected && !parents?.length) throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
         const tags = typeof flags.tags === "string" ? flags.tags.split(",").map((t) => t.trim()) : undefined;
-        if (tags?.some((t) => !t)) throw new Error("--tags must contain non-empty comma-separated tags.");
+
         const body = str(flags, "message") ?? await stdin();
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
           summary: str(flags, "summary"), author: target ? selectedWriterName() : writerName(str(flags, "author")), replyTo: parents,

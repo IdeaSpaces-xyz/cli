@@ -197,7 +197,7 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
   }, null);
 }
 
-export function resolveThreadParent(threadDir: string, knownThreads?: LocalThread[]): ThreadParentInfo | null {
+export function resolveThreadParent(threadDir: string): ThreadParentInfo | null {
   const agreement = join(threadDir, "_agent", "agreement.md");
   if (!existsSync(agreement)) return null;
   let content = "";
@@ -217,35 +217,10 @@ export function resolveThreadParent(threadDir: string, knownThreads?: LocalThrea
     return { attached_to: attachedTo };
   }
 
-  // 1. If attached_to is a msg_... id
-  if (/^msg_[0-9a-f-]+$/i.test(attachedTo)) {
-    try {
-      const threads = knownThreads ?? listLocal(spaceRoot);
-      for (const t of threads) {
-        const match = t.posts.find((p) => p.id === attachedTo);
-        if (match) {
-          return {
-            attached_to: attachedTo,
-            id: match.id,
-            slug: t.slug,
-            path: join("_threads", t.slug, match.path),
-            name: match.frontmatter.name ?? match.id,
-            summary: match.frontmatter.summary ?? "",
-          };
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return { attached_to: attachedTo, id: attachedTo };
-  }
-
-  // 2. If attached_to is a file path (e.g. _threads/... or ...)
-  const normPath = attachedTo.startsWith("/")
-    ? attachedTo
-    : attachedTo.startsWith("_threads/")
-    ? join(spaceRoot, attachedTo)
-    : join(spaceRoot, "_threads", attachedTo);
+  // Only the existing repository-root-relative post path is a local parent.
+  // msg_ ids are a separate protocol proposal, not a CLI attachment grammar.
+  if (!/^_threads\/[a-z0-9-]+\/[^/]+\.md$/.test(attachedTo) || attachedTo.includes("..")) return { attached_to: attachedTo };
+  const normPath = join(spaceRoot, attachedTo);
   const threadsRoot = join(spaceRoot, "_threads");
   if (existsSync(normPath) && !lstatSync(normPath).isSymbolicLink() && lstatSync(normPath).isFile() &&
       dirname(dirname(normPath)) === threadsRoot && !lstatSync(dirname(normPath)).isSymbolicLink()) {
@@ -286,8 +261,6 @@ export function findChildThreads(targetThreadDir: string, postId?: string): Chil
   } catch {
     return [];
   }
-  const targetPostIds = new Set(targetThread.posts.map((p) => p.id));
-  const postPathToId = new Map(targetThread.posts.map((p) => [p.path, p.id]));
 
   let allThreads: LocalThread[] = [];
   try {
@@ -297,27 +270,16 @@ export function findChildThreads(targetThreadDir: string, postId?: string): Chil
   }
 
   const children: ChildThreadInfo[] = [];
+  const targetPostIds = new Set(targetThread.posts.map((p) => p.id));
 
   for (const t of allThreads) {
     if (t.path === targetThread.path) continue;
-    const parentInfo = resolveThreadParent(t.path, allThreads);
+    const parentInfo = resolveThreadParent(t.path);
     if (!parentInfo) continue;
 
-    let matches = false;
-    let matchedPostId: string | null = null;
-
-    if (parentInfo.id && targetPostIds.has(parentInfo.id)) {
-      matches = true;
-      matchedPostId = parentInfo.id;
-    } else if (parentInfo.slug === targetSlug) {
-      matches = true;
-      matchedPostId = parentInfo.id ?? null;
-    } else if (parentInfo.attached_to.startsWith(`_threads/${targetSlug}/`)) {
-      matches = true;
-      matchedPostId = postPathToId.get(basename(parentInfo.attached_to)) ?? null;
-    }
-
-    if (matches) {
+    const matchedPostId = parentInfo.slug === targetSlug && parentInfo.id &&
+      targetPostIds.has(parentInfo.id) ? parentInfo.id : null;
+    if (matchedPostId) {
       if (!postId || matchedPostId === postId) {
         children.push({
           id: t.path,
