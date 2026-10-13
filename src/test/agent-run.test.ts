@@ -7,7 +7,7 @@ import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { agentDisplayName, deriveTask, formatAgentRunsText, listAgentRuns } from "../local/agent-runs.js";
+import { agentDisplayName, deriveTask, formatAgentRunsText, getAgentRun, listAgentRuns } from "../local/agent-runs.js";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
 import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
@@ -955,6 +955,7 @@ process.stdin.on("data", (chunk) => {
         "claude.permission-mode",
         "model.requested-observed",
         "run.records",
+        "run.record-command",
         "run.terminal-error",
         "run.cancelled-nonzero",
       ],
@@ -1639,5 +1640,334 @@ Body text
     const delta2 = lines2.find((e) => e.type === "text_delta");
     const probe2 = JSON.parse(delta2.delta.replace(/^pi:/, ""));
     expect(probe2.approved).toBe(true);
+  });
+
+  it("agent record creates and updates run records with task and model", async () => {
+    const dir = makeAgentDir("record-test-");
+    const runId = "test-run-123";
+
+    // Missing run-id returns 1
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], {}, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("A run id is required");
+
+    // Invalid status returns 1
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], { "run-id": runId, status: "invalid_status" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain('Invalid --status "invalid_status"');
+
+    // Invalid harness returns 1
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], { "run-id": runId, harness: "invalid_harness" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain('Invalid --harness "invalid_harness"');
+
+    // Invalid timestamps return 1
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], { "run-id": runId, started: "not-a-date" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain('Invalid --started timestamp "not-a-date"');
+
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], { "run-id": runId, ended: "not-a-date" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain('Invalid --ended timestamp "not-a-date"');
+
+    // 1. Initial record at session start
+    stdoutChunks = [];
+    const code1 = await agentCmd.run(
+      ["record"],
+      {
+        "run-id": runId,
+        parent: "parent-root-1",
+        agent: dir,
+        harness: "claude",
+        conversation: "conv-abc",
+        status: "running",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code1).toBe(0);
+    const jsonOutput1 = JSON.parse(stdout());
+    expect(jsonOutput1.run_id).toBe(runId);
+    expect(jsonOutput1.parent_id).toBe("parent-root-1");
+    expect(jsonOutput1.status).toBe("running");
+
+    const runs1 = listAgentRuns();
+    const recorded1 = runs1.find((r) => r.run_id === runId);
+    expect(recorded1).toBeTruthy();
+    expect(recorded1?.status).toBe("running");
+    expect(recorded1?.parent_id).toBe("parent-root-1");
+    expect(recorded1?.conversation_id).toBe("conv-abc");
+    expect(recorded1?.harness).toBe("claude");
+    expect(recorded1?.ended_at).toBeNull();
+
+    // 2. Update with message (task extraction) and model (parent preserved)
+    stdoutChunks = [];
+    const code2 = await agentCmd.run(
+      ["record"],
+      {
+        "run-id": runId,
+        message: "Check all findings — a question, answered in your reply only.",
+        model: "claude-opus-5-5",
+        status: "completed",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code2).toBe(0);
+
+    const runs2 = listAgentRuns();
+    const recorded2 = runs2.find((r) => r.run_id === runId);
+    expect(recorded2).toBeTruthy();
+    expect(recorded2?.status).toBe("completed");
+    expect(recorded2?.parent_id).toBe("parent-root-1"); // preserved
+    expect(recorded2?.task).toBe("Check all findings");
+    expect(recorded2?.model).toBe("claude-opus-5-5");
+    expect(recorded2?.ended_at).toBeTruthy();
+
+    // 3. Model requested vs observed precedence
+    const runId2 = "test-run-model-precedence";
+    stdoutChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": runId2,
+          agent: dir,
+          "model-requested": "opus",
+          status: "running",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(0);
+    const recModel1 = getAgentRun(runId2);
+    expect(recModel1?.model).toBe("opus");
+    expect(recModel1?.model_requested).toBe("opus");
+    expect(recModel1?.model_observed).toBeNull();
+
+    // Now observe actual model
+    stdoutChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": runId2,
+          "model-observed": "claude-opus-5-5",
+          status: "completed",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(0);
+    const recModel2 = getAgentRun(runId2);
+    expect(recModel2?.model).toBe("claude-opus-5-5");
+    expect(recModel2?.model_requested).toBe("opus");
+    expect(recModel2?.model_observed).toBe("claude-opus-5-5");
+
+    // 4. Self-parenting refusal
+    stdoutChunks = []; stderrChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": "self-parent-run",
+          parent: "self-parent-run",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(1);
+    expect(stderr()).toContain("A run cannot be its own parent");
+
+    // 5. Running status with ended timestamp refusal
+    stdoutChunks = []; stderrChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": "running-with-ended",
+          status: "running",
+          ended: "2026-10-13T12:00:00.000Z",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(1);
+    expect(stderr()).toContain("A running run cannot specify an end timestamp");
+
+    // 6. Ended earlier than started refusal
+    stdoutChunks = []; stderrChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": "ended-before-started",
+          status: "completed",
+          started: "2026-10-13T12:00:00.000Z",
+          ended: "2026-10-13T11:00:00.000Z",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(1);
+    expect(stderr()).toContain("End timestamp cannot be earlier than start timestamp");
+
+    // 7. IDEASPACES_RUN_ID fallback
+    process.env.IDEASPACES_RUN_ID = "env-minted-run-id";
+    try {
+      stdoutChunks = [];
+      expect(
+        await agentCmd.run(
+          ["record"],
+          {
+            agent: dir,
+            status: "running",
+          },
+          JSON_GLOBAL,
+        ),
+      ).toBe(0);
+      const recEnv = getAgentRun("env-minted-run-id");
+      expect(recEnv).toBeTruthy();
+      expect(recEnv?.run_id).toBe("env-minted-run-id");
+    } finally {
+      delete process.env.IDEASPACES_RUN_ID;
+    }
+
+    // 8. Resuming a completed run (status running) clears ended_at back to null
+    stdoutChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": runId,
+          status: "running",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(0);
+    const resumed = getAgentRun(runId);
+    expect(resumed?.status).toBe("running");
+    expect(resumed?.ended_at).toBeNull();
+
+    // 9. Write failure surfaces as exit 1 with target path
+    const unwriteableDir = join(homeDir, "read-only-config");
+    mkdirSync(unwriteableDir, { recursive: true, mode: 0o400 });
+    const origConfig = process.env.HOME;
+    process.env.HOME = unwriteableDir;
+    try {
+      stdoutChunks = []; stderrChunks = [];
+      const failCode = await agentCmd.run(
+        ["record"],
+        {
+          "run-id": "fail-run",
+          status: "running",
+        },
+        JSON_GLOBAL,
+      );
+      if (process.platform !== "win32" && process.getuid && process.getuid() !== 0) {
+        expect(failCode).toBe(1);
+        expect(stderr()).toContain("Failed to record agent run");
+      }
+    } finally {
+      process.env.HOME = origConfig;
+    }
+  });
+
+  it("agent run inherits parent_id from cached Claude session ID when env is unset", async () => {
+    const parentDir = makeAgentDir("steward-parent-");
+    const childDir = makeAgentDir("scout-child-");
+    const fakeBin = join(childDir, "fake-claude");
+    writeFileSync(join(childDir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(childDir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    // Simulate Claude Code SessionStart caching session id in ~/.ideaspaces/sessions/<sha256>
+    const { createHash } = await import("node:crypto");
+    const key = createHash("sha256").update(realpathSync.native(parentDir)).digest("hex").slice(0, 16);
+    const sessionsDir = join(homeDir, ".ideaspaces", "sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(join(sessionsDir, key), "steward-session-uuid-999\n");
+
+    // 1. Direct parent directory
+    const prevCwd = process.cwd();
+    process.chdir(parentDir);
+    try {
+      stdoutChunks = [];
+      const code = await agentCmd.run(
+        ["run", childDir],
+        {
+          runtime: "claude",
+          model: "sonnet",
+          message: "Check child task",
+          "claude-bin": fakeBin,
+        },
+        JSON_GLOBAL,
+      );
+      expect(code).toBe(0);
+
+      const runs = listAgentRuns();
+      const childRun = runs.find((r) => r.agent === realpathSync.native(childDir));
+      expect(childRun).toBeTruthy();
+      expect(childRun?.parent_id).toBe("steward-session-uuid-999");
+    } finally {
+      process.chdir(prevCwd);
+    }
+
+    // 2. Grandparent directory resolution (nested subfolder)
+    const subfolder = join(parentDir, "sub", "deep");
+    mkdirSync(subfolder, { recursive: true });
+    process.chdir(subfolder);
+    try {
+      stdoutChunks = [];
+      const childDir2 = makeAgentDir("scout-child2-");
+      const fakeBin2 = join(childDir2, "fake-claude");
+      writeFileSync(join(childDir2, "fake-claude.cjs"), FAKE_CLAUDE);
+      writeFileSync(fakeBin2, `#!/bin/sh\nexec "${process.execPath}" "${join(childDir2, "fake-claude.cjs")}" "$@"\n`);
+      chmodSync(fakeBin2, 0o755);
+
+      const code = await agentCmd.run(
+        ["run", childDir2],
+        {
+          runtime: "claude",
+          model: "sonnet",
+          message: "Check deep child task",
+          "claude-bin": fakeBin2,
+        },
+        JSON_GLOBAL,
+      );
+      expect(code).toBe(0);
+
+      const runs = listAgentRuns();
+      const childRun2 = runs.find((r) => r.agent === realpathSync.native(childDir2));
+      expect(childRun2).toBeTruthy();
+      expect(childRun2?.parent_id).toBe("steward-session-uuid-999");
+    } finally {
+      process.chdir(prevCwd);
+    }
+
+    // 3. Environment variable takes precedence over cache
+    process.chdir(parentDir);
+    process.env.IDEASPACES_PARENT_ID = "explicit-env-parent-id";
+    try {
+      stdoutChunks = [];
+      const childDir3 = makeAgentDir("scout-child3-");
+      const fakeBin3 = join(childDir3, "fake-claude");
+      writeFileSync(join(childDir3, "fake-claude.cjs"), FAKE_CLAUDE);
+      writeFileSync(fakeBin3, `#!/bin/sh\nexec "${process.execPath}" "${join(childDir3, "fake-claude.cjs")}" "$@"\n`);
+      chmodSync(fakeBin3, 0o755);
+
+      const code = await agentCmd.run(
+        ["run", childDir3],
+        {
+          runtime: "claude",
+          model: "sonnet",
+          message: "Check env precedence task",
+          "claude-bin": fakeBin3,
+        },
+        JSON_GLOBAL,
+      );
+      expect(code).toBe(0);
+
+      const runs = listAgentRuns();
+      const childRun3 = runs.find((r) => r.agent === realpathSync.native(childDir3));
+      expect(childRun3).toBeTruthy();
+      expect(childRun3?.parent_id).toBe("explicit-env-parent-id");
+    } finally {
+      delete process.env.IDEASPACES_PARENT_ID;
+      process.chdir(prevCwd);
+    }
   });
 });

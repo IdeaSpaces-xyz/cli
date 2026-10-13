@@ -4,6 +4,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { KeeperStreamEvent } from "@ideaspaces/sdk";
 import type { LocalMessageStartEvent } from "../local/send-options.js";
+import { configDir } from "../auth/config-dir.js";
 import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
@@ -14,11 +15,15 @@ import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent-capabilities.js";
 import {
+  agentDisplayName,
   deriveTask,
   formatAgentRunsText,
+  getAgentRun,
   listAgentRuns,
   recordAgentRun,
+  resolveParentId,
   type AgentRunRecord,
+  type AgentRunStatus,
 } from "../local/agent-runs.js";
 import {
   resolveAgentPov,
@@ -71,13 +76,17 @@ export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 export const RUNS_USAGE =
   "ideaspaces agent runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]";
 
+export const RECORD_ARGS =
+  "--run-id <id> [--parent <id>] [--parent-tool-use-id <id>] [--agent <path>] [--task <text>] [--message <text>] [--harness pi|claude] [--model <name>] [--model-requested <name>] [--model-observed <name>] [--conversation <id>] [--status running|completed|failed|interrupted|cancelled] [--started <iso>] [--ended <iso>] [--json]";
+export const RECORD_USAGE = `ideaspaces agent record ${RECORD_ARGS}`;
+
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const CAPABILITIES_USAGE = "ideaspaces agent capabilities [--json]";
 
 export const USAGE =
-  `ideaspaces agent <run|runs|list|capabilities> … (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; list --map <file> [--json]; capabilities [--json])`;
+  `ideaspaces agent <run|runs|record|list|capabilities> … (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; record ${RECORD_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -378,7 +387,7 @@ async function cmdRun(
     resumeOnly: flags.conversation !== undefined,
   };
 
-  const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? null;
+  const parentId = resolveParentId(flagString(flags, "parent"), process.cwd());
   const parentToolUseId = flagString(flags, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
   const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID()}`;
   const task = flagString(flags, "task") ?? deriveTask(message, process.cwd());
@@ -398,12 +407,14 @@ async function cmdRun(
     started_at: new Date().toISOString(),
     ended_at: null,
   };
+  // Bookkeeping must never crash the run
   recordAgentRun(runRecord);
 
   function finishRun(status: AgentRunRecord["status"]) {
     if (runRecord.ended_at === null) {
       runRecord.status = status;
       runRecord.ended_at = new Date().toISOString();
+      // Bookkeeping must never crash the run
       recordAgentRun(runRecord);
     }
   }
@@ -553,6 +564,141 @@ function cmdRuns(
   return 0;
 }
 
+function cmdRecord(
+  flags: Flags,
+  output: Output,
+): number {
+  const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID;
+
+  if (!runId) {
+    output.error(`A run id is required: --run-id <id>\nUsage: ${RECORD_USAGE}`);
+    return 1;
+  }
+
+  const existing = getAgentRun(runId);
+
+  const parentId = flagString(flags, "parent")
+    ?? existing?.parent_id
+    ?? resolveParentId(undefined, process.cwd());
+
+  if (parentId && parentId === runId) {
+    output.error("A run cannot be its own parent");
+    return 1;
+  }
+
+  const parentToolUseId = flagString(flags, "parent-tool-use-id")
+    ?? (existing ? existing.parent_tool_use_id : (process.env.PARENT_TOOL_USE_ID ?? null));
+
+  const agentRaw = flagString(flags, "agent");
+  const agentPath = agentRaw
+    ? (isAbsolute(agentRaw) ? agentRaw : resolve(process.cwd(), agentRaw))
+    : (existing?.agent ?? process.cwd());
+
+  const message = flagString(flags, "message");
+  let task: string | null | undefined = flagString(flags, "task");
+  if (!task && message) {
+    task = deriveTask(message, agentPath);
+  }
+  if (!task && existing?.task) {
+    task = existing.task;
+  }
+
+  const validHarnesses = ["pi", "claude"] as const;
+  const harnessFlag = flagString(flags, "harness");
+  let harness: "pi" | "claude" = existing?.harness ?? "claude";
+  if (harnessFlag !== undefined) {
+    if (harnessFlag !== "pi" && harnessFlag !== "claude") {
+      output.error(`Invalid --harness "${harnessFlag}". Valid values: ${validHarnesses.join(", ")}`);
+      return 1;
+    }
+    harness = harnessFlag;
+  }
+
+  const modelFlag = flagString(flags, "model");
+  const modelRequestedFlag = flagString(flags, "model-requested");
+  const modelObservedFlag = flagString(flags, "model-observed");
+
+  let modelRequested = modelRequestedFlag ?? existing?.model_requested ?? null;
+  let modelObserved = modelObservedFlag ?? existing?.model_observed ?? null;
+  let model: string | null = existing?.model ?? null;
+
+  if (modelObservedFlag) {
+    modelObserved = modelObservedFlag;
+    model = modelObservedFlag;
+  } else if (modelFlag) {
+    model = modelFlag;
+    if (!modelRequested) modelRequested = modelFlag;
+  } else if (modelRequestedFlag) {
+    modelRequested = modelRequestedFlag;
+    if (!model) model = modelRequestedFlag;
+  }
+
+  const convId = flagString(flags, "conversation")
+    ?? existing?.conversation_id
+    ?? null;
+
+  const validStatuses: AgentRunStatus[] = ["running", "completed", "failed", "interrupted", "cancelled"];
+  const statusFlag = flagString(flags, "status");
+  let status: AgentRunStatus = existing?.status ?? "running";
+  if (statusFlag !== undefined) {
+    if (!validStatuses.includes(statusFlag as AgentRunStatus)) {
+      output.error(`Invalid --status "${statusFlag}". Valid values: ${validStatuses.join(", ")}`);
+      return 1;
+    }
+    status = statusFlag as AgentRunStatus;
+  }
+
+  const startedRaw = flagString(flags, "started");
+  if (startedRaw && isNaN(Date.parse(startedRaw))) {
+    output.error(`Invalid --started timestamp "${startedRaw}". Use ISO 8601 format.`);
+    return 1;
+  }
+  const startedAt = startedRaw
+    ?? existing?.started_at
+    ?? new Date().toISOString();
+
+  const endedRaw = flagString(flags, "ended");
+  if (endedRaw && isNaN(Date.parse(endedRaw))) {
+    output.error(`Invalid --ended timestamp "${endedRaw}". Use ISO 8601 format.`);
+    return 1;
+  }
+  if (status === "running" && endedRaw) {
+    output.error("A running run cannot specify an end timestamp");
+    return 1;
+  }
+  const endedAt = endedRaw
+    ?? (status !== "running" ? (existing?.ended_at ?? new Date().toISOString()) : null);
+
+  if (startedAt && endedAt && Date.parse(endedAt) < Date.parse(startedAt)) {
+    output.error("End timestamp cannot be earlier than start timestamp");
+    return 1;
+  }
+
+  const record: AgentRunRecord = {
+    run_id: runId,
+    parent_id: parentId ?? null,
+    parent_tool_use_id: parentToolUseId ?? null,
+    agent: agentPath,
+    task: task ?? null,
+    harness,
+    model,
+    model_requested: modelRequested,
+    model_observed: modelObserved,
+    conversation_id: convId,
+    status,
+    started_at: startedAt,
+    ended_at: endedAt,
+  };
+
+  const ok = recordAgentRun(record);
+  if (!ok) {
+    output.error(`Failed to record agent run ${record.run_id} to ${join(configDir(), "agent-runs.jsonl")}`);
+    return 1;
+  }
+  output.result(record, `Recorded run ${record.run_id} (${record.status}) for ${agentDisplayName(record.agent)}`);
+  return 0;
+}
+
 function cmdList(
   flags: Flags,
   global: GlobalFlags,
@@ -582,7 +728,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
+    description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. `agent record` appends run lifecycle updates (session start, task, model, completion) for external sessions and hooks; updates merge into the existing run. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
@@ -590,6 +736,8 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent runs",
       "ideaspaces agent runs --parent <id> --json",
       "ideaspaces agent runs --agent scout --limit 10",
+      "ideaspaces agent record --run-id run-123 --agent agents/steward --harness claude --status running",
+      "ideaspaces agent record --run-id run-123 --message 'Dispatch to Integrator' --model claude-opus-5-5 --status completed",
       "ideaspaces agent capabilities --json  # machine-readable run guarantees for launchers",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",
@@ -608,6 +756,8 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
           return cmdRun(rest, flags, local, output, global.json);
         case "runs":
           return cmdRuns(flags, output);
+        case "record":
+          return cmdRecord(flags, output);
         case "list":
           return cmdList(flags, global, output);
         case "capabilities": {

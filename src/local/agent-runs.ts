@@ -1,5 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve, win32 } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { configDir } from "../auth/config-dir.js";
 
@@ -79,7 +80,7 @@ export function deriveTask(message?: string, cwd: string = process.cwd()): strin
   return (sanitized.length > 300 ? sanitized.slice(0, 300) : sanitized) || null;
 }
 
-export function recordAgentRun(record: AgentRunRecord): void {
+export function recordAgentRun(record: AgentRunRecord): boolean {
   try {
     const dir = configDir();
     if (!existsSync(dir)) {
@@ -87,8 +88,9 @@ export function recordAgentRun(record: AgentRunRecord): void {
     }
     const file = join(dir, "agent-runs.jsonl");
     appendFileSync(file, `${JSON.stringify(record)}\n`, { mode: 0o600, encoding: "utf8" });
+    return true;
   } catch {
-    // Bookkeeping must never crash the run
+    return false;
   }
 }
 
@@ -163,4 +165,71 @@ export function formatAgentRunsText(runs: AgentRunRecord[], parentFilter?: strin
       return `${agentName}${taskDisplay} · ${run.harness} · ${run.model || "unreported model"} · ${run.status} — runId: ${run.run_id}${parentPart}${convPart}`;
     })
     .join("\n");
+}
+
+export function getAgentRun(runId: string): AgentRunRecord | undefined {
+  const runs = listAgentRuns();
+  return runs.find((r) => r.run_id === runId);
+}
+
+/**
+ * Read the cached Claude Code session id for a project directory, matching
+ * the plugin's `sessionIdCachePath` location (~/.ideaspaces/sessions/<sha256-prefix>).
+ */
+export function cachedClaudeSessionId(projectDir: string): string | null {
+  try {
+    let resolved = resolve(projectDir);
+    try {
+      resolved = realpathSync(resolved);
+    } catch {
+      // fallback to resolve(projectDir)
+    }
+    const key = createHash("sha256").update(resolved).digest("hex").slice(0, 16);
+    const sessionsDir = join(configDir(), "sessions");
+    const file = join(sessionsDir, key);
+    if (existsSync(file)) {
+      const id = readFileSync(file, "utf8").trim();
+      if (id) return id;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Walk upwards from cwd looking for a cached Claude Code session id in an
+ * ancestor folder (e.g. agent dir or space root), stopping at repository boundaries.
+ */
+export function findActiveClaudeSessionId(cwd: string = process.cwd()): string | null {
+  let cur = resolve(cwd);
+  while (true) {
+    const id = cachedClaudeSessionId(cur);
+    if (id) return id;
+    if (existsSync(join(cur, ".git")) || existsSync(join(cur, "_agent"))) {
+      break;
+    }
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return null;
+}
+
+/**
+ * Resolve the parent run / session ID following priority order:
+ * 1. Explicit --parent flag
+ * 2. IDEASPACES_PARENT_RUN_ID / IDEASPACES_PARENT_ID environment variable
+ * 3. PI_SESSION_ID environment variable
+ * 4. Active cached Claude session ID for the context folder
+ */
+export function resolveParentId(explicitParent?: string, cwd: string = process.cwd()): string | null {
+  if (explicitParent && explicitParent.trim()) return explicitParent.trim();
+  return (
+    process.env.IDEASPACES_PARENT_RUN_ID?.trim() ||
+    process.env.IDEASPACES_PARENT_ID?.trim() ||
+    process.env.PI_SESSION_ID?.trim() ||
+    findActiveClaudeSessionId(cwd) ||
+    null
+  );
 }
