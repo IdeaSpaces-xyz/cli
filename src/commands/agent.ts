@@ -14,11 +14,14 @@ import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent-capabilities.js";
 import {
+  agentDisplayName,
   deriveTask,
+  findActiveClaudeSessionId,
   formatAgentRunsText,
   listAgentRuns,
   recordAgentRun,
   type AgentRunRecord,
+  type AgentRunStatus,
 } from "../local/agent-runs.js";
 import {
   resolveAgentPov,
@@ -71,13 +74,17 @@ export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 export const RUNS_USAGE =
   "ideaspaces agent runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]";
 
+export const RECORD_ARGS =
+  "--run-id <id> [--parent <id>] [--parent-tool-use-id <id>] [--agent <path>] [--task <text>] [--message <text>] [--harness pi|claude] [--model <name>] [--model-requested <name>] [--model-observed <name>] [--conversation <id>] [--status running|completed|failed|interrupted|cancelled] [--started <iso>] [--ended <iso>] [--json]";
+export const RECORD_USAGE = `ideaspaces agent record ${RECORD_ARGS}`;
+
 export const LIST_USAGE =
   "ideaspaces agent list --map <file> [--json]";
 
 export const CAPABILITIES_USAGE = "ideaspaces agent capabilities [--json]";
 
 export const USAGE =
-  `ideaspaces agent <run|runs|list|capabilities> … (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; list --map <file> [--json]; capabilities [--json])`;
+  `ideaspaces agent <run|runs|record|list|capabilities> … (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; record ${RECORD_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 
 export interface AgentDefaults {
   runtime?: LocalRuntime;
@@ -378,7 +385,7 @@ async function cmdRun(
     resumeOnly: flags.conversation !== undefined,
   };
 
-  const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? null;
+  const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? findActiveClaudeSessionId(process.cwd()) ?? null;
   const parentToolUseId = flagString(flags, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
   const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID()}`;
   const task = flagString(flags, "task") ?? deriveTask(message, process.cwd());
@@ -553,6 +560,106 @@ function cmdRuns(
   return 0;
 }
 
+function cmdRecord(
+  flags: Flags,
+  output: Output,
+): number {
+  const runId = flagString(flags, "run-id")
+    ?? flagString(flags, "id")
+    ?? process.env.IDEASPACES_RUN_ID
+    ?? process.env.PI_SESSION_ID;
+
+  if (!runId) {
+    output.error(`A run id is required: --run-id <id>\nUsage: ${RECORD_USAGE}`);
+    return 1;
+  }
+
+  const existing = listAgentRuns().find((r) => r.run_id === runId);
+
+  const parentId = flagString(flags, "parent")
+    ?? (flags["parent-id"] !== undefined ? flagString(flags, "parent-id") : undefined)
+    ?? (existing ? existing.parent_id : (process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? null));
+
+  const parentToolUseId = flagString(flags, "parent-tool-use-id")
+    ?? (existing ? existing.parent_tool_use_id : (process.env.PARENT_TOOL_USE_ID ?? null));
+
+  const agentRaw = flagString(flags, "agent");
+  const agentPath = agentRaw
+    ? (isAbsolute(agentRaw) ? agentRaw : resolve(process.cwd(), agentRaw))
+    : (existing?.agent ?? process.cwd());
+
+  const message = flagString(flags, "message");
+  let task: string | null | undefined = flagString(flags, "task");
+  if (!task && message) {
+    task = deriveTask(message, agentPath);
+  }
+  if (!task && existing?.task) {
+    task = existing.task;
+  }
+
+  let harness: "pi" | "claude" = "claude";
+  const harnessFlag = flagString(flags, "harness");
+  if (harnessFlag === "pi" || harnessFlag === "claude") {
+    harness = harnessFlag;
+  } else if (existing?.harness) {
+    harness = existing.harness;
+  }
+
+  const modelFlag = flagString(flags, "model");
+  const modelRequested = flagString(flags, "model-requested") ?? (modelFlag ?? existing?.model_requested ?? null);
+  const modelObserved = flagString(flags, "model-observed") ?? (existing?.model_observed ?? null);
+  const model = modelObserved ?? modelFlag ?? existing?.model ?? modelRequested ?? null;
+
+  const convId = flagString(flags, "conversation")
+    ?? flagString(flags, "conversation-id")
+    ?? (flags["session-id"] !== undefined ? flagString(flags, "session-id") : undefined)
+    ?? existing?.conversation_id
+    ?? null;
+
+  const statusFlag = flagString(flags, "status");
+  const validStatuses: AgentRunStatus[] = ["running", "completed", "failed", "interrupted", "cancelled"];
+  let status: AgentRunStatus = existing?.status ?? "running";
+  if (statusFlag && validStatuses.includes(statusFlag as AgentRunStatus)) {
+    status = statusFlag as AgentRunStatus;
+  }
+
+  const startedAt = flagString(flags, "started")
+    ?? flagString(flags, "started-at")
+    ?? existing?.started_at
+    ?? new Date().toISOString();
+
+  let endedAt = flagString(flags, "ended")
+    ?? flagString(flags, "ended-at")
+    ?? existing?.ended_at
+    ?? null;
+
+  if (!endedAt && (status === "completed" || status === "failed" || status === "interrupted" || status === "cancelled")) {
+    endedAt = new Date().toISOString();
+  } else if (status === "running") {
+    endedAt = null;
+  }
+
+  const record: AgentRunRecord = {
+    run_id: runId,
+    parent_id: parentId ?? null,
+    parent_tool_use_id: parentToolUseId ?? null,
+    agent: agentPath,
+    task: task ?? null,
+    harness,
+    model,
+    model_requested: modelRequested,
+    model_observed: modelObserved,
+    conversation_id: convId,
+    status,
+    started_at: startedAt,
+    ended_at: endedAt,
+  };
+
+  recordAgentRun(record);
+  output.result(record, `Recorded run ${record.run_id} (${record.status}) for ${agentDisplayName(record.agent)}`);
+  return 0;
+}
+
 function cmdList(
   flags: Flags,
   global: GlobalFlags,
@@ -608,6 +715,8 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
           return cmdRun(rest, flags, local, output, global.json);
         case "runs":
           return cmdRuns(flags, output);
+        case "record":
+          return cmdRecord(flags, output);
         case "list":
           return cmdList(flags, global, output);
         case "capabilities": {

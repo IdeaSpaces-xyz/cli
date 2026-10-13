@@ -1640,4 +1640,95 @@ Body text
     const probe2 = JSON.parse(delta2.delta.replace(/^pi:/, ""));
     expect(probe2.approved).toBe(true);
   });
+
+  it("agent record creates and updates run records with task and model", async () => {
+    const dir = makeAgentDir("record-test-");
+    const runId = "test-run-123";
+
+    // 1. Initial record at session start
+    stdoutChunks = [];
+    const code1 = await agentCmd.run(
+      ["record"],
+      {
+        "run-id": runId,
+        agent: dir,
+        harness: "claude",
+        conversation: "conv-abc",
+        status: "running",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code1).toBe(0);
+
+    const runs1 = listAgentRuns();
+    const recorded1 = runs1.find((r) => r.run_id === runId);
+    expect(recorded1).toBeTruthy();
+    expect(recorded1?.status).toBe("running");
+    expect(recorded1?.conversation_id).toBe("conv-abc");
+    expect(recorded1?.harness).toBe("claude");
+    expect(recorded1?.ended_at).toBeNull();
+
+    // 2. Update with message (task extraction) and model
+    stdoutChunks = [];
+    const code2 = await agentCmd.run(
+      ["record"],
+      {
+        "run-id": runId,
+        message: "Check all findings — a question, answered in your reply only.",
+        model: "claude-opus-5-5",
+        status: "completed",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code2).toBe(0);
+
+    const runs2 = listAgentRuns();
+    const recorded2 = runs2.find((r) => r.run_id === runId);
+    expect(recorded2).toBeTruthy();
+    expect(recorded2?.status).toBe("completed");
+    expect(recorded2?.task).toBe("Check all findings");
+    expect(recorded2?.model).toBe("claude-opus-5-5");
+    expect(recorded2?.ended_at).toBeTruthy();
+  });
+
+  it("agent run inherits parent_id from cached Claude session ID when env is unset", async () => {
+    const parentDir = makeAgentDir("steward-parent-");
+    const childDir = makeAgentDir("scout-child-");
+    const fakeBin = join(childDir, "fake-claude");
+    writeFileSync(join(childDir, "fake-claude.cjs"), FAKE_CLAUDE);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(childDir, "fake-claude.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+
+    // Simulate Claude Code SessionStart caching session id in ~/.ideaspaces/sessions/<sha256>
+    const { createHash } = await import("node:crypto");
+    const key = createHash("sha256").update(realpathSync.native(parentDir)).digest("hex").slice(0, 16);
+    const sessionsDir = join(homeDir, ".ideaspaces", "sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+    writeFileSync(join(sessionsDir, key), "steward-session-uuid-999\n");
+
+    // Change cwd to parentDir and launch childDir
+    const prevCwd = process.cwd();
+    process.chdir(parentDir);
+    try {
+      stdoutChunks = [];
+      const code = await agentCmd.run(
+        ["run", childDir],
+        {
+          runtime: "claude",
+          model: "sonnet",
+          message: "Check child task",
+          "claude-bin": fakeBin,
+        },
+        JSON_GLOBAL,
+      );
+      expect(code).toBe(0);
+
+      const runs = listAgentRuns();
+      const childRun = runs.find((r) => r.agent === realpathSync.native(childDir));
+      expect(childRun).toBeTruthy();
+      expect(childRun?.parent_id).toBe("steward-session-uuid-999");
+    } finally {
+      process.chdir(prevCwd);
+    }
+  });
 });

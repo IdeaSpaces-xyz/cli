@@ -1,5 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve, win32 } from "node:path";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { configDir } from "../auth/config-dir.js";
 
@@ -164,3 +166,43 @@ export function formatAgentRunsText(runs: AgentRunRecord[], parentFilter?: strin
     })
     .join("\n");
 }
+
+export function getAgentRun(runId: string): AgentRunRecord | undefined {
+  const runs = listAgentRuns();
+  return runs.find((r) => r.run_id === runId);
+}
+
+/**
+ * Read the cached Claude Code session id for a project directory, matching
+ * the plugin's `sessionIdCachePath` location (~/.ideaspaces/sessions/<sha256-prefix>).
+ */
+export function cachedClaudeSessionId(projectDir: string, home: string = homedir()): string | null {
+  try {
+    const key = createHash("sha256").update(resolve(projectDir)).digest("hex").slice(0, 16);
+    const file = join(home, ".ideaspaces", "sessions", key);
+    if (existsSync(file)) {
+      const id = readFileSync(file, "utf8").trim();
+      return id || null;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Walk upwards from cwd looking for a cached Claude Code session id in an
+ * ancestor folder (e.g. agent dir or space root).
+ */
+export function findActiveClaudeSessionId(cwd: string = process.cwd(), home: string = homedir()): string | null {
+  let cur = resolve(cwd);
+  while (true) {
+    const id = cachedClaudeSessionId(cur, home);
+    if (id) return id;
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return null;
+}
+
