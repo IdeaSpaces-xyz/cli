@@ -39,7 +39,7 @@ export interface CloneEntry {
 
 /** A consolidated catalog row: identity + location + (when on disk) sync state. */
 export interface CatalogEntry {
-  state: "hosted" | "unpublished_fork";
+  state: "hosted" | "unpublished_fork" | "local";
   repo_id: string | null;
   root_node_id: string | null;
   slug: string | null;
@@ -99,7 +99,7 @@ export function deriveCatalog(
     }
     if (isLocalSpaceRecord(record)) {
       return {
-        state: "unpublished_fork",
+        state: "local",
         repo_id: null,
         root_node_id: record.root_node_id,
         slug: null,
@@ -218,6 +218,8 @@ function formatHuman(entries: CatalogEntry[], notes: string[]): string {
     for (const entry of items) {
       if (entry.state === "unpublished_fork") {
         out.push(`  ${entry.display_name} — unpublished local fork${entry.clone ? `  ${entry.clone.path}` : ""}`);
+      } else if (entry.state === "local") {
+        out.push(`  ${entry.display_name} — local checkout${entry.clone ? `  ${entry.clone.path}` : ""}`);
       } else if (loc === "online-only") {
         out.push(`  ${entry.display_name} (${entry.namespace})`);
       } else {

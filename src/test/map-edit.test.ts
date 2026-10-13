@@ -5,7 +5,11 @@ import { join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { parseFrontmatter, parseMap } from "@ideaspaces/protocol";
 import { mapCommand } from "../commands/map.js";
+import { agentCommand } from "../commands/agent.js";
 import { navigateCommand } from "../commands/navigate.js";
+import { loadMapNote } from "../local/map-note.js";
+import { loadMapOrientation } from "../local/map-orientation.js";
+import { resolveMapAddress } from "../local/map-resolve.js";
 
 const global = { json: true, quiet: false, yes: false, help: false };
 const dirs: string[] = [];
@@ -62,6 +66,56 @@ describe("map authoring", () => {
     expect(opened.roots[0].drift).toBe(false);
     expect(await fs.readFile(file, "utf8")).not.toContain("sha:");
   });
+
+  it("K1: registers a checkout without storing its path in a Map kept elsewhere, for all readers", async () => {
+    const dir = await directory();
+    const maps = join(dir, "maps");
+    const agent = join(await directory(), "steward");
+    await fs.mkdir(maps, { recursive: true });
+    await fs.mkdir(join(agent, "_agent"), { recursive: true });
+    spawnSync("git", ["init", "-q", agent]);
+    spawnSync("git", ["-C", agent, "config", "user.name", "Test"]);
+    spawnSync("git", ["-C", agent, "config", "user.email", "test@example.com"]);
+    const id = "n_0123456789abcdef01234567";
+    await fs.writeFile(join(agent, "_agent/agreement.md"), `---\nname: Steward\nsummary: Agent in another checkout\nagreement: agent:repo:${id}\nroot_node_id: ${id}\n---\n# Steward\n`);
+    await fs.mkdir(join(agent, "_threads", "local"), { recursive: true });
+    await fs.writeFile(join(agent, "_threads/local/README.md"), "# Local Thread\n");
+    await fs.writeFile(join(agent, "note.md"), "---\nname: A note\nsummary: A local note\n---\n# A note\n");
+    spawnSync("git", ["-C", agent, "add", "."]);
+    expect(spawnSync("git", ["-C", agent, "commit", "-qm", "fixture"]).status).toBe(0);
+    const originalHome = process.env.HOME;
+    const originalCwd = process.cwd();
+    process.env.HOME = join(dir, "isolated-home");
+    await fs.mkdir(process.env.HOME);
+    try {
+      const file = join(maps, "fresh.map.md");
+      expect((await run(["create", file], { name: "Fresh", summary: "A new Space" })).code).toBe(0);
+      expect((await run(["add", file], { position: ".", checkout: agent })).code).toBe(0);
+      expect((await run(["add", file], { position: "note.md", root: "0" })).code).toBe(0);
+      expect((await run(["add", file], { position: "_threads/local", root: "0" })).code).toBe(0);
+      expect((await run(["add", file, "https://example.com/"])).code).toBe(0);
+      const opened = (await run([file])).data;
+      expect(opened.roots[0]).toMatchObject({ status: "found", checkout_path: await fs.realpath(agent) });
+      expect(opened.map.roots[0]).toEqual({ root_node_id: id });
+      expect(await fs.readFile(file, "utf8")).not.toContain(agent);
+      process.chdir(process.env.HOME);
+      const resolved = resolveMapAddress(loadMapNote(file, dir), `@${id}//note.md`);
+      expect(resolved).toMatchObject({ status: "checkout_at_head", content: expect.stringContaining("A local note") });
+      const output: string[] = [];
+      const write = process.stdout.write;
+      process.stdout.write = ((chunk: string) => { output.push(String(chunk)); return true; }) as typeof write;
+      try { expect(await agentCommand.run(["list"], { map: file }, global)).toBe(0); }
+      finally { process.stdout.write = write; }
+      expect(JSON.parse(output.join("")).agents[0]).toMatchObject({ name: "Steward", path: await fs.realpath(agent) });
+      const orientation = await loadMapOrientation(file, dir);
+      expect(orientation.text).toContain("A local note");
+      expect(orientation.text).toContain("_threads/local");
+      expect(orientation.text).toContain("https://example.com/");
+    } finally {
+      process.env.HOME = originalHome;
+      process.chdir(originalCwd);
+    }
+  }, 30_000);
 
   it("recognises a README Map as the folder's Space in map and navigate", async () => {
     const dir = await directory();

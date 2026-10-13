@@ -91,6 +91,9 @@ export interface LocalSpaceRecord {
   route_namespace?: never;
   route_slug?: never;
   canonical_path?: never;
+  source_root_node_id?: never;
+  source_head?: never;
+  source_baseline_initialized?: never;
 }
 
 export type SpaceRecord = HostedSpaceRecord | UnpublishedForkRecord | LocalSpaceRecord;
@@ -153,6 +156,9 @@ function parseSpaceRecord(value: unknown): SpaceRecord | null {
       "route_namespace",
       "route_slug",
       "canonical_path",
+      "source_root_node_id",
+      "source_head",
+      "source_baseline_initialized",
     ];
     if (forbidden.some((field) => field in record)) return null;
     if (

@@ -27,6 +27,7 @@
 import { fetchAuthMe, deriveGitBase, type ApiConfig } from "./api.js";
 import {
   findSpaceFor,
+  isHostedSpaceRecord,
   isUnpublishedForkRecord,
   saveSpace,
   withForkLineage,
@@ -112,7 +113,7 @@ export async function resolveSpaceBinding(
     const fromOrigin = localIdentity.root_node_id;
     // Only ever augment a hosted record that exists. A brand-new one written
     // here would carry synthetic repo/route metadata.
-    if (record && !isUnpublishedForkRecord(record)) {
+    if (record && isHostedSpaceRecord(record)) {
       try {
         saveSpace(dir, healed(record, fromOrigin));
       } catch {

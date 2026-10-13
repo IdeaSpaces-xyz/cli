@@ -7,6 +7,7 @@ const { loadSpacesMock } = vi.hoisted(() => ({ loadSpacesMock: vi.fn() }));
 vi.mock("../auth/spaces.js", () => ({
   loadSpaces: loadSpacesMock,
   isUnpublishedForkRecord: (record: { kind?: string }) => record.kind === "unpublished_fork",
+  isLocalSpaceRecord: (record: { kind?: string }) => record.kind === "local",
 }));
 
 const { clonesCommand } = await import("../commands/clones.js");

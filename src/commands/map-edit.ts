@@ -1,12 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { promises as fs, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parseDocument, stringify, YAMLSeq } from "yaml";
 import { parseMap, type MapMember } from "@ideaspaces/protocol";
+import { findSpaceFor, saveSpace } from "../auth/spaces.js";
+import { repoRoot } from "../git.js";
+import { checkoutRootNodeId } from "../local/space-map.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address> [--if-match <file_sha>]";
+const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>] | --checkout <repo> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address> [--if-match <file_sha>]";
 
 function value(flags: Record<string, string | boolean>, key: string): string | undefined {
   const v = flags[key];
@@ -59,17 +62,30 @@ async function replace(file: string, content: string): Promise<void> {
   } finally { await fs.rm(temp, { force: true }); }
 }
 
-function memberFrom(args: string[], flags: Record<string, string | boolean>, roots: unknown[]): { member: MapMember; root?: unknown } {
+function memberFrom(args: string[], flags: Record<string, string | boolean>, roots: unknown[]): { member: MapMember; root?: unknown; checkout?: { path: string; id: string } } {
   const position = value(flags, "position");
   const address = args[0];
   if (position !== undefined) {
     if (address) throw new Error("Choose a position or an address, not both.");
     const depth = value(flags, "depth");
     const existingRoot = value(flags, "root");
-    const id = value(flags, "root-node-id");
+    const requestedId = value(flags, "root-node-id");
     const sha = value(flags, "sha");
-    if ((!existingRoot && !id) || (existingRoot && (id || sha)) || (sha && !id)) {
-      throw new Error("Position needs either --root <index> or --root-node-id <id> (optional --sha <commit>); --depth is optional on a Space Map.");
+    const checkout = value(flags, "checkout");
+    if (existingRoot && (requestedId || sha || checkout)) {
+      throw new Error("Choose --root <index> or --checkout <repo> / --root-node-id <id>, not both.");
+    }
+    let local: { path: string; id: string } | undefined;
+    if (checkout) {
+      const path = realpathSync.native(repoRoot(checkout));
+      const id = checkoutRootNodeId(path);
+      if (!id) throw new Error(`Checkout ${path} has no valid repository root identity; declare a root_node_id in its Agreement or Foundation first.`);
+      if (requestedId && requestedId !== id) throw new Error(`--root-node-id ${requestedId} does not match checkout ${path} (${id}).`);
+      local = { path, id };
+    }
+    const id = requestedId ?? local?.id;
+    if ((!existingRoot && !id) || (sha && !id)) {
+      throw new Error("Position needs --root <index>, --root-node-id <id>, or --checkout <repo> (optional --sha <commit>); --depth is optional on a Space Map.");
     }
     const root = existingRoot === undefined ? roots.length : Number(existingRoot);
     if (!Number.isInteger(root) || root < 0 || root > roots.length || (existingRoot !== undefined && root === roots.length)) {
@@ -79,9 +95,9 @@ function memberFrom(args: string[], flags: Record<string, string | boolean>, roo
     }
     const member = { root, position, ...(depth ? { depth } : {}), ...(value(flags, "name") ? { name: value(flags, "name") } : {}),
       ...(value(flags, "summary") ? { summary: value(flags, "summary") } : {}) } as MapMember;
-    return { member, ...(id ? { root: { root_node_id: id, ...(sha ? { sha } : {}) } } : {}) };
+    return { member, ...(id ? { root: { root_node_id: id, ...(sha ? { sha } : {}) } } : {}), ...(local ? { checkout: local } : {}) };
   }
-  if (!address || args.length !== 1 || flags.root !== undefined || flags["root-node-id"] !== undefined || flags.sha !== undefined) {
+  if (!address || args.length !== 1 || flags.root !== undefined || flags["root-node-id"] !== undefined || flags.sha !== undefined || flags.checkout !== undefined) {
     throw new Error("Address needs exactly one <address>; position members use --position and --root.");
   }
   return { member: { address, ...(value(flags, "depth") ? { depth: value(flags, "depth") } : {}),
@@ -166,9 +182,16 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       if (!(seq instanceof YAMLSeq)) throw new Error("Map members must be a sequence.");
       let index: number;
       if (verb === "add") {
-        const { member, root } = memberFrom(members, flags, parsed.map.roots);
+        const { member, root, checkout } = memberFrom(members, flags, parsed.map.roots);
         const candidate = parseMap({ roots: [...parsed.map.roots, ...(root ? [root] : [])], members: [...parsed.map.members, member] });
         if (candidate.status !== "valid") throw new Error(`Invalid member: ${candidate.status === "invalid" ? candidate.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "missing map"}`);
+        if (checkout) {
+          const existing = findSpaceFor(checkout.path);
+          if (existing && existing.root_node_id !== checkout.id) {
+            throw new Error(`Local checkout record for ${checkout.path} disagrees with root ${checkout.id}; repair the record before editing the Map.`);
+          }
+          if (!existing) saveSpace(checkout.path, { kind: "local", root_node_id: checkout.id });
+        }
         if (root) {
           let roots = doc.getIn(["map", "roots"], true);
           if (!roots) { doc.setIn(["map", "roots"], []); roots = doc.getIn(["map", "roots"], true); }

@@ -711,7 +711,16 @@ function cmdList(
     return 1;
   }
 
-  const contextRoot = global.repo ? resolve(global.repo) : mapContextDir(loadedMap.absolutePath);
+  const callerRoot = global.repo ? resolve(global.repo) : process.cwd();
+  let loadedMap;
+  try {
+    loadedMap = loadMapNote(mapPath, callerRoot);
+  } catch (err) {
+    output.error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+
+  const contextRoot = global.repo ? callerRoot : mapContextDir(loadedMap.absolutePath);
   const result = projectMapAgents(loadedMap, { cwd: contextRoot });
   const text = formatMapAgentsText(result);
   output.result(result, text);
