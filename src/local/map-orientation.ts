@@ -9,8 +9,8 @@ import { LAUNCH_MAP_ENV } from "./address-read.js";
 import { projectMapAgents, type MapAgentsResult } from "./map-agents.js";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 import { lookAtCommit } from "./map-look.js";
-import { defaultReadAt, defaultRootNames, mapContextDir, mapKindOf, readMapRoot, type MapReadAt, type MapReadResult } from "./map-resolve.js";
-import { inspectSpaceMapRoots, type SpaceMapRootDrift } from "./space-map.js";
+import { defaultReadAt, defaultRootNames, mapKindOf, readMapRoot, type MapReadAt, type MapReadResult } from "./map-resolve.js";
+import { inspectSpaceMapRoots, mapContextDir, type SpaceMapRootDrift } from "./space-map.js";
 
 /**
  * What a launch Map may add to the session's starting context, in characters. Over it, members

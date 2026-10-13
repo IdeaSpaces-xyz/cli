@@ -136,8 +136,12 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   }
 
   if (spaceMap && firstSpaceRoot) {
-    workingRoot = firstSpaceRoot;
-    launchOrientation = localLaunchOrientation(repoPath, firstSpaceRoot);
+    try {
+      workingRoot = firstSpaceRoot;
+      launchOrientation = localLaunchOrientation(repoPath, firstSpaceRoot);
+    } catch (err) {
+      return reportLocalError(err, output);
+    }
   }
 
   let threadLaunch: PinnedThreadLaunch | LocalThreadLaunch | HostedThreadLaunch | undefined;

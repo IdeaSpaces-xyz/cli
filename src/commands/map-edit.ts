@@ -308,7 +308,7 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       if (registerCheckout) saveMapCheckout(registerCheckout.path, registerCheckout.id);
       return { index, sha: hash(next), status: removedRoot ? "root_removed" : verb === "add" ? "added" : "removed" };
     }, output.error);
-    output.result({ path: file, member_index: changed.index, sha: changed.sha, status: changed.status }, `${changed.status === "already_present" ? "Already present" : changed.status === "already_absent" ? "Already absent" : changed.status === "root_removed" ? "Removed root" : verb === "add" ? "Added member" : "Removed member"} ${changed.index}: ${file}`);
+    output.result({ path: file, member_index: changed.index, sha: changed.sha, status: changed.status }, `${changed.status === "already_absent" ? "Already absent" : changed.status === "already_present" ? "Already present" : changed.status === "root_removed" ? "Removed root" : verb === "add" ? "Added member" : "Removed member"}${changed.index === null ? "" : ` ${changed.index}`}: ${file}`);
     return 0;
   } catch (error) {
     output.error(`${errorMessage(error)}${(error as NodeJS.ErrnoException).code === "ENOENT" ? " (check the map path and its parent directory)" : ""}`);

@@ -143,8 +143,12 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   }
 
   if (spaceRoots && firstSpaceRoot) {
-    workingRoot = firstSpaceRoot;
-    launchOrientation = localLaunchOrientation(repoPath, firstSpaceRoot);
+    try {
+      workingRoot = firstSpaceRoot;
+      launchOrientation = localLaunchOrientation(repoPath, firstSpaceRoot);
+    } catch (err) {
+      return reportLocalError(err, output);
+    }
   }
   const addedDirs = [...(options?.addedDirs ?? []), ...(spaceRoots ?? [])];
   const allowedTools = options?.allowedTools;

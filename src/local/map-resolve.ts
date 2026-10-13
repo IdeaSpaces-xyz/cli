@@ -99,8 +99,6 @@ function isLoadedMapNote(value: LoadedMapNote | MapBlock): value is LoadedMapNot
   return typeof (value as LoadedMapNote).path === "string" && typeof (value as LoadedMapNote).map === "object";
 }
 
-export { mapContextDir };
-
 /** The kind of a Map by where its note lives: anything under `_threads/` is a Thread's. */
 export function mapKindOf(notePath: string | undefined): MapKind {
   return notePath && notePath.split(/[\\/]/).includes("_threads") ? "thread" : "space";
