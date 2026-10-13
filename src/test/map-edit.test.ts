@@ -294,4 +294,111 @@ describe("map authoring", () => {
       "thread:x_111111111111111111111111", "thread:x_222222222222222222222222",
     ]);
   });
+
+  it("K3/C2: Space Map orientation renders typed shallow pointers, agent roster, empty state, and CLI edit guidance without pin undefined", async () => {
+    const dir = await directory();
+    const maps = join(dir, "maps");
+    await fs.mkdir(maps, { recursive: true });
+
+    const agentDir = join(await directory(), "specialist");
+    await fs.mkdir(join(agentDir, "_agent"), { recursive: true });
+    await fs.mkdir(join(agentDir, "_threads", "discussions"), { recursive: true });
+    await fs.mkdir(join(agentDir, "notes"), { recursive: true });
+    spawnSync("git", ["init", "-q", agentDir]);
+    spawnSync("git", ["-C", agentDir, "config", "user.name", "Specialist"]);
+    spawnSync("git", ["-C", agentDir, "config", "user.email", "specialist@example.com"]);
+    const agentId = "n_111111111111111111111111";
+    await fs.writeFile(
+      join(agentDir, "_agent/agreement.md"),
+      `---\nname: Specialist\nsummary: Specialist agent\nagreement: agent:repo:${agentId}\nroot_node_id: ${agentId}\n---\n# Specialist\n`,
+    );
+    await fs.writeFile(join(agentDir, "_threads/discussions/README.md"), "# Discussions\n");
+    await fs.writeFile(join(agentDir, "guide.map.md"), "---\nname: Guide Map\nmap:\n  roots: []\n  members: []\n---\n");
+    await fs.writeFile(join(agentDir, "notes", "doc.md"), "---\nname: Doc\nsummary: Documentation\n---\n# Doc\n");
+    spawnSync("git", ["-C", agentDir, "add", "."]);
+    spawnSync("git", ["-C", agentDir, "commit", "-qm", "agent fixture"]);
+
+    const repoDir = join(await directory(), "repo");
+    await fs.mkdir(join(repoDir, "_agent"), { recursive: true });
+    spawnSync("git", ["init", "-q", repoDir]);
+    spawnSync("git", ["-C", repoDir, "config", "user.name", "Repo"]);
+    spawnSync("git", ["-C", repoDir, "config", "user.email", "repo@example.com"]);
+    const repoId = "n_222222222222222222222222";
+    await fs.writeFile(
+      join(repoDir, "_agent/agreement.md"),
+      `---\nname: Repo\nsummary: Plain repository\nroot_node_id: ${repoId}\n---\n# Repo\n`,
+    );
+    spawnSync("git", ["-C", repoDir, "add", "."]);
+    spawnSync("git", ["-C", repoDir, "commit", "-qm", "repo fixture"]);
+
+    const originalHome = process.env.HOME;
+    const originalCwd = process.cwd();
+    process.env.HOME = join(dir, "isolated-home");
+    await fs.mkdir(process.env.HOME);
+
+    try {
+      const file = join(maps, "k3.map.md");
+      expect((await run(["create", file], { name: "K3 Space", summary: "Orientation test" })).code).toBe(0);
+
+      // 1. Empty Space Map orientation
+      const emptyOrientation = await loadMapOrientation(file, dir);
+      expect(emptyOrientation.text).toContain('Name: "K3 Space"');
+      expect(emptyOrientation.text).toContain('Summary: "Orientation test"');
+      expect(emptyOrientation.text).toContain("The Map is starting context, not a reach or access limit; its storage folder is not membership. Pointers grant no access.");
+      expect(emptyOrientation.text).toContain(`Edit this Space with ideaspaces map add "${resolve(file)}" or ideaspaces map remove "${resolve(file)}"; run ideaspaces map --help for forms.`);
+      expect(emptyOrientation.text).toContain("This Space has no selected members.");
+      expect(emptyOrientation.text).toContain("Agents in this Space (0):");
+      expect(emptyOrientation.text).toContain("(none selected or reachable here)");
+
+      // 2. Add members of various types
+      expect((await run(["add", file], { position: ".", checkout: agentDir })).code).toBe(0);
+      expect((await run(["add", file], { position: ".", checkout: repoDir })).code).toBe(0);
+      expect((await run(["add", file], { position: "_threads/discussions", root: "0" })).code).toBe(0);
+      expect((await run(["add", file], { position: "guide.map.md", root: "0" })).code).toBe(0);
+      expect((await run(["add", file], { position: "notes", root: "0" })).code).toBe(0);
+      expect((await run(["add", file], { position: "notes/doc.md", root: "0" })).code).toBe(0);
+      const absentId = "n_999999999999999999999999";
+      expect((await run(["add", file], { position: ".", "root-node-id": absentId })).code).toBe(0);
+      expect((await run(["add", file, "https://example.com/docs"])).code).toBe(0);
+      expect((await run(["add", file, "thread:x_0123456789abcdef01234567"])).code).toBe(0);
+      expect((await run(["add", file, "agent:repo:n_ext"])).code).toBe(0);
+
+      // 3. Orientation of populated unpinned Space Map
+      const orientation = await loadMapOrientation(file, dir);
+      const text = orientation.text;
+
+      // No "pin undefined"
+      expect(text).not.toContain("pin undefined");
+      expect(text).not.toContain("drifted from pin undefined");
+
+      // Root resolution state
+      expect(text).toContain(`[0] @specialist — ${agentId} — found at HEAD`);
+      expect(text).toContain(`[1] @repo — ${repoId} — found at HEAD`);
+      expect(text).toContain(`[2] @${absentId} — ${absentId} — unavailable here (no local checkout)`);
+
+      // Member typing
+      expect(text).toContain("[0] @specialist// — Agent, directory, summary at head");
+      expect(text).toContain("[1] @repo// — Repo, directory, summary at head");
+      expect(text).toContain("[2] @specialist//_threads/discussions — Thread,");
+      expect(text).toContain("[3] @specialist//guide.map.md — Map, markdown, summary at head");
+      expect(text).toContain("[4] @specialist//notes — Folder, directory, summary at head");
+      expect(text).toContain("[5] @specialist//notes/doc.md — Note, markdown, summary at head");
+      expect(text).toContain(`[6] @${absentId}// — Repo, unreachable: No local checkout`);
+      expect(text).toContain('[7] kind="URL (not fetched)" address="https://example.com/docs"');
+      expect(text).toContain('[8] kind="Hosted Thread" address="thread:x_0123456789abcdef01234567"');
+      expect(text).toContain('[9] kind="Agent address" address="agent:repo:n_ext"');
+
+      // Agents in this Space
+      expect(text).toContain("Agents in this Space (1):");
+      expect(text).toContain('"Specialist" —');
+      expect(text).toContain('"Specialist agent"');
+      expect(text).not.toContain('"Repo" —');
+
+      // Budget check
+      expect(text.length).toBeLessThanOrEqual(12_000);
+    } finally {
+      process.env.HOME = originalHome;
+      process.chdir(originalCwd);
+    }
+  }, 30_000);
 });
