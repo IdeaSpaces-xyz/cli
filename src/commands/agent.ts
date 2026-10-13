@@ -9,6 +9,7 @@ import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
+import { mapContextDir } from "../local/space-map.js";
 import { enteredThroughRoot, isContained } from "../local/contained-path.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
@@ -710,15 +711,7 @@ function cmdList(
     return 1;
   }
 
-  const contextRoot = global.repo ? resolve(global.repo) : process.cwd();
-  let loadedMap;
-  try {
-    loadedMap = loadMapNote(mapPath, contextRoot);
-  } catch (err) {
-    output.error(err instanceof Error ? err.message : String(err));
-    return 1;
-  }
-
+  const contextRoot = global.repo ? resolve(global.repo) : mapContextDir(loadedMap.absolutePath);
   const result = projectMapAgents(loadedMap, { cwd: contextRoot });
   const text = formatMapAgentsText(result);
   output.result(result, text);

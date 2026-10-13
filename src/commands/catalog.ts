@@ -14,8 +14,9 @@ import { gitState } from "@ideaspaces/protocol";
 import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import type { AuthMeRepo, AuthMeResponse } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { isHostedSpaceRecord, isUnpublishedForkRecord, listClones } from "../auth/spaces.js";
+import { isHostedSpaceRecord, isLocalSpaceRecord, isUnpublishedForkRecord, listClones } from "../auth/spaces.js";
 import type { SpaceRecord } from "../auth/spaces.js";
+import { basename } from "node:path";
 import { fetch as gitFetch } from "../git.js";
 import { createOutput } from "../output.js";
 import { availableRootActions, rootRelationshipLabel } from "../root-actions.js";
@@ -91,6 +92,20 @@ export function deriveCatalog(
         namespace: "",
         source_root_node_id: record.source_root_node_id,
         source_head: record.source_head,
+        location: "local-only",
+        clone: { path },
+        ...syncOf(path),
+      };
+    }
+    if (isLocalSpaceRecord(record)) {
+      return {
+        state: "unpublished_fork",
+        repo_id: null,
+        root_node_id: record.root_node_id,
+        slug: null,
+        display_name: record.name ?? basename(path),
+        hostname: null,
+        namespace: "",
         location: "local-only",
         clone: { path },
         ...syncOf(path),

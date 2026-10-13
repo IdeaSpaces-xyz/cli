@@ -13,7 +13,7 @@ import {
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
 import { gitAvailability, gitBinary, repoRoot, sanitizedGitEnvironment } from "../git.js";
 import type { LoadedMapNote } from "./map-note.js";
-import { CHECKOUT_SEARCH_LIMIT, checkoutRootNodeId, inspectSpaceMapRoots, type SpaceMapRootDrift } from "./space-map.js";
+import { CHECKOUT_SEARCH_LIMIT, checkoutRootNodeId, inspectSpaceMapRoots, mapContextDir, type SpaceMapRootDrift } from "./space-map.js";
 
 /** Which commit a member is read at: the root's pin, or its checkout's HEAD. */
 export type MapReadAt = "pin" | "head";
@@ -99,19 +99,7 @@ function isLoadedMapNote(value: LoadedMapNote | MapBlock): value is LoadedMapNot
   return typeof (value as LoadedMapNote).path === "string" && typeof (value as LoadedMapNote).map === "object";
 }
 
-/**
- * Where a Map's roots are looked for: the repository holding the note, so a Thread's Map under
- * `_threads/<thread>/_agent/maps/` finds the same checkouts as the Space's Map at the top.
- * Outside a repository, the note's own folder.
- */
-export function mapContextDir(notePath: string): string {
-  const folder = dirname(notePath);
-  try {
-    return repoRoot(folder);
-  } catch {
-    return folder;
-  }
-}
+export { mapContextDir };
 
 /** The kind of a Map by where its note lives: anything under `_threads/` is a Thread's. */
 export function mapKindOf(notePath: string | undefined): MapKind {

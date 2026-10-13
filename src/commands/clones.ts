@@ -1,4 +1,5 @@
-import { isUnpublishedForkRecord, loadSpaces } from "../auth/spaces.js";
+import { basename } from "node:path";
+import { isLocalSpaceRecord, isUnpublishedForkRecord, loadSpaces } from "../auth/spaces.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -13,26 +14,36 @@ export const clonesCommand: CommandDef = {
   async run(_args, _flags, global) {
     const output = createOutput(global);
 
-    const clones = Object.entries(loadSpaces()).map(([path, record]) =>
-      isUnpublishedForkRecord(record)
-        ? {
-            path,
-            state: "unpublished_fork" as const,
-            repo_id: null,
-            root_node_id: record.root_node_id,
-            name: record.name,
-            source_root_node_id: record.source_root_node_id,
-            source_head: record.source_head,
-          }
-        : {
-            path,
-            state: "hosted" as const,
-            repo_id: record.repo_id,
-            root_node_id: record.root_node_id ?? null,
-            slug: record.slug,
-            namespace: record.namespace,
-          },
-    );
+    const clones = Object.entries(loadSpaces()).map(([path, record]) => {
+      if (isUnpublishedForkRecord(record)) {
+        return {
+          path,
+          state: "unpublished_fork" as const,
+          repo_id: null,
+          root_node_id: record.root_node_id,
+          name: record.name,
+          source_root_node_id: record.source_root_node_id,
+          source_head: record.source_head,
+        };
+      }
+      if (isLocalSpaceRecord(record)) {
+        return {
+          path,
+          state: "local" as const,
+          repo_id: null,
+          root_node_id: record.root_node_id,
+          name: record.name ?? basename(path),
+        };
+      }
+      return {
+        path,
+        state: "hosted" as const,
+        repo_id: record.repo_id,
+        root_node_id: record.root_node_id ?? null,
+        slug: record.slug,
+        namespace: record.namespace,
+      };
+    });
 
     output.result(
       { clones },
@@ -41,7 +52,9 @@ export const clonesCommand: CommandDef = {
             .map((clone) =>
               clone.state === "unpublished_fork"
                 ? `${clone.name}  unpublished local fork  ${clone.path}`
-                : `${clone.namespace}/${clone.slug}  ${clone.path}`,
+                : clone.state === "local"
+                  ? `${clone.name}  local checkout  ${clone.path}`
+                  : `${clone.namespace}/${clone.slug}  ${clone.path}`,
             )
             .join("\n")
         : "No local clones or forks yet. `ideaspaces clone <space>` to make one.",

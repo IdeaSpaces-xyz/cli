@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseFrontmatter, type MapMember, type MapRoot } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
 import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
 import { deriveGitBase } from "../auth/api.js";
-import { headSha, normalizeRepoUrl, originUrl } from "../git.js";
+import { headSha, normalizeRepoUrl, originUrl, repoRoot } from "../git.js";
 import { canonicalRepoUrl, parseRepoLocator } from "../repo-locator.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
@@ -303,6 +303,20 @@ export function checkoutRootNodeId(dir: string): string | null {
   });
 }
 
+/**
+ * Where a Map's roots are looked for: the repository holding the note, so a Thread's Map under
+ * `_threads/<thread>/_agent/maps/` finds the same checkouts as the Space's Map at the top.
+ * Outside a repository, the note's own folder.
+ */
+export function mapContextDir(notePath: string): string {
+  const folder = dirname(notePath);
+  try {
+    return repoRoot(folder);
+  } catch {
+    return folder;
+  }
+}
+
 /** Load and inspect a curated `*.map.md` in the target directory if one exists. */
 export function inspectSpaceMap(dir: string, mapFileName?: string): SpaceMapInspection | null {
   const discovery = discoverSpaceMapFiles(dir);
@@ -310,7 +324,8 @@ export function inspectSpaceMap(dir: string, mapFileName?: string): SpaceMapInsp
   if (!fileName) return null;
 
   const note = loadMapNote(fileName, dir);
-  const roots = inspectSpaceMapRoots(note.map.roots, dir);
+  const contextDir = mapContextDir(note.absolutePath);
+  const roots = inspectSpaceMapRoots(note.map.roots, contextDir);
   return {
     file: fileName,
     otherFiles: discovery?.otherFiles ?? [],
