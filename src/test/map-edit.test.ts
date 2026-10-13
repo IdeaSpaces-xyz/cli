@@ -346,7 +346,7 @@ describe("map authoring", () => {
       expect(emptyOrientation.text).toContain('Summary: "Orientation test"');
       expect(emptyOrientation.text).toContain("This Map's roots are the Space.");
       expect(emptyOrientation.text).toContain("This Space is empty: it has no roots. Work from the separate POV, say the Space is empty, and offer to add a root.");
-      expect(emptyOrientation.text).not.toContain(`working folder for new material): "${maps}"`);
+      expect(emptyOrientation.text).not.toContain(`default folder for new material): "${maps}"`);
       expect(emptyOrientation.firstRoot).toBeUndefined();
       expect(emptyOrientation.localRoots).toEqual([]);
       expect(emptyOrientation.text).toContain(`Edit this Space with ideaspaces map add "${resolve(file)}" or ideaspaces map remove "${resolve(file)}"; run ideaspaces map --help for forms.`);
@@ -378,9 +378,9 @@ describe("map authoring", () => {
       // Root resolution state and ordered working material (not the Map storage folder).
       expect(orientation.firstRoot).toBe(realpathSync(agentDir));
       expect(orientation.localRoots).toEqual([realpathSync(agentDir), realpathSync(repoDir)]);
-      expect(text).toContain(`First root (working folder for new material): "${realpathSync(agentDir)}"`);
-      expect(text).toContain("the POV is separate");
-      expect(text).not.toContain(`working folder for new material): "${maps}"`);
+      expect(text).toContain(`First root (default folder for new material): "${realpathSync(agentDir)}"`);
+      expect(text).toContain("The shell starts in the POV, not this root");
+      expect(text).not.toContain(`default folder for new material): "${maps}"`);
       expect(text).toContain(`[0] @specialist — ${agentId} — found at HEAD`);
       expect(text).toContain(`[1] @repo — ${repoId} — found at HEAD`);
       expect(text).toContain(`[2] @${absentId} — ${absentId} — unavailable here (no local checkout)`);

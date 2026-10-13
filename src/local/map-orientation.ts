@@ -207,8 +207,8 @@ function render(
     } else {
       const first = located[0]?.drift.checkoutPath;
       lines.push(first
-        ? `First root (working folder for new material): ${quoted(first)}. Work there by default; the POV is separate and does not replace this root.`
-        : "The first root is the working folder, but it has no local checkout here. Do not substitute the Map's storage folder or a later root; ask to connect the first root. The POV remains separate.");
+        ? `First root (default folder for new material): ${quoted(first)}. Work there by default; the POV remains separate. The shell starts in the POV, not this root; use absolute paths or change directory explicitly.`
+        : "The first root is the default folder for new material, but it has no local checkout here. Do not substitute the Map's storage folder or a later root; ask to connect the first root. The POV remains separate.");
       lines.push("Every other root that exists on this device is reachable material in the Space, not an authority boundary.");
     }
     lines.push(`Edit this Space with ideaspaces map add ${quoted(note.absolutePath)} or ideaspaces map remove ${quoted(note.absolutePath)}; run ideaspaces map --help for forms.`);
