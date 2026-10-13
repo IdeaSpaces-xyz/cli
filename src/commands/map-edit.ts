@@ -122,6 +122,52 @@ function memberFrom(args: string[], flags: Record<string, string | boolean>, roo
     ...(value(flags, "summary") ? { summary: value(flags, "summary") } : {}) } as MapMember };
 }
 
+function removeEmptyRoot(doc: ReturnType<typeof parseDocument>, seq: YAMLSeq, map: { roots: MapRoot[]; members: MapMember[] }, id: string): number {
+  const matches = map.roots.flatMap((root, i) => rootIdentity(root) === id ? [i] : []);
+  if (matches.length !== 1) throw new Error(`Root ${id} is ${matches.length ? "ambiguous" : "not in this Map"}; choose one valid identity.`);
+  const index = matches[0];
+  if (map.members.some((entry) => "root" in entry && entry.root === index)) {
+    throw new Error(`Root ${id} still has members. Remove those pointers first; roots are never removed implicitly.`);
+  }
+  const roots = doc.getIn(["map", "roots"], true);
+  if (!(roots instanceof YAMLSeq)) throw new Error("Map roots must be a sequence.");
+  roots.items.splice(index, 1);
+  for (const entry of seq.items) {
+    if (entry && typeof entry === "object" && "get" in entry && "set" in entry) {
+      const node = entry as { get(key: string): unknown; set(key: string, value: number): void };
+      const old = node.get("root");
+      if (typeof old === "number" && old > index) node.set("root", old - 1);
+    }
+  }
+  return index;
+}
+
+function resolveRemoveTarget(requested: string, map: { roots: MapRoot[]; members: MapMember[] }, match: string | undefined, file: string): number {
+  if (/^(0|[1-9]\d*)$/.test(requested)) {
+    if (!match) throw new Error(`Removing by index requires --if-match <file_sha> from map ${file} --json; an index can name a different member after another edit. Or remove by address.`);
+    return Number(requested);
+  }
+  const address = parseMapPositionAddress(requested);
+  if (address.status === "valid") {
+    const resolved = resolveMapPositionAddress(map, address.address);
+    if (resolved.status === "invalid" || (resolved.status === "unresolved" && resolved.code !== "root_not_in_map")) {
+      throw new Error(`Cannot remove ${requested}: ${resolved.code}. Use a known root identity or index plus --if-match.`);
+    }
+    if (resolved.status === "unresolved" && address.address.root.kind !== "identity") {
+      throw new Error(`Cannot remove ${requested}: root is not in this Map. Check the root name or identity.`);
+    }
+    const matches = resolved.status === "resolved"
+      ? map.members.flatMap((entry, i) => "root" in entry && entry.root === resolved.rootIndex && entry.position === resolved.position ? [i] : [])
+      : [];
+    if (matches.length > 1) throw new Error(`Position ${requested} matches multiple members (${matches.join(", ")}); remove by index with --if-match.`);
+    return matches[0] ?? -1;
+  }
+  if (requested.startsWith("@") || requested.startsWith("//")) throw new Error(`Invalid position address ${requested}: ${address.code}. Use @<root-node-id>//<position>.`);
+  const matches = map.members.flatMap((entry, i) => "address" in entry && entry.address === requested ? [i] : []);
+  if (matches.length > 1) throw new Error(`Address ${requested} matches multiple members (${matches.join(", ")}); remove by index with --if-match.`);
+  return matches[0] ?? -1;
+}
+
 export const MAP_EDIT_USAGE = USAGE;
 
 export async function appendAddressMemberToMapFile(
@@ -237,63 +283,26 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       } else {
         const byPosition = value(flags, "position");
         const id = value(flags, "root-node-id");
-        if (byPosition && id && members.length === 0) members.push(`@${id}//${byPosition === "." ? "" : byPosition}`);
         if (id && !byPosition && members.length === 0 && flags.root === undefined && flags.checkout === undefined && flags.sha === undefined) {
-          const matches = parsed.map.roots.flatMap((root, i) => rootIdentity(root) === id ? [i] : []);
-          if (matches.length !== 1) throw new Error(`Root ${id} is ${matches.length ? "ambiguous" : "not in this Map"}; choose one valid identity.`);
-          index = matches[0];
-          if (parsed.map.members.some((entry) => "root" in entry && entry.root === index)) {
-            throw new Error(`Root ${id} still has members. Remove those pointers first; roots are never removed implicitly.`);
-          }
-          const roots = doc.getIn(["map", "roots"], true);
-          if (!(roots instanceof YAMLSeq)) throw new Error("Map roots must be a sequence.");
-          roots.items.splice(index, 1);
-          for (const entry of seq.items) {
-            if (entry && typeof entry === "object" && "get" in entry && "set" in entry) {
-              const node = entry as { get(key: string): unknown; set(key: string, value: number): void };
-              const old = node.get("root");
-              if (typeof old === "number" && old > index) node.set("root", old - 1);
-            }
-          }
+          index = removeEmptyRoot(doc, seq, parsed.map, id);
           removedRoot = true;
         } else {
-        if (members.length !== 1 || (byPosition && !id) || (id && !byPosition) || flags.root !== undefined || flags.checkout !== undefined || flags.sha !== undefined) {
-          throw new Error("map remove needs one address, or --root-node-id <id> --position <path> (index requires --if-match).");
-        }
-        const requested = members[0];
-        if (/^(0|[1-9]\d*)$/.test(requested)) {
-          if (!match) throw new Error(`Removing by index requires --if-match <file_sha> from map ${file} --json; an index can name a different member after another edit. Or remove by address.`);
-          index = Number(requested);
-        } else {
-          const address = parseMapPositionAddress(requested);
-          if (address.status === "valid") {
-            const resolved = resolveMapPositionAddress(parsed.map, address.address);
-            if (resolved.status === "invalid" || (resolved.status === "unresolved" && resolved.code !== "root_not_in_map")) {
-              throw new Error(`Cannot remove ${requested}: ${resolved.code}. Use a known root identity or index plus --if-match.`);
-            }
-            if (resolved.status === "unresolved" && address.address.root.kind !== "identity") {
-              throw new Error(`Cannot remove ${requested}: root is not in this Map. Check the root name or identity.`);
-            }
-            const matches = resolved.status === "resolved"
-              ? parsed.map.members.flatMap((entry, i) => "root" in entry && entry.root === resolved.rootIndex && entry.position === resolved.position ? [i] : [])
-              : [];
-            if (matches.length > 1) throw new Error(`Position ${requested} matches multiple members (${matches.join(", ")}); remove by index with --if-match.`);
-            index = matches[0] ?? -1;
-          } else {
-            if (requested.startsWith("@") || requested.startsWith("//")) throw new Error(`Invalid position address ${requested}: ${address.code}. Use @<root-node-id>//<position>.`);
-            const matches = parsed.map.members.flatMap((entry, i) => "address" in entry && entry.address === requested ? [i] : []);
-            if (matches.length > 1) throw new Error(`Address ${requested} matches multiple members (${matches.join(", ")}); remove by index with --if-match.`);
-            index = matches[0] ?? -1;
+          const requested = byPosition && id && members.length === 0
+            ? `@${id}//${byPosition === "." ? "" : byPosition}`
+            : members[0];
+          if ((members.length !== 1 && !(byPosition && id && members.length === 0)) || !requested ||
+              (byPosition && !id) || (id && !byPosition) || flags.root !== undefined || flags.checkout !== undefined || flags.sha !== undefined) {
+            throw new Error("map remove needs one address, or --root-node-id <id> --position <path> (index requires --if-match).");
           }
-        }
-        if (!Number.isSafeInteger(index) || index < 0 || index >= seq.items.length) {
-          if (/^(0|[1-9]\d*)$/.test(requested)) throw new Error(`Member ${requested} was not found; run map ${file} --json to see indices.`);
-          already = "already_absent";
-        } else {
-          seq.items.splice(index, 1);
-          // Roots are the Space, not a cache of members. Removing its last member
-          // must not silently remove the root or change the identity of later indices.
-        }
+          index = resolveRemoveTarget(requested, parsed.map, match, file);
+          if (!Number.isSafeInteger(index) || index < 0 || index >= seq.items.length) {
+            if (/^(0|[1-9]\d*)$/.test(requested)) throw new Error(`Member ${requested} was not found; run map ${file} --json to see indices.`);
+            already = "already_absent";
+          } else {
+            // Roots are the Space, not a cache of members. Removing the last
+            // member never drops its root or changes later root indices.
+            seq.items.splice(index, 1);
+          }
         }
       }
       if (already) {

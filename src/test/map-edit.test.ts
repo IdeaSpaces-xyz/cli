@@ -99,6 +99,12 @@ describe("map authoring", () => {
       expect((await run(["add", file], { position: ".", checkout: agent })).code).toBe(0);
       const checkouts = JSON.parse(await fs.readFile(join(process.env.HOME!, ".ideaspaces", "map-checkouts.json"), "utf8"));
       expect(checkouts[realpathSync(agent)]).toBe(id);
+      const hintFile = join(process.env.HOME!, ".ideaspaces", "map-checkouts.json");
+      await fs.writeFile(hintFile, "{invalid json");
+      expect(() => mapCheckouts.loadMapCheckouts()).toThrow("Repair or move that file");
+      await fs.writeFile(hintFile, JSON.stringify({ relative: id }));
+      expect(() => mapCheckouts.loadMapCheckouts()).toThrow("Invalid Map checkout hints");
+      await fs.writeFile(hintFile, JSON.stringify(checkouts));
       // Older CLIs only rewrite spaces.json, not Map checkout hints.
       expect(existsSync(join(process.env.HOME!, ".ideaspaces", "spaces.json"))).toBe(false);
       expect((await run(["add", file], { position: "note.md", root: "0" })).code).toBe(0);

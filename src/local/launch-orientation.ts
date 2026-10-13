@@ -1,8 +1,30 @@
 import { realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 /** Host-selected working coordinates, not user-message text or a reference mount.
  * Resolve only explicitly supplied local paths; never fetch or read their content. */
+/** A Space Map owns working material; the storage folder supplied by an older Desktop is not
+ * material. The runtime cwd remains the separate POV. Both local runners use this same rule. */
+export function spaceMapLaunchPosition(
+  povRoot: string, mapPath: string, firstRoot: string | undefined,
+  suppliedRoot: string | undefined, focus: string | undefined,
+): { workingRoot?: string; orientation?: string; notice?: string } {
+  if (suppliedRoot) {
+    const supplied = realpathSync(suppliedRoot);
+    const storage = realpathSync(dirname(mapPath));
+    if (supplied !== storage && supplied !== firstRoot) {
+      throw new Error(`--working-root ${supplied} conflicts with this Space Map: its first root is ${firstRoot ?? "unavailable here"}. Omit --working-root or choose the first Map root.`);
+    }
+  }
+  if (!firstRoot && focus) throw new Error("Cannot focus inside a Space Map with no reachable first root. Connect the first root or omit --focus.");
+  return {
+    ...(firstRoot ? { workingRoot: firstRoot, orientation: localLaunchOrientation(povRoot, firstRoot, focus) } : {}),
+    ...(suppliedRoot && realpathSync(suppliedRoot) === realpathSync(dirname(mapPath))
+      ? { notice: `Ignoring --working-root ${suppliedRoot}: the Map storage folder is not material. The first Map root is the default folder for new work; shell cwd remains the POV.` }
+      : {}),
+  };
+}
+
 export function localLaunchOrientation(
   povRoot: string,
   workingRoot: string,

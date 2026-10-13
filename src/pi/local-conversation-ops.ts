@@ -13,7 +13,7 @@ import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./loca
 import { canResumePiConversation, getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
 import { mapKindOf } from "../local/map-resolve.js";
-import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { localLaunchOrientation, spaceMapLaunchPosition } from "../local/launch-orientation.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, prepareUnpinnedThreadLaunch, type HostedThreadLaunch, type LocalThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 
 type Flags = Record<string, string | boolean>;
@@ -135,18 +135,15 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
-  if (spaceMap && firstSpaceRoot) {
+  if (spaceMap) {
     try {
-      workingRoot = firstSpaceRoot;
-      launchOrientation = localLaunchOrientation(repoPath, firstSpaceRoot, flags.focus as string | undefined);
+      const position = spaceMapLaunchPosition(repoPath, mapPath!, firstSpaceRoot, flags["working-root"] as string | undefined, flags.focus as string | undefined);
+      workingRoot = position.workingRoot;
+      launchOrientation = position.orientation;
+      if (position.notice) output.log(position.notice);
     } catch (err) {
       return reportLocalError(err, output);
     }
-  }
-
-  if (spaceMap && !firstSpaceRoot && typeof flags.focus === "string" && flags.focus) {
-    output.error("Cannot focus inside a Space Map with no reachable first root. Connect the first root or omit --focus.");
-    return 1;
   }
 
   let threadLaunch: PinnedThreadLaunch | LocalThreadLaunch | HostedThreadLaunch | undefined;

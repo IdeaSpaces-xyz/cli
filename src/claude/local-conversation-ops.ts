@@ -8,7 +8,7 @@ import { observedEvent } from "../local/observed-event.js";
 import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
 import { mapKindOf } from "../local/map-resolve.js";
-import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { localLaunchOrientation, spaceMapLaunchPosition } from "../local/launch-orientation.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, prepareUnpinnedThreadLaunch, type HostedThreadLaunch, type LocalThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import {
   CLAUDE_AUTH_MODES,
@@ -142,17 +142,15 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
     }
   }
 
-  if (spaceRoots && firstSpaceRoot) {
+  if (spaceRoots) {
     try {
-      workingRoot = firstSpaceRoot;
-      launchOrientation = localLaunchOrientation(repoPath, firstSpaceRoot, flags.focus as string | undefined);
+      const position = spaceMapLaunchPosition(repoPath, mapPath!, firstSpaceRoot, flags["working-root"] as string | undefined, flags.focus as string | undefined);
+      workingRoot = position.workingRoot;
+      launchOrientation = position.orientation;
+      if (position.notice) output.log(position.notice);
     } catch (err) {
       return reportLocalError(err, output);
     }
-  }
-  if (spaceRoots && !firstSpaceRoot && typeof flags.focus === "string" && flags.focus) {
-    output.error("Cannot focus inside a Space Map with no reachable first root. Connect the first root or omit --focus.");
-    return 1;
   }
   const addedDirs = [...(options?.addedDirs ?? []), ...(spaceRoots ?? [])];
   const allowedTools = options?.allowedTools;

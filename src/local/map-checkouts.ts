@@ -10,13 +10,15 @@ const file = () => join(configDir(), "map-checkouts.json");
 const key = (path: string): string => realpathSync.native(resolve(path));
 
 export function loadMapCheckouts(): Record<string, string> {
-  try {
-    const data: unknown = JSON.parse(readFileSync(file(), "utf8"));
-    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
-    return Object.fromEntries(Object.entries(data).filter(([path, id]) =>
-      typeof path === "string" && isAbsolute(path) && typeof id === "string" && isValidRootNodeId(id),
-    )) as Record<string, string>;
-  } catch { return {}; }
+  if (!existsSync(file())) return {};
+  let data: unknown;
+  try { data = JSON.parse(readFileSync(file(), "utf8")); }
+  catch (error) { throw new Error(`Cannot read Map checkout hints at ${file()}: ${error instanceof Error ? error.message : String(error)}. Repair or move that file, then retry.`); }
+  if (!data || typeof data !== "object" || Array.isArray(data) || Object.entries(data).some(([path, id]) =>
+    !isAbsolute(path) || typeof id !== "string" || !isValidRootNodeId(id))) {
+    throw new Error(`Invalid Map checkout hints at ${file()}. Repair or move that file, then retry.`);
+  }
+  return data as Record<string, string>;
 }
 
 export function saveMapCheckout(path: string, id: string): void {
