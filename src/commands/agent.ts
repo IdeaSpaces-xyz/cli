@@ -507,6 +507,12 @@ async function cmdRun(
     }
     return exitCode;
   } catch (err) {
+    if (terminalType) {
+      // Do not contradict an already emitted completion/cancellation/error
+      // with a second terminal event if the adapter fails while winding down.
+      output.error(`Agent runtime failed after ${terminalType}: ${err instanceof Error ? err.message : String(err)}`);
+      return 1;
+    }
     const message = `Agent run failed: ${err instanceof Error ? err.message : String(err)}. Resume conversation ${runRecord.conversation_id ?? "from message_start"} at the same POV to continue its last step.`;
     handleRunEvent({ type: "error", error_type: "run_exception", message });
     emitTerminalError("run_exception", message);

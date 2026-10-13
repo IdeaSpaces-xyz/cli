@@ -293,6 +293,21 @@ describe("agent run — command options & validation", () => {
     expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_exception", message: expect.stringContaining("process exited during a tool call") });
   });
 
+  it("does not emit a second terminal event when the adapter throws after completion", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockImplementationOnce(async (_flags, _output, options) => {
+      options?.onEvent?.({ type: "turn_complete", result: {
+        response: "done", usage: { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 0, cost_usd: 0, model_tier: "local" },
+        tool_calls: [], iterations: 1, position: "", workspace: { created: [], modified: [], deleted: [], read: [], mentioned: [] },
+      } });
+      throw new Error("output pipe closed");
+    });
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Continue", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(stdout()).toBe(""); // the mock does not write its emitted completion
+    expect(stderr()).toContain("failed after turn_complete: output pipe closed");
+    expect(listAgentRuns({ agent: dir }).at(0)?.status).toBe("completed");
+  });
+
   it("refuses invocation without a POV argument", async () => {
     const code = await agentCmd.run(["run"], {}, JSON_GLOBAL);
     expect(code).toBe(1);
