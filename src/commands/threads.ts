@@ -21,6 +21,7 @@ import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./threa
 export { threadFlagError } from "./thread-flags.js";
 
 const KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure"]);
+const SURFACE_BODY_BYTES = 800;
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
 }
@@ -71,11 +72,11 @@ function clip(text: string, bytes: number): string {
     result += char;
     size += charBytes;
   }
-  return result + "…";
+  return result + "… [shortened; read the exact file or use --post <id>]";
 }
 function threadSection(markdown: string, heading: string): string | undefined {
   const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
-  return match?.[1]?.trim() ? clip(match[1].trim(), 1200) : undefined;
+  return match?.[1]?.trim() || undefined;
 }
 function threadFrame(thread: LocalThread) {
   // loadThread validates the Agreement, but it can disappear between the two
@@ -114,15 +115,15 @@ function localText(
     return [
       header,
       parentLine,
-      lens.current_frame && `Current frame: ${lens.current_frame}`,
-      lens.goal && `Goal: ${lens.goal}`,
-      lens.done_when && `Done when: ${lens.done_when}`,
+      lens.current_frame && `Current frame: ${clip(lens.current_frame, 1200)}`,
+      lens.goal && `Goal: ${clip(lens.goal, 1200)}`,
+      lens.done_when && `Done when: ${clip(lens.done_when, 1200)}`,
     ]
       .filter(Boolean)
       .join("\n\n");
   }
 
-  const context = `${clip(thread.name, 200)} (${thread.path})\n${clip(thread.summary, 400)}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
+  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})\n${rung === "full" ? thread.summary : clip(thread.summary, 400)}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
 
   if (rung === "summary") {
     const parts = [context];
@@ -266,6 +267,7 @@ export const threadsCommand: CommandDef = {
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
       if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || sub === "posts" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
+        if (sub === "read" && HOSTED.test(rest[0] ?? "") && (flags.limit !== undefined || flags.order !== undefined)) throw new Error("Local open only: --limit and --order are not supported for hosted Threads.");
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
           return threadsCommand.run(["open", rest[0]], flags, global);
         }
@@ -468,7 +470,7 @@ export const threadsCommand: CommandDef = {
         }
 
         const ack = yes(flags, "ack");
-        const bodyClipped = rung === "surface" && posts.some((p) => Buffer.byteLength(p.body) > 800);
+        const bodyClipped = rung === "surface" && posts.some((p) => Buffer.byteLength(p.body) > SURFACE_BODY_BYTES);
         if (ack && (rung === "name" || rung === "children" || postId || since || posts.length < totalMatching || bodyClipped)) throw new Error("Cannot --ack an incomplete Thread read (name/children, --post, --since, bounded page or shortened body); read the full range before acknowledging.");
         const pin = str(flags, "pin");
         const position = str(flags, "position");
@@ -492,11 +494,11 @@ export const threadsCommand: CommandDef = {
 
         // Surface keeps a bounded preview; full and --post retain exact bodies.
         const boundedPosts = !postId && effectiveRung === "surface"
-          ? posts.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > 800, body: Buffer.byteLength(p.body) > 800
-            ? `${clip(p.body, 800)} [body truncated; use --post ${p.id} for the complete post]` : p.body })) : posts;
+          ? posts.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES, body: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES
+            ? `${clip(p.body, SURFACE_BODY_BYTES)} [body truncated; use --post ${p.id} for the complete post]` : p.body })) : posts;
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary"
-          ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: clip(p.frontmatter.name ?? p.id, 200),
-            summary: p.frontmatter.summary ? clip(p.frontmatter.summary, 400) : null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null, ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
+          ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
+            summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null, ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
           : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;

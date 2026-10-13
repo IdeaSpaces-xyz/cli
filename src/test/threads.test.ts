@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
-import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent } from "../local/threads.js";
+import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
 import { threadsCommand, threadFlagError } from "../commands/threads.js";
 import { inboxCommand } from "../commands/inbox.js";
 import { searchCommand } from "../commands/search.js";
@@ -67,6 +67,23 @@ describe("local Threads", () => {
     expect(new Set(end.post.inReplyTo)).toEqual(new Set([left.post.id, right.post.id]));
   });
 
+  it("projects branches from DAG edges when legacy replies omit ancestor references", () => {
+    const root = fixture(); const t = createThread("branches", "Branches", root);
+    const first = appendPost(t.path, { body: "Root" });
+    const a = appendPost(t.path, { body: "A", replyTo: [first.post.id] });
+    const b = appendPost(t.path, { body: "B", replyTo: [first.post.id] });
+    const joinPost = appendPost(t.path, { body: "Join", replyTo: [a.post.id, b.post.id] });
+    for (const path of [a.path, b.path, joinPost.path]) {
+      writeFileSync(path, readFileSync(path, "utf8").replace(/references:\n(?:  - .*\n)+/, ""));
+    }
+    const branches = computeBranches(loadThread(t.path).posts);
+    expect(branches.map((branch) => branch.root_id).sort()).toEqual([a.post.id, b.post.id].sort());
+    expect(branches.map((branch) => branch.tip_id)).toEqual([joinPost.post.id, joinPost.post.id]);
+    expect(branches.map((branch) => branch.count)).toEqual([2, 2]); // join belongs to both
+    appendPost(t.path, { body: "Legacy second root", replyTo: [] });
+    expect(computeBranches(loadThread(t.path).posts)).toHaveLength(3);
+  });
+
   it("rejects traversal, symlinks, malformed posts, duplicate ids, and invalid Maps before write", () => {
     const root = fixture(); const t = createThread("decision", "Decision", root);
     expect(() => createThread("../outside", "Bad", root)).toThrow(/slug/);
@@ -75,6 +92,7 @@ describe("local Threads", () => {
     expect(() => appendPost(t.path, { body: "No", replyTo: ["latest"] })).toThrow(/no posts/);
     expect(() => appendPost(t.path, { body: "No", tags: ["x".repeat(201)] })).toThrow(/Tags/);
     expect(() => appendPost(t.path, { body: "No", tags: ["bad\nnewline"] })).toThrow(/Tags/);
+    expect(() => appendPost(t.path, { body: "No", tags: Array.from({ length: 21 }, (_, i) => `tag${i}`) })).toThrow(/20 distinct/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ sha: "HEAD" }], members: [] } })).toThrow(/Map/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567" }], members: [] } })).toThrow(/root 0.*no SHA/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }], members: [{ root: 0, position: "." }] } })).toThrow(/depth ceiling/);
@@ -268,6 +286,29 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["open", "disclosure"], { post: second.post.id, since: first.post.id }, global)).toBe(1);
       expect(await threadsCommand.run(["open", "disclosure"], { depth: "name", ack: true }, global)).toBe(1);
     } finally { process.stdout.write = write; process.chdir(previous); }
+  });
+
+  it("preserves exact frame and summary fields in JSON while marking shortened human text", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("exact", "Exact", root);
+    const frame = "F".repeat(1600);
+    const summary = "S".repeat(600);
+    writeFileSync(join(thread.path, "README.md"), `---\nname: Exact\nsummary: Frame test\n---\n## Current frame\n\n${frame}\n`);
+    const post = appendPost(thread.path, { body: "Body", name: "Post", summary });
+    const previous = process.cwd(); process.chdir(root);
+    const original = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    try {
+      const json = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["open", "exact"], { depth: "name" }, json)).toBe(0);
+      expect(JSON.parse(out).thread.frame.current_frame).toBe(frame);
+      out = "";
+      expect(await threadsCommand.run(["open", "exact"], { depth: "summary", limit: "1" }, json)).toBe(0);
+      expect(JSON.parse(out).posts.find((p: { id: string }) => p.id === post.post.id).summary).toBe(summary);
+      out = "";
+      expect(await threadsCommand.run(["open", "exact"], { depth: "name" }, { ...json, json: false })).toBe(0);
+      expect(out).toContain("[shortened; read the exact file or use --post <id>]");
+    } finally { process.stdout.write = original; process.chdir(previous); }
   });
 
   it("threads read --json returns authored date and legacy filename fallback", async () => {
@@ -567,6 +608,9 @@ describe("local Threads", () => {
         expect(await threadsCommand.run(["open", "child-thread"], bad, flags)).toBe(1);
       }
       expect(await threadsCommand.run(["open", "x_" + "a".repeat(24)], { limit: "1" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["read", "x_" + "a".repeat(24)], { order: "newer" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["open", "child-thread"], { depth: "name", limit: "1" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["open", "child-thread"], { post: cLater.id, order: "older" }, flags)).toBe(1);
 
       // 6. --post <id> lists child threads that grew from that post
       const postRead = await run(["open", "parent-thread"], { post: pDecision.id });

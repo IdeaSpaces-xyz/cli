@@ -320,23 +320,31 @@ export function findNewestSnapshot(posts: ThreadPost[]): ThreadPost | null {
 export function computeBranches(posts: ThreadPost[]): BranchInfo[] {
   if (!posts.length) return [];
   const timeline = reconstructThreadTimeline(posts);
+  const order = new Map(timeline.posts.map((post, index) => [post.id, index]));
   const branches: BranchInfo[] = [];
   // The opening post anchors the Thread; each direct reply is a branch.
-  // For legacy multiple roots, each root is itself a branch. A branch's tip
-  // is its newest descendant in topological order, without rendering a chain.
+  // Traverse the protocol's DAG edges rather than trusting optional authored
+  // `references` on legacy posts. A join belongs to both parents' branches.
   for (const root of timeline.roots) {
-    const starts = root.children.length ? root.children.map((n) => n.post) : [root.post];
-    for (const start of starts) {
-      const lineage = timeline.posts.filter((p) => p.id === start.id || p.references.includes(start.id));
-      const tip = lineage.at(-1) ?? start;
+    for (const start of root.children.length ? root.children : [root]) {
+      const seen = new Set<string>();
+      const pending = [start];
+      let tip = start.post;
+      while (pending.length) {
+        const node = pending.pop()!;
+        if (seen.has(node.post.id)) continue;
+        seen.add(node.post.id);
+        if ((order.get(node.post.id) ?? -1) > (order.get(tip.id) ?? -1)) tip = node.post;
+        pending.push(...node.children);
+      }
       branches.push({
-        root_id: start.id,
-        root_name: start.frontmatter.name ?? start.id,
-        root_date: start.date ?? null,
+        root_id: start.post.id,
+        root_name: start.post.frontmatter.name ?? start.post.id,
+        root_date: start.post.date ?? null,
         tip_id: tip.id,
         tip_name: tip.frontmatter.name ?? tip.id,
         tip_date: tip.date ?? null,
-        count: lineage.length,
+        count: seen.size,
       });
     }
   }
@@ -357,6 +365,7 @@ export function appendPost(dir: string, options: {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
   }
   if (options.tags !== undefined) {
+    if (new Set(options.tags).size > 20) throw new Error("Tags are limited to 20 distinct values per post.");
     for (const tag of options.tags) {
       if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
         throw new Error("Tags must be non-empty strings of at most 200 characters without newlines.");
@@ -368,6 +377,7 @@ export function appendPost(dir: string, options: {
   const tips = thread.posts.filter((post) => !referenced.has(post.id)).map((post) => post.id);
 
   let parentIds: string[];
+  let defaultParentId: string | undefined;
   if (options.replyTo !== undefined) {
     if (options.replyTo.includes("latest")) {
       if (!thread.posts.length) throw new Error("Thread has no posts to reply to.");
@@ -383,7 +393,7 @@ export function appendPost(dir: string, options: {
   } else {
     const openingPostId = thread.thread_id ?? thread.posts[0].id;
     parentIds = [openingPostId];
-    options.onDefaultReplyTo?.(openingPostId);
+    defaultParentId = openingPostId;
   }
 
   if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error("--reply-to must name distinct existing post ids in this Thread.");
@@ -415,13 +425,14 @@ export function appendPost(dir: string, options: {
     ...(parents.length ? { references: references(parents) } : {}),
     ...(options.supersedes ? { supersedes: options.supersedes } : {}),
     ...(options.name ? { name: options.name } : {}), ...(options.summary ? { summary: options.summary } : {}),
-    ...(options.tags && options.tags.length ? { tags: options.tags } : {}),
+    ...(options.tags && options.tags.length ? { tags: [...new Set(options.tags)] } : {}),
     ...(options.author ? { author: options.author } : {}), ...(options.map !== undefined ? { map: options.map } : {}),
   };
   const content = `---\n${stringify(fields)}---\n\n${options.body.trim()}\n`;
   writeFileSync(path, content, { flag: "wx", mode: 0o600 });
   const parsed = parseThreadPost(content, basename(path));
   if (parsed.status !== "valid") throw new Error(`Generated post failed validation: ${parsed.issues.join(", ")}`);
+  if (defaultParentId) options.onDefaultReplyTo?.(defaultParentId);
   return { post: parsed.post, path };
 }
 
