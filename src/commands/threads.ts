@@ -249,7 +249,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
     "ideaspaces threads push --remote <team-remote>  # never origin/GitHub",
     "ideaspaces threads read x_<id> --new --ack  # hosted",
-    "ideaspaces threads open <slug|x_id> --depth name|summary|children|surface|full [--new|--since <date|id>]",
+    "ideaspaces threads open <slug|x_id> --depth name|summary|children|surface|full [--new|--since <date|id>] [--limit 10] [--order newer|older]  # local pages",
     "ideaspaces threads open <slug|x_id> --post <id>  # one post in full, regardless of --depth",
   ],
   async run(args, flags, global) {
@@ -369,7 +369,7 @@ export const threadsCommand: CommandDef = {
           `Created local Thread: ${thread.path}`); return 0;
       }
       if (sub === "open") {
-        if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|full] [--new] [--ack]");
+        if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");
         if (HOSTED.test(rest[0])) return hostedThreadsCommand.run(["read", rest[0]], flags, global);
         selectionFlags(flags);
         if (flags.map !== undefined && flags.member === undefined) throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");

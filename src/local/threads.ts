@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind, type ThreadNode } from "@ideaspaces/protocol";
+import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -352,38 +352,26 @@ export function findNewestSnapshot(posts: ThreadPost[]): ThreadPost | null {
 export function computeBranches(posts: ThreadPost[]): BranchInfo[] {
   if (!posts.length) return [];
   const timeline = reconstructThreadTimeline(posts);
-  const byId = new Map(posts.map((p) => [p.id, p]));
   const branches: BranchInfo[] = [];
-
-  const findLeaves = (node: ThreadNode): ThreadNode[] => {
-    if (!node.children.length) return [node];
-    return node.children.flatMap(findLeaves);
-  };
-
-  const countBranch = (rootId: string, tipId: string): number => {
-    const tip = byId.get(tipId);
-    if (!tip) return 1;
-    const ancestors = new Set([...tip.references, tip.id]);
-    return posts.filter((p) => ancestors.has(p.id)).length;
-  };
-
-  for (const rootNode of timeline.roots) {
-    const leaves = findLeaves(rootNode);
-    for (const leaf of leaves) {
-      const rootPost = rootNode.post;
-      const leafPost = leaf.post;
+  // The opening post anchors the Thread; each direct reply is a branch.
+  // For legacy multiple roots, each root is itself a branch. A branch's tip
+  // is its newest descendant in topological order, without rendering a chain.
+  for (const root of timeline.roots) {
+    const starts = root.children.length ? root.children.map((n) => n.post) : [root.post];
+    for (const start of starts) {
+      const lineage = timeline.posts.filter((p) => p.id === start.id || p.references.includes(start.id));
+      const tip = lineage.at(-1) ?? start;
       branches.push({
-        root_id: rootPost.id,
-        root_name: rootPost.frontmatter.name ?? rootPost.id,
-        root_date: rootPost.date ?? null,
-        tip_id: leafPost.id,
-        tip_name: leafPost.frontmatter.name ?? leafPost.id,
-        tip_date: leafPost.date ?? null,
-        count: countBranch(rootPost.id, leafPost.id),
+        root_id: start.id,
+        root_name: start.frontmatter.name ?? start.id,
+        root_date: start.date ?? null,
+        tip_id: tip.id,
+        tip_name: tip.frontmatter.name ?? tip.id,
+        tip_date: tip.date ?? null,
+        count: lineage.length,
       });
     }
   }
-
   return branches;
 }
 

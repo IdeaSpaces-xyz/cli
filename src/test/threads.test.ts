@@ -439,6 +439,8 @@ describe("local Threads", () => {
       const p2 = thread.posts.find((p) => p.id === post2.id)!;
       expect(p1.inReplyTo).toEqual([openingId]);
       expect(p2.inReplyTo).toEqual([openingId]);
+      const branchRead = await run(["open", "tree-test"], { depth: "children" });
+      expect(branchRead.branches.map((b: { root_id: string }) => b.root_id).sort()).toEqual([post1.id, post2.id].sort());
 
       // Post 3 with --reply-to latest: explicitly targets post 2 without stderr notice
       err = "";
