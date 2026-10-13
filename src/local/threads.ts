@@ -2,8 +2,8 @@ import { randomUUID, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind, type ThreadNode } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -13,6 +13,39 @@ const SHA = /^[0-9a-f]{40}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
 
 export class NoAgreementError extends Error {}
+
+export interface ThreadParentInfo {
+  attached_to: string;
+  id?: string;
+  slug?: string;
+  path?: string;
+  name?: string;
+  summary?: string;
+}
+
+export interface ChildThreadInfo {
+  id: string;
+  slug: string;
+  path: string;
+  thread_id: string | null;
+  name: string;
+  summary: string;
+  attached_to: string;
+  attached_to_post_id: string | null;
+  latest_activity_at: string | null;
+  count: number;
+  closed: boolean;
+}
+
+export interface BranchInfo {
+  root_id: string;
+  root_name: string;
+  root_date: string | null;
+  tip_id: string;
+  tip_name: string;
+  tip_date: string | null;
+  count: number;
+}
 
 export interface LocalThread {
   path: string;
@@ -26,6 +59,7 @@ export interface LocalThread {
   warnings: string[];
   closed: boolean;
   readme: string;
+  parent?: ThreadParentInfo | null;
 }
 
 function git(cwd: string, args: string[]): string {
@@ -55,6 +89,10 @@ function safeFile(path: string): string {
 
 export function threadBase(cwd = process.cwd()): string {
   let at = safeDirectory(cwd);
+  const threadsIdx = at.lastIndexOf(`${sep}_threads`);
+  if (threadsIdx !== -1) {
+    at = at.slice(0, threadsIdx) || sep;
+  }
   while (true) {
     if (existsSync(join(at, "_agent", "agreement.md"))) return at;
     const parent = dirname(at);
@@ -140,10 +178,221 @@ function references(parents: ThreadPost[]): string[] {
   return [...ids];
 }
 
+export function activityAt(post: ThreadPost): string | null {
+  if (post.dateWarning || !post.date) return null;
+  return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
+}
+
+export function latestLocalActivity(posts: ThreadPost[]): string | null {
+  return posts.reduce<string | null>((latest, post) => {
+    const at = activityAt(post);
+    const time = at ? Date.parse(at) : NaN;
+    return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
+  }, null);
+}
+
+export function resolveThreadParent(threadDir: string): ThreadParentInfo | null {
+  const agreement = join(threadDir, "_agent", "agreement.md");
+  if (!existsSync(agreement)) return null;
+  let content = "";
+  try {
+    content = readFileSync(agreement, "utf8");
+  } catch {
+    return null;
+  }
+  const fm = parseFrontmatter(content);
+  if (!fm || typeof fm.attached_to !== "string" || !fm.attached_to.trim()) return null;
+  const attachedTo = fm.attached_to.trim();
+
+  let spaceRoot: string;
+  try {
+    spaceRoot = threadBase(threadDir);
+  } catch {
+    return { attached_to: attachedTo };
+  }
+
+  // 1. If attached_to is a msg_... id
+  if (/^msg_[0-9a-f-]+$/i.test(attachedTo)) {
+    try {
+      const threads = listLocal(spaceRoot);
+      for (const t of threads) {
+        const match = t.posts.find((p) => p.id === attachedTo);
+        if (match) {
+          return {
+            attached_to: attachedTo,
+            id: match.id,
+            slug: t.slug,
+            path: join("_threads", t.slug, match.path),
+            name: match.frontmatter.name ?? match.id,
+            summary: match.frontmatter.summary ?? "",
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return { attached_to: attachedTo, id: attachedTo };
+  }
+
+  // 2. If attached_to is a file path (e.g. _threads/... or ...)
+  const normPath = attachedTo.startsWith("/")
+    ? attachedTo
+    : attachedTo.startsWith("_threads/")
+    ? join(spaceRoot, attachedTo)
+    : join(spaceRoot, "_threads", attachedTo);
+  if (existsSync(normPath) && lstatSync(normPath).isFile()) {
+    try {
+      const postContent = readFileSync(normPath, "utf8");
+      const parsed = parseThreadPost(postContent, basename(normPath));
+      if (parsed.status === "valid") {
+        const parentDir = dirname(normPath);
+        const threadSlug = basename(parentDir);
+        return {
+          attached_to: attachedTo,
+          id: parsed.post.id,
+          slug: threadSlug,
+          path: attachedTo,
+          name: parsed.post.frontmatter.name ?? parsed.post.id,
+          summary: parsed.post.frontmatter.summary ?? "",
+        };
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  return { attached_to: attachedTo };
+}
+
+export function findChildThreads(targetThreadDir: string, postId?: string): ChildThreadInfo[] {
+  let spaceRoot: string;
+  try {
+    spaceRoot = threadBase(targetThreadDir);
+  } catch {
+    return [];
+  }
+  const targetSlug = basename(targetThreadDir);
+  let targetThread: LocalThread;
+  try {
+    targetThread = loadThread(targetThreadDir);
+  } catch {
+    return [];
+  }
+  const targetPostIds = new Set(targetThread.posts.map((p) => p.id));
+  const postPathToId = new Map(targetThread.posts.map((p) => [p.path, p.id]));
+
+  let allThreads: LocalThread[] = [];
+  try {
+    allThreads = listLocal(spaceRoot);
+  } catch {
+    return [];
+  }
+
+  const children: ChildThreadInfo[] = [];
+
+  for (const t of allThreads) {
+    if (t.path === targetThread.path) continue;
+    const parentInfo = resolveThreadParent(t.path);
+    if (!parentInfo) continue;
+
+    let matches = false;
+    let matchedPostId: string | null = null;
+
+    if (parentInfo.id && targetPostIds.has(parentInfo.id)) {
+      matches = true;
+      matchedPostId = parentInfo.id;
+    } else if (parentInfo.slug === targetSlug) {
+      matches = true;
+      matchedPostId = parentInfo.id ?? null;
+    } else if (parentInfo.attached_to) {
+      if (parentInfo.attached_to.includes(`_threads/${targetSlug}/`) || parentInfo.attached_to.includes(`${targetSlug}/`)) {
+        matches = true;
+        const filePart = basename(parentInfo.attached_to);
+        matchedPostId = postPathToId.get(filePart) ?? null;
+      }
+    }
+
+    if (matches) {
+      if (!postId || matchedPostId === postId) {
+        children.push({
+          id: t.path,
+          slug: t.slug,
+          path: t.path,
+          thread_id: t.thread_id,
+          name: t.name,
+          summary: t.summary,
+          attached_to: parentInfo.attached_to,
+          attached_to_post_id: matchedPostId,
+          latest_activity_at: latestLocalActivity(t.posts),
+          count: t.posts.length,
+          closed: t.closed,
+        });
+      }
+    }
+  }
+
+  children.sort((a, b) => {
+    const timeA = a.latest_activity_at ? Date.parse(a.latest_activity_at) : 0;
+    const timeB = b.latest_activity_at ? Date.parse(b.latest_activity_at) : 0;
+    if (timeA !== timeB) return timeB - timeA;
+    return a.slug.localeCompare(b.slug);
+  });
+
+  return children;
+}
+
+export function findNewestSnapshot(posts: ThreadPost[]): ThreadPost | null {
+  for (let i = posts.length - 1; i >= 0; i--) {
+    if (posts[i].kind === "snapshot" || posts[i].kind === "reframe") {
+      return posts[i];
+    }
+  }
+  return null;
+}
+
+export function computeBranches(posts: ThreadPost[]): BranchInfo[] {
+  if (!posts.length) return [];
+  const timeline = reconstructThreadTimeline(posts);
+  const byId = new Map(posts.map((p) => [p.id, p]));
+  const branches: BranchInfo[] = [];
+
+  const findLeaves = (node: ThreadNode): ThreadNode[] => {
+    if (!node.children.length) return [node];
+    return node.children.flatMap(findLeaves);
+  };
+
+  const countBranch = (rootId: string, tipId: string): number => {
+    const tip = byId.get(tipId);
+    if (!tip) return 1;
+    const ancestors = new Set([...tip.references, tip.id]);
+    return posts.filter((p) => ancestors.has(p.id)).length;
+  };
+
+  for (const rootNode of timeline.roots) {
+    const leaves = findLeaves(rootNode);
+    for (const leaf of leaves) {
+      const rootPost = rootNode.post;
+      const leafPost = leaf.post;
+      branches.push({
+        root_id: rootPost.id,
+        root_name: rootPost.frontmatter.name ?? rootPost.id,
+        root_date: rootPost.date ?? null,
+        tip_id: leafPost.id,
+        tip_name: leafPost.frontmatter.name ?? leafPost.id,
+        tip_date: leafPost.date ?? null,
+        count: countBranch(rootPost.id, leafPost.id),
+      });
+    }
+  }
+
+  return branches;
+}
+
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
-  kind?: ThreadKind; supersedes?: string; map?: unknown;
+  kind?: ThreadKind; supersedes?: string; map?: unknown; tags?: string[];
   verifyTarget?: (thread: LocalThread, parents: string[], supersedes?: string) => void;
+  onDefaultReplyTo?: (openingPostId: string) => void;
 }): { post: ThreadPost; path: string } {
   const thread = loadThread(dir);
   if (thread.closed) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
@@ -152,12 +401,40 @@ export function appendPost(dir: string, options: {
   for (const value of [options.name, options.summary, options.author]) {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
   }
+  if (options.tags !== undefined) {
+    for (const tag of options.tags) {
+      if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
+        throw new Error("Tags must be non-empty strings of at most 200 characters without newlines.");
+      }
+    }
+  }
   const byId = new Map(thread.posts.map((post) => [post.id, post]));
   const referenced = new Set(thread.posts.flatMap((post) => post.inReplyTo));
   const tips = thread.posts.filter((post) => !referenced.has(post.id)).map((post) => post.id);
-  // A closure joins all live tips by default; other posts follow the last post.
-  // Callers can always choose explicit parents for a deliberate partial join.
-  const parentIds = options.replyTo ?? (options.kind === "closure" ? tips : thread.posts.length ? [thread.posts.at(-1)!.id] : []);
+
+  let parentIds: string[];
+  if (options.replyTo !== undefined) {
+    if (options.replyTo.includes("latest")) {
+      if (!thread.posts.length) throw new Error("Thread has no posts to reply to.");
+      const latestId = thread.posts.at(-1)!.id;
+      parentIds = options.replyTo.map((id) => (id === "latest" ? latestId : id));
+    } else {
+      parentIds = options.replyTo;
+    }
+  } else if (options.kind === "closure") {
+    parentIds = tips;
+  } else if (thread.posts.length === 0) {
+    parentIds = [];
+  } else {
+    const openingPostId = thread.thread_id ?? thread.posts[0].id;
+    parentIds = [openingPostId];
+    if (options.onDefaultReplyTo) {
+      options.onDefaultReplyTo(openingPostId);
+    } else {
+      process.stderr.write(`Replying to opening post ${openingPostId}. Pass --reply-to <id> to reply to a specific post, or --reply-to latest for the newest post.\n`);
+    }
+  }
+
   if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error("--reply-to must name distinct existing post ids in this Thread.");
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
@@ -187,6 +464,7 @@ export function appendPost(dir: string, options: {
     ...(parents.length ? { references: references(parents) } : {}),
     ...(options.supersedes ? { supersedes: options.supersedes } : {}),
     ...(options.name ? { name: options.name } : {}), ...(options.summary ? { summary: options.summary } : {}),
+    ...(options.tags && options.tags.length ? { tags: options.tags } : {}),
     ...(options.author ? { author: options.author } : {}), ...(options.map !== undefined ? { map: options.map } : {}),
   };
   const content = `---\n${stringify(fields)}---\n\n${options.body.trim()}\n`;

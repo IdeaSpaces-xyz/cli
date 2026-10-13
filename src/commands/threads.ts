@@ -13,7 +13,8 @@ import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
-  type LocalThread,
+  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity,
+  type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./thread-flags.js";
 
@@ -44,20 +45,7 @@ async function stdin(): Promise<string> {
   for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString("utf8");
 }
-/** CLI-local list presentation over protocol date/fileDate metadata. The
- * protocol defines their precedence; the CLI owns its local Thread activity row. */
-function activityAt(post: LocalThread["posts"][number]): string | null {
-  if (post.dateWarning || !post.date) return null;
-  return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
-}
 
-function latestLocalActivity(posts: LocalThread["posts"]): string | null {
-  return posts.reduce<string | null>((latest, post) => {
-    const at = activityAt(post);
-    const time = at ? Date.parse(at) : NaN;
-    return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
-  }, null);
-}
 
 function localRows(threads: LocalThread[], newOnly: boolean) {
   return threads.filter((thread) => {
@@ -66,7 +54,8 @@ function localRows(threads: LocalThread[], newOnly: boolean) {
     return thread.posts.some((post) => !seen.has(post.id));
   }).map((thread) => ({ source: "local" as const, id: thread.path, thread_id: thread.thread_id, slug: thread.slug, name: thread.name,
     summary: thread.summary, count: thread.posts.length, closed: thread.closed,
-    latest_activity_at: latestLocalActivity(thread.posts) }));
+    latest_activity_at: latestLocalActivity(thread.posts),
+    parent: resolveThreadParent(thread.path) }));
 }
 function reportDateWarnings(thread: LocalThread, output: Output): void {
   for (const warning of new Set(thread.warnings)) output.log(`Thread ${thread.slug}: ${warning}`);
@@ -115,15 +104,64 @@ function childTree(posts: LocalThread["posts"]): ThreadChild[] {
   };
   return reconstructThreadTimeline(posts).roots.map(project);
 }
-function localText(thread: LocalThread, posts: LocalThread["posts"], rung: ThreadDepth, frame?: ReturnType<typeof threadFrame>): string {
+function localText(
+  thread: LocalThread,
+  posts: LocalThread["posts"],
+  rung: ThreadDepth,
+  options?: {
+    frame?: ReturnType<typeof threadFrame>;
+    parent?: ThreadParentInfo | null;
+    snapshot?: LocalThread["posts"][number] | null;
+    branches?: BranchInfo[];
+    childThreads?: ChildThreadInfo[];
+    filtered?: boolean;
+  },
+): string {
   const header = `${thread.slug}  ${thread.name}`;
   if (rung === "name") {
-    const lens = frame ?? threadFrame(thread);
-    return [header, lens.current_frame && `Current frame: ${lens.current_frame}`,
-      lens.goal && `Goal: ${lens.goal}`, lens.done_when && `Done when: ${lens.done_when}`].filter(Boolean).join("\n\n");
+    const lens = options?.frame ?? threadFrame(thread);
+    const parentLine = options?.parent ? `Attached to: ${options.parent.attached_to}` : undefined;
+    return [
+      header,
+      parentLine,
+      lens.current_frame && `Current frame: ${lens.current_frame}`,
+      lens.goal && `Goal: ${lens.goal}`,
+      lens.done_when && `Done when: ${lens.done_when}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
+
   const context = `${thread.name} (${thread.path})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
+
+  if (rung === "summary") {
+    const parts = [context];
+    if (options?.parent) {
+      const p = options.parent;
+      parts.push(`Parent post: ${p.id ?? p.attached_to}${p.slug ? ` (${p.slug})` : ""}${p.name ? ` · ${p.name}` : ""}${p.summary ? `\n  ${p.summary}` : ""}`);
+    }
+    if (options?.snapshot) {
+      const s = options.snapshot;
+      parts.push(`Latest snapshot: ${s.id} · ${s.kind} · ${s.date ?? "undated"} · ${s.frontmatter.name ?? s.id} · ${s.frontmatter.author ?? "unknown author"}\n  ${s.frontmatter.summary ?? "(no summary)"}`);
+    }
+    if (options?.filtered && posts.length) {
+      parts.push(
+        posts
+          .map(
+            (p) =>
+              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${p.frontmatter.name ?? p.id} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}\n  ${p.frontmatter.summary ?? "(no summary)"}`,
+          )
+          .join("\n\n"),
+      );
+    }
+    return parts.join("\n\n");
+  }
+
   if (rung === "children") {
+    const parts = [context];
+    if (options?.parent) {
+      parts.push(`Parent: ${options.parent.attached_to}${options.parent.slug ? ` (${options.parent.slug})` : ""}`);
+    }
     const lines: string[] = [];
     const visit = (nodes: ReturnType<typeof childTree>, level: number) => {
       for (const node of nodes) {
@@ -131,12 +169,25 @@ function localText(thread: LocalThread, posts: LocalThread["posts"], rung: Threa
         visit(node.children, level + 1);
       }
     };
-    visit(childTree(posts), 0);
-    return [context, ...lines].join("\n");
+    visit(childTree(thread.posts), 0);
+    if (lines.length) {
+      parts.push(`Branches:\n${lines.join("\n")}`);
+    }
+    if (options?.childThreads && options.childThreads.length > 0) {
+      const childLines = options.childThreads.map(
+        (c) => `  ${c.slug}  ${c.name}\n    attached to ${c.attached_to_post_id ?? c.attached_to} · ${c.count} posts · ${c.closed ? "closed" : "open"}${c.latest_activity_at ? ` · latest: ${c.latest_activity_at}` : ""}\n    summary: ${c.summary || "(no summary)"}`,
+      );
+      parts.push(`Child Threads (${options.childThreads.length}):\n${childLines.join("\n")}`);
+    }
+    return parts.join("\n\n");
   }
-  return [context, ...posts.map((p) => rung === "summary"
-    ? `\n${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${p.frontmatter.name ?? p.id} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}\n${p.frontmatter.summary ?? "(no summary)"}`
-    : `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}`),
+
+  return [
+    context,
+    ...posts.map(
+      (p) =>
+        `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}`,
+    ),
   ].join("\n");
 }
 function selectedWriterName(): string {
@@ -308,7 +359,7 @@ export const threadsCommand: CommandDef = {
         }
         const rows = [...local, ...hosted].map((row) => {
           if (rung === "name") return { source: row.source, id: row.id, name: row.name,
-            ...(row.source === "local" ? { thread_id: row.thread_id, latest_activity_at: row.latest_activity_at } : { ...(row.your_grade ? { your_grade: row.your_grade } : {}), ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
+            ...(row.source === "local" ? { slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent } : { ...(row.your_grade ? { your_grade: row.your_grade } : {}), ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }
@@ -367,7 +418,20 @@ export const threadsCommand: CommandDef = {
         const rung = depth(flags, "summary");
         const postId = str(flags, "post");
         if (flags.post !== undefined && !postId) throw new Error("--post requires a post id.");
-        if (rung === "surface" && !postId) throw new Error("--depth surface requires --post <id>.");
+
+        const limitStr = str(flags, "limit");
+        let limit: number | undefined;
+        if (flags.limit !== undefined) {
+          if (!limitStr || !/^\d+$/.test(limitStr) || parseInt(limitStr, 10) <= 0) {
+            throw new Error("--limit must be a positive integer.");
+          }
+          limit = parseInt(limitStr, 10);
+        }
+        const order = str(flags, "order");
+        if (flags.order !== undefined && order !== "newer" && order !== "older") {
+          throw new Error("--order must be newer or older.");
+        }
+
         const since = str(flags, "since");
         if (flags.since !== undefined && !since) throw new Error("--since requires an ISO date or post id.");
         const newOnly = yes(flags, "new");
@@ -387,8 +451,21 @@ export const threadsCommand: CommandDef = {
         }
         if (postId) {
           if (!thread.posts.some((p) => p.id === postId)) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
-          posts = posts.filter((p) => p.id === postId);
+          posts = thread.posts.filter((p) => p.id === postId);
+        } else if (rung === "surface") {
+          const snapshot = findNewestSnapshot(posts);
+          if (snapshot) {
+            const at = posts.findIndex((p) => p.id === snapshot.id);
+            if (at !== -1) posts = posts.slice(at);
+          }
         }
+        if (order === "newer") {
+          posts = [...posts].reverse();
+        }
+        if (limit !== undefined && !postId) {
+          posts = posts.slice(0, limit);
+        }
+
         const ack = yes(flags, "ack");
         if (ack && (rung === "name" || rung === "children" || postId || since)) throw new Error("Cannot --ack an incomplete Thread read (name/children, --post or --since); use summary/full --new --ack or follow --ack <position>.");
         const pin = str(flags, "pin");
@@ -403,21 +480,46 @@ export const threadsCommand: CommandDef = {
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
         if (ack) acknowledge(thread, posts);
         const effectiveRung = postId ? "full" : rung;
+        const parent = resolveThreadParent(thread.path);
+        const childThreads = postId ? findChildThreads(thread.path, postId) : effectiveRung === "children" ? findChildThreads(thread.path).slice(0, limit ?? 20) : [];
+        const branches = effectiveRung === "children" ? computeBranches(thread.posts) : [];
+        const snapshot = findNewestSnapshot(thread.posts);
+
         const projected = effectiveRung === "name" ? [] : effectiveRung === "children" ? childTree(posts) : posts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
-            summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null }
+            summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null, ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
           : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;
+
+        const filtered = Boolean(since || newOnly || limit !== undefined);
+        let humanText: string;
+        if (pinned && effectiveRung === "full") {
+          humanText = pinned;
+        } else if (rawPost) {
+          humanText = rawPost;
+          if (childThreads.length > 0) {
+            humanText += `\n\nChild Threads (${childThreads.length}):\n` + childThreads.map((c) => `  ${c.slug}  ${c.name}\n    summary: ${c.summary || "(no summary)"}`).join("\n");
+          }
+        } else {
+          humanText = localText(thread, posts, effectiveRung, {
+            frame, parent, snapshot, branches, childThreads, filtered,
+          });
+        }
+
         output.result({ thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
-          closed: thread.closed, ...(frame ? { frame } : {}) }, posts: projected,
+          closed: thread.closed, parent,
+          ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
+          ...(frame ? { frame } : {}) }, posts: projected,
+          ...(childThreads.length ? { child_threads: childThreads } : {}),
+          ...(branches.length ? { branches } : {}),
           ...(rawPost ? { raw_post: rawPost } : {}),
           ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), acknowledged: ack },
-          pinned && effectiveRung === "full" ? pinned : rawPost ?? localText(thread, posts, effectiveRung, frame)); return 0;
+          humanText); return 0;
       }
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || HOSTED.test(rest[0])) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
-        for (const flag of ["map", "reply-to", "kind", "author", "name", "summary", "supersedes", "message"]) {
+        for (const flag of ["map", "reply-to", "kind", "author", "name", "summary", "supersedes", "message", "tags"]) {
           if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
         }
         if (sub === "close" && flags.kind !== undefined && flags.kind !== "closure") throw new Error("threads close always appends a closure post; omit --kind.");
@@ -435,10 +537,11 @@ export const threadsCommand: CommandDef = {
         if (parents?.some((id) => !id)) throw new Error("--reply-to must name non-empty post ids, separated by commas.");
         if (selected && !parents?.length) throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
+        const tags = typeof flags.tags === "string" ? flags.tags.split(",").map((t) => t.trim()).filter(Boolean) : Array.isArray(flags.tags) ? (flags.tags as string[]).map((t) => String(t).trim()).filter(Boolean) : undefined;
         const body = str(flags, "message") ?? await stdin();
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
           summary: str(flags, "summary"), author: target ? selectedWriterName() : writerName(str(flags, "author")), replyTo: parents,
-          kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map,
+          kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map, tags,
           verifyTarget: target?.verifyWrite });
         output.result({ id: post.id, path, kind: post.kind }, `Appended ${post.kind}: ${path}`); return 0;
       }

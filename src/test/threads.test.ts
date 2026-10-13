@@ -402,4 +402,179 @@ describe("local Threads", () => {
     expect(pushWorktree(root, "team")).toBe("team");
     expect(git(root, "ls-remote", "team", "refs/heads/threads")).toContain("refs/heads/threads");
   });
+
+  it("default reply-to targets the opening post and warns on stderr; --reply-to latest targets newest tip", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: false, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = ""; err = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      const opened = await run(["new", "tree-test"], { about: "Tree root" });
+      const openingId = opened.opening_post_id;
+      expect(openingId).toMatch(/^msg_/);
+
+      // Post 1 without --reply-to: replies to opening post, prints notice on stderr
+      const post1 = await run(["post", "tree-test"], { message: "First branch", name: "Branch 1" });
+      expect(err).toContain(`Replying to opening post ${openingId}`);
+      expect(post1.kind).toBe("post");
+
+      // Post 2 without --reply-to: ALSO replies to opening post, prints notice on stderr (sibling of post 1, NOT chain)
+      const post2 = await run(["post", "tree-test"], { message: "Second branch", name: "Branch 2" });
+      expect(err).toContain(`Replying to opening post ${openingId}`);
+
+      // Inspect posts
+      const thread = loadThread(join(root, "_threads", "tree-test"));
+      const p1 = thread.posts.find((p) => p.id === post1.id)!;
+      const p2 = thread.posts.find((p) => p.id === post2.id)!;
+      expect(p1.inReplyTo).toEqual([openingId]);
+      expect(p2.inReplyTo).toEqual([openingId]);
+
+      // Post 3 with --reply-to latest: explicitly targets post 2 without stderr notice
+      err = "";
+      const post3 = await run(["post", "tree-test"], { message: "Reply to latest", "reply-to": "latest" });
+      expect(err).toBe("");
+      const p3 = loadThread(join(root, "_threads", "tree-test")).posts.find((p) => p.id === post3.id)!;
+      expect(p3.inReplyTo).toEqual([post2.id]);
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("writes and reads --tags on posts and preserves them across open rungs", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = ""; err = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      await run(["new", "tag-test"], { about: "Tag test" });
+      const posted = await run(["post", "tag-test"], { message: "Friction felt", name: "A friction", tags: "friction, ux" });
+      const raw = readFileSync(posted.path, "utf8");
+      expect(raw).toContain("tags:");
+      expect(raw).toContain("- friction");
+      expect(raw).toContain("- ux");
+
+      const openedSummary = await run(["open", "tag-test"], { depth: "summary" });
+      const taggedPost = openedSummary.posts.find((p: { id: string }) => p.id === posted.id);
+      expect(taggedPost.tags).toEqual(["friction", "ux"]);
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("reads local Threads as a tree across five depths with limit and order", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = ""; err = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      const parentThread = await run(["new", "parent-thread"], { about: "Parent discussion" });
+      const pOpeningId = parentThread.opening_post_id;
+      const pDecision = await run(["post", "parent-thread"], { message: "Parent milestone", name: "Milestone 1", summary: "Milestone summary", "reply-to": pOpeningId });
+
+      // Child Thread attached by post path
+      const childThread = await run(["new", "child-thread"], { about: "Child discussion" });
+      writeFileSync(join(root, "_threads", "child-thread", "_agent", "agreement.md"),
+        `---\nname: Agreement — Child\nsummary: Child summary\nattached_to: _threads/parent-thread/${pDecision.path.split("/").pop()}\n---\n# Child\n`);
+
+      const cOpeningId = childThread.opening_post_id;
+      const cSnapshot = await run(["post", "child-thread"], { message: "Snapshot state", name: "Snapshot 1", summary: "Snapshot summary", kind: "snapshot", "reply-to": cOpeningId });
+      const cLater = await run(["post", "child-thread"], { message: "Subsequent work", name: "Later 1", "reply-to": cSnapshot.id });
+
+      // 1. depth: name
+      const nameRead = await run(["open", "child-thread"], { depth: "name" });
+      expect(nameRead.posts).toEqual([]);
+      expect(nameRead.thread.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread" });
+
+      // 2. depth: summary
+      const summaryRead = await run(["open", "child-thread"], { depth: "summary" });
+      expect(summaryRead.thread.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread", name: "Milestone 1" });
+      expect(summaryRead.thread.snapshot).toMatchObject({ id: cSnapshot.id, kind: "snapshot", name: "Snapshot 1" });
+
+      // 3. depth: children (shows branches + child threads)
+      const parentChildren = await run(["open", "parent-thread"], { depth: "children" });
+      expect(parentChildren.child_threads).toHaveLength(1);
+      expect(parentChildren.child_threads[0]).toMatchObject({ slug: "child-thread", attached_to_post_id: pDecision.id });
+      expect(parentChildren.branches.length).toBeGreaterThanOrEqual(1);
+
+      // 4. depth: surface (shows snapshot and posts after it)
+      const surfaceRead = await run(["open", "child-thread"], { depth: "surface" });
+      expect(surfaceRead.posts).toHaveLength(2);
+      expect(surfaceRead.posts[0].id).toBe(cSnapshot.id);
+      expect(surfaceRead.posts[1].id).toBe(cLater.id);
+
+      // 5. depth: full with --limit and --order
+      const fullNewer = await run(["open", "child-thread"], { depth: "full", order: "newer", limit: "1" });
+      expect(fullNewer.posts).toHaveLength(1);
+      expect(fullNewer.posts[0].id).toBe(cLater.id);
+
+      // 6. --post <id> lists child threads that grew from that post
+      const postRead = await run(["open", "parent-thread"], { post: pDecision.id });
+      expect(postRead.child_threads).toHaveLength(1);
+      expect(postRead.child_threads[0].slug).toBe("child-thread");
+
+      // 7. threads list carries parent
+      const listRead = await run(["list"], { depth: "name" });
+      const childRow = listRead.threads.find((t: { slug: string }) => t.slug === "child-thread");
+      expect(childRow.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread" });
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("resolves attached_to with msg_... id across Space threads", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      const mainThread = await run(["new", "main-room"], { about: "Main room" });
+      const priorityPost = await run(["post", "main-room"], { message: "Priority 1 item", name: "Priority 1", "reply-to": mainThread.opening_post_id });
+
+      // Sub-thread attached by msg_... id
+      const subThread = await run(["new", "sub-work"], { about: "Sub work" });
+      writeFileSync(join(root, "_threads", "sub-work", "_agent", "agreement.md"),
+        `---\nname: Agreement — Sub Work\nsummary: Sub work summary\nattached_to: ${priorityPost.id}\n---\n# Sub Work\n`);
+
+      const openSub = await run(["open", "sub-work"], { depth: "name" });
+      expect(openSub.thread.parent).toMatchObject({ id: priorityPost.id, slug: "main-room", name: "Priority 1" });
+
+      const openPostInMain = await run(["open", "main-room"], { post: priorityPost.id });
+      expect(openPostInMain.child_threads).toHaveLength(1);
+      expect(openPostInMain.child_threads[0].slug).toBe("sub-work");
+    } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
+  });
 });
