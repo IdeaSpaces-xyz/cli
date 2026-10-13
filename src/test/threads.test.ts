@@ -435,6 +435,13 @@ describe("local Threads", () => {
       expect(JSON.parse(out).child_threads_complete).toBe(false);
       expect(JSON.parse(out).child_threads_total).toBe(0); // known lower bound, not proof of no children
       expect(err).toContain("Thread bad cannot be read");
+      writeFileSync(join(healthy.path, "_agent", "agreement.md"), "Malformed Agreement without frontmatter\n");
+      out = ""; err = "";
+      expect(await threadsCommand.run(["open", "healthy"], { post: opening.post.id }, flags)).toBe(0);
+      expect(JSON.parse(out).raw_post).toContain("Good");
+      expect(JSON.parse(out).thread.parent).toBeNull();
+      expect(JSON.parse(out).thread.parent_warning).toContain("Malformed Thread Agreement");
+      expect(err).toContain("parent cannot be read");
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 

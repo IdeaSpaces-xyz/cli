@@ -466,7 +466,7 @@ export const threadsCommand: CommandDef = {
         }
         // Cold summary is a coordinate, not the entire timeline. Full is paged;
         // surface keeps the head and a bounded tail, with --post for exact bodies.
-        const filtered = Boolean(since || newOnly || limit !== undefined);
+        const filtered = Boolean(since || newOnly || limit !== undefined || order);
         const totalMatching = postId ? 1 : rangeCount;
         if (rung === "summary" && !filtered && !postId) posts = [];
         else if (!postId && rung !== "name" && rung !== "children") {
@@ -496,7 +496,13 @@ export const threadsCommand: CommandDef = {
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
         if (ack) acknowledge(thread, posts);
         const effectiveRung = postId ? "full" : rung;
-        const parent = resolveThreadParent(thread.path);
+        let parent: ThreadParentInfo | null = null;
+        let parentWarning: string | undefined;
+        try { parent = resolveThreadParent(thread.path); }
+        catch (error) {
+          parentWarning = `Thread ${thread.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`;
+          output.log(parentWarning);
+        }
         let childWarnings = 0;
         const warnChild = (message: string) => { output.log(message); childWarnings++; };
         const allChildThreads = postId ? findChildThreads(thread.path, postId, warnChild) : effectiveRung === "children" ? findChildThreads(thread.path, undefined, warnChild) : [];
@@ -532,8 +538,9 @@ export const threadsCommand: CommandDef = {
           });
         }
 
+        if (parentWarning) humanText += `\nParent lookup incomplete: ${parentWarning}`;
         output.result({ schema: "ideaspaces.local-thread.open.v2", thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
-          closed: thread.closed, parent,
+          closed: thread.closed, parent, ...(parentWarning ? { parent_warning: parentWarning } : {}),
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
           ...(frame ? { frame } : {}) }, posts: projected,
           ...(effectiveRung === "children" || postId ? { child_threads: childThreads, child_threads_total: allChildThreads.length, child_threads_complete: childWarnings === 0 } : {}),
