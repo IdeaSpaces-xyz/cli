@@ -179,6 +179,10 @@
       "path": "/api/v1/repos/{repoId}/conversations/{conversationId}/messages/stream"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/repos/{repoId}/files/{path}"
+    },
+    {
       "method": "PUT",
       "path": "/api/v1/repos/{repoId}/files/{path}"
     },

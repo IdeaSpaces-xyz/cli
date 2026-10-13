@@ -176,13 +176,26 @@ describe("node put save confirmation", () => {
   const route = "http://api.test/api/v1/repos/repo_abc/files/notes/a%20b.md";
   const path = "notes/a b.md";
 
-  it("allows a slow completed write past the generic 5-second read deadline", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ path, commit_sha: "abc", node_id: "n1" })));
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(putFile(config, "repo_abc", path, "new body")).resolves.toMatchObject({ commit_sha: "abc" });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    // The PUT owns a longer deadline; the global 5-second default remains for reads.
-    expect(DEFAULT_REQUEST_TIMEOUT_MS).toBe(5000);
+  it("allows a save that completes at 5.5 seconds without a retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(new Response(JSON.stringify({ path, commit_sha: "abc", node_id: "n1" }))), 5500);
+        init.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          const err = new Error("aborted"); err.name = "AbortError";
+          reject(err);
+        });
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+      const result = putFile(config, "repo_abc", path, "new body");
+      await vi.advanceTimersByTimeAsync(5500);
+      await expect(result).resolves.toMatchObject({ commit_sha: "abc" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(DEFAULT_REQUEST_TIMEOUT_MS).toBe(5000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reads back after timeout and reports saved when the server committed", async () => {
