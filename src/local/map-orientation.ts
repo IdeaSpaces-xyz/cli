@@ -37,6 +37,7 @@ interface Located {
 }
 
 export interface MapOrientationLowered {
+  /** Zero-based ordinal in `map.members`. */
   index: number;
   declared: MapDepth;
   effective: MapDepth;

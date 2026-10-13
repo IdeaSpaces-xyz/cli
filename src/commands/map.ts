@@ -91,7 +91,7 @@ export const mapCommand: CommandDef = {
     let budget: number | undefined;
     if (flags.budget !== undefined) {
       const raw = typeof flags.budget === "string" ? flags.budget.trim() : "";
-      if (!raw || !/^\d+$/.test(raw) || raw === "0") {
+      if (!raw || !/^\d+$/.test(raw)) {
         output.error("Invalid --budget: must be a positive integer");
         return 1;
       }
