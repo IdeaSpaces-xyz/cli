@@ -791,6 +791,8 @@ process.stdin.on("data", (chunk) => {
       const pinnedFlags = { runtime: "pi", thread: thread.path, "thread-map": map, "thread-member": "0", ext: fakeBin, "pi-bin": fakeBin };
       expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "empty_response" }, JSON_GLOBAL)).toBe(1);
       expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
+      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).filter((event) => event.type === "error")).toHaveLength(1);
+      expect(listAgentRuns({ agent: pov }).at(0)?.status).toBe("failed");
       expect(stdout()).not.toContain('"type":"turn_complete"');
       expect(loadThread(thread.path).posts).toHaveLength(4);
       chmodSync(thread.path, 0o500);
@@ -1039,7 +1041,7 @@ process.stdin.on("data", (chunk) => {
       const code = await selected.run(["run", dir], { runtime, conversation: id, message: "never spawn", ...ext }, JSON_GLOBAL);
       expect(code).toBe(1);
       expect(stderr()).toContain("refusing to create a replacement");
-      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "run_incomplete", message: expect.stringContaining("refusing to create a replacement") });
+      expect(stdout()).toBe(""); // late preflight refusal, not a dropped turn
     }
   });
 

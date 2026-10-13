@@ -409,8 +409,10 @@ async function cmdRun(
   }
 
   let terminalType: "turn_complete" | "error" | "cancelled" | undefined;
+  let sawMessageStart = false;
   function handleRunEvent(event: KeeperStreamEvent): KeeperStreamEvent {
     if (event.type === "message_start") {
+      sawMessageStart = true;
       const msgStart = event as LocalMessageStartEvent;
       if (typeof msgStart.conversation_id === "string") runRecord.conversation_id = msgStart.conversation_id;
       if (msgStart.model_observed !== undefined) {
@@ -488,12 +490,16 @@ async function cmdRun(
       onEvent,
     });
     if (!terminalType) {
-      const message = lastLocalError
-        ? `Agent run stopped before completion: ${lastLocalError}`
-        : `Local runtime exited (code ${exitCode}) without turn_complete or an error event. Resume conversation ${runRecord.conversation_id ?? "from message_start"} at the same POV to continue its last step.`;
-      handleRunEvent({ type: "error", error_type: "run_incomplete", message });
-      if (jsonMode || !lastLocalError) emitTerminalError("run_incomplete", message);
-      exitCode = 1;
+      if (!sawMessageStart && lastLocalError) {
+        // Runtime preflight refused before an agent turn existed. Its stderr
+        // already names the repair; don't mislabel it as a dropped run.
+        exitCode = 1;
+      } else {
+        const message = `Local runtime exited (code ${exitCode}) without turn_complete or an error event. Resume conversation ${runRecord.conversation_id ?? "from message_start"} at the same POV to continue its last step.`;
+        handleRunEvent({ type: "error", error_type: "run_incomplete", message });
+        emitTerminalError("run_incomplete", message);
+        exitCode = 1;
+      }
     } else if (terminalType === "cancelled") {
       // Preserve the existing cancelled event and run-record status; a cancelled
       // owner turn must not be reported to the launcher as successful.

@@ -177,7 +177,7 @@ function terminalExit(
   const streamErr = err instanceof Error && (err as { code?: string }).code !== "ERR_STREAM_PREMATURE_CLOSE" && err.message !== "Premature close"
     ? err.message
     : undefined;
-  const detail = streamErr ?? (stderr.trim() || retryError || "no terminal event");
+  const detail = [retryError ? `prior provider failure: ${retryError}` : undefined, streamErr, stderr.trim() || undefined].filter(Boolean).join("; ") || "no terminal event";
   return translator.error("pi_exit", `${bin} exited without completing the turn (${detail}). Resume conversation ${conversationId} at the same POV to continue its last step.`);
 }
 
@@ -269,6 +269,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         retryError = typeof lastAssistant?.errorMessage === "string" ? lastAssistant.errorMessage : "provider request failed";
         continue;
       }
+      if (type === "auto_retry_end" && msg.success === true) retryError = undefined;
       if (NON_AGENT_TYPES.has(type)) {
         if (type === "response" && msg.command === "get_state" && msg.success !== false) {
           const data = msg.data as { sessionName?: string } | undefined;
