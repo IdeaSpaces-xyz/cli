@@ -199,75 +199,39 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
 
 export function resolveThreadParent(threadDir: string): ThreadParentInfo | null {
   const agreement = join(threadDir, "_agent", "agreement.md");
-  if (!existsSync(agreement)) return null;
-  let content = "";
-  try {
-    content = readFileSync(agreement, "utf8");
-  } catch {
-    return null;
-  }
-  const fm = parseFrontmatter(content);
-  if (!fm || typeof fm.attached_to !== "string" || !fm.attached_to.trim()) return null;
+  const fm = parseFrontmatter(safeFile(agreement));
+  if (!fm) throw new Error(`Malformed Thread Agreement frontmatter: ${agreement}`);
+  if (typeof fm.attached_to !== "string" || !fm.attached_to.trim()) return null;
   const attachedTo = fm.attached_to.trim();
-
-  let spaceRoot: string;
-  try {
-    spaceRoot = spaceForThread(threadDir);
-  } catch {
-    return { attached_to: attachedTo };
-  }
+  const spaceRoot = spaceForThread(threadDir);
 
   // Only the existing repository-root-relative post path is a local parent.
   // msg_ ids are a separate protocol proposal, not a CLI attachment grammar.
   if (!/^_threads\/[a-z0-9-]+\/[^/]+\.md$/.test(attachedTo) || attachedTo.includes("..")) return { attached_to: attachedTo };
   const normPath = join(spaceRoot, attachedTo);
   const threadsRoot = join(spaceRoot, "_threads");
-  if (existsSync(normPath) && !lstatSync(normPath).isSymbolicLink() && lstatSync(normPath).isFile() &&
-      dirname(dirname(normPath)) === threadsRoot && !lstatSync(dirname(normPath)).isSymbolicLink()) {
-    try {
-      const postContent = readFileSync(normPath, "utf8");
-      const parsed = parseThreadPost(postContent, basename(normPath));
-      if (parsed.status === "valid") {
-        const parentDir = dirname(normPath);
-        const threadSlug = basename(parentDir);
-        return {
-          attached_to: attachedTo,
-          id: parsed.post.id,
-          slug: threadSlug,
-          path: attachedTo,
-          name: parsed.post.frontmatter.name ?? parsed.post.id,
-          summary: parsed.post.frontmatter.summary ?? "",
-        };
-      }
-    } catch {
-      // fallback
-    }
-  }
-
-  return { attached_to: attachedTo };
+  if (!existsSync(normPath)) return { attached_to: attachedTo }; // Missing authored target, never substitute a different post.
+  if (dirname(dirname(normPath)) !== threadsRoot) return { attached_to: attachedTo };
+  if (lstatSync(dirname(normPath)).isSymbolicLink()) throw new Error(`Refusing symlink parent Thread: ${dirname(normPath)}`);
+  const parsed = parseThreadPost(safeFile(normPath), basename(normPath));
+  if (parsed.status !== "valid") throw new Error(`Invalid attached parent post ${attachedTo}: ${parsed.issues.join(", ")}`);
+  return {
+    attached_to: attachedTo,
+    id: parsed.post.id,
+    slug: basename(dirname(normPath)),
+    path: attachedTo,
+    name: parsed.post.frontmatter.name ?? parsed.post.id,
+    summary: parsed.post.frontmatter.summary ?? "",
+  };
 }
 
 export function findChildThreads(targetThreadDir: string, postId?: string): ChildThreadInfo[] {
-  let spaceRoot: string;
-  try {
-    spaceRoot = spaceForThread(targetThreadDir);
-  } catch {
-    return [];
-  }
+  // A failed sibling read is not "no children". Let the caller report the
+  // error rather than returning a false zero in child_threads_total.
+  const spaceRoot = spaceForThread(targetThreadDir);
   const targetSlug = basename(targetThreadDir);
-  let targetThread: LocalThread;
-  try {
-    targetThread = loadThread(targetThreadDir);
-  } catch {
-    return [];
-  }
-
-  let allThreads: LocalThread[] = [];
-  try {
-    allThreads = listLocal(spaceRoot);
-  } catch {
-    return [];
-  }
+  const targetThread = loadThread(targetThreadDir);
+  const allThreads = listLocal(spaceRoot);
 
   const children: ChildThreadInfo[] = [];
   const targetPostIds = new Set(targetThread.posts.map((p) => p.id));

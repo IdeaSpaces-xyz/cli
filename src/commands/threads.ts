@@ -62,7 +62,7 @@ function reportDateWarnings(thread: LocalThread, output: Output): void {
   for (const warning of new Set(thread.warnings)) output.log(`Thread ${thread.slug}: ${warning}`);
 }
 
-function clip(text: string, bytes: number): string {
+function clip(text: string, bytes: number, marker = "… [shortened; read the exact file or use --post <id>]"): string {
   if (Buffer.byteLength(text) <= bytes) return text;
   let result = "";
   let size = 0;
@@ -72,7 +72,7 @@ function clip(text: string, bytes: number): string {
     result += char;
     size += charBytes;
   }
-  return result + "… [shortened; read the exact file or use --post <id>]";
+  return result + marker;
 }
 function threadSection(markdown: string, heading: string): string | undefined {
   const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
@@ -495,7 +495,7 @@ export const threadsCommand: CommandDef = {
         // Surface keeps a bounded preview; full and --post retain exact bodies.
         const boundedPosts = !postId && effectiveRung === "surface"
           ? posts.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES, body: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES
-            ? `${clip(p.body, SURFACE_BODY_BYTES)} [body truncated; use --post ${p.id} for the complete post]` : p.body })) : posts;
+            ? clip(p.body, SURFACE_BODY_BYTES, `… [body truncated; use --post ${p.id} for the complete post]`) : p.body })) : posts;
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
             summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null, ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }

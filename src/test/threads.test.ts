@@ -57,6 +57,21 @@ describe("local Threads", () => {
     expect(resolveThreadParent(thread.path)).toBeNull();
   });
 
+  it("does not hide an unreadable parent post or follow a symlinked attachment", () => {
+    const root = fixture();
+    const parent = createThread("parent", "Parent", root);
+    const post = appendPost(parent.path, { body: "Parent" });
+    const child = createThread("child", "Child", root);
+    const agreement = join(child.path, "_agent", "agreement.md");
+    writeFileSync(agreement, `---\nname: Child\nattached_to: _threads/parent/${post.post.path}\n---\n`);
+    expect(resolveThreadParent(child.path)?.id).toBe(post.post.id);
+    symlinkSync(post.path, join(parent.path, "alias.md"));
+    writeFileSync(agreement, "---\nname: Child\nattached_to: _threads/parent/alias.md\n---\n");
+    expect(() => resolveThreadParent(child.path)).toThrow(/non-regular thread file/);
+    writeFileSync(agreement, "---\nname: Child\nattached_to: msg_unknown\n---\n");
+    expect(resolveThreadParent(child.path)).toEqual({ attached_to: "msg_unknown" });
+  });
+
   it("closure joins all unmerged branch tips unless explicit parents are supplied", () => {
     const root = fixture();
     const t = createThread("decision", "Decision", root);
