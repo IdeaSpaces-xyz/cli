@@ -117,6 +117,31 @@ describe("map authoring", () => {
     }
   }, 30_000);
 
+  it("K2: reuses roots, safely repeats writes, removes by position address and reindexes survivors", async () => {
+    const dir = await directory();
+    const file = join(dir, "k2.map.md");
+    const first = "n_0123456789abcdef01234567";
+    const second = "n_ffffffffffffffffffffffff";
+    expect((await run(["create", file], { name: "K2", summary: "Edits" })).code).toBe(0);
+    expect((await run(["add", file], { position: ".", "root-node-id": first })).code).toBe(0);
+    const stable = await fs.readFile(file, "utf8");
+    expect((await run(["add", file], { position: ".", "root-node-id": first })).data.status).toBe("already_present");
+    expect(await fs.readFile(file, "utf8")).toBe(stable);
+    expect((await run(["add", file], { position: "frictions", "root-node-id": first })).code).toBe(0);
+    expect((await run(["add", file], { position: "note.md", "root-node-id": second })).code).toBe(0);
+    expect((await run([file])).data.map.roots).toHaveLength(2);
+    expect((await run(["remove", file, `@${first}//frictions`])).data.status).toBe("removed");
+    expect((await run(["remove", file], { "root-node-id": first, position: "." })).data.status).toBe("removed");
+    const after = (await run([file])).data.map;
+    expect(after.roots).toEqual([{ root_node_id: second }]);
+    expect(after.members).toEqual([{ root: 0, position: "note.md" }]);
+    const bytes = await fs.readFile(file, "utf8");
+    expect((await run(["remove", file, `@${first}//`])).data.status).toBe("already_absent");
+    expect(await fs.readFile(file, "utf8")).toBe(bytes);
+    expect((await run(["remove", file, `@${second}//note.md`])).data.status).toBe("removed");
+    expect((await run([file])).data.map).toMatchObject({ roots: [], members: [] });
+  });
+
   it("recognises a README Map as the folder's Space in map and navigate", async () => {
     const dir = await directory();
     const file = join(dir, "README.md");
@@ -170,10 +195,11 @@ describe("map authoring", () => {
     expect(await fs.readFile(file, "utf8")).toBe(initial);
     const address = "thread:x_0123456789abcdef01234567";
     expect((await run(["add", file, address])).code).toBe(0);
-    expect((await run(["add", file, address])).code).toBe(0);
-    expect((await run(["remove", file, address])).error).toContain("matches multiple members");
-    expect((await run(["remove", file, "1"], { "if-match": (await run([file])).data.file_sha })).code).toBe(0);
+    const beforeRepeat = await fs.readFile(file, "utf8");
+    expect((await run(["add", file, address])).data.status).toBe("already_present");
+    expect(await fs.readFile(file, "utf8")).toBe(beforeRepeat);
     expect((await run(["remove", file, address])).code).toBe(0);
+    expect((await run(["remove", file, address])).data.status).toBe("already_absent");
     expect((await run([file])).data.members).toEqual([]);
     await fs.writeFile(file, "---\nname: Broken\nmap: [\n---\n# Still a Note\n");
     expect((await run(["add", file, address])).error).toContain("Invalid YAML");
