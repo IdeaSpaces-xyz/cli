@@ -14,6 +14,39 @@ const SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
 
 export class NoAgreementError extends Error {}
 
+export interface ThreadParentInfo {
+  attached_to: string;
+  id?: string;
+  slug?: string;
+  path?: string;
+  name?: string;
+  summary?: string;
+}
+
+export interface ChildThreadInfo {
+  id: string;
+  slug: string;
+  path: string;
+  thread_id: string | null;
+  name: string;
+  summary: string;
+  attached_to: string;
+  attached_to_post_id: string | null;
+  latest_activity_at: string | null;
+  count: number;
+  closed: boolean;
+}
+
+export interface BranchInfo {
+  root_id: string;
+  root_name: string;
+  root_date: string | null;
+  tip_id: string;
+  tip_name: string;
+  tip_date: string | null;
+  count: number;
+}
+
 export interface LocalThread {
   path: string;
   slug: string;
@@ -61,6 +94,17 @@ export function threadBase(cwd = process.cwd()): string {
     if (parent === at) throw new NoAgreementError("No enclosing Agreement; run from an ideaspace with _agent/agreement.md.");
     at = parent;
   }
+}
+
+/** A Thread's own Agreement is not the enclosing Space's Agreement. Resolve
+ * only its immediate _threads parent; never infer a Space from a substring. */
+function spaceForThread(threadDir: string): string {
+  const dir = safeDirectory(threadDir);
+  const threads = dirname(dir);
+  if (basename(threads) !== "_threads") throw new Error("Thread must be an immediate child of _threads/.");
+  const space = dirname(threads);
+  if (!existsSync(join(space, "_agent", "agreement.md"))) throw new NoAgreementError("No Space Agreement above this Thread.");
+  return space;
 }
 
 export function threadsDirectory(cwd = process.cwd()): string {
@@ -112,12 +156,20 @@ export function loadThread(dir: string): LocalThread {
   };
 }
 
-export function listLocal(cwd = process.cwd()): LocalThread[] {
+export function listLocal(cwd = process.cwd(), onError?: (message: string) => void): LocalThread[] {
   const base = threadsDirectory(cwd);
   if (!existsSync(base)) return [];
   safeDirectory(base);
-  return readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory())
-    .map((e) => loadThread(join(base, e.name))).sort((a, b) => a.slug.localeCompare(b.slug));
+  const rows: LocalThread[] = [];
+  for (const entry of readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+    try {
+      rows.push(loadThread(join(base, entry.name)));
+    } catch (error) {
+      if (!onError) throw error;
+      onError(`Thread ${entry.name} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return rows.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
 export function createThread(slug: string, about: string, cwd = process.cwd()): LocalThread {
@@ -140,10 +192,150 @@ function references(parents: ThreadPost[]): string[] {
   return [...ids];
 }
 
+export function activityAt(post: ThreadPost): string | null {
+  if (post.dateWarning || !post.date) return null;
+  return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
+}
+
+export function latestLocalActivity(posts: ThreadPost[]): string | null {
+  return posts.reduce<string | null>((latest, post) => {
+    const at = activityAt(post);
+    const time = at ? Date.parse(at) : NaN;
+    return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
+  }, null);
+}
+
+export function resolveThreadParent(threadDir: string): ThreadParentInfo | null {
+  const agreement = join(threadDir, "_agent", "agreement.md");
+  const fm = parseFrontmatter(safeFile(agreement));
+  if (!fm) throw new Error(`Malformed Thread Agreement frontmatter: ${agreement}`);
+  if (typeof fm.attached_to !== "string" || !fm.attached_to.trim()) return null;
+  const attachedTo = fm.attached_to.trim();
+  const spaceRoot = spaceForThread(threadDir);
+
+  // Only the existing repository-root-relative post path is a local parent.
+  // TODO(protocol): Move attachment resolution into schema/types/vectors only
+  // after a separate protocol decision; msg_ ids are not a CLI grammar here.
+  if (!/^_threads\/[a-z0-9-]+\/[^/]+\.md$/.test(attachedTo)) return { attached_to: attachedTo };
+  const normPath = join(spaceRoot, attachedTo);
+  const threadsRoot = join(spaceRoot, "_threads");
+  if (!existsSync(normPath)) return { attached_to: attachedTo }; // Missing authored target, never substitute a different post.
+  if (dirname(dirname(normPath)) !== threadsRoot) return { attached_to: attachedTo };
+  if (lstatSync(dirname(normPath)).isSymbolicLink()) throw new Error(`Refusing symlink parent Thread: ${dirname(normPath)}`);
+  const parsed = parseThreadPost(safeFile(normPath), basename(normPath));
+  if (parsed.status !== "valid") throw new Error(`Invalid attached parent post ${attachedTo}: ${parsed.issues.join(", ")}`);
+  return {
+    attached_to: attachedTo,
+    id: parsed.post.id,
+    slug: basename(dirname(normPath)),
+    path: attachedTo,
+    name: parsed.post.frontmatter.name ?? parsed.post.id,
+    summary: parsed.post.frontmatter.summary ?? "",
+  };
+}
+
+export function findChildThreads(targetThreadDir: string, postId?: string, onError?: (message: string) => void): ChildThreadInfo[] {
+  // A failed sibling read is not "no children". Let the caller report the
+  // error rather than returning a false zero in child_threads_total.
+  const spaceRoot = spaceForThread(targetThreadDir);
+  const targetSlug = basename(targetThreadDir);
+  const targetThread = loadThread(targetThreadDir);
+  const allThreads = listLocal(spaceRoot, onError);
+
+  const children: ChildThreadInfo[] = [];
+  const targetPostIds = new Set(targetThread.posts.map((p) => p.id));
+
+  for (const t of allThreads) {
+    if (t.path === targetThread.path) continue;
+    let parentInfo: ThreadParentInfo | null;
+    try {
+      parentInfo = resolveThreadParent(t.path);
+    } catch (error) {
+      if (!onError) throw error;
+      onError(`Thread ${t.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    if (!parentInfo) continue;
+
+    const matchedPostId = parentInfo.slug === targetSlug && parentInfo.id &&
+      targetPostIds.has(parentInfo.id) ? parentInfo.id : null;
+    if (matchedPostId) {
+      if (!postId || matchedPostId === postId) {
+        children.push({
+          id: t.path,
+          slug: t.slug,
+          path: t.path,
+          thread_id: t.thread_id,
+          name: t.name,
+          summary: t.summary,
+          attached_to: parentInfo.attached_to,
+          attached_to_post_id: matchedPostId,
+          latest_activity_at: latestLocalActivity(t.posts),
+          count: t.posts.length,
+          closed: t.closed,
+        });
+      }
+    }
+  }
+
+  children.sort((a, b) => {
+    const timeA = a.latest_activity_at ? Date.parse(a.latest_activity_at) : 0;
+    const timeB = b.latest_activity_at ? Date.parse(b.latest_activity_at) : 0;
+    if (timeA !== timeB) return timeB - timeA;
+    return a.slug.localeCompare(b.slug);
+  });
+
+  return children;
+}
+
+export function findNewestSnapshot(posts: ThreadPost[]): ThreadPost | null {
+  for (let i = posts.length - 1; i >= 0; i--) {
+    if (posts[i].kind === "snapshot" || posts[i].kind === "reframe") {
+      return posts[i];
+    }
+  }
+  return null;
+}
+
+export function computeBranches(posts: ThreadPost[]): BranchInfo[] {
+  if (!posts.length) return [];
+  const timeline = reconstructThreadTimeline(posts);
+  const order = new Map(timeline.posts.map((post, index) => [post.id, index]));
+  const branches: BranchInfo[] = [];
+  // The opening post anchors the Thread; each direct reply is a branch.
+  // Traverse the protocol's DAG edges rather than trusting optional authored
+  // `references` on legacy posts. A join belongs to both parents' branches.
+  for (const root of timeline.roots) {
+    for (const start of root.children.length ? root.children : [root]) {
+      const seen = new Set<string>();
+      const pending = [start];
+      let tip = start.post;
+      while (pending.length) {
+        const node = pending.pop()!;
+        if (seen.has(node.post.id)) continue;
+        seen.add(node.post.id);
+        if ((order.get(node.post.id) ?? -1) > (order.get(tip.id) ?? -1)) tip = node.post;
+        pending.push(...node.children);
+      }
+      branches.push({
+        root_id: start.post.id,
+        root_name: start.post.frontmatter.name ?? start.post.id,
+        root_date: start.post.date ?? null,
+        tip_id: tip.id,
+        tip_name: tip.frontmatter.name ?? tip.id,
+        tip_date: tip.date ?? null,
+        count: seen.size,
+      });
+    }
+  }
+  return branches;
+}
+
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
-  kind?: ThreadKind; supersedes?: string; map?: unknown;
+  kind?: ThreadKind; supersedes?: string; map?: unknown; tags?: string[];
   verifyTarget?: (thread: LocalThread, parents: string[], supersedes?: string) => void;
+  onDefaultReplyTo?: (openingPostId: string) => void;
 }): { post: ThreadPost; path: string } {
   const thread = loadThread(dir);
   if (thread.closed) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
@@ -152,12 +344,38 @@ export function appendPost(dir: string, options: {
   for (const value of [options.name, options.summary, options.author]) {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
   }
+  if (options.tags !== undefined) {
+    if (new Set(options.tags).size > 20) throw new Error("Tags are limited to 20 distinct values per post.");
+    for (const tag of options.tags) {
+      if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
+        throw new Error("--tags must contain non-empty values of at most 200 characters without newlines.");
+      }
+    }
+  }
   const byId = new Map(thread.posts.map((post) => [post.id, post]));
   const referenced = new Set(thread.posts.flatMap((post) => post.inReplyTo));
   const tips = thread.posts.filter((post) => !referenced.has(post.id)).map((post) => post.id);
-  // A closure joins all live tips by default; other posts follow the last post.
-  // Callers can always choose explicit parents for a deliberate partial join.
-  const parentIds = options.replyTo ?? (options.kind === "closure" ? tips : thread.posts.length ? [thread.posts.at(-1)!.id] : []);
+
+  let parentIds: string[];
+  let defaultParentId: string | undefined;
+  if (options.replyTo !== undefined) {
+    if (options.replyTo.includes("latest")) {
+      if (!thread.posts.length) throw new Error("Thread has no posts to reply to.");
+      const latestId = thread.posts.at(-1)!.id;
+      parentIds = options.replyTo.map((id) => (id === "latest" ? latestId : id));
+    } else {
+      parentIds = options.replyTo;
+    }
+  } else if (options.kind === "closure") {
+    parentIds = tips;
+  } else if (thread.posts.length === 0) {
+    parentIds = [];
+  } else {
+    const openingPostId = thread.thread_id ?? thread.posts[0].id;
+    parentIds = [openingPostId];
+    defaultParentId = openingPostId;
+  }
+
   if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error("--reply-to must name distinct existing post ids in this Thread.");
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
@@ -187,12 +405,14 @@ export function appendPost(dir: string, options: {
     ...(parents.length ? { references: references(parents) } : {}),
     ...(options.supersedes ? { supersedes: options.supersedes } : {}),
     ...(options.name ? { name: options.name } : {}), ...(options.summary ? { summary: options.summary } : {}),
+    ...(options.tags && options.tags.length ? { tags: [...new Set(options.tags)] } : {}),
     ...(options.author ? { author: options.author } : {}), ...(options.map !== undefined ? { map: options.map } : {}),
   };
   const content = `---\n${stringify(fields)}---\n\n${options.body.trim()}\n`;
   writeFileSync(path, content, { flag: "wx", mode: 0o600 });
   const parsed = parseThreadPost(content, basename(path));
   if (parsed.status !== "valid") throw new Error(`Generated post failed validation: ${parsed.issues.join(", ")}`);
+  if (defaultParentId) options.onDefaultReplyTo?.(defaultParentId);
   return { post: parsed.post, path };
 }
 

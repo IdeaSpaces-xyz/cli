@@ -117,10 +117,10 @@ describe("ideaspaces look", () => {
     expect(withSlash.data.posts).toEqual([]);
     const summary = await runLook(["_threads/decision"], { depth: "summary" });
     expect(summary.exit, summary.stderr).toBe(0);
-    expect(summary.data.posts).toMatchObject([{ id: first.post.id, kind: "post" }, { id: second.post.id, in_reply_to: [first.post.id] }]);
+    expect(summary.data.posts).toEqual([]); // unfiltered summary is the parent/snapshot coordinate, not a timeline
     expect(summary.stdout).not.toContain("Private body");
     const children = await runLook(["_threads/decision"], { depth: "children" });
-    expect(children.data.posts[0].children[0].id).toBe(second.post.id);
+    expect(children.data.branches[0].tip_id).toBe(second.post.id);
     expect(children.stdout).not.toContain("Second body");
     const selected = await runLook(["_threads/decision"], { depth: "surface", post: second.post.id });
     expect(selected.exit, selected.stderr).toBe(0);

@@ -7,10 +7,10 @@ const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
   Object.entries({
     list: "new space depth kind since",
     locate: "",
-    open: "depth new ack since post map member checkout pin position",
-    read: "depth new ack kind since post map member checkout pin position",
+    open: "depth new ack since post map member checkout pin position limit order",
+    read: "depth new ack kind since post map member checkout pin position limit order",
     new: "about",
-    post: "map member checkout reply-to kind author name summary supersedes message",
+    post: "map member checkout reply-to kind author name summary supersedes message tags",
     posts: "space scope limit since depth order cursor",
     close: "map reply-to kind author name summary supersedes message",
     render: "",

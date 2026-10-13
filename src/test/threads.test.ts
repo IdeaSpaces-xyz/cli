@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
-import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread } from "../local/threads.js";
+import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
 import { threadsCommand, threadFlagError } from "../commands/threads.js";
 import { inboxCommand } from "../commands/inbox.js";
 import { searchCommand } from "../commands/search.js";
@@ -47,6 +47,31 @@ describe("local Threads", () => {
     expect(listLocal(root)).toHaveLength(1);
   });
 
+  it("does not reinterpret lookalike _threads paths as a Space", () => {
+    const root = fixture();
+    const nested = join(root, "_threads-archive", "work");
+    mkdirSync(nested, { recursive: true });
+    expect(threadBase(nested)).toBe(realpathSync(root));
+    const thread = createThread("decision", "Decision", root);
+    expect(threadBase(thread.path)).toBe(realpathSync(thread.path)); // Thread Agreement still has its own scope
+    expect(resolveThreadParent(thread.path)).toBeNull();
+  });
+
+  it("does not hide an unreadable parent post or follow a symlinked attachment", () => {
+    const root = fixture();
+    const parent = createThread("parent", "Parent", root);
+    const post = appendPost(parent.path, { body: "Parent" });
+    const child = createThread("child", "Child", root);
+    const agreement = join(child.path, "_agent", "agreement.md");
+    writeFileSync(agreement, `---\nname: Child\nattached_to: _threads/parent/${post.post.path}\n---\n`);
+    expect(resolveThreadParent(child.path)?.id).toBe(post.post.id);
+    symlinkSync(post.path, join(parent.path, "alias.md"));
+    writeFileSync(agreement, "---\nname: Child\nattached_to: _threads/parent/alias.md\n---\n");
+    expect(() => resolveThreadParent(child.path)).toThrow(/non-regular thread file/);
+    writeFileSync(agreement, "---\nname: Child\nattached_to: msg_unknown\n---\n");
+    expect(resolveThreadParent(child.path)).toEqual({ attached_to: "msg_unknown" });
+  });
+
   it("closure joins all unmerged branch tips unless explicit parents are supplied", () => {
     const root = fixture();
     const t = createThread("decision", "Decision", root);
@@ -57,11 +82,32 @@ describe("local Threads", () => {
     expect(new Set(end.post.inReplyTo)).toEqual(new Set([left.post.id, right.post.id]));
   });
 
+  it("projects branches from DAG edges when legacy replies omit ancestor references", () => {
+    const root = fixture(); const t = createThread("branches", "Branches", root);
+    const first = appendPost(t.path, { body: "Root" });
+    const a = appendPost(t.path, { body: "A", replyTo: [first.post.id] });
+    const b = appendPost(t.path, { body: "B", replyTo: [first.post.id] });
+    const joinPost = appendPost(t.path, { body: "Join", replyTo: [a.post.id, b.post.id] });
+    for (const path of [a.path, b.path, joinPost.path]) {
+      writeFileSync(path, readFileSync(path, "utf8").replace(/references:\n(?:  - .*\n)+/, ""));
+    }
+    const branches = computeBranches(loadThread(t.path).posts);
+    expect(branches.map((branch) => branch.root_id).sort()).toEqual([a.post.id, b.post.id].sort());
+    expect(branches.map((branch) => branch.tip_id)).toEqual([joinPost.post.id, joinPost.post.id]);
+    expect(branches.map((branch) => branch.count)).toEqual([2, 2]); // join belongs to both
+    appendPost(t.path, { body: "Legacy second root", replyTo: [] });
+    expect(computeBranches(loadThread(t.path).posts)).toHaveLength(3);
+  });
+
   it("rejects traversal, symlinks, malformed posts, duplicate ids, and invalid Maps before write", () => {
     const root = fixture(); const t = createThread("decision", "Decision", root);
     expect(() => createThread("../outside", "Bad", root)).toThrow(/slug/);
     expect(() => resolveLocalThread("../../outside", root)).toThrow();
     expect(() => appendPost(t.path, { body: "No", replyTo: ["missing"] })).toThrow(/reply-to/);
+    expect(() => appendPost(t.path, { body: "No", replyTo: ["latest"] })).toThrow(/no posts/);
+    expect(() => appendPost(t.path, { body: "No", tags: ["x".repeat(201)] })).toThrow(/--tags/);
+    expect(() => appendPost(t.path, { body: "No", tags: ["bad\nnewline"] })).toThrow(/--tags/);
+    expect(() => appendPost(t.path, { body: "No", tags: Array.from({ length: 21 }, (_, i) => `tag${i}`) })).toThrow(/20 distinct/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ sha: "HEAD" }], members: [] } })).toThrow(/Map/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567" }], members: [] } })).toThrow(/root 0.*no SHA/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }], members: [{ root: 0, position: "." }] } })).toThrow(/depth ceiling/);
@@ -144,7 +190,9 @@ describe("local Threads", () => {
       await run(threadsCommand, ["close", "decision"], { message: "Closing" });
       expect(loadThread(join(root, "_threads", "decision")).closed).toBe(true);
       writeFileSync(join(root, "_threads", "decision", "invalid.md"), "---\nkind: post\n---\nMissing id");
-      expect(await threadsCommand.run(["list"], {}, flags)).toBe(1);
+      text = "";
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      expect(JSON.parse(text).local_complete).toBe(false);
       expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(1);
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
@@ -239,13 +287,14 @@ describe("local Threads", () => {
       expect(named.posts).toEqual([]);
       expect(named.thread.frame).toMatchObject({ current_frame: "Today we decide.", goal: "Keep it honest.", done_when: "One reply is read." });
       const allSummaries = await open({ depth: "summary" });
-      expect(allSummaries.posts[0].summary).toBeNull();
+      expect(allSummaries.posts).toEqual([]);
       expect(out).not.toContain("Private opening");
       const summary = await open({ depth: "summary", since: first.post.id });
       expect(summary.posts).toMatchObject([{ id: second.post.id, in_reply_to: [first.post.id], author: "Agent B" }]);
       expect(out).not.toContain("Private reply");
       const children = await open({ depth: "children" });
-      expect(children.posts[0].children[0].id).toBe(second.post.id);
+      expect(children.posts).toEqual([]);
+      expect(children.branches[0].tip_id).toBe(second.post.id);
       expect(out).not.toContain("Private reply");
       const surface = await open({ depth: "surface", post: second.post.id });
       expect(surface.posts).toHaveLength(1);
@@ -254,6 +303,29 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["open", "disclosure"], { post: second.post.id, since: first.post.id }, global)).toBe(1);
       expect(await threadsCommand.run(["open", "disclosure"], { depth: "name", ack: true }, global)).toBe(1);
     } finally { process.stdout.write = write; process.chdir(previous); }
+  });
+
+  it("preserves exact frame and summary fields in JSON while marking shortened human text", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("exact", "Exact", root);
+    const frame = "F".repeat(1600);
+    const summary = "S".repeat(600);
+    writeFileSync(join(thread.path, "README.md"), `---\nname: Exact\nsummary: Frame test\n---\n## Current frame\n\n${frame}\n`);
+    const post = appendPost(thread.path, { body: "Body", name: "Post", summary });
+    const previous = process.cwd(); process.chdir(root);
+    const original = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    try {
+      const json = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["open", "exact"], { depth: "name" }, json)).toBe(0);
+      expect(JSON.parse(out).thread.frame.current_frame).toBe(frame);
+      out = "";
+      expect(await threadsCommand.run(["open", "exact"], { depth: "summary", limit: "1" }, json)).toBe(0);
+      expect(JSON.parse(out).posts.find((p: { id: string }) => p.id === post.post.id).summary).toBe(summary);
+      out = "";
+      expect(await threadsCommand.run(["open", "exact"], { depth: "name" }, { ...json, json: false })).toBe(0);
+      expect(out).toContain("[shortened; read this Thread's README.md for the full frame]");
+    } finally { process.stdout.write = original; process.chdir(previous); }
   });
 
   it("threads read --json returns authored date and legacy filename fallback", async () => {
@@ -290,7 +362,7 @@ describe("local Threads", () => {
     process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
     const flags = { json: true, quiet: false, yes: false, help: false };
     try {
-      expect(await threadsCommand.run(["read", "legacy"], {}, flags)).toBe(0);
+      expect(await threadsCommand.run(["read", "legacy"], { depth: "summary", limit: "10", order: "older" }, flags)).toBe(0);
       const posts = JSON.parse(out).posts;
       expect(posts.find((p: { id: string }) => p.id === "msg_day").date).toBe("2026-09-27");
       expect(posts.find((p: { id: string }) => p.id === "msg_bad").date).toBeNull();
@@ -328,7 +400,9 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["init"], {}, flags)).toBe(0);
       expect(git(join(root, "_threads"), "branch", "--show-current")).toBe("threads");
       const t = createThread("decision", "Decision", root);
-      appendPost(t.path, { body: "Team", author: "Agent" });
+      const teamPost = appendPost(t.path, { body: "Team", author: "Agent" });
+      expect(await threadsCommand.run(["open", "decision"], { post: teamPost.post.id }, flags)).toBe(0);
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
       git(join(root, "_threads"), "add", "decision");
       git(join(root, "_threads"), "commit", "-m", "post");
       expect(await threadsCommand.run(["push"], {}, flags)).toBe(1);
@@ -337,6 +411,38 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["push"], { remote: "team" }, flags)).toBe(0);
       expect(git(root, "ls-remote", "team", "refs/heads/threads")).toContain("refs/heads/threads");
     } finally { process.stdout.write = old; process.chdir(previous); }
+  });
+
+  it("reports an unreadable sibling as incomplete without hiding healthy Threads", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const healthy = createThread("healthy", "Healthy", root);
+    const opening = appendPost(healthy.path, { body: "Good" });
+    const bad = createThread("bad", "Bad", root);
+    writeFileSync(join(bad.path, "invalid.md"), "---\nkind: post\n---\nNo id");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: false, yes: false, help: false };
+    try {
+      expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      expect(JSON.parse(out).local_complete).toBe(false);
+      expect(JSON.parse(out).threads).toHaveLength(1);
+      expect(err).toContain("Thread bad cannot be read");
+      out = ""; err = "";
+      expect(await threadsCommand.run(["open", "healthy"], { post: opening.post.id }, flags)).toBe(0);
+      expect(JSON.parse(out).child_threads_complete).toBe(false);
+      expect(JSON.parse(out).child_threads_total).toBe(0); // known lower bound, not proof of no children
+      expect(err).toContain("Thread bad cannot be read");
+      writeFileSync(join(healthy.path, "_agent", "agreement.md"), "Malformed Agreement without frontmatter\n");
+      out = ""; err = "";
+      expect(await threadsCommand.run(["open", "healthy"], { post: opening.post.id }, flags)).toBe(0);
+      expect(JSON.parse(out).raw_post).toContain("Good");
+      expect(JSON.parse(out).thread.parent).toBeNull();
+      expect(JSON.parse(out).thread.parent_warning).toContain("Malformed Thread Agreement");
+      expect(err).toContain("parent cannot be read");
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
   it("resolves a separate orphan worktree at the authored commit, not HEAD", async () => {
@@ -401,5 +507,246 @@ describe("local Threads", () => {
     git(root, "worktree", "move", join(root, "private-discussion"), worktree);
     expect(pushWorktree(root, "team")).toBe("team");
     expect(git(root, "ls-remote", "team", "refs/heads/threads")).toContain("refs/heads/threads");
+  });
+
+  it("default reply-to targets the opening post and warns on stderr; --reply-to latest targets newest tip", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: false, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = ""; err = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      const opened = await run(["new", "tree-test"], { about: "Tree root" });
+      const openingId = opened.opening_post_id;
+      expect(openingId).toMatch(/^msg_/);
+
+      // Post 1 without --reply-to: replies to opening post, prints notice on stderr
+      const post1 = await run(["post", "tree-test"], { message: "First branch", name: "Branch 1" });
+      expect(err).toContain(`Replying to opening post ${openingId}`);
+      expect(post1.kind).toBe("post");
+
+      // Post 2 without --reply-to: ALSO replies to opening post, prints notice on stderr (sibling of post 1, NOT chain)
+      const post2 = await run(["post", "tree-test"], { message: "Second branch", name: "Branch 2" });
+      expect(err).toContain(`Replying to opening post ${openingId}`);
+
+      // Inspect posts
+      const thread = loadThread(join(root, "_threads", "tree-test"));
+      const p1 = thread.posts.find((p) => p.id === post1.id)!;
+      const p2 = thread.posts.find((p) => p.id === post2.id)!;
+      expect(p1.inReplyTo).toEqual([openingId]);
+      expect(p2.inReplyTo).toEqual([openingId]);
+      expect(post1.in_reply_to).toEqual([openingId]);
+      expect(post2.in_reply_to).toEqual([openingId]);
+      const branchRead = await run(["open", "tree-test"], { depth: "children" });
+      expect(branchRead.branches.map((b: { root_id: string }) => b.root_id).sort()).toEqual([post1.id, post2.id].sort());
+
+      // Post 3 with --reply-to latest: explicitly targets post 2 without stderr notice
+      err = "";
+      const post3 = await run(["post", "tree-test"], { message: "Reply to latest", "reply-to": "latest" });
+      expect(err).toBe("");
+      const p3 = loadThread(join(root, "_threads", "tree-test")).posts.find((p) => p.id === post3.id)!;
+      expect(p3.inReplyTo).toEqual([post2.id]);
+      const joinPost = await run(["post", "tree-test"], { message: "Join", "reply-to": `latest,${post1.id}` });
+      expect(loadThread(join(root, "_threads", "tree-test")).posts.find((p) => p.id === joinPost.id)?.inReplyTo).toEqual([post3.id, post1.id]);
+      const quiet = await threadsCommand.run(["post", "tree-test"], { message: "Quiet branch" }, { ...flags, quiet: true });
+      expect(quiet).toBe(0);
+      expect(err).toBe("");
+      expect(await threadsCommand.run(["post", "tree-test"], { message: "invalid", "reply-to": "latest,missing" }, flags)).toBe(1);
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("writes and reads --tags on posts and preserves them across open rungs", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = ""; err = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      await run(["new", "tag-test"], { about: "Tag test" });
+      const posted = await run(["post", "tag-test"], { message: "Friction felt", name: "A friction", tags: "friction, ux" });
+      const raw = readFileSync(posted.path, "utf8");
+      expect(raw).toContain("tags:");
+      expect(raw).toContain("- friction");
+      expect(raw).toContain("- ux");
+
+      const openedSummary = await run(["open", "tag-test"], { depth: "summary", limit: "10" });
+      const taggedPost = openedSummary.posts.find((p: { id: string }) => p.id === posted.id);
+      expect(taggedPost.tags).toEqual(["friction", "ux"]);
+      expect(await threadsCommand.run(["post", "tag-test"], { message: "Bad", tags: "a,,b" }, flags)).toBe(1);
+      expect(err).toContain("--tags must contain non-empty");
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("reads local Threads as a tree across five depths with limit and order", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = ""; err = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      const parentThread = await run(["new", "parent-thread"], { about: "Parent discussion" });
+      const pOpeningId = parentThread.opening_post_id;
+      const pDecision = await run(["post", "parent-thread"], { message: "Parent milestone", name: "Milestone 1", summary: "Milestone summary", "reply-to": pOpeningId });
+
+      // Child Thread attached by post path
+      const childThread = await run(["new", "child-thread"], { about: "Child discussion" });
+      writeFileSync(join(root, "_threads", "child-thread", "_agent", "agreement.md"),
+        `---\nname: Agreement — Child\nsummary: Child summary\nattached_to: _threads/parent-thread/${pDecision.path.split("/").pop()}\n---\n# Child\n`);
+
+      const cOpeningId = childThread.opening_post_id;
+      const cSnapshot = await run(["post", "child-thread"], { message: "Snapshot state", name: "Snapshot 1", summary: "Snapshot summary", kind: "snapshot", "reply-to": cOpeningId });
+      const cLater = await run(["post", "child-thread"], { message: "Subsequent work", name: "Later 1", "reply-to": cSnapshot.id });
+
+      // 1. depth: name
+      const nameRead = await run(["open", "child-thread"], { depth: "name" });
+      expect(nameRead.posts).toEqual([]);
+      expect(nameRead.thread.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread" });
+
+      // 2. depth: summary
+      const summaryRead = await run(["open", "child-thread"], { depth: "summary" });
+      expect(summaryRead.thread.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread", name: "Milestone 1" });
+      expect(summaryRead.thread.snapshot).toMatchObject({ id: cSnapshot.id, kind: "snapshot", name: "Snapshot 1" });
+
+      // 3. depth: children (shows branches + child threads)
+      const parentChildren = await run(["open", "parent-thread"], { depth: "children" });
+      expect(parentChildren.child_threads).toHaveLength(1);
+      expect(parentChildren.child_threads[0]).toMatchObject({ slug: "child-thread", attached_to_post_id: pDecision.id });
+      expect(parentChildren.branches.length).toBeGreaterThanOrEqual(1);
+      await run(["new", "sibling-child"], { about: "Sibling child" });
+      writeFileSync(join(root, "_threads", "sibling-child", "_agent", "agreement.md"),
+        `---\nname: Agreement — Sibling\nattached_to: _threads/parent-thread/${pDecision.path.split("/").pop()}\n---\n`);
+      const boundedChildren = await run(["open", "parent-thread"], { depth: "children", limit: "1" });
+      expect(boundedChildren.child_threads).toHaveLength(1);
+      expect(boundedChildren.child_threads_total).toBe(2);
+      expect(boundedChildren.branches_total).toBeGreaterThanOrEqual(1);
+
+      // 4. depth: surface (shows snapshot and posts after it)
+      const surfaceRead = await run(["open", "child-thread"], { depth: "surface" });
+      expect(surfaceRead.posts).toHaveLength(2);
+      expect(surfaceRead.posts[0].id).toBe(cSnapshot.id);
+      expect(surfaceRead.posts[1].id).toBe(cLater.id);
+
+      // 5. depth: full with --limit and --order
+      const fullNewer = await run(["open", "child-thread"], { depth: "full", order: "newer", limit: "1" });
+      expect(fullNewer.posts).toHaveLength(1);
+      expect(fullNewer.posts[0].id).toBe(cLater.id);
+      for (const bad of [{ limit: "0" }, { limit: "abc" }, { order: "sideways" }, { depth: "full", limit: "1", ack: true }]) {
+        expect(await threadsCommand.run(["open", "child-thread"], bad, flags)).toBe(1);
+      }
+      expect(await threadsCommand.run(["open", "x_" + "a".repeat(24)], { limit: "1" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["read", "x_" + "a".repeat(24)], { order: "newer" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["open", "child-thread"], { depth: "name", limit: "1" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["open", "child-thread"], { post: cLater.id, order: "older" }, flags)).toBe(1);
+
+      // 6. --post <id> lists child threads that grew from that post
+      const postRead = await run(["open", "parent-thread"], { post: pDecision.id });
+      expect(postRead.child_threads).toHaveLength(2);
+      expect(postRead.child_threads_total).toBe(2);
+      expect(postRead.child_threads.map((t: { slug: string }) => t.slug).sort()).toEqual(["child-thread", "sibling-child"]);
+
+      // 7. threads list carries parent
+      const listRead = await run(["list"], { depth: "name" });
+      const childRow = listRead.threads.find((t: { slug: string }) => t.slug === "child-thread");
+      expect(childRow.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread" });
+    } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("surface previews a head and tail, full preserves exact bodies, and incomplete reads cannot ack", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("large", "Large", root);
+    const opening = appendPost(thread.path, { body: "Opening" });
+    const snapshot = appendPost(thread.path, { body: "Head", kind: "snapshot", replyTo: [opening.post.id] });
+    const large = appendPost(thread.path, { body: "Z".repeat(1200), replyTo: [snapshot.post.id] });
+    const last = appendPost(thread.path, { body: "Last", replyTo: [large.post.id] });
+    const old = process.cwd(); process.chdir(root);
+    const writer = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    try {
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "1" }, flags)).toBe(0);
+      const surface = JSON.parse(out);
+      expect(surface.posts.map((p: { id: string }) => p.id)).toEqual([snapshot.post.id]);
+      expect(surface.matching).toBe(4); // includes opening post before the snapshot
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", order: "newer", limit: "2" }, flags)).toBe(0);
+      expect(JSON.parse(out).posts.map((p: { id: string }) => p.id)).toEqual([last.post.id, snapshot.post.id]);
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "3" }, flags)).toBe(0);
+      const preview = JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id);
+      expect(preview.body).toContain("body truncated; use --post");
+      expect(preview.body_truncated).toBe(true);
+      expect(await threadsCommand.run(["open", "large"], { depth: "full", since: snapshot.post.id, order: "newer" }, flags)).toBe(1);
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "full", limit: "10" }, flags)).toBe(0);
+      expect(JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id).body.trim()).toBe("Z".repeat(1200));
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "full", limit: "1" }, { ...flags, json: false })).toBe(0);
+      expect(out).toContain("Showing 1 of 4 matching posts. Continue with --since");
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", ack: true }, flags)).toBe(1);
+      expect(readCursor(loadThread(thread.path)).size).toBe(0);
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", new: true, ack: true, order: "older", limit: "10" }, flags)).toBe(1);
+      expect(readCursor(loadThread(thread.path)).size).toBe(0);
+    } finally { process.stdout.write = writer; process.chdir(old); }
+  });
+
+  it("does not resolve the deferred msg_ attachment form", async () => {
+    const root = fixture(); process.env.HOME = root;
+    git(root, "init", "-b", "main");
+    git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      const mainThread = await run(["new", "main-room"], { about: "Main room" });
+      const priorityPost = await run(["post", "main-room"], { message: "Priority 1 item", name: "Priority 1", "reply-to": mainThread.opening_post_id });
+
+      // The Agreement retains the authored value; the id grammar is not shipped.
+      await run(["new", "sub-work"], { about: "Sub work" });
+      writeFileSync(join(root, "_threads", "sub-work", "_agent", "agreement.md"),
+        `---\nname: Agreement — Sub Work\nsummary: Sub work summary\nattached_to: ${priorityPost.id}\n---\n# Sub Work\n`);
+
+      const openSub = await run(["open", "sub-work"], { depth: "name" });
+      expect(openSub.thread.parent).toEqual({ attached_to: priorityPost.id });
+
+      const openPostInMain = await run(["open", "main-room"], { post: priorityPost.id });
+      expect(openPostInMain.child_threads).toEqual([]);
+    } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
   });
 });
