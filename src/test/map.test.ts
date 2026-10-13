@@ -708,6 +708,7 @@ map:
 
       expect(result.exit).toBe(0);
       expect(result.data.budget).toBe(tightBudget);
+      expect(result.data.legend).toBe(false);
       expect(result.data.lowered.length).toBeGreaterThan(0);
       expect(result.data.lowered[0]).toMatchObject({
         index: expect.any(Number),
@@ -741,7 +742,7 @@ map:
       expect(result.stderr).toContain("every member at name");
     });
 
-    it("validates --budget and rejects non-positive or non-integer values", async () => {
+    it("validates --budget and rejects non-positive, non-integer, hex, or exponential values", async () => {
       await setupSpaceWithMap();
 
       const zero = await runMap(["home.map.md"], { orientation: true, budget: "0" }, JSON_FLAGS);
@@ -756,9 +757,46 @@ map:
       expect(notNumber.exit).toBe(1);
       expect(notNumber.stderr).toContain("Invalid --budget: must be a positive integer");
 
+      const hex = await runMap(["home.map.md"], { orientation: true, budget: "0x10" }, JSON_FLAGS);
+      expect(hex.exit).toBe(1);
+      expect(hex.stderr).toContain("Invalid --budget: must be a positive integer");
+
+      const exp = await runMap(["home.map.md"], { orientation: true, budget: "1e3" }, JSON_FLAGS);
+      expect(exp.exit).toBe(1);
+      expect(exp.stderr).toContain("Invalid --budget: must be a positive integer");
+
       const bareFlag = await runMap(["home.map.md"], { orientation: true, budget: true }, JSON_FLAGS);
       expect(bareFlag.exit).toBe(1);
       expect(bareFlag.stderr).toContain("Invalid --budget: must be a positive integer");
+    });
+
+    it("rejects --budget without --orientation", async () => {
+      await setupSpaceWithMap();
+
+      const result = await runMap(["home.map.md"], { budget: "8000" }, JSON_FLAGS);
+
+      expect(result.exit).toBe(1);
+      expect(result.stderr).toContain("--budget requires --orientation");
+    });
+
+    it("rejects --depth combined with --orientation", async () => {
+      await setupSpaceWithMap();
+
+      const result = await runMap(["home.map.md"], { orientation: true, depth: "2" }, JSON_FLAGS);
+
+      expect(result.exit).toBe(1);
+      expect(result.stderr).toContain("--depth cannot be combined with --orientation");
+    });
+
+    it("keeps path stable when run from a subdirectory", async () => {
+      await setupSpaceWithMap();
+      const sub = join(root, "notes");
+      process.chdir(sub);
+
+      const result = await runMap([join(root, "home.map.md")], { orientation: true }, JSON_FLAGS);
+
+      expect(result.exit).toBe(0);
+      expect(result.data.path).toBe("home.map.md");
     });
 
     it("rejects a directory without a curated Map note", async () => {

@@ -79,14 +79,24 @@ export const mapCommand: CommandDef = {
     }
 
     const orientation = flags.orientation !== undefined && parseBool(flags.orientation);
+    if (flags.budget !== undefined && !orientation) {
+      output.error("--budget requires --orientation");
+      return 1;
+    }
+    if (flags.depth !== undefined && orientation) {
+      output.error("--depth cannot be combined with --orientation; orientation reads members at their declared depths");
+      return 1;
+    }
+
     let budget: number | undefined;
     if (flags.budget !== undefined) {
-      if (typeof flags.budget === "boolean" || (typeof flags.budget !== "string" && typeof flags.budget !== "number")) {
+      const raw = typeof flags.budget === "string" ? flags.budget.trim() : "";
+      if (!raw || !/^\d+$/.test(raw) || raw === "0") {
         output.error("Invalid --budget: must be a positive integer");
         return 1;
       }
-      const parsed = Number(flags.budget);
-      if (!Number.isInteger(parsed) || parsed <= 0) {
+      const parsed = Number(raw);
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) {
         output.error("Invalid --budget: must be a positive integer");
         return 1;
       }
@@ -127,12 +137,14 @@ export const mapCommand: CommandDef = {
 
     if (orientation) {
       if (!spaceMap) {
-        output.error(`A curated Map note (*.map.md) is required for --orientation: ${requested}`);
+        output.error(
+          `A curated Map note (*.map.md) is required for --orientation: ${requested}\nPass an existing Map note: ideaspaces map <file.map.md> --orientation`,
+        );
         return 1;
       }
       const mapRef = selectedFile ? resolve(target, selectedFile) : resolve(target, spaceMap.file);
       try {
-        const orientationResult = await loadMapOrientation(mapRef, process.cwd(), { budget });
+        const orientationResult = await loadMapOrientation(mapRef, target, { budget });
         const data = {
           kind: "map-orientation",
           path: orientationResult.note.path,
