@@ -266,7 +266,8 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads push --remote <team-remote>  # never origin/GitHub",
     "ideaspaces threads read x_<id> --new --ack  # hosted",
     "ideaspaces threads open <slug> --depth children  # branch roots/tips and child Threads attached by post path",
-    "ideaspaces threads open <slug> --depth full --limit 10 --order older  # page history; --since <post-id> continues",
+    "ideaspaces threads open <slug> --depth surface --limit 5  # head counts toward the limit; --order newer reverses the selected page",
+    "ideaspaces threads open <slug> --depth full --limit 10 --order older  # page history; --since <post-id> continues (older order only)",
     "ideaspaces threads open <slug> --post msg_<id>  # one exact post plus child Threads attached to it",
     "ideaspaces threads open <slug|x_id> --post <id>  # one post in full, regardless of --depth",
   ],
@@ -276,8 +277,10 @@ export const threadsCommand: CommandDef = {
     try {
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
+      if ((sub === "open" || sub === "read") && HOSTED.test(rest[0] ?? "") && (flags.limit !== undefined || flags.order !== undefined)) {
+        throw new Error("Local open only: --limit and --order are not supported for hosted Threads.");
+      }
       if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || sub === "posts" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
-        if (sub === "read" && HOSTED.test(rest[0] ?? "") && (flags.limit !== undefined || flags.order !== undefined)) throw new Error("Local open only: --limit and --order are not supported for hosted Threads.");
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
           return threadsCommand.run(["open", rest[0]], flags, global);
         }
@@ -391,10 +394,7 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");
-        if (HOSTED.test(rest[0])) {
-          if (flags.limit !== undefined || flags.order !== undefined) throw new Error("Local open only: --limit and --order are not supported for hosted Threads.");
-          return hostedThreadsCommand.run(["read", rest[0]], flags, global);
-        }
+        if (HOSTED.test(rest[0])) return hostedThreadsCommand.run(["read", rest[0]], flags, global);
         selectionFlags(flags);
         if (flags.map !== undefined && flags.member === undefined) throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");
         if (flags.map !== undefined && flags.member !== undefined) {
@@ -438,6 +438,7 @@ export const threadsCommand: CommandDef = {
         if (flags.since !== undefined && !since) throw new Error("--since requires an ISO date or post id.");
         const newOnly = yes(flags, "new");
         if (newOnly && since) throw new Error("Use either --new or --since, not both.");
+        if (since && order === "newer") throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         if (postId && (newOnly || since || limit !== undefined || order)) throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
         const seen = newOnly ? readCursor(thread) : new Set<string>();
         let posts = thread.posts.filter((p) => !seen.has(p.id));
@@ -472,8 +473,9 @@ export const threadsCommand: CommandDef = {
         else if (!postId && rung !== "name" && rung !== "children") {
           if (rung === "surface") {
             const head = posts.find((p) => p.kind === "snapshot" || p.kind === "reframe");
-            const tail = posts.slice(-(limit ?? 5));
-            posts = head && !tail.some((p) => p.id === head.id) ? [head, ...tail] : tail;
+            const tailLimit = (limit ?? 5) - (head ? 1 : 0);
+            const tail = tailLimit > 0 ? posts.slice(-tailLimit) : [];
+            posts = head ? [head, ...tail.filter((p) => p.id !== head.id)] : tail;
             if (order === "newer") posts.reverse();
           } else {
             if (order === "newer") posts = [...posts].reverse();

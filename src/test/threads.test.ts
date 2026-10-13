@@ -692,16 +692,17 @@ describe("local Threads", () => {
     try {
       expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "1" }, flags)).toBe(0);
       const surface = JSON.parse(out);
-      expect(surface.posts.map((p: { id: string }) => p.id)).toEqual([snapshot.post.id, last.post.id]);
+      expect(surface.posts.map((p: { id: string }) => p.id)).toEqual([snapshot.post.id]);
       expect(surface.matching).toBe(4); // includes opening post before the snapshot
       out = "";
-      expect(await threadsCommand.run(["open", "large"], { depth: "surface", order: "newer", limit: "1" }, flags)).toBe(0);
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", order: "newer", limit: "2" }, flags)).toBe(0);
       expect(JSON.parse(out).posts.map((p: { id: string }) => p.id)).toEqual([last.post.id, snapshot.post.id]);
       out = "";
-      expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "2" }, flags)).toBe(0);
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "3" }, flags)).toBe(0);
       const preview = JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id);
       expect(preview.body).toContain("body truncated; use --post");
       expect(preview.body_truncated).toBe(true);
+      expect(await threadsCommand.run(["open", "large"], { depth: "full", since: snapshot.post.id, order: "newer" }, flags)).toBe(1);
       out = "";
       expect(await threadsCommand.run(["open", "large"], { depth: "full", limit: "10" }, flags)).toBe(0);
       expect(JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id).body.trim()).toBe("Z".repeat(1200));
