@@ -1,8 +1,33 @@
 import { realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 /** Host-selected working coordinates, not user-message text or a reference mount.
  * Resolve only explicitly supplied local paths; never fetch or read their content. */
+/** A Space Map owns working material; the storage folder supplied by an older Desktop is not
+ * material. The runtime cwd remains the separate POV. Both local runners use this same rule. */
+export function spaceMapLaunchPosition(
+  povRoot: string, mapPath: string, firstRoot: string | undefined,
+  suppliedRoot: string | undefined, focus: string | undefined,
+): { workingRoot?: string; orientation?: string; notice?: string } {
+  let supplied: string | undefined;
+  if (suppliedRoot) {
+    try { supplied = realpathSync(suppliedRoot); }
+    catch { throw new Error(`--working-root ${suppliedRoot} does not exist as a local directory. Omit it for this Space Map or connect its first root.`); }
+  }
+  const first = firstRoot ? realpathSync(firstRoot) : undefined;
+  const storage = realpathSync(dirname(mapPath));
+  if (supplied && supplied !== storage && supplied !== first) {
+    throw new Error(`--working-root ${supplied} conflicts with this Space Map: its first root is ${first ?? "unavailable here"}. Omit --working-root or choose the first Map root.`);
+  }
+  if (!first && focus) throw new Error("Cannot focus inside a Space Map with no reachable first root. Connect the first root or omit --focus.");
+  return {
+    ...(first ? { workingRoot: first, orientation: localLaunchOrientation(povRoot, first, focus) } : {}),
+    ...(supplied && supplied === storage
+      ? { notice: `Ignoring --working-root ${suppliedRoot}: the Map storage folder is not material. The first Map root is the default folder for new work; shell cwd remains the POV.` }
+      : {}),
+  };
+}
+
 export function localLaunchOrientation(
   povRoot: string,
   workingRoot: string,

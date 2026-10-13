@@ -6,10 +6,11 @@ import {
   type MapPositionMember,
 } from "@ideaspaces/protocol";
 import { LAUNCH_MAP_ENV } from "./address-read.js";
+import { projectMapAgents, type MapAgentsResult } from "./map-agents.js";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 import { lookAtCommit } from "./map-look.js";
-import { defaultReadAt, defaultRootNames, mapContextDir, mapKindOf, readMapRoot, type MapReadAt, type MapReadResult } from "./map-resolve.js";
-import { inspectSpaceMapRoots, type SpaceMapRootDrift } from "./space-map.js";
+import { defaultReadAt, defaultRootNames, mapKindOf, readMapRoot, type MapReadAt, type MapReadResult } from "./map-resolve.js";
+import { inspectSpaceMapRoots, mapContextDir, type SpaceMapRootDrift } from "./space-map.js";
 
 /**
  * What a launch Map may add to the session's starting context, in characters. Over it, members
@@ -46,6 +47,9 @@ export interface MapOrientationLowered {
 export interface MapOrientationResult {
   text: string;
   note: LoadedMapNote;
+  /** Reachable roots in authored order; first root remains primary even when unavailable. */
+  localRoots: string[];
+  firstRoot: string | undefined;
   budget: number;
   lowered: MapOrientationLowered[];
   legend: boolean;
@@ -75,6 +79,7 @@ export async function loadMapOrientation(
   const at = options.at ?? defaultReadAt(kind);
 
   const inspected = inspectSpaceMapRoots(note.map.roots, mapContextDir(note.absolutePath));
+  const agents = kind === "space" ? projectMapAgents(note, { cwd: mapContextDir(note.absolutePath) }) : undefined;
   const defaults = defaultRootNames(inspected);
   const names = note.map.roots.map((root, index) => root.name ?? defaults[index]);
   const located: Located[] = inspected.map((drift, index) => ({
@@ -100,7 +105,7 @@ export async function loadMapOrientation(
   let legend = true;
   for (;;) {
     for (const entry of reads) await ensureLook(entry, effective.get(entry.index)!);
-    const text = render(note, kind, at, located, reads, effective, { budget, legend });
+    const text = render(note, kind, at, located, reads, effective, { budget, legend }, agents);
     if (text.length <= budget) {
       const lowered: MapOrientationLowered[] = reads
         .filter((entry) => effective.get(entry.index) !== entry.declared)
@@ -112,6 +117,8 @@ export async function loadMapOrientation(
       return {
         text,
         note,
+        localRoots: kind === "space" ? [...new Set(inspected.flatMap((root) => root.checkoutPath ? [root.checkoutPath] : []))] : [],
+        firstRoot: kind === "space" ? inspected[0]?.checkoutPath ?? undefined : undefined,
         budget,
         lowered,
         legend: Boolean(note.legend && legend),
@@ -176,6 +183,7 @@ function render(
   reads: MemberRead[],
   effective: Map<number, MapDepth>,
   state: { budget: number; legend: boolean },
+  agents?: MapAgentsResult,
 ): string {
   const lowered = reads
     .filter((entry) => effective.get(entry.index) !== entry.declared)
@@ -192,28 +200,75 @@ function render(
   ];
   if (note.name) lines.push(`Name: ${quoted(note.name)}`);
   if (note.summary) lines.push(`Summary: ${quoted(note.summary)}`);
+  if (kind === "space") {
+    lines.push("This Map's roots are the Space. It is starting context, not an authority limit; its storage folder only resolves relative paths and is never material. On Claude, locally resolved roots are passed as --add-dir and appear in message_start.added_dirs, widening file-tool reach subject to runtime permissions; a pointer alone grants no OS permission.");
+    if (note.map.roots.length === 0) {
+      lines.push("This Space is empty: it has no roots. Work from the separate POV, say the Space is empty, and offer to add a root. Do not treat the Map's storage folder as a workspace.");
+    } else {
+      const first = located[0]?.drift.checkoutPath;
+      lines.push(first
+        ? `First root (default folder for new material): ${quoted(first)}. Work there by default; the POV remains separate. The shell starts in the POV, not this root; use absolute paths or change directory explicitly.`
+        : "The first root is the default folder for new material, but it has no local checkout here. Do not substitute the Map's storage folder or a later root; ask to connect the first root. The POV remains separate.");
+      lines.push("Every other root that exists on this device is reachable material in the Space, not an authority boundary.");
+    }
+    lines.push(`Edit this Space with ideaspaces map add ${quoted(note.absolutePath)} or ideaspaces map remove ${quoted(note.absolutePath)}; run ideaspaces map --help for forms.`);
+  }
 
   lines.push(`Roots (${note.map.roots.length}, ordered):`);
   for (const [index, root] of note.map.roots.entries()) {
     const found = located[index];
     const identity = root.root_node_id ?? root.repo ?? "no identity";
-    const state_ = found?.drift.checkoutPath
-      ? found.drift.drift
-        ? `checkout at ${found.drift.headSha ?? "no HEAD"}, drifted from pin ${root.sha}`
-        : `checkout at pin ${root.sha}`
-      : `unreachable here, pin ${root.sha}`;
+    const state_ = !root.sha && kind === "space"
+      ? found?.drift.checkoutPath
+        ? `found at HEAD ${found.drift.headSha ?? "unborn"}`
+        : "unavailable here (no local checkout)"
+      : found?.drift.checkoutPath
+        ? found.drift.drift
+          ? `checkout at ${found.drift.headSha ?? "no HEAD"}, drifted from pin ${root.sha}`
+          : `checkout at pin ${root.sha}`
+        : `unreachable here, pin ${root.sha}`;
     lines.push(`  [${index}] ${line(`@${found?.name ?? identity}`)} — ${line(identity)} — ${state_}`);
   }
 
   lines.push(`Members (${note.map.members.length}, ordered):`);
+  if (kind === "space" && note.map.members.length === 0) {
+    lines.push("  This Space has no selected members.");
+  }
   const byIndex = new Map(reads.map((entry) => [entry.index, entry]));
   for (const [index, member] of note.map.members.entries()) {
     const entry = byIndex.get(index);
     if (!entry) {
-      lines.push(`  [${index}] ${renderAddressMember(member as MapAddressMember)}`);
+      lines.push(`  [${index}] ${renderAddressMember(member as MapAddressMember, kind)}`);
       continue;
     }
-    lines.push(...renderMember(entry, effective.get(index)!));
+    const locatedRoot = located[entry.member.root];
+    const isAgent = Boolean(
+      agents?.agents.some(
+        (a) =>
+          a.path === locatedRoot?.drift.checkoutPath ||
+          (locatedRoot?.drift.rootNodeId && a.root_node_id === locatedRoot.drift.rootNodeId),
+      ),
+    );
+    const position = entry.member.position;
+    const type = position === "." || position === ""
+      ? isAgent ? "Agent" : "Repo"
+      : position === "_threads" || position.startsWith("_threads/")
+        ? "Thread"
+        : position.endsWith(".map.md")
+          ? "Map"
+          : entry.read.kind === "directory" ? "Folder" : "Note";
+    lines.push(...renderMember(entry, effective.get(index)!, kind === "space" ? type : undefined));
+  }
+
+  if (kind === "space") {
+    lines.push(`Agents in this Space (${agents?.agents.length ?? 0}):`);
+    if (agents && agents.agents.length > 0) {
+      for (const agent of agents.agents) {
+        lines.push(`  ${quoted(agent.name)} — ${quoted(agent.path)}${agent.summary ? ` — ${quoted(agent.summary)}` : ""}`);
+      }
+    } else {
+      lines.push("  (none selected or reachable here)");
+    }
   }
 
   if (state.legend && note.legend) {
@@ -230,18 +285,18 @@ function render(
  * with content quoted or `| `-prefixed, and without the reference frame a full look repeats per
  * member, which would spend the budget on the same Agreement many times.
  */
-function renderMember(entry: MemberRead, depth: MapDepth): string[] {
+function renderMember(entry: MemberRead, depth: MapDepth, type?: string): string[] {
   const { index, member, label, read } = entry;
   const lowered = depth !== entry.declared ? ` (declared ${entry.declared})` : "";
   const authored = scalar(member.summary);
   const look = entry.looks.get(depth);
   if (typeof look !== "object" || !look) {
-    const lines = [`  [${index}] ${label} — ${read.status === "missing_path" ? "missing" : read.status}: ${look ?? read.status}`];
+    const lines = [`  [${index}] ${label} — ${type ? `${type}, ` : ""}${read.status === "missing_path" ? "missing" : read.status}: ${look ?? read.status}`];
     if (authored) lines.push(`      map summary: ${quoted(authored)}`);
     return lines;
   }
   const where = read.commit ? ` at ${read.at} ${read.commit.slice(0, 12)}` : "";
-  const lines = [`  [${index}] ${label} — ${look.kind}, ${depth}${lowered}${where}`];
+  const lines = [`  [${index}] ${label} — ${type ? `${type}, ` : ""}${look.kind}, ${depth}${lowered}${where}`];
   if (authored) lines.push(`      map summary: ${quoted(authored)}`);
   lines.push(`      name: ${quoted(look.name)}`);
   if (look.summary !== undefined) lines.push(`      summary: ${look.summary === null ? "(none)" : quoted(look.summary)}`);
@@ -267,9 +322,16 @@ function renderMember(entry: MemberRead, depth: MapDepth): string[] {
   return lines;
 }
 
-function renderAddressMember(member: MapAddressMember): string {
+function renderAddressMember(member: MapAddressMember, kind?: "space" | "thread"): string {
+  const addressType = member.address.startsWith("https://") || member.address.startsWith("http://")
+    ? "URL (not fetched)"
+    : member.address.startsWith("thread:")
+      ? "Hosted Thread"
+      : member.address.startsWith("agent:")
+        ? "Agent address"
+        : "Address (not fetched)";
   return [
-    "kind=address",
+    kind === "space" ? `kind=${quoted(addressType)}` : "kind=address",
     `address=${quoted(member.address)}`,
     `depth=${member.depth ?? "unspecified"}`,
     ...(["name", "summary", "attached_to"] as const)

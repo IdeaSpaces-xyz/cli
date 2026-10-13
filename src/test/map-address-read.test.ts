@@ -300,14 +300,14 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       const second = await loadMapOrientation("space.map.md", space);
       expect(second.text).toBe(first.text);
       expect(first.text).toContain("Budget: 12000 characters");
-      expect(first.text).toContain("[0] @notes//ideas — directory, children at head");
+      expect(first.text).toContain("[0] @notes//ideas — Folder, directory, children at head");
       expect(first.text).toContain('"ideas/first.md" — "The wording after the pin."');
       expect(first.text).toContain('map summary: "Ideas, by the curator."');
-      expect(first.text).toContain("[1] @plans//plans/one.md — markdown, surface at head");
+      expect(first.text).toContain("[1] @plans//plans/one.md — Note, markdown, surface at head");
       expect(first.text).toContain("        | # Plan one");
-      expect(first.text).toContain(`[2] @${ID_ABSENT}// — unreachable: No local checkout of ${ID_ABSENT}`);
+      expect(first.text).toContain(`[2] @${ID_ABSENT}// — Repo, unreachable: No local checkout of ${ID_ABSENT}`);
       expect(first.text).toContain('map summary: "A root nobody here has."');
-      expect(first.text).toContain('[3] kind=address address="https://example.com/source" depth=summary name="Primary source" (not read');
+      expect(first.text).toContain('[3] kind="URL (not fetched)" address="https://example.com/source" depth=summary name="Primary source" (not read');
       expect(first.text).toContain("  | A legend.");
       expect(first.text).not.toContain("ideaspaces-commit-read-");
     });
@@ -318,7 +318,7 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       expect(text.length).toBeLessThanOrEqual(full - 20);
       // The unreachable root is last and has no bytes to lower; the plan above it goes first.
       expect(text).toMatch(/lowered to fit: \[1\] surface→(summary|name)$/m);
-      expect(text).toContain("[0] @notes//ideas — directory, children at head");
+      expect(text).toContain("[0] @notes//ideas — Folder, directory, children at head");
     });
 
     it("omits the legend before refusing, and refuses when names alone do not fit", async () => {
@@ -328,8 +328,8 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       ], long);
       const roomy = await loadMapOrientation("long.map.md", space);
       expect(roomy.text).toContain("Legend line 59");
-      const tight = await loadMapOrientation("long.map.md", space, { budget: 1_200 });
-      expect(tight.text.length).toBeLessThanOrEqual(1_200);
+      const tight = await loadMapOrientation("long.map.md", space, { budget: 2_300 });
+      expect(tight.text.length).toBeLessThanOrEqual(2_300);
       expect(tight.text).toContain("lowered to fit: [0] full→name; legend omitted");
       expect(tight.text).not.toContain("Legend line");
       await expect(loadMapOrientation("long.map.md", space, { budget: 200 })).rejects.toThrow("every member at name");

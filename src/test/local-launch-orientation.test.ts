@@ -1,8 +1,8 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { localLaunchOrientation, spaceMapLaunchPosition } from "../local/launch-orientation.js";
 import { localConversationOps } from "../pi/local-conversation-ops.js";
 import type { Output } from "../output.js";
 const roots: string[] = [];
@@ -27,6 +27,20 @@ describe("Local launch orientation", () => {
     for (const focus of ["../agent", "/etc/passwd", "missing.md"]) {
       expect(() => localLaunchOrientation(pov, work, focus)).toThrow();
     }
+  });
+  it.skipIf(process.platform === "win32")("compares the Map's first root and supplied working root by canonical path", () => {
+    const { root, pov, work } = fixture();
+    const map = join(root, "space.map.md");
+    writeFileSync(map, "---\nmap:\n  roots: []\n  members: []\n---\n");
+    const alias = join(root, "material-alias");
+    symlinkSync(work, alias);
+    const position = spaceMapLaunchPosition(pov, map, alias, work, "note.md");
+    expect(position.workingRoot).toBe(realpathSync(work));
+    expect(position.orientation).toContain('"focus":"note.md"');
+    expect(() => spaceMapLaunchPosition(pov, map, work, pov, undefined)).toThrow("conflicts with this Space Map");
+    expect(() => spaceMapLaunchPosition(pov, map, work, join(root, "missing"), undefined)).toThrow("does not exist");
+    expect(() => spaceMapLaunchPosition(pov, map, undefined, root, "note.md")).toThrow("no reachable first root");
+    expect(spaceMapLaunchPosition(pov, map, undefined, root, undefined).notice).toContain("storage folder is not material");
   });
   it.skipIf(process.platform === "win32")("rejects symlink escapes", () => {
     const { pov, work } = fixture();

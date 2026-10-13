@@ -36,8 +36,8 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "response", command: "get_state", success: true, data: { sessionName: "Map test" } }));
     }
     if (command.type === "prompt") {
-      const complete = orientation.includes("[0] @n_0123456789abcdef01234567//reports/market.md — unreachable")
-        && orientation.includes('kind=address address="https://example.com/source" depth=summary')
+      const complete = orientation.includes("[0] @n_0123456789abcdef01234567//reports/market.md — Note, unreachable")
+        && orientation.includes('kind="URL (not fetched)" address="https://example.com/source" depth=summary')
         && (process.env.IDEASPACES_MAP ?? "").endsWith("territory.md");
       const text = complete ? "position and address territory available" : "map orientation missing";
       console.log(JSON.stringify({ type: "response", command: "prompt", success: true }));

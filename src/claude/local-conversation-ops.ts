@@ -7,7 +7,8 @@ import type { LocalConversationOps } from "../commands/conversation.js";
 import { observedEvent } from "../local/observed-event.js";
 import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
-import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { mapKindOf } from "../local/map-resolve.js";
+import { localLaunchOrientation, spaceMapLaunchPosition } from "../local/launch-orientation.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, prepareUnpinnedThreadLaunch, type HostedThreadLaunch, type LocalThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import {
   CLAUDE_AUTH_MODES,
@@ -105,11 +106,17 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   }
   let mapOrientation: string | undefined;
   let mapPath: string | undefined;
+  let spaceRoots: string[] | undefined;
+  let firstSpaceRoot: string | undefined;
   if (typeof flags.map === "string") {
     try {
       const loaded = await loadMapOrientation(flags.map, repoPath);
       mapOrientation = loaded.text;
       mapPath = loaded.note.absolutePath;
+      if (mapKindOf(mapPath) === "space") {
+        spaceRoots = loaded.localRoots;
+        firstSpaceRoot = loaded.firstRoot;
+      }
     } catch (err) {
       return reportLocalError(err, output);
     }
@@ -124,14 +131,28 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       return 1;
     }
     try {
-      workingRoot = flags["working-root"];
-      launchOrientation = localLaunchOrientation(repoPath, workingRoot, flags.focus as string | undefined);
+      // An older Desktop send may pass the Map storage folder as --working-root.
+      // A Space Map, not that folder, chooses the working material.
+      if (!spaceRoots) {
+        workingRoot = flags["working-root"];
+        launchOrientation = localLaunchOrientation(repoPath, workingRoot, flags.focus as string | undefined);
+      }
     } catch (err) {
       return reportLocalError(err, output);
     }
   }
 
-  const addedDirs = options?.addedDirs ?? [];
+  if (spaceRoots) {
+    try {
+      const position = spaceMapLaunchPosition(repoPath, mapPath!, firstSpaceRoot, flags["working-root"] as string | undefined, flags.focus as string | undefined);
+      workingRoot = position.workingRoot;
+      launchOrientation = position.orientation;
+      if (position.notice) output.log(position.notice);
+    } catch (err) {
+      return reportLocalError(err, output);
+    }
+  }
+  const addedDirs = [...(options?.addedDirs ?? []), ...(spaceRoots ?? [])];
   const allowedTools = options?.allowedTools;
 
   let threadLaunch: PinnedThreadLaunch | LocalThreadLaunch | HostedThreadLaunch | undefined;

@@ -6,7 +6,7 @@ import {
 } from "@ideaspaces/protocol";
 import type { LoadedMapNote } from "./map-note.js";
 import { readMapRoot } from "./map-resolve.js";
-import { inspectSpaceMapRoots } from "./space-map.js";
+import { inspectSpaceMapRoots, mapContextDir } from "./space-map.js";
 
 export interface MapAgentListing {
   name: string;
@@ -56,7 +56,12 @@ export function projectMapAgents(
   const roots = mapBlock.roots ?? [];
   const members = mapBlock.members ?? [];
 
-  const located = inspectSpaceMapRoots(roots, options?.cwd ?? process.cwd());
+  const contextDir =
+    options?.cwd ??
+    ("absolutePath" in mapInput && typeof mapInput.absolutePath === "string"
+      ? mapContextDir(mapInput.absolutePath)
+      : process.cwd());
+  const located = inspectSpaceMapRoots(roots, contextDir);
 
   const agents: MapAgentListing[] = [];
   const unresolved: MapUnresolvedRoot[] = [];

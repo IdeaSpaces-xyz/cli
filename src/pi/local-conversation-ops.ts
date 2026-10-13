@@ -12,7 +12,8 @@ import { joinLocalOrientation, type LocalSendOptions } from "../local/send-optio
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
 import { canResumePiConversation, getLocalConversation, listLocalConversations, mintConversationId } from "./local-conversations.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
-import { localLaunchOrientation } from "../local/launch-orientation.js";
+import { mapKindOf } from "../local/map-resolve.js";
+import { localLaunchOrientation, spaceMapLaunchPosition } from "../local/launch-orientation.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, prepareUnpinnedThreadLaunch, type HostedThreadLaunch, type LocalThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 
 type Flags = Record<string, string | boolean>;
@@ -99,11 +100,15 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   }
   let mapOrientation: string | undefined;
   let mapPath: string | undefined;
+  let spaceMap = false;
+  let firstSpaceRoot: string | undefined;
   if (typeof flags.map === "string") {
     try {
       const loaded = await loadMapOrientation(flags.map, repoPath);
       mapOrientation = loaded.text;
       mapPath = loaded.note.absolutePath;
+      spaceMap = mapKindOf(mapPath) === "space";
+      if (spaceMap) firstSpaceRoot = loaded.firstRoot;
     } catch (err) {
       return reportLocalError(err, output);
     }
@@ -120,8 +125,22 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       return 1;
     }
     try {
-      workingRoot = flags["working-root"];
-      launchOrientation = localLaunchOrientation(repoPath, workingRoot, flags.focus as string | undefined);
+      // A Space Map supersedes the old Desktop's folder-based working root.
+      if (!spaceMap) {
+        workingRoot = flags["working-root"];
+        launchOrientation = localLaunchOrientation(repoPath, workingRoot, flags.focus as string | undefined);
+      }
+    } catch (err) {
+      return reportLocalError(err, output);
+    }
+  }
+
+  if (spaceMap) {
+    try {
+      const position = spaceMapLaunchPosition(repoPath, mapPath!, firstSpaceRoot, flags["working-root"] as string | undefined, flags.focus as string | undefined);
+      workingRoot = position.workingRoot;
+      launchOrientation = position.orientation;
+      if (position.notice) output.log(position.notice);
     } catch (err) {
       return reportLocalError(err, output);
     }

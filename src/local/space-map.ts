@@ -1,10 +1,11 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseFrontmatter, type MapMember, type MapRoot } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
+import { loadMapCheckouts } from "./map-checkouts.js";
 import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
 import { deriveGitBase } from "../auth/api.js";
-import { headSha, normalizeRepoUrl, originUrl } from "../git.js";
+import { headSha, normalizeRepoUrl, originUrl, repoRoot } from "../git.js";
 import { canonicalRepoUrl, parseRepoLocator } from "../repo-locator.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
@@ -152,6 +153,18 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
   let knownSpaces: SpacesMap | null = null;
   let selfId: string | null | undefined;
   let childPaths: Map<string, string> | null = null;
+  let mapCheckouts: Record<string, string> | null = null;
+  const hints = (): Record<string, string> => {
+    if (mapCheckouts !== null) return mapCheckouts;
+    try { mapCheckouts = loadMapCheckouts(); }
+    catch (error) {
+      // Device hints must not make an otherwise reachable Map unusable. Writes
+      // still fail loudly until the broken file is repaired.
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}. Ignoring checkout hints for this read.\n`);
+      mapCheckouts = {};
+    }
+    return mapCheckouts;
+  };
   let capped = false;
   const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
   const spaces = (): SpacesMap => {
@@ -252,7 +265,18 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
       }
     }
 
-    // 4. Determine status and drift
+    // 4. Device-local Map checkout hints, separate from the hosted registry so
+    // older CLI and Desktop versions cannot drop them when rewriting spaces.json.
+    if (!checkoutPath && rootNodeId) {
+      for (const [path, id] of Object.entries(hints())) {
+        if (id === rootNodeId && existsSync(path) && getRepoRootNodeId(path, apiUrl, spaces) === id) {
+          checkoutPath = path;
+          break;
+        }
+      }
+    }
+
+    // 5. Determine status and drift
     let head: string | null = null;
     if (checkoutPath) {
       try {
@@ -303,6 +327,20 @@ export function checkoutRootNodeId(dir: string): string | null {
   });
 }
 
+/**
+ * Where a Map's roots are looked for: the repository holding the note, so a Thread's Map under
+ * `_threads/<thread>/_agent/maps/` finds the same checkouts as the Space's Map at the top.
+ * Outside a repository, the note's own folder.
+ */
+export function mapContextDir(notePath: string): string {
+  const folder = dirname(notePath);
+  try {
+    return repoRoot(folder);
+  } catch {
+    return folder;
+  }
+}
+
 /** Load and inspect a curated `*.map.md` in the target directory if one exists. */
 export function inspectSpaceMap(dir: string, mapFileName?: string): SpaceMapInspection | null {
   const discovery = discoverSpaceMapFiles(dir);
@@ -310,7 +348,8 @@ export function inspectSpaceMap(dir: string, mapFileName?: string): SpaceMapInsp
   if (!fileName) return null;
 
   const note = loadMapNote(fileName, dir);
-  const roots = inspectSpaceMapRoots(note.map.roots, dir);
+  const contextDir = mapContextDir(note.absolutePath);
+  const roots = inspectSpaceMapRoots(note.map.roots, contextDir);
   return {
     file: fileName,
     otherFiles: discovery?.otherFiles ?? [],
