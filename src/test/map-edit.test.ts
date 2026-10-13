@@ -9,6 +9,8 @@ import { agentCommand } from "../commands/agent.js";
 import { navigateCommand } from "../commands/navigate.js";
 import { loadMapNote } from "../local/map-note.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
+import { claudeConversationOps as claudeConversation } from "../claude/local-conversation-ops.js";
+import { localConversationOps as piConversation } from "../pi/local-conversation-ops.js";
 import { resolveMapAddress } from "../local/map-resolve.js";
 
 const global = { json: true, quiet: false, yes: false, help: false };
@@ -405,6 +407,74 @@ describe("map authoring", () => {
 
       // Budget check
       expect(text.length).toBeLessThanOrEqual(12_000);
+
+      // A pre-Map Desktop still sends the Map storage folder as --working-root.
+      // Both runtimes must override that material instruction, but preserve POV cwd.
+      const claudeArgsFile = join(dir, "claude-args.json");
+      const fakeClaude = join(dir, "fake-claude.cjs");
+      await fs.writeFile(fakeClaude, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.writeFileSync(${JSON.stringify(claudeArgsFile)}, JSON.stringify({args, cwd: process.cwd()}));
+const id = args[args.indexOf('--session-id') + 1];
+console.log(JSON.stringify({type:'system',subtype:'init',session_id:id,model:'fake',cwd:process.cwd()}));
+console.log(JSON.stringify({type:'result',subtype:'success',is_error:false,result:'ok',num_turns:1,total_cost_usd:0,usage:{input_tokens:1,output_tokens:1}}));
+`);
+      await fs.chmod(fakeClaude, 0o755);
+      const errors: string[] = [];
+      const output = { result() {}, log() {}, progress() {}, error(message: string) { errors.push(message); } };
+      const stdout = process.stdout.write;
+      process.stdout.write = (() => true) as typeof stdout;
+      try {
+        expect(await claudeConversation.send({
+          context: dir, map: file, "working-root": maps, message: "Where is the Space?",
+          conversation: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "claude-bin": fakeClaude,
+        }, output)).toBe(0);
+      } finally {
+        process.stdout.write = stdout;
+      }
+      expect(errors).toEqual([]);
+      const invoked = JSON.parse(await fs.readFile(claudeArgsFile, "utf8")) as { args: string[]; cwd: string };
+      expect(invoked.cwd).toBe(realpathSync(dir));
+      expect(invoked.args.filter((arg) => arg === "--add-dir")).toHaveLength(2);
+      expect(invoked.args).toContain(realpathSync(agentDir));
+      expect(invoked.args).toContain(realpathSync(repoDir));
+      expect(invoked.args).not.toContain(realpathSync(maps));
+      const prompt = invoked.args[invoked.args.indexOf("--append-system-prompt") + 1];
+      expect(prompt).toContain("This Map's roots are the Space");
+      expect(prompt).toContain(`First root (default folder for new material): "${realpathSync(agentDir)}"`);
+      expect(prompt).not.toContain(`"workingRoot":"${realpathSync(maps)}"`);
+
+      const fakePi = join(dir, "fake-pi.cjs");
+      const piArgsFile = join(dir, "pi-args.json");
+      await fs.writeFile(fakePi, `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.writeFileSync(${JSON.stringify(piArgsFile)}, JSON.stringify({args, cwd: process.cwd()}));
+process.stdin.on('data', d => {
+  if (!String(d).includes('"type":"prompt"')) return;
+  console.log(JSON.stringify({type:'response',command:'prompt',success:true}));
+  console.log(JSON.stringify({type:'agent_start'}));
+  console.log(JSON.stringify({type:'turn_start'}));
+  console.log(JSON.stringify({type:'agent_end'}));
+});
+`);
+      await fs.chmod(fakePi, 0o755);
+      process.stdout.write = (() => true) as typeof stdout;
+      try {
+        expect(await piConversation.send({
+          context: dir, map: file, "working-root": maps, message: "Where is the Space?",
+          conversation: "map-root-test", ext: "/fake/extension", "pi-bin": fakePi,
+        }, output)).toBe(0);
+      } finally {
+        process.stdout.write = stdout;
+      }
+      expect(errors).toEqual([]);
+      const piInvoked = JSON.parse(await fs.readFile(piArgsFile, "utf8")) as { args: string[]; cwd: string };
+      expect(piInvoked.cwd).toBe(realpathSync(dir));
+      const piPrompt = piInvoked.args[piInvoked.args.indexOf("--append-system-prompt") + 1];
+      expect(piPrompt).toContain("This Map's roots are the Space");
+      expect(piPrompt).not.toContain(`"workingRoot":"${realpathSync(maps)}"`);
     } finally {
       process.env.HOME = originalHome;
       process.chdir(originalCwd);
