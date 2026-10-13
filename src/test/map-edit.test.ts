@@ -102,6 +102,9 @@ describe("map authoring", () => {
       const hintFile = join(process.env.HOME!, ".ideaspaces", "map-checkouts.json");
       await fs.writeFile(hintFile, "{invalid json");
       expect(() => mapCheckouts.loadMapCheckouts()).toThrow("Repair or move that file");
+      // Corrupt device hints degrade a read, not the whole Map or its other roots.
+      expect((await run([file])).code).toBe(0);
+      expect((await run([file])).data.roots[0].status).toBe("unresolved");
       await fs.writeFile(hintFile, JSON.stringify({ relative: id }));
       expect(() => mapCheckouts.loadMapCheckouts()).toThrow("Invalid Map checkout hints");
       await fs.writeFile(hintFile, JSON.stringify(checkouts));

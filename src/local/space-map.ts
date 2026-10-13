@@ -153,7 +153,18 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
   let knownSpaces: SpacesMap | null = null;
   let selfId: string | null | undefined;
   let childPaths: Map<string, string> | null = null;
-  const mapCheckouts = loadMapCheckouts();
+  let mapCheckouts: Record<string, string> | null = null;
+  const hints = (): Record<string, string> => {
+    if (mapCheckouts !== null) return mapCheckouts;
+    try { mapCheckouts = loadMapCheckouts(); }
+    catch (error) {
+      // Device hints must not make an otherwise reachable Map unusable. Writes
+      // still fail loudly until the broken file is repaired.
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}. Ignoring checkout hints for this read.\n`);
+      mapCheckouts = {};
+    }
+    return mapCheckouts;
+  };
   let capped = false;
   const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
   const spaces = (): SpacesMap => {
@@ -257,7 +268,7 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
     // 4. Device-local Map checkout hints, separate from the hosted registry so
     // older CLI and Desktop versions cannot drop them when rewriting spaces.json.
     if (!checkoutPath && rootNodeId) {
-      for (const [path, id] of Object.entries(mapCheckouts)) {
+      for (const [path, id] of Object.entries(hints())) {
         if (id === rootNodeId && existsSync(path) && getRepoRootNodeId(path, apiUrl, spaces) === id) {
           checkoutPath = path;
           break;
