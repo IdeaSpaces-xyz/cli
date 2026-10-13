@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "n
 import { dirname, join, resolve } from "node:path";
 import { parseFrontmatter, type MapMember, type MapRoot } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
+import { loadMapCheckouts } from "./map-checkouts.js";
 import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
 import { deriveGitBase } from "../auth/api.js";
 import { headSha, normalizeRepoUrl, originUrl, repoRoot } from "../git.js";
@@ -252,7 +253,18 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
       }
     }
 
-    // 4. Determine status and drift
+    // 4. Device-local Map checkout hints, separate from the hosted registry so
+    // older CLI and Desktop versions cannot drop them when rewriting spaces.json.
+    if (!checkoutPath && rootNodeId) {
+      for (const [path, id] of Object.entries(loadMapCheckouts())) {
+        if (id === rootNodeId && existsSync(path) && getRepoRootNodeId(path, apiUrl, spaces) === id) {
+          checkoutPath = path;
+          break;
+        }
+      }
+    }
+
+    // 5. Determine status and drift
     let head: string | null = null;
     if (checkoutPath) {
       try {

@@ -92,7 +92,14 @@ describe("map authoring", () => {
     try {
       const file = join(maps, "fresh.map.md");
       expect((await run(["create", file], { name: "Fresh", summary: "A new Space" })).code).toBe(0);
+      const stale = await run(["add", file], { position: ".", checkout: agent, "if-match": "0".repeat(64) });
+      expect(stale.error).toContain("Map base moved");
+      expect(existsSync(join(process.env.HOME!, ".ideaspaces", "map-checkouts.json"))).toBe(false);
       expect((await run(["add", file], { position: ".", checkout: agent })).code).toBe(0);
+      const checkouts = JSON.parse(await fs.readFile(join(process.env.HOME!, ".ideaspaces", "map-checkouts.json"), "utf8"));
+      expect(checkouts[realpathSync(agent)]).toBe(id);
+      // Older CLIs only rewrite spaces.json, not Map checkout hints.
+      expect(existsSync(join(process.env.HOME!, ".ideaspaces", "spaces.json"))).toBe(false);
       expect((await run(["add", file], { position: "note.md", root: "0" })).code).toBe(0);
       expect((await run(["add", file], { position: "_threads/local", root: "0" })).code).toBe(0);
       expect((await run(["add", file, "https://example.com/"])).code).toBe(0);
@@ -143,10 +150,11 @@ describe("map authoring", () => {
     expect((await run([file])).data.map.roots).toHaveLength(3);
     expect((await run(["remove", file, `@${first}//frictions`])).data.status).toBe("removed");
     expect((await run(["remove", file, `@${second}//`])).data.status).toBe("removed");
+    expect((await run(["remove", file], { "root-node-id": first })).error).toContain("still has members");
     const after = (await run([file])).data.map;
-    expect(after.roots).toEqual([{ root_node_id: first }, { root_node_id: third }]);
+    expect(after.roots).toEqual([{ root_node_id: first }, { root_node_id: second }, { root_node_id: third }]);
     expect(after.members).toEqual([
-      { root: 0, position: "." }, { root: 1, position: "_threads/local" }, { root: 0, position: "note.md" },
+      { root: 0, position: "." }, { root: 2, position: "_threads/local" }, { root: 0, position: "note.md" },
       { address: url }, { address: `agent:repo:${second}` }, { address: "thread:x_0123456789abcdef01234567" },
     ]);
     const bytes = await fs.readFile(file, "utf8");
@@ -155,9 +163,15 @@ describe("map authoring", () => {
     expect((await run(["remove", file, `@${first}//../outside`])).error).toContain("Invalid position address");
     expect((await run(["remove", file], { "root-node-id": first, position: "." })).data.status).toBe("removed");
     expect((await run(["remove", file, `@${first}//note.md`])).data.status).toBe("removed");
-    expect((await run([file])).data.map.roots).toEqual([{ root_node_id: third }]);
+    expect((await run([file])).data.map.roots).toEqual([{ root_node_id: first }, { root_node_id: second }, { root_node_id: third }]);
     expect((await run(["remove", file, `@${third}//_threads/local`])).data.status).toBe("removed");
-    expect((await run([file])).data.map).toMatchObject({ roots: [], members: [{ address: url }, { address: `agent:repo:${second}` }, { address: "thread:x_0123456789abcdef01234567" }] });
+    expect((await run([file])).data.map).toMatchObject({ roots: [{ root_node_id: first }, { root_node_id: second }, { root_node_id: third }], members: [{ address: url }, { address: `agent:repo:${second}` }, { address: "thread:x_0123456789abcdef01234567" }] });
+    expect((await run(["remove", file, "@typo//missing.md"])).error).toContain("unknown_name");
+    expect((await run(["remove", file], { "root-node-id": second })).data.status).toBe("root_removed");
+    expect((await run([file])).data.map.roots).toEqual([{ root_node_id: first }, { root_node_id: third }]);
+    expect((await run(["remove", file], { "root-node-id": first })).data.status).toBe("root_removed");
+    expect((await run(["remove", file], { "root-node-id": third })).data.status).toBe("root_removed");
+    expect((await run([file])).data.map.roots).toEqual([]);
   });
 
   it("reuses a canonical repo root and refuses an implicit pin change", async () => {

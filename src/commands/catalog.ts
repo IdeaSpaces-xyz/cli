@@ -14,9 +14,8 @@ import { gitState } from "@ideaspaces/protocol";
 import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import type { AuthMeRepo, AuthMeResponse } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
-import { isHostedSpaceRecord, isLocalSpaceRecord, isUnpublishedForkRecord, listClones } from "../auth/spaces.js";
+import { isHostedSpaceRecord, isUnpublishedForkRecord, listClones } from "../auth/spaces.js";
 import type { SpaceRecord } from "../auth/spaces.js";
-import { basename } from "node:path";
 import { fetch as gitFetch } from "../git.js";
 import { createOutput } from "../output.js";
 import { availableRootActions, rootRelationshipLabel } from "../root-actions.js";
@@ -39,7 +38,7 @@ export interface CloneEntry {
 
 /** A consolidated catalog row: identity + location + (when on disk) sync state. */
 export interface CatalogEntry {
-  state: "hosted" | "unpublished_fork" | "local";
+  state: "hosted" | "unpublished_fork";
   repo_id: string | null;
   root_node_id: string | null;
   slug: string | null;
@@ -92,20 +91,6 @@ export function deriveCatalog(
         namespace: "",
         source_root_node_id: record.source_root_node_id,
         source_head: record.source_head,
-        location: "local-only",
-        clone: { path },
-        ...syncOf(path),
-      };
-    }
-    if (isLocalSpaceRecord(record)) {
-      return {
-        state: "local",
-        repo_id: null,
-        root_node_id: record.root_node_id,
-        slug: null,
-        display_name: record.name ?? basename(path),
-        hostname: null,
-        namespace: "",
         location: "local-only",
         clone: { path },
         ...syncOf(path),
@@ -218,8 +203,6 @@ function formatHuman(entries: CatalogEntry[], notes: string[]): string {
     for (const entry of items) {
       if (entry.state === "unpublished_fork") {
         out.push(`  ${entry.display_name} — unpublished local fork${entry.clone ? `  ${entry.clone.path}` : ""}`);
-      } else if (entry.state === "local") {
-        out.push(`  ${entry.display_name} — local checkout${entry.clone ? `  ${entry.clone.path}` : ""}`);
       } else if (loc === "online-only") {
         out.push(`  ${entry.display_name} (${entry.namespace})`);
       } else {

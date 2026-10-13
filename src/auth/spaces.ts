@@ -80,23 +80,7 @@ export interface UnpublishedForkRecord {
   canonical_path?: never;
 }
 
-export interface LocalSpaceRecord {
-  kind: "local";
-  root_node_id: string;
-  name?: string;
-  repo_id?: never;
-  slug?: never;
-  namespace?: never;
-  route_status?: never;
-  route_namespace?: never;
-  route_slug?: never;
-  canonical_path?: never;
-  source_root_node_id?: never;
-  source_head?: never;
-  source_baseline_initialized?: never;
-}
-
-export type SpaceRecord = HostedSpaceRecord | UnpublishedForkRecord | LocalSpaceRecord;
+export type SpaceRecord = HostedSpaceRecord | UnpublishedForkRecord;
 
 /** Map of absolute folder path → local Space state. */
 export type SpacesMap = Record<string, SpaceRecord>;
@@ -105,12 +89,8 @@ export function isUnpublishedForkRecord(record: SpaceRecord): record is Unpublis
   return record.kind === "unpublished_fork";
 }
 
-export function isLocalSpaceRecord(record: SpaceRecord): record is LocalSpaceRecord {
-  return record.kind === "local";
-}
-
 export function isHostedSpaceRecord(record: SpaceRecord): record is HostedSpaceRecord {
-  return record.kind !== "unpublished_fork" && record.kind !== "local";
+  return record.kind !== "unpublished_fork";
 }
 
 function nonEmptyString(value: unknown): value is string {
@@ -145,29 +125,6 @@ function parseSpaceRecord(value: unknown): SpaceRecord | null {
       return null;
     }
     return value as UnpublishedForkRecord;
-  }
-
-  if (record.kind === "local") {
-    const forbidden = [
-      "repo_id",
-      "slug",
-      "namespace",
-      "route_status",
-      "route_namespace",
-      "route_slug",
-      "canonical_path",
-      "source_root_node_id",
-      "source_head",
-      "source_baseline_initialized",
-    ];
-    if (forbidden.some((field) => field in record)) return null;
-    if (
-      typeof record.root_node_id !== "string" ||
-      !isValidRootNodeId(record.root_node_id)
-    ) {
-      return null;
-    }
-    return value as LocalSpaceRecord;
   }
 
   if (record.kind !== undefined && record.kind !== "hosted") return null;

@@ -3,13 +3,14 @@ import { promises as fs, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parseDocument, stringify, YAMLSeq } from "yaml";
 import { parseCanonicalRepoUrl, parseMap, parseMapPositionAddress, resolveMapPositionAddress, type MapMember, type MapRoot } from "@ideaspaces/protocol";
-import { findSpaceFor, saveSpace } from "../auth/spaces.js";
+import { findSpaceFor } from "../auth/spaces.js";
+import { loadMapCheckouts, saveMapCheckout } from "../local/map-checkouts.js";
 import { repoRoot } from "../git.js";
 import { checkoutRootNodeId } from "../local/space-map.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>] | --checkout <repo> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address|@root//position> [--if-match <file_sha>]\n       ideaspaces map remove <map-note> --root-node-id <id> --position <path>";
+const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>] | --checkout <repo> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address|@root//position> [--if-match <file_sha>]\n       ideaspaces map remove <map-note> --root-node-id <id> --position <path>\n       ideaspaces map remove <map-note> --root-node-id <id>  # remove an empty root explicitly";
 
 function value(flags: Record<string, string | boolean>, key: string): string | undefined {
   const v = flags[key];
@@ -195,6 +196,8 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       if (!seq) { doc.setIn(["map", "members"], []); seq = doc.getIn(["map", "members"], true); }
       if (!(seq instanceof YAMLSeq)) throw new Error("Map members must be a sequence.");
       let index: number;
+      let registerCheckout: { path: string; id: string } | undefined;
+      let removedRoot = false;
       let already: "already_present" | "already_absent" | undefined;
       if (verb === "add") {
         const { member, root, checkout } = memberFrom(members, flags, parsed.map.roots);
@@ -205,7 +208,9 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
           if (existing && existing.root_node_id !== checkout.id) {
             throw new Error(`Local checkout record for ${checkout.path} disagrees with root ${checkout.id}; repair the record before editing the Map.`);
           }
-          if (!existing) saveSpace(checkout.path, { kind: "local", root_node_id: checkout.id });
+          const prior = loadMapCheckouts()[checkout.path];
+          if (prior && prior !== checkout.id) throw new Error(`Map checkout ${checkout.path} is registered as ${prior}, not ${checkout.id}.`);
+          if (!existing && !prior) registerCheckout = checkout;
         }
         if (root) {
           let roots = doc.getIn(["map", "roots"], true);
@@ -231,6 +236,25 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
         const byPosition = value(flags, "position");
         const id = value(flags, "root-node-id");
         if (byPosition && id && members.length === 0) members.push(`@${id}//${byPosition === "." ? "" : byPosition}`);
+        if (id && !byPosition && members.length === 0 && flags.root === undefined && flags.checkout === undefined && flags.sha === undefined) {
+          const matches = parsed.map.roots.flatMap((root, i) => rootIdentity(root) === id ? [i] : []);
+          if (matches.length !== 1) throw new Error(`Root ${id} is ${matches.length ? "ambiguous" : "not in this Map"}; choose one valid identity.`);
+          index = matches[0];
+          if (parsed.map.members.some((entry) => "root" in entry && entry.root === index)) {
+            throw new Error(`Root ${id} still has members. Remove those pointers first; roots are never removed implicitly.`);
+          }
+          const roots = doc.getIn(["map", "roots"], true);
+          if (!(roots instanceof YAMLSeq)) throw new Error("Map roots must be a sequence.");
+          roots.items.splice(index, 1);
+          for (const entry of seq.items) {
+            if (entry && typeof entry === "object" && "get" in entry && "set" in entry) {
+              const node = entry as { get(key: string): unknown; set(key: string, value: number): void };
+              const old = node.get("root");
+              if (typeof old === "number" && old > index) node.set("root", old - 1);
+            }
+          }
+          removedRoot = true;
+        } else {
         if (members.length !== 1 || (byPosition && !id) || (id && !byPosition) || flags.root !== undefined || flags.checkout !== undefined || flags.sha !== undefined) {
           throw new Error("map remove needs one address, or --root-node-id <id> --position <path> (index requires --if-match).");
         }
@@ -242,8 +266,11 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
           const address = parseMapPositionAddress(requested);
           if (address.status === "valid") {
             const resolved = resolveMapPositionAddress(parsed.map, address.address);
-            if (resolved.status === "invalid" || (resolved.status === "unresolved" && resolved.code !== "root_not_in_map" && resolved.code !== "unknown_name")) {
-              throw new Error(`Cannot remove ${requested}: ${resolved.status === "invalid" ? resolved.code : resolved.code}. Use a unique root identity or index plus --if-match.`);
+            if (resolved.status === "invalid" || (resolved.status === "unresolved" && resolved.code !== "root_not_in_map")) {
+              throw new Error(`Cannot remove ${requested}: ${resolved.code}. Use a known root identity or index plus --if-match.`);
+            }
+            if (resolved.status === "unresolved" && address.address.root.kind !== "identity") {
+              throw new Error(`Cannot remove ${requested}: root is not in this Map. Check the root name or identity.`);
             }
             const matches = resolved.status === "resolved"
               ? parsed.map.members.flatMap((entry, i) => "root" in entry && entry.root === resolved.rootIndex && entry.position === resolved.position ? [i] : [])
@@ -261,21 +288,10 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
           if (/^(0|[1-9]\d*)$/.test(requested)) throw new Error(`Member ${requested} was not found; run map ${file} --json to see indices.`);
           already = "already_absent";
         } else {
-          const removed = parsed.map.members[index];
           seq.items.splice(index, 1);
-          if ("root" in removed && typeof removed.root === "number" && !parsed.map.members.some((entry, i) => i !== index && "root" in entry && entry.root === removed.root)) {
-            const roots = doc.getIn(["map", "roots"], true);
-            if (!(roots instanceof YAMLSeq)) throw new Error("Map roots must be a sequence.");
-            roots.items.splice(removed.root, 1);
-            // The YAML node objects retain comments and annotations; only root indices move.
-            for (const entry of seq.items) {
-              if (entry && typeof entry === "object" && "get" in entry && "set" in entry) {
-                const node = entry as { get(key: string): unknown; set(key: string, value: number): void };
-                const old = node.get("root");
-                if (typeof old === "number" && old > removed.root) node.set("root", old - 1);
-              }
-            }
-          }
+          // Roots are the Space, not a cache of members. Removing its last member
+          // must not silently remove the root or change the identity of later indices.
+        }
         }
       }
       if (already) return { index: already === "already_absent" ? null : index, sha: hash(original), status: already };
@@ -288,9 +304,11 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       // Refuse edits made by non-cooperating writers while this command worked.
       if (hash(await fs.readFile(file, "utf8")) !== hash(original)) throw new Error(`Map base moved while editing ${file}. Re-read and retry.`);
       await replace(file, next);
-      return { index, sha: hash(next), status: verb === "add" ? "added" : "removed" };
+      // Never register a checkout on a refused/stale/locked Map edit.
+      if (registerCheckout) saveMapCheckout(registerCheckout.path, registerCheckout.id);
+      return { index, sha: hash(next), status: removedRoot ? "root_removed" : verb === "add" ? "added" : "removed" };
     }, output.error);
-    output.result({ path: file, member_index: changed.index, sha: changed.sha, status: changed.status }, `${changed.status === "already_present" ? "Already present" : changed.status === "already_absent" ? "Already absent" : verb === "add" ? "Added" : "Removed"} member ${changed.index}: ${file}`);
+    output.result({ path: file, member_index: changed.index, sha: changed.sha, status: changed.status }, `${changed.status === "already_present" ? "Already present" : changed.status === "already_absent" ? "Already absent" : changed.status === "root_removed" ? "Removed root" : verb === "add" ? "Added member" : "Removed member"} ${changed.index}: ${file}`);
     return 0;
   } catch (error) {
     output.error(`${errorMessage(error)}${(error as NodeJS.ErrnoException).code === "ENOENT" ? " (check the map path and its parent directory)" : ""}`);
