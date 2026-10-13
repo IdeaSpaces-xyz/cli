@@ -182,7 +182,7 @@ describe("map authoring", () => {
     const sha = "a".repeat(40);
     await fs.writeFile(file, `---\nname: Legacy\nmap:\n  roots:\n    - repo: https://ideaspaces.xyz/repos/${id}\n      sha: ${sha}\n  members:\n    - root: 0\n      position: .\n---\n`);
     const original = await fs.readFile(file, "utf8");
-    expect((await run(["add", file], { position: "note.md", "root-node-id": id })).error).toContain("different pin");
+    expect((await run(["add", file], { position: "note.md", "root-node-id": id })).error).toContain(`pinned to ${sha}, but this add requested no pin`);
     expect(await fs.readFile(file, "utf8")).toBe(original);
     expect((await run(["add", file], { position: "note.md", "root-node-id": id, sha })).data.status).toBe("added");
     expect((await run([file])).data.map).toMatchObject({ roots: [{ repo: `https://ideaspaces.xyz/repos/${id}`, sha }], members: [{ root: 0, position: "." }, { root: 0, position: "note.md" }] });
@@ -374,6 +374,7 @@ describe("map authoring", () => {
       // 2. Add members of various types
       const failedRegistry = vi.spyOn(mapCheckouts, "saveMapCheckout").mockImplementationOnce(() => { throw new Error("hint store unavailable"); });
       const partial = await run(["add", file], { position: ".", checkout: agentDir });
+      expect(partial.code).toBe(1);
       expect(partial.data.status).toBe("added_unregistered");
       expect(partial.error).toContain("Map edit succeeded but checkout registration failed");
       failedRegistry.mockRestore();

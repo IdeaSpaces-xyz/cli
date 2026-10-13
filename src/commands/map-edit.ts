@@ -84,7 +84,9 @@ function memberFrom(args: string[], flags: Record<string, string | boolean>, roo
     }
     let local: { path: string; id: string } | undefined;
     if (checkout) {
-      const path = realpathSync.native(repoRoot(checkout));
+      let path: string;
+      try { path = realpathSync.native(repoRoot(checkout)); }
+      catch { throw new Error(`--checkout ${checkout} must be a local Git checkout with a declared root identity.`); }
       const id = checkoutRootNodeId(path);
       if (!id) throw new Error(`Checkout ${path} has no valid repository root identity; declare a root_node_id in its Agreement or Foundation first.`);
       if (requestedId && requestedId !== id) throw new Error(`--root-node-id ${requestedId} does not match checkout ${path} (${id}).`);
@@ -105,7 +107,7 @@ function memberFrom(args: string[], flags: Record<string, string | boolean>, roo
       if (matches.length > 1) throw new Error(`Root ${id} occurs more than once; reconcile this Map before adding another member.`);
       if (matches.length === 1) {
         root = matches[0];
-        if (roots[root].sha !== sha) throw new Error(`Root ${id} has a different pin in this Map; select its existing index with --root or use a matching --sha.`);
+        if (roots[root].sha !== sha) throw new Error(`Root ${id} is ${roots[root].sha ? `pinned to ${roots[root].sha}` : "unpinned"}, but this add requested ${sha ?? "no pin"}. Select its existing index with --root or use a matching --sha.`);
       }
     }
     const member = { root, position, ...(depth ? { depth } : {}), ...(value(flags, "name") ? { name: value(flags, "name") } : {}),
@@ -299,7 +301,10 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
         // device-local hint could not be saved. It never rewrites the Map.
         if (already === "already_present" && registerCheckout) {
           try { saveMapCheckout(registerCheckout.path, registerCheckout.id); }
-          catch (error) { output.error(`Map member is present but checkout registration failed: ${errorMessage(error)}. Retry map add --checkout after fixing the registry.`); }
+          catch (error) {
+            output.error(`Map member is present but checkout registration failed: ${errorMessage(error)}. Retry map add --checkout after fixing the registry.`);
+            return { index, sha: hash(original), status: "already_unregistered" };
+          }
         }
         return { index: already === "already_absent" ? null : index, sha: hash(original), status: already };
       }
@@ -322,8 +327,8 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       }
       return { index, sha: hash(next), status: removedRoot ? "root_removed" : verb === "add" ? "added" : "removed" };
     }, output.error);
-    output.result({ path: file, member_index: changed.index, sha: changed.sha, status: changed.status }, `${changed.status === "already_absent" ? "Already absent" : changed.status === "already_present" ? "Already present" : changed.status === "root_removed" ? "Removed root" : changed.status === "added_unregistered" ? "Added member (checkout not registered)" : verb === "add" ? "Added member" : "Removed member"}${changed.index === null ? "" : ` ${changed.index}`}: ${file}`);
-    return 0;
+    output.result({ path: file, member_index: changed.index, sha: changed.sha, status: changed.status }, `${changed.status === "already_absent" ? "Already absent" : changed.status === "already_present" ? "Already present" : changed.status === "root_removed" ? "Removed root" : changed.status === "added_unregistered" ? "Added member (checkout not registered)" : changed.status === "already_unregistered" ? "Already present (checkout not registered)" : verb === "add" ? "Added member" : "Removed member"}${changed.index === null ? "" : ` ${changed.index}`}: ${file}`);
+    return changed.status === "added_unregistered" || changed.status === "already_unregistered" ? 1 : 0;
   } catch (error) {
     output.error(`${errorMessage(error)}${(error as NodeJS.ErrnoException).code === "ENOENT" ? " (check the map path and its parent directory)" : ""}`);
     return 1;
