@@ -2,7 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
@@ -59,7 +59,6 @@ export interface LocalThread {
   warnings: string[];
   closed: boolean;
   readme: string;
-  parent?: ThreadParentInfo | null;
 }
 
 function git(cwd: string, args: string[]): string {
@@ -89,16 +88,23 @@ function safeFile(path: string): string {
 
 export function threadBase(cwd = process.cwd()): string {
   let at = safeDirectory(cwd);
-  const threadsIdx = at.lastIndexOf(`${sep}_threads`);
-  if (threadsIdx !== -1) {
-    at = at.slice(0, threadsIdx) || sep;
-  }
   while (true) {
     if (existsSync(join(at, "_agent", "agreement.md"))) return at;
     const parent = dirname(at);
     if (parent === at) throw new NoAgreementError("No enclosing Agreement; run from an ideaspace with _agent/agreement.md.");
     at = parent;
   }
+}
+
+/** A Thread's own Agreement is not the enclosing Space's Agreement. Resolve
+ * only its immediate _threads parent; never infer a Space from a substring. */
+function spaceForThread(threadDir: string): string {
+  const dir = safeDirectory(threadDir);
+  const threads = dirname(dir);
+  if (basename(threads) !== "_threads") throw new Error("Thread must be an immediate child of _threads/.");
+  const space = dirname(threads);
+  if (!existsSync(join(space, "_agent", "agreement.md"))) throw new NoAgreementError("No Space Agreement above this Thread.");
+  return space;
 }
 
 export function threadsDirectory(cwd = process.cwd()): string {
@@ -206,7 +212,7 @@ export function resolveThreadParent(threadDir: string, knownThreads?: LocalThrea
 
   let spaceRoot: string;
   try {
-    spaceRoot = threadBase(threadDir);
+    spaceRoot = spaceForThread(threadDir);
   } catch {
     return { attached_to: attachedTo };
   }
@@ -269,7 +275,7 @@ export function resolveThreadParent(threadDir: string, knownThreads?: LocalThrea
 export function findChildThreads(targetThreadDir: string, postId?: string): ChildThreadInfo[] {
   let spaceRoot: string;
   try {
-    spaceRoot = threadBase(targetThreadDir);
+    spaceRoot = spaceForThread(targetThreadDir);
   } catch {
     return [];
   }
@@ -415,11 +421,7 @@ export function appendPost(dir: string, options: {
   } else {
     const openingPostId = thread.thread_id ?? thread.posts[0].id;
     parentIds = [openingPostId];
-    if (options.onDefaultReplyTo) {
-      options.onDefaultReplyTo(openingPostId);
-    } else {
-      process.stderr.write(`Replying to opening post ${openingPostId}. Pass --reply-to <id> to reply to a specific post, or --reply-to latest for the newest post.\n`);
-    }
+    options.onDefaultReplyTo?.(openingPostId);
   }
 
   if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error("--reply-to must name distinct existing post ids in this Thread.");

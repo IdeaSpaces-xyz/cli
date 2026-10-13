@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
-import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread } from "../local/threads.js";
+import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent } from "../local/threads.js";
 import { threadsCommand, threadFlagError } from "../commands/threads.js";
 import { inboxCommand } from "../commands/inbox.js";
 import { searchCommand } from "../commands/search.js";
@@ -45,6 +45,16 @@ describe("local Threads", () => {
     expect(readFileSync(first.path, "utf8")).toContain("Starting");
     expect(end.post.inReplyTo).toEqual([merge.post.id]);
     expect(listLocal(root)).toHaveLength(1);
+  });
+
+  it("does not reinterpret lookalike _threads paths as a Space", () => {
+    const root = fixture();
+    const nested = join(root, "_threads-archive", "work");
+    mkdirSync(nested, { recursive: true });
+    expect(threadBase(nested)).toBe(realpathSync(root));
+    const thread = createThread("decision", "Decision", root);
+    expect(threadBase(thread.path)).toBe(realpathSync(thread.path)); // Thread Agreement still has its own scope
+    expect(resolveThreadParent(thread.path)).toBeNull();
   });
 
   it("closure joins all unmerged branch tips unless explicit parents are supplied", () => {
@@ -448,6 +458,10 @@ describe("local Threads", () => {
       expect(err).toBe("");
       const p3 = loadThread(join(root, "_threads", "tree-test")).posts.find((p) => p.id === post3.id)!;
       expect(p3.inReplyTo).toEqual([post2.id]);
+      const quiet = await threadsCommand.run(["post", "tree-test"], { message: "Quiet branch" }, { ...flags, quiet: true });
+      expect(quiet).toBe(0);
+      expect(err).toBe("");
+      expect(await threadsCommand.run(["post", "tree-test"], { message: "invalid", "reply-to": "latest,missing" }, flags)).toBe(1);
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
@@ -477,6 +491,8 @@ describe("local Threads", () => {
       const openedSummary = await run(["open", "tag-test"], { depth: "summary", limit: "10" });
       const taggedPost = openedSummary.posts.find((p: { id: string }) => p.id === posted.id);
       expect(taggedPost.tags).toEqual(["friction", "ux"]);
+      expect(await threadsCommand.run(["post", "tag-test"], { message: "Bad", tags: "a,,b" }, flags)).toBe(1);
+      expect(err).toContain("non-empty comma-separated");
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
@@ -535,6 +551,10 @@ describe("local Threads", () => {
       const fullNewer = await run(["open", "child-thread"], { depth: "full", order: "newer", limit: "1" });
       expect(fullNewer.posts).toHaveLength(1);
       expect(fullNewer.posts[0].id).toBe(cLater.id);
+      for (const bad of [{ limit: "0" }, { limit: "abc" }, { order: "sideways" }, { depth: "full", limit: "1", ack: true }]) {
+        expect(await threadsCommand.run(["open", "child-thread"], bad, flags)).toBe(1);
+      }
+      expect(await threadsCommand.run(["open", "x_" + "a".repeat(24)], { limit: "1" }, flags)).toBe(1);
 
       // 6. --post <id> lists child threads that grew from that post
       const postRead = await run(["open", "parent-thread"], { post: pDecision.id });
@@ -546,6 +566,34 @@ describe("local Threads", () => {
       const childRow = listRead.threads.find((t: { slug: string }) => t.slug === "child-thread");
       expect(childRow.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread" });
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
+  });
+
+  it("surface previews a head and tail, full preserves exact bodies, and incomplete reads cannot ack", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("large", "Large", root);
+    const opening = appendPost(thread.path, { body: "Opening" });
+    const snapshot = appendPost(thread.path, { body: "Head", kind: "snapshot", replyTo: [opening.post.id] });
+    const large = appendPost(thread.path, { body: "Z".repeat(1200), replyTo: [snapshot.post.id] });
+    const last = appendPost(thread.path, { body: "Last", replyTo: [large.post.id] });
+    const old = process.cwd(); process.chdir(root);
+    const writer = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    try {
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "1" }, flags)).toBe(0);
+      const surface = JSON.parse(out);
+      expect(surface.posts.map((p: { id: string }) => p.id)).toEqual([snapshot.post.id, last.post.id]);
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", limit: "2" }, flags)).toBe(0);
+      const preview = JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id);
+      expect(preview.body).toContain("body truncated; use --post");
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "full", limit: "10" }, flags)).toBe(0);
+      expect(JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id).body.trim()).toBe("Z".repeat(1200));
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "surface", ack: true }, flags)).toBe(1);
+      expect(readCursor(loadThread(thread.path)).size).toBe(0);
+    } finally { process.stdout.write = writer; process.chdir(old); }
   });
 
   it("resolves attached_to with msg_... id across Space threads", async () => {
