@@ -69,6 +69,16 @@ describe("parseSessionJsonl", () => {
     }), "t");
     expect(mention.messageCount).toBe(2);
   });
+
+  it("parses model from assistant message and exposes model_tier", () => {
+    const fixtureWithModel = [
+      `{"type":"session","version":3,"id":"conv_model","timestamp":"2026-07-02T13:00:00.000Z","cwd":"/ctx"}`,
+      `{"type":"message","id":"u1","parentId":"0","timestamp":"2026-07-02T13:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"Hi"}]}}`,
+      `{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-07-02T13:00:02.000Z","message":{"role":"assistant","model":"openai-codex/gpt-6-sol","content":[{"type":"text","text":"Hello"}]}}`,
+    ].join("\n");
+    const parsed = parseSessionJsonl(fixtureWithModel, "2026-07-02T13:00:03.000Z");
+    expect(parsed.modelTier).toBe("openai-codex/gpt-6-sol");
+  });
 });
 
 describe("mintConversationId", () => {

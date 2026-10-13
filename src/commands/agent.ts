@@ -14,6 +14,7 @@ import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent-capabilities.js";
 import {
+  deriveTask,
   formatAgentRunsText,
   listAgentRuns,
   recordAgentRun,
@@ -64,7 +65,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--task <text>] [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const RUNS_USAGE =
@@ -379,12 +380,14 @@ async function cmdRun(
   const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? null;
   const parentToolUseId = flagString(flags, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
   const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID()}`;
+  const task = flagString(flags, "task") ?? deriveTask(message, process.cwd());
 
   const runRecord: AgentRunRecord = {
     run_id: runId,
     parent_id: parentId,
     parent_tool_use_id: parentToolUseId,
     agent: povPath,
+    task,
     harness: runtime,
     model: model ?? null,
     model_requested: model ?? null,
