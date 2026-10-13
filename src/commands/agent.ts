@@ -495,7 +495,10 @@ async function cmdRun(
         // already names the repair; don't mislabel it as a dropped run.
         exitCode = 1;
       } else {
-        const message = `Local runtime exited (code ${exitCode}) without turn_complete or an error event. Resume conversation ${runRecord.conversation_id ?? "from message_start"} at the same POV to continue its last step.`;
+        const resume = runRecord.conversation_id
+          ? `Resume conversation ${runRecord.conversation_id} at the same POV to continue its last step.`
+          : "No conversation was started; check the local runtime and retry the launch.";
+        const message = `Local runtime exited (code ${exitCode}) without turn_complete or an error event. ${resume}`;
         handleRunEvent({ type: "error", error_type: "run_incomplete", message });
         emitTerminalError("run_incomplete", message);
         exitCode = 1;

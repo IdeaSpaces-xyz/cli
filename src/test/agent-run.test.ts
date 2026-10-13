@@ -264,7 +264,7 @@ describe("agent run — command options & validation", () => {
     const dir = makeAgentDir();
     mockSend.mockResolvedValueOnce(0);
     expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Continue", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
-    expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_incomplete", message: expect.stringContaining("without turn_complete") });
+    expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_incomplete", message: expect.stringContaining("No conversation was started") });
   });
 
   it("preserves cancelled event and run-record status, but exits nonzero", async () => {
@@ -949,6 +949,7 @@ process.stdin.on("data", (chunk) => {
         "model.requested-observed",
         "run.records",
         "run.terminal-error",
+        "run.cancelled-nonzero",
       ],
     });
   });
