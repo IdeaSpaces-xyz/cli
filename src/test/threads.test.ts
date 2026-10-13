@@ -105,8 +105,8 @@ describe("local Threads", () => {
     expect(() => resolveLocalThread("../../outside", root)).toThrow();
     expect(() => appendPost(t.path, { body: "No", replyTo: ["missing"] })).toThrow(/reply-to/);
     expect(() => appendPost(t.path, { body: "No", replyTo: ["latest"] })).toThrow(/no posts/);
-    expect(() => appendPost(t.path, { body: "No", tags: ["x".repeat(201)] })).toThrow(/Tags/);
-    expect(() => appendPost(t.path, { body: "No", tags: ["bad\nnewline"] })).toThrow(/Tags/);
+    expect(() => appendPost(t.path, { body: "No", tags: ["x".repeat(201)] })).toThrow(/--tags/);
+    expect(() => appendPost(t.path, { body: "No", tags: ["bad\nnewline"] })).toThrow(/--tags/);
     expect(() => appendPost(t.path, { body: "No", tags: Array.from({ length: 21 }, (_, i) => `tag${i}`) })).toThrow(/20 distinct/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ sha: "HEAD" }], members: [] } })).toThrow(/Map/);
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567" }], members: [] } })).toThrow(/root 0.*no SHA/);
@@ -591,7 +591,7 @@ describe("local Threads", () => {
       const taggedPost = openedSummary.posts.find((p: { id: string }) => p.id === posted.id);
       expect(taggedPost.tags).toEqual(["friction", "ux"]);
       expect(await threadsCommand.run(["post", "tag-test"], { message: "Bad", tags: "a,,b" }, flags)).toBe(1);
-      expect(err).toContain("Tags must be non-empty");
+      expect(err).toContain("--tags must contain non-empty");
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
@@ -706,6 +706,9 @@ describe("local Threads", () => {
       out = "";
       expect(await threadsCommand.run(["open", "large"], { depth: "full", limit: "10" }, flags)).toBe(0);
       expect(JSON.parse(out).posts.find((p: { id: string }) => p.id === large.post.id).body.trim()).toBe("Z".repeat(1200));
+      out = "";
+      expect(await threadsCommand.run(["open", "large"], { depth: "full", limit: "1" }, { ...flags, json: false })).toBe(0);
+      expect(out).toContain("Showing 1 of 4 matching posts. Continue with --since");
       out = "";
       expect(await threadsCommand.run(["open", "large"], { depth: "surface", ack: true }, flags)).toBe(1);
       expect(readCursor(loadThread(thread.path)).size).toBe(0);

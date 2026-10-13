@@ -507,7 +507,13 @@ export const threadsCommand: CommandDef = {
         }
         let childWarnings = 0;
         const warnChild = (message: string) => { output.log(message); childWarnings++; };
-        const allChildThreads = postId ? findChildThreads(thread.path, postId, warnChild) : effectiveRung === "children" ? findChildThreads(thread.path, undefined, warnChild) : [];
+        let allChildThreads: ChildThreadInfo[] = [];
+        if (postId || effectiveRung === "children") {
+          try { allChildThreads = findChildThreads(thread.path, postId, warnChild); }
+          catch (error) {
+            warnChild(`Thread ${thread.slug} child lookup incomplete: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
         const allBranches = effectiveRung === "children" ? computeBranches(thread.posts).sort((a, b) => (b.tip_date ?? "").localeCompare(a.tip_date ?? "")) : [];
         if (effectiveRung === "children" && order === "older") { allChildThreads.reverse(); allBranches.reverse(); }
         const childThreads = allChildThreads.slice(0, limit ?? 10);
@@ -541,6 +547,10 @@ export const threadsCommand: CommandDef = {
         }
 
         if (parentWarning) humanText += `\nParent lookup incomplete: ${parentWarning}`;
+        if (effectiveRung === "full" && !postId && posts.length < totalMatching) {
+          const cursor = posts.at(-1)?.id;
+          humanText += `\n\nShowing ${posts.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
+        }
         output.result({ schema: "ideaspaces.local-thread.open.v2", thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
           closed: thread.closed, parent, ...(parentWarning ? { parent_warning: parentWarning } : {}),
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),

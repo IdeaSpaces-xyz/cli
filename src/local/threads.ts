@@ -214,8 +214,9 @@ export function resolveThreadParent(threadDir: string): ThreadParentInfo | null 
   const spaceRoot = spaceForThread(threadDir);
 
   // Only the existing repository-root-relative post path is a local parent.
-  // msg_ ids are a separate protocol proposal, not a CLI attachment grammar.
-  if (!/^_threads\/[a-z0-9-]+\/[^/]+\.md$/.test(attachedTo) || attachedTo.includes("..")) return { attached_to: attachedTo };
+  // TODO(protocol): Move attachment resolution into schema/types/vectors only
+  // after a separate protocol decision; msg_ ids are not a CLI grammar here.
+  if (!/^_threads\/[a-z0-9-]+\/[^/]+\.md$/.test(attachedTo)) return { attached_to: attachedTo };
   const normPath = join(spaceRoot, attachedTo);
   const threadsRoot = join(spaceRoot, "_threads");
   if (!existsSync(normPath)) return { attached_to: attachedTo }; // Missing authored target, never substitute a different post.
@@ -347,7 +348,7 @@ export function appendPost(dir: string, options: {
     if (new Set(options.tags).size > 20) throw new Error("Tags are limited to 20 distinct values per post.");
     for (const tag of options.tags) {
       if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
-        throw new Error("Tags must be non-empty strings of at most 200 characters without newlines.");
+        throw new Error("--tags must contain non-empty values of at most 200 characters without newlines.");
       }
     }
   }
