@@ -15,6 +15,7 @@ import { saveSpace } from "../auth/spaces.js";
 import { claudeConversationOps } from "../claude/local-conversation-ops.js";
 import { localConversationOps as piConversationOps } from "../pi/local-conversation-ops.js";
 import { composeLocalConversationOps } from "../local/runtime.js";
+import type { LocalSendOptions } from "../local/send-options.js";
 import { canResumeClaudeConversation, claudeProjectDir } from "../claude/local-conversations.js";
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
@@ -204,7 +205,7 @@ describe("agent run — Agreement and Foundation defaults", () => {
 });
 
 describe("agent run — command options & validation", () => {
-  const mockSend = vi.fn<[Record<string, string | boolean>, any], Promise<number>>();
+  const mockSend = vi.fn<[Record<string, string | boolean>, any, LocalSendOptions?], Promise<number>>();
   const mockLocal: LocalConversationOps = {
     send: mockSend,
     createNew: vi.fn(),
@@ -216,7 +217,13 @@ describe("agent run — command options & validation", () => {
 
   beforeEach(() => {
     mockSend.mockReset();
-    mockSend.mockResolvedValue(0);
+    mockSend.mockImplementation(async (_flags, _output, options) => {
+      options?.onEvent?.({ type: "turn_complete", result: {
+        response: "done", usage: { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 0, cost_usd: 0, model_tier: "local" },
+        tool_calls: [], iterations: 1, position: "", workspace: { created: [], modified: [], deleted: [], read: [], mentioned: [] },
+      } });
+      return 0;
+    });
   });
 
   it("honors pi_model fallback when runtime is omitted and defaults to pi", async () => {
@@ -251,6 +258,61 @@ describe("agent run — command options & validation", () => {
         extraOrientation: expect.stringContaining("# Agreement"),
       }),
     );
+  });
+
+  it("reports a silent local runtime return as a terminal JSON error", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockResolvedValueOnce(0);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Continue", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_incomplete", message: expect.stringContaining("No conversation was started") });
+  });
+
+  it("does not mistake an error message plus exit 0 for preflight", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockImplementationOnce(async (_flags, output) => { output.error("startup warning"); return 0; });
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Continue", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_incomplete" });
+  });
+
+  it("preserves cancelled event and run-record status, but exits nonzero", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockImplementationOnce(async (_flags, _output, options) => {
+      options?.onEvent?.({ type: "cancelled", reason: "aborted" });
+      return 0;
+    });
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Continue", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(stdout()).toBe(""); // the adapter owns the actual event emission
+    expect(listAgentRuns({ agent: dir }).at(-1)?.status).toBe("cancelled");
+  });
+
+  it("keeps synthetic run errors off stdout in human mode", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockResolvedValueOnce(0);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Continue", ext: join(dir, "_agent", "agreement.md") }, { ...JSON_GLOBAL, json: false })).toBe(1);
+    expect(stdout()).toBe("");
+    expect(stderr()).toContain("run_incomplete");
+  });
+
+  it("reports a thrown local runtime failure as a terminal JSON error", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockRejectedValueOnce(new Error("process exited during a tool call"));
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Continue", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_exception", message: expect.stringContaining("process exited during a tool call") });
+  });
+
+  it("does not emit a second terminal event when the adapter throws after completion", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockImplementationOnce(async (_flags, _output, options) => {
+      options?.onEvent?.({ type: "turn_complete", result: {
+        response: "done", usage: { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 0, cost_usd: 0, model_tier: "local" },
+        tool_calls: [], iterations: 1, position: "", workspace: { created: [], modified: [], deleted: [], read: [], mentioned: [] },
+      } });
+      throw new Error("output pipe closed");
+    });
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Continue", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(stdout()).toBe(""); // the mock does not write its emitted completion
+    expect(stderr()).toContain("failed after turn_complete: output pipe closed");
+    expect(listAgentRuns({ agent: dir }).at(0)?.status).toBe("completed");
   });
 
   it("refuses invocation without a POV argument", async () => {
@@ -751,6 +813,8 @@ process.stdin.on("data", (chunk) => {
       const pinnedFlags = { runtime: "pi", thread: thread.path, "thread-map": map, "thread-member": "0", ext: fakeBin, "pi-bin": fakeBin };
       expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "empty_response" }, JSON_GLOBAL)).toBe(1);
       expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
+      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).filter((event) => event.type === "error")).toHaveLength(1);
+      expect(listAgentRuns({ agent: pov }).at(0)?.status).toBe("failed");
       expect(stdout()).not.toContain('"type":"turn_complete"');
       expect(loadThread(thread.path).posts).toHaveLength(4);
       chmodSync(thread.path, 0o500);
@@ -882,6 +946,7 @@ process.stdin.on("data", (chunk) => {
       version: 1,
       features: [
         "pi.explicit-extensions",
+        "pi.retry-terminal",
         "pi.skill-isolation",
         "pi.trust",
         "pi.thinking",
@@ -890,6 +955,8 @@ process.stdin.on("data", (chunk) => {
         "claude.permission-mode",
         "model.requested-observed",
         "run.records",
+        "run.terminal-error",
+        "run.cancelled-nonzero",
       ],
     });
   });
@@ -997,7 +1064,7 @@ process.stdin.on("data", (chunk) => {
       const code = await selected.run(["run", dir], { runtime, conversation: id, message: "never spawn", ...ext }, JSON_GLOBAL);
       expect(code).toBe(1);
       expect(stderr()).toContain("refusing to create a replacement");
-      expect(stdout()).toBe("");
+      expect(stdout()).toBe(""); // late preflight refusal, not a dropped turn
     }
   });
 

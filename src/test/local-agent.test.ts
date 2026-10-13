@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
@@ -127,6 +127,96 @@ describe("isValidPiThinkingLevel (pi thinking-level guard)", () => {
     expect(isValidPiThinkingLevel("HIGH")).toBe(false); // case-sensitive
     expect(isValidPiThinkingLevel("ultra")).toBe(false);
     expect(isValidPiThinkingLevel("")).toBe(false);
+  });
+});
+
+describe("runLocalTurn — Pi's provider retry", () => {
+  it("reproduces and then waits through intermediate agent_end, retaining the last tool step", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "pi-retry-"));
+    try {
+      const script = join(tmp, "pi.cjs");
+      writeFileSync(script, `
+process.stdin.on("data", (input) => {
+  if (!String(input).includes('"type":"prompt"')) return;
+  const emit = (event) => process.stdout.write(JSON.stringify(event) + "\\n");
+  emit({ type: "response", command: "get_state", success: true, data: { sessionName: "Already named" } });
+  emit({ type: "response", command: "prompt", success: true });
+  emit({ type: "agent_start" });
+  emit({ type: "turn_start" });
+  emit({ type: "tool_execution_start", toolCallId: "t1", toolName: "read", args: { path: "checkpoint.md" } });
+  emit({ type: "tool_execution_end", toolCallId: "t1", toolName: "read", result: { content: [{ type: "text", text: "checkpoint" }] }, isError: false });
+  emit({ type: "agent_end", willRetry: true, messages: [{ role: "assistant", stopReason: "error", errorMessage: "fetch failed" }] });
+  emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 3, delayMs: 0 });
+  emit({ type: "agent_start" });
+  emit({ type: "turn_start" });
+  emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Resumed after fetch failed" } });
+  emit({ type: "agent_end", willRetry: false, messages: [{ role: "assistant", stopReason: "stop", usage: { input: 12, output: 4, totalTokens: 16, cost: { total: 0.002 } } }] });
+});
+`);
+      const bin = join(tmp, "pi");
+      writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+      chmodSync(bin, 0o755);
+      const events = [];
+      for await (const event of runLocalTurn({ ...baseOpts, repoPath: tmp, sessionDir: join(tmp, ".pi", "sessions"), piBin: bin })) events.push(event);
+      expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+      expect(events.filter((event) => event.type === "message_start")).toHaveLength(1);
+      expect(events.filter((event) => event.type === "turn_complete")).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({ type: "turn_complete", result: { response: "Resumed after fetch failed", tool_calls: [{ name: "read", args: { path: "checkpoint.md" } }], usage: { input_tokens: 12, output_tokens: 4, total_tokens: 16, cost_usd: 0.002 } } });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runLocalTurn — exhausted and interrupted provider attempts", () => {
+  async function fakeRun(events: object[], exitAfter = false) {
+    const tmp = mkdtempSync(join(tmpdir(), "pi-terminal-"));
+    try {
+      const script = join(tmp, "pi.cjs");
+      writeFileSync(script, `
+process.stdin.on("data", (input) => {
+  if (!String(input).includes('"type":"prompt"')) return;
+  for (const event of ${JSON.stringify(events)}) process.stdout.write(JSON.stringify(event) + "\\n");
+  ${exitAfter ? "setTimeout(() => process.exit(7), 20);" : ""}
+});
+`);
+      const bin = join(tmp, "pi");
+      writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+      chmodSync(bin, 0o755);
+      const emitted = [];
+      for await (const event of runLocalTurn({ ...baseOpts, repoPath: tmp, sessionDir: join(tmp, ".pi", "sessions"), piBin: bin })) emitted.push(event);
+      return emitted;
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  it("preserves the pi_error type for a final 429 provider refusal", async () => {
+    const events = await fakeRun([
+      { type: "agent_start" },
+      { type: "agent_end", willRetry: false, messages: [{ role: "assistant", stopReason: "error", errorMessage: "RESOURCE_EXHAUSTED (429)" }] },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: "error", error_type: "pi_error", message: "RESOURCE_EXHAUSTED (429)" });
+    expect(events.some((event) => event.type === "turn_complete")).toBe(false);
+  });
+
+  it("ends with pi_error if retry exhaustion has no final agent_end", async () => {
+    const events = await fakeRun([
+      { type: "agent_start" },
+      { type: "agent_end", willRetry: true, messages: [{ role: "assistant", stopReason: "error", errorMessage: "fetch failed" }] },
+      { type: "auto_retry_end", success: false, attempt: 3, finalError: "fetch failed after 3 attempts" },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: "error", error_type: "pi_error", message: "fetch failed after 3 attempts" });
+    expect(events.some((event) => event.type === "turn_complete")).toBe(false);
+  });
+
+  it("reports the cause and resume id when Pi exits during its retry", async () => {
+    const events = await fakeRun([
+      { type: "agent_start" },
+      { type: "agent_end", willRetry: true, messages: [{ role: "assistant", stopReason: "error", errorMessage: "fetch failed" }] },
+    ], true);
+    expect(events.at(-1)).toMatchObject({ type: "error", error_type: "pi_exit", message: expect.stringContaining("fetch failed") });
+    expect((events.at(-1) as { message: string }).message).toContain("local-abc");
   });
 });
 

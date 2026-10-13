@@ -129,6 +129,7 @@ async function cmdRun(
   flags: Flags,
   local: LocalConversationOps,
   output: Output,
+  jsonMode: boolean,
 ): Promise<number> {
   const povArg = args[0];
   if (!povArg) {
@@ -407,8 +408,11 @@ async function cmdRun(
     }
   }
 
+  let terminalType: "turn_complete" | "error" | "cancelled" | undefined;
+  let sawMessageStart = false;
   function handleRunEvent(event: KeeperStreamEvent): KeeperStreamEvent {
     if (event.type === "message_start") {
+      sawMessageStart = true;
       const msgStart = event as LocalMessageStartEvent;
       if (typeof msgStart.conversation_id === "string") runRecord.conversation_id = msgStart.conversation_id;
       if (msgStart.model_observed !== undefined) {
@@ -418,10 +422,13 @@ async function cmdRun(
       if (msgStart.model_requested !== undefined) runRecord.model_requested = msgStart.model_requested;
       recordAgentRun(runRecord);
     } else if (event.type === "turn_complete") {
+      terminalType = "turn_complete";
       finishRun("completed");
     } else if (event.type === "error") {
+      terminalType = "error";
       finishRun("failed");
     } else if (event.type === "cancelled") {
+      terminalType = "cancelled";
       finishRun("cancelled");
     }
     return event;
@@ -434,17 +441,23 @@ async function cmdRun(
     onEvent = (event) => {
       let current = event;
       if (event.type === "turn_complete") {
-        if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
-        const response = event.result.response;
-        if (!response?.trim()) throw new Error("Agent completed without a closing response.");
-        const { post, path } = appendPost(thread.directory, {
-          body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
-          summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
-          kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
-        });
-        snapshotWritten = true;
-        output.progress(`Thread snapshot: ${path}`);
-        current = withThreadSnapshot(event, post.id, path);
+        try {
+          if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
+          const response = event.result.response;
+          if (!response?.trim()) throw new Error("Agent completed without a closing response.");
+          const { post, path } = appendPost(thread.directory, {
+            body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
+            summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
+            kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+          });
+          snapshotWritten = true;
+          output.progress(`Thread snapshot: ${path}`);
+          current = withThreadSnapshot(event, post.id, path);
+        } catch (err) {
+          // A failed snapshot must be visible to both the stream and the run
+          // record, not converted by the adapter without this handler seeing it.
+          current = { type: "error", error_type: "thread_snapshot", message: `Run completed but Thread snapshot was not appended: ${err instanceof Error ? err.message : String(err)}` };
+        }
       }
       return baseOnEvent(current);
     };
@@ -463,14 +476,53 @@ async function cmdRun(
   process.once("SIGTERM", onSigTerm);
 
   let exitCode = 1;
+  let lastLocalError: string | undefined;
+  const runOutput: Output = { ...output, error(message) { lastLocalError = message; output.error(message); } };
+  function emitTerminalError(errorType: string, message: string): void {
+    if (jsonMode) process.stdout.write(`${JSON.stringify({ type: "error", error_type: errorType, message })}\n`);
+    else output.error(`${errorType}: ${message}`);
+  }
   try {
-    exitCode = await local.send(forwardFlags, output, {
+    exitCode = await local.send(forwardFlags, runOutput, {
       ...launchOptions,
       extraOrientation,
       threadReceipt: thread?.receipt,
       onEvent,
     });
+    if (!terminalType) {
+      if (!sawMessageStart && lastLocalError && exitCode !== 0) {
+        // Runtime preflight refused before an agent turn existed. Its stderr
+        // already names the repair; don't mislabel it as a dropped run.
+        exitCode = 1;
+      } else {
+        const resume = runRecord.conversation_id
+          ? `Resume conversation ${runRecord.conversation_id} at the same POV to continue its last step.`
+          : "No conversation was started; check the local runtime and retry the launch.";
+        const message = `Local runtime exited (code ${exitCode}) without turn_complete or an error event. ${resume}`;
+        handleRunEvent({ type: "error", error_type: "run_incomplete", message });
+        emitTerminalError("run_incomplete", message);
+        exitCode = 1;
+      }
+    } else if (terminalType === "cancelled") {
+      // Preserve the existing cancelled event and run-record status; a cancelled
+      // owner turn must not be reported to the launcher as successful.
+      exitCode = 1;
+    }
     return exitCode;
+  } catch (err) {
+    if (terminalType) {
+      // Do not contradict an already emitted completion/cancellation/error
+      // with a second terminal event if the adapter fails while winding down.
+      output.error(`Agent runtime failed after ${terminalType}: ${err instanceof Error ? err.message : String(err)}`);
+      return 1;
+    }
+    const resume = runRecord.conversation_id
+      ? `Resume conversation ${runRecord.conversation_id} at the same POV to continue its last step.`
+      : "No conversation was started; check the local runtime and retry the launch.";
+    const message = `Agent run failed: ${err instanceof Error ? err.message : String(err)}. ${resume}`;
+    handleRunEvent({ type: "error", error_type: "run_exception", message });
+    emitTerminalError("run_exception", message);
+    return 1;
   } finally {
     process.off("SIGINT", onSigInt);
     process.off("SIGTERM", onSigTerm);
@@ -553,7 +605,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       const [sub, ...rest] = args;
       switch (sub) {
         case "run":
-          return cmdRun(rest, flags, local, output);
+          return cmdRun(rest, flags, local, output, global.json);
         case "runs":
           return cmdRuns(flags, output);
         case "list":
