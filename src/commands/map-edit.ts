@@ -2,14 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { promises as fs, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { parseDocument, stringify, YAMLSeq } from "yaml";
-import { parseMap, parseMapPositionAddress, resolveMapPositionAddress, type MapMember, type MapRoot } from "@ideaspaces/protocol";
+import { parseCanonicalRepoUrl, parseMap, parseMapPositionAddress, resolveMapPositionAddress, type MapMember, type MapRoot } from "@ideaspaces/protocol";
 import { findSpaceFor, saveSpace } from "../auth/spaces.js";
 import { repoRoot } from "../git.js";
 import { checkoutRootNodeId } from "../local/space-map.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
-const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>] | --checkout <repo> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address> [--if-match <file_sha>]";
+const USAGE = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>] | --checkout <repo> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address|@root//position> [--if-match <file_sha>]\n       ideaspaces map remove <map-note> --root-node-id <id> --position <path>";
 
 function value(flags: Record<string, string | boolean>, key: string): string | undefined {
   const v = flags[key];
@@ -62,6 +62,12 @@ async function replace(file: string, content: string): Promise<void> {
   } finally { await fs.rm(temp, { force: true }); }
 }
 
+function rootIdentity(root: MapRoot): string | undefined {
+  if (root.root_node_id) return root.root_node_id;
+  const parsed = root.repo ? parseCanonicalRepoUrl(root.repo) : null;
+  return parsed?.status === "valid" ? parsed.rootNodeId : undefined;
+}
+
 function memberFrom(args: string[], flags: Record<string, string | boolean>, roots: MapRoot[]): { member: MapMember; root?: MapRoot; checkout?: { path: string; id: string } } {
   const position = value(flags, "position");
   const address = args[0];
@@ -94,11 +100,11 @@ function memberFrom(args: string[], flags: Record<string, string | boolean>, roo
         : `Root index ${existingRoot} is not in this Map (0..${roots.length - 1}).`);
     }
     if (id) {
-      const matches = roots.flatMap((entry, index) => entry.root_node_id === id ? [index] : []);
+      const matches = roots.flatMap((entry, index) => rootIdentity(entry) === id ? [index] : []);
       if (matches.length > 1) throw new Error(`Root ${id} occurs more than once; reconcile this Map before adding another member.`);
       if (matches.length === 1) {
         root = matches[0];
-        if (sha && roots[root].sha !== sha) throw new Error(`Root ${id} has a different pin in this Map; do not silently change its revision.`);
+        if (roots[root].sha !== sha) throw new Error(`Root ${id} has a different pin in this Map; select its existing index with --root or use a matching --sha.`);
       }
     }
     const member = { root, position, ...(depth ? { depth } : {}), ...(value(flags, "name") ? { name: value(flags, "name") } : {}),
@@ -213,13 +219,21 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
             : "root" in entry && entry.root === member.root && entry.position === member.position,
         );
         index = existing < 0 ? seq.items.length : existing;
-        if (existing >= 0) already = "already_present";
-        else seq.add(member);
+        if (existing >= 0) {
+          const previous = parsed.map.members[existing];
+          const fields = ["depth", "name", "summary", "attached_to"] as const;
+          if (fields.some((key) => previous[key] !== member[key])) {
+            throw new Error(`Member ${existing} already points here with different annotations. Edit the Map explicitly or remove it before adding a replacement.`);
+          }
+          already = "already_present";
+        } else seq.add(member);
       } else {
         const byPosition = value(flags, "position");
         const id = value(flags, "root-node-id");
         if (byPosition && id && members.length === 0) members.push(`@${id}//${byPosition === "." ? "" : byPosition}`);
-        if (members.length !== 1 || (byPosition && !id)) throw new Error("map remove needs one address, or --root-node-id <id> --position <path> (index requires --if-match).");
+        if (members.length !== 1 || (byPosition && !id) || (id && !byPosition) || flags.root !== undefined || flags.checkout !== undefined || flags.sha !== undefined) {
+          throw new Error("map remove needs one address, or --root-node-id <id> --position <path> (index requires --if-match).");
+        }
         const requested = members[0];
         if (/^(0|[1-9]\d*)$/.test(requested)) {
           if (!match) throw new Error(`Removing by index requires --if-match <file_sha> from map ${file} --json; an index can name a different member after another edit. Or remove by address.`);
@@ -237,6 +251,7 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
             if (matches.length > 1) throw new Error(`Position ${requested} matches multiple members (${matches.join(", ")}); remove by index with --if-match.`);
             index = matches[0] ?? -1;
           } else {
+            if (requested.startsWith("@") || requested.startsWith("//")) throw new Error(`Invalid position address ${requested}: ${address.code}. Use @<root-node-id>//<position>.`);
             const matches = parsed.map.members.flatMap((entry, i) => "address" in entry && entry.address === requested ? [i] : []);
             if (matches.length > 1) throw new Error(`Address ${requested} matches multiple members (${matches.join(", ")}); remove by index with --if-match.`);
             index = matches[0] ?? -1;
@@ -263,7 +278,7 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
           }
         }
       }
-      if (already) return { index, sha: hash(original), status: already };
+      if (already) return { index: already === "already_absent" ? null : index, sha: hash(original), status: already };
       const edited = parseMap((doc.toJS() as Record<string, unknown>).map);
       if (edited.status !== "valid") throw new Error(`Map edit would be invalid: ${edited.status === "invalid" ? edited.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "missing map"}`);
       // Keep the source's line endings, including delimiters. YAML's Document

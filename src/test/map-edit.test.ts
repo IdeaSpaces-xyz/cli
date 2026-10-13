@@ -122,24 +122,53 @@ describe("map authoring", () => {
     const file = join(dir, "k2.map.md");
     const first = "n_0123456789abcdef01234567";
     const second = "n_ffffffffffffffffffffffff";
+    const third = "n_aaaaaaaaaaaaaaaaaaaaaaaa";
+    const url = "https://example.com/pricing";
     expect((await run(["create", file], { name: "K2", summary: "Edits" })).code).toBe(0);
     expect((await run(["add", file], { position: ".", "root-node-id": first })).code).toBe(0);
     const stable = await fs.readFile(file, "utf8");
     expect((await run(["add", file], { position: ".", "root-node-id": first })).data.status).toBe("already_present");
     expect(await fs.readFile(file, "utf8")).toBe(stable);
+    expect((await run(["add", file], { position: ".", "root-node-id": first, summary: "changed" })).error).toContain("different annotations");
+    expect(await fs.readFile(file, "utf8")).toBe(stable);
     expect((await run(["add", file], { position: "frictions", "root-node-id": first })).code).toBe(0);
-    expect((await run(["add", file], { position: "note.md", "root-node-id": second })).code).toBe(0);
-    expect((await run([file])).data.map.roots).toHaveLength(2);
+    expect((await run(["add", file], { position: ".", "root-node-id": second })).code).toBe(0);
+    expect((await run(["add", file], { position: "_threads/local", "root-node-id": third })).code).toBe(0);
+    expect((await run(["add", file], { position: "note.md", "root-node-id": first })).code).toBe(0);
+    expect((await run(["add", file, url])).code).toBe(0);
+    expect((await run(["add", file, `agent:repo:${second}`])).code).toBe(0);
+    expect((await run(["add", file, "thread:x_0123456789abcdef01234567"])).code).toBe(0);
+    expect((await run([file])).data.map.roots).toHaveLength(3);
     expect((await run(["remove", file, `@${first}//frictions`])).data.status).toBe("removed");
-    expect((await run(["remove", file], { "root-node-id": first, position: "." })).data.status).toBe("removed");
+    expect((await run(["remove", file, `@${second}//`])).data.status).toBe("removed");
     const after = (await run([file])).data.map;
-    expect(after.roots).toEqual([{ root_node_id: second }]);
-    expect(after.members).toEqual([{ root: 0, position: "note.md" }]);
+    expect(after.roots).toEqual([{ root_node_id: first }, { root_node_id: third }]);
+    expect(after.members).toEqual([
+      { root: 0, position: "." }, { root: 1, position: "_threads/local" }, { root: 0, position: "note.md" },
+      { address: url }, { address: `agent:repo:${second}` }, { address: "thread:x_0123456789abcdef01234567" },
+    ]);
     const bytes = await fs.readFile(file, "utf8");
-    expect((await run(["remove", file, `@${first}//`])).data.status).toBe("already_absent");
+    expect((await run(["remove", file, `@${second}//`])).data.status).toBe("already_absent");
     expect(await fs.readFile(file, "utf8")).toBe(bytes);
-    expect((await run(["remove", file, `@${second}//note.md`])).data.status).toBe("removed");
-    expect((await run([file])).data.map).toMatchObject({ roots: [], members: [] });
+    expect((await run(["remove", file, `@${first}//../outside`])).error).toContain("Invalid position address");
+    expect((await run(["remove", file], { "root-node-id": first, position: "." })).data.status).toBe("removed");
+    expect((await run(["remove", file, `@${first}//note.md`])).data.status).toBe("removed");
+    expect((await run([file])).data.map.roots).toEqual([{ root_node_id: third }]);
+    expect((await run(["remove", file, `@${third}//_threads/local`])).data.status).toBe("removed");
+    expect((await run([file])).data.map).toMatchObject({ roots: [], members: [{ address: url }, { address: `agent:repo:${second}` }, { address: "thread:x_0123456789abcdef01234567" }] });
+  });
+
+  it("reuses a canonical repo root and refuses an implicit pin change", async () => {
+    const dir = await directory();
+    const file = join(dir, "legacy.map.md");
+    const id = "n_0123456789abcdef01234567";
+    const sha = "a".repeat(40);
+    await fs.writeFile(file, `---\nname: Legacy\nmap:\n  roots:\n    - repo: https://ideaspaces.xyz/repos/${id}\n      sha: ${sha}\n  members:\n    - root: 0\n      position: .\n---\n`);
+    const original = await fs.readFile(file, "utf8");
+    expect((await run(["add", file], { position: "note.md", "root-node-id": id })).error).toContain("different pin");
+    expect(await fs.readFile(file, "utf8")).toBe(original);
+    expect((await run(["add", file], { position: "note.md", "root-node-id": id, sha })).data.status).toBe("added");
+    expect((await run([file])).data.map).toMatchObject({ roots: [{ repo: `https://ideaspaces.xyz/repos/${id}`, sha }], members: [{ root: 0, position: "." }, { root: 0, position: "note.md" }] });
   });
 
   it("recognises a README Map as the folder's Space in map and navigate", async () => {
