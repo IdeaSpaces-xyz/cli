@@ -328,8 +328,8 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       ], long);
       const roomy = await loadMapOrientation("long.map.md", space);
       expect(roomy.text).toContain("Legend line 59");
-      const tight = await loadMapOrientation("long.map.md", space, { budget: 2_000 });
-      expect(tight.text.length).toBeLessThanOrEqual(2_000);
+      const tight = await loadMapOrientation("long.map.md", space, { budget: 2_300 });
+      expect(tight.text.length).toBeLessThanOrEqual(2_300);
       expect(tight.text).toContain("lowered to fit: [0] full→name; legend omitted");
       expect(tight.text).not.toContain("Legend line");
       await expect(loadMapOrientation("long.map.md", space, { budget: 200 })).rejects.toThrow("every member at name");

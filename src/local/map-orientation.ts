@@ -201,7 +201,7 @@ function render(
   if (note.name) lines.push(`Name: ${quoted(note.name)}`);
   if (note.summary) lines.push(`Summary: ${quoted(note.summary)}`);
   if (kind === "space") {
-    lines.push("This Map's roots are the Space. The Map is starting context, not a reach or access limit; its storage folder only resolves relative paths and is never material. Pointers grant no access.");
+    lines.push("This Map's roots are the Space. It is starting context, not an authority limit; its storage folder only resolves relative paths and is never material. On Claude, locally resolved roots are passed as --add-dir and appear in message_start.added_dirs, widening file-tool reach subject to runtime permissions; a pointer alone grants no OS permission.");
     if (note.map.roots.length === 0) {
       lines.push("This Space is empty: it has no roots. Work from the separate POV, say the Space is empty, and offer to add a root. Do not treat the Map's storage folder as a workspace.");
     } else {
