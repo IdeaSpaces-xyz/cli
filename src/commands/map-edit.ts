@@ -294,7 +294,15 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
         }
         }
       }
-      if (already) return { index: already === "already_absent" ? null : index, sha: hash(original), status: already };
+      if (already) {
+        // A repeat --checkout also repairs a previous successful Map edit whose
+        // device-local hint could not be saved. It never rewrites the Map.
+        if (already === "already_present" && registerCheckout) {
+          try { saveMapCheckout(registerCheckout.path, registerCheckout.id); }
+          catch (error) { output.error(`Map member is present but checkout registration failed: ${errorMessage(error)}. Retry map add --checkout after fixing the registry.`); }
+        }
+        return { index: already === "already_absent" ? null : index, sha: hash(original), status: already };
+      }
       const edited = parseMap((doc.toJS() as Record<string, unknown>).map);
       if (edited.status !== "valid") throw new Error(`Map edit would be invalid: ${edited.status === "invalid" ? edited.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "missing map"}`);
       // Keep the source's line endings, including delimiters. YAML's Document
@@ -305,10 +313,16 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       if (hash(await fs.readFile(file, "utf8")) !== hash(original)) throw new Error(`Map base moved while editing ${file}. Re-read and retry.`);
       await replace(file, next);
       // Never register a checkout on a refused/stale/locked Map edit.
-      if (registerCheckout) saveMapCheckout(registerCheckout.path, registerCheckout.id);
+      if (registerCheckout) {
+        try { saveMapCheckout(registerCheckout.path, registerCheckout.id); }
+        catch (error) {
+          output.error(`Map edit succeeded but checkout registration failed: ${errorMessage(error)}. Retry the same map add --checkout after fixing the registry; it will register without rewriting the Map.`);
+          return { index, sha: hash(next), status: "added_unregistered" };
+        }
+      }
       return { index, sha: hash(next), status: removedRoot ? "root_removed" : verb === "add" ? "added" : "removed" };
     }, output.error);
-    output.result({ path: file, member_index: changed.index, sha: changed.sha, status: changed.status }, `${changed.status === "already_absent" ? "Already absent" : changed.status === "already_present" ? "Already present" : changed.status === "root_removed" ? "Removed root" : verb === "add" ? "Added member" : "Removed member"}${changed.index === null ? "" : ` ${changed.index}`}: ${file}`);
+    output.result({ path: file, member_index: changed.index, sha: changed.sha, status: changed.status }, `${changed.status === "already_absent" ? "Already absent" : changed.status === "already_present" ? "Already present" : changed.status === "root_removed" ? "Removed root" : changed.status === "added_unregistered" ? "Added member (checkout not registered)" : verb === "add" ? "Added member" : "Removed member"}${changed.index === null ? "" : ` ${changed.index}`}: ${file}`);
     return 0;
   } catch (error) {
     output.error(`${errorMessage(error)}${(error as NodeJS.ErrnoException).code === "ENOENT" ? " (check the map path and its parent directory)" : ""}`);

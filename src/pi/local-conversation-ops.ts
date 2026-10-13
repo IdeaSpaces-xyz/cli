@@ -138,10 +138,15 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   if (spaceMap && firstSpaceRoot) {
     try {
       workingRoot = firstSpaceRoot;
-      launchOrientation = localLaunchOrientation(repoPath, firstSpaceRoot);
+      launchOrientation = localLaunchOrientation(repoPath, firstSpaceRoot, flags.focus as string | undefined);
     } catch (err) {
       return reportLocalError(err, output);
     }
+  }
+
+  if (spaceMap && !firstSpaceRoot && typeof flags.focus === "string" && flags.focus) {
+    output.error("Cannot focus inside a Space Map with no reachable first root. Connect the first root or omit --focus.");
+    return 1;
   }
 
   let threadLaunch: PinnedThreadLaunch | LocalThreadLaunch | HostedThreadLaunch | undefined;

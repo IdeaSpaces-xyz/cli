@@ -9,6 +9,7 @@ import { agentCommand } from "../commands/agent.js";
 import { navigateCommand } from "../commands/navigate.js";
 import { loadMapNote } from "../local/map-note.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
+import * as mapCheckouts from "../local/map-checkouts.js";
 import { claudeConversationOps as claudeConversation } from "../claude/local-conversation-ops.js";
 import { localConversationOps as piConversation } from "../pi/local-conversation-ops.js";
 import { resolveMapAddress } from "../local/map-resolve.js";
@@ -371,7 +372,13 @@ describe("map authoring", () => {
       expect(emptyOrientation.text).toContain("(none selected or reachable here)");
 
       // 2. Add members of various types
-      expect((await run(["add", file], { position: ".", checkout: agentDir })).code).toBe(0);
+      const failedRegistry = vi.spyOn(mapCheckouts, "saveMapCheckout").mockImplementationOnce(() => { throw new Error("hint store unavailable"); });
+      const partial = await run(["add", file], { position: ".", checkout: agentDir });
+      expect(partial.data.status).toBe("added_unregistered");
+      expect(partial.error).toContain("Map edit succeeded but checkout registration failed");
+      failedRegistry.mockRestore();
+      expect((await run(["add", file], { position: ".", checkout: agentDir })).data.status).toBe("already_present");
+      expect(mapCheckouts.loadMapCheckouts()[realpathSync(agentDir)]).toBe(agentId);
       expect((await run(["add", file], { position: ".", checkout: repoDir })).code).toBe(0);
       expect((await run(["add", file], { position: "_threads/discussions", root: "0" })).code).toBe(0);
       expect((await run(["add", file], { position: "guide.map.md", root: "0" })).code).toBe(0);
@@ -441,7 +448,7 @@ console.log(JSON.stringify({type:'result',subtype:'success',is_error:false,resul
       process.stdout.write = (() => true) as typeof stdout;
       try {
         expect(await claudeConversation.send({
-          context: dir, map: file, "working-root": maps, message: "Where is the Space?",
+          context: dir, map: file, "working-root": maps, focus: "notes/doc.md", message: "Where is the Space?",
           conversation: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "claude-bin": fakeClaude,
         }, output)).toBe(0);
       } finally {
@@ -458,6 +465,7 @@ console.log(JSON.stringify({type:'result',subtype:'success',is_error:false,resul
       expect(prompt).toContain("This Map's roots are the Space");
       expect(prompt).toContain(`First root (default folder for new material): "${realpathSync(agentDir)}"`);
       expect(prompt).not.toContain(`"workingRoot":"${realpathSync(maps)}"`);
+      expect(prompt).toContain('"focus":"notes/doc.md"');
 
       const fakePi = join(dir, "fake-pi.cjs");
       const piArgsFile = join(dir, "pi-args.json");
@@ -477,7 +485,7 @@ process.stdin.on('data', d => {
       process.stdout.write = (() => true) as typeof stdout;
       try {
         expect(await piConversation.send({
-          context: dir, map: file, "working-root": maps, message: "Where is the Space?",
+          context: dir, map: file, "working-root": maps, focus: "notes/doc.md", message: "Where is the Space?",
           conversation: "map-root-test", ext: "/fake/extension", "pi-bin": fakePi,
         }, output)).toBe(0);
       } finally {
@@ -489,6 +497,7 @@ process.stdin.on('data', d => {
       const piPrompt = piInvoked.args[piInvoked.args.indexOf("--append-system-prompt") + 1];
       expect(piPrompt).toContain("This Map's roots are the Space");
       expect(piPrompt).not.toContain(`"workingRoot":"${realpathSync(maps)}"`);
+      expect(piPrompt).toContain('"focus":"notes/doc.md"');
     } finally {
       process.env.HOME = originalHome;
       process.chdir(originalCwd);
