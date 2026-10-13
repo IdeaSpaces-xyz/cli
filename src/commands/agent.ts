@@ -1,10 +1,10 @@
-import { configDir } from "../auth/config-dir.js";
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import type { KeeperStreamEvent } from "@ideaspaces/sdk";
 import type { LocalMessageStartEvent } from "../local/send-options.js";
+import { configDir } from "../auth/config-dir.js";
 import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";

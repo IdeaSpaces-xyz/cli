@@ -1825,6 +1825,45 @@ Body text
     } finally {
       delete process.env.IDEASPACES_RUN_ID;
     }
+
+    // 8. Resuming a completed run (status running) clears ended_at back to null
+    stdoutChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": runId,
+          status: "running",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(0);
+    const resumed = getAgentRun(runId);
+    expect(resumed?.status).toBe("running");
+    expect(resumed?.ended_at).toBeNull();
+
+    // 9. Write failure surfaces as exit 1 with target path
+    const unwriteableDir = join(homeDir, "read-only-config");
+    mkdirSync(unwriteableDir, { recursive: true, mode: 0o400 });
+    const origConfig = process.env.HOME;
+    process.env.HOME = unwriteableDir;
+    try {
+      stdoutChunks = []; stderrChunks = [];
+      const failCode = await agentCmd.run(
+        ["record"],
+        {
+          "run-id": "fail-run",
+          status: "running",
+        },
+        JSON_GLOBAL,
+      );
+      if (process.platform !== "win32" && process.getuid && process.getuid() !== 0) {
+        expect(failCode).toBe(1);
+        expect(stderr()).toContain("Failed to record agent run");
+      }
+    } finally {
+      process.env.HOME = origConfig;
+    }
   });
 
   it("agent run inherits parent_id from cached Claude session ID when env is unset", async () => {

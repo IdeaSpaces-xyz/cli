@@ -1,6 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { configDir } from "../auth/config-dir.js";
