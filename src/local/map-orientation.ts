@@ -36,6 +36,21 @@ interface Located {
   name: string | undefined;
 }
 
+export interface MapOrientationLowered {
+  /** Zero-based ordinal in `map.members`. */
+  index: number;
+  declared: MapDepth;
+  effective: MapDepth;
+}
+
+export interface MapOrientationResult {
+  text: string;
+  note: LoadedMapNote;
+  budget: number;
+  lowered: MapOrientationLowered[];
+  legend: boolean;
+}
+
 export interface MapOrientationOptions {
   budget?: number;
   at?: MapReadAt;
@@ -53,7 +68,7 @@ export async function loadMapOrientation(
   reference: string,
   contextRoot: string,
   options: MapOrientationOptions = {},
-): Promise<{ text: string; note: LoadedMapNote }> {
+): Promise<MapOrientationResult> {
   const note = loadMapNote(reference, contextRoot);
   const budget = options.budget ?? MAP_ORIENTATION_BUDGET;
   const kind = mapKindOf(note.absolutePath);
@@ -86,7 +101,22 @@ export async function loadMapOrientation(
   for (;;) {
     for (const entry of reads) await ensureLook(entry, effective.get(entry.index)!);
     const text = render(note, kind, at, located, reads, effective, { budget, legend });
-    if (text.length <= budget) return { text, note };
+    if (text.length <= budget) {
+      const lowered: MapOrientationLowered[] = reads
+        .filter((entry) => effective.get(entry.index) !== entry.declared)
+        .map((entry) => ({
+          index: entry.index,
+          declared: entry.declared,
+          effective: effective.get(entry.index)!,
+        }));
+      return {
+        text,
+        note,
+        budget,
+        lowered,
+        legend: Boolean(note.legend && legend),
+      };
+    }
 
     // Only a member that was read has depth to give; an unreachable one is already a line.
     const next = [...reads].reverse().find((entry) => {

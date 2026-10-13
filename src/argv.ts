@@ -1,7 +1,8 @@
 import { normalizeGitBin } from "./git.js";
 import type { GlobalFlags } from "./types.js";
 
-const BOOLEAN_COMMAND_FLAGS = new Set(["read-only"]);
+// Flags that take no argument on any command (e.g. `ideaspaces map --orientation`).
+const BOOLEAN_COMMAND_FLAGS = new Set(["read-only", "orientation"]);
 function setFlag(flags: Record<string, string | boolean>, key: string, value: string): void {
   if (key === "reach") {
     // Only agent run consumes this array; keep paths with commas intact.
