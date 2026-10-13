@@ -16,7 +16,6 @@ import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent
 import {
   agentDisplayName,
   deriveTask,
-  findActiveClaudeSessionId,
   formatAgentRunsText,
   getAgentRun,
   listAgentRuns,
@@ -714,7 +713,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run, record, or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. `agent record` appends run lifecycle updates (session start, task, model, completion) for external sessions and hooks. See README 'agent run' for reach, permission, and trust details.",
+    description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. `agent record` appends run lifecycle updates (session start, task, model, completion) for external sessions and hooks; updates merge into the existing run. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",

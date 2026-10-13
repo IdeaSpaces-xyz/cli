@@ -7,7 +7,7 @@ import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { agentDisplayName, deriveTask, formatAgentRunsText, listAgentRuns } from "../local/agent-runs.js";
+import { agentDisplayName, deriveTask, formatAgentRunsText, getAgentRun, listAgentRuns } from "../local/agent-runs.js";
 import { makeAgentCommand, readAgentDefaults, resolveAgentPov, revalidateAgentPov, validateAgentPov } from "../commands/agent.js";
 import { makeConversationCommand, type LocalConversationOps } from "../commands/conversation.js";
 import type { GlobalFlags } from "../types.js";
@@ -1698,28 +1698,43 @@ Body text
     expect(recorded1?.harness).toBe("claude");
     expect(recorded1?.ended_at).toBeNull();
 
-    // 2. Update with message (task extraction) and model (parent preserved)
+    // 3. Model requested vs observed precedence
+    const runId2 = "test-run-model-precedence";
     stdoutChunks = [];
-    const code2 = await agentCmd.run(
-      ["record"],
-      {
-        "run-id": runId,
-        message: "Check all findings — a question, answered in your reply only.",
-        model: "claude-opus-5-5",
-        status: "completed",
-      },
-      JSON_GLOBAL,
-    );
-    expect(code2).toBe(0);
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": runId2,
+          agent: dir,
+          "model-requested": "opus",
+          status: "running",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(0);
+    const recModel1 = getAgentRun(runId2);
+    expect(recModel1?.model).toBe("opus");
+    expect(recModel1?.model_requested).toBe("opus");
+    expect(recModel1?.model_observed).toBeNull();
 
-    const runs2 = listAgentRuns();
-    const recorded2 = runs2.find((r) => r.run_id === runId);
-    expect(recorded2).toBeTruthy();
-    expect(recorded2?.status).toBe("completed");
-    expect(recorded2?.parent_id).toBe("parent-root-1"); // preserved
-    expect(recorded2?.task).toBe("Check all findings");
-    expect(recorded2?.model).toBe("claude-opus-5-5");
-    expect(recorded2?.ended_at).toBeTruthy();
+    // Now observe actual model
+    stdoutChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": runId2,
+          "model-observed": "claude-opus-5-5",
+          status: "completed",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(0);
+    const recModel2 = getAgentRun(runId2);
+    expect(recModel2?.model).toBe("claude-opus-5-5");
+    expect(recModel2?.model_requested).toBe("opus");
+    expect(recModel2?.model_observed).toBe("claude-opus-5-5");
   });
 
   it("agent run inherits parent_id from cached Claude session ID when env is unset", async () => {
