@@ -324,7 +324,7 @@ describe("local Threads", () => {
       expect(JSON.parse(out).posts.find((p: { id: string }) => p.id === post.post.id).summary).toBe(summary);
       out = "";
       expect(await threadsCommand.run(["open", "exact"], { depth: "name" }, { ...json, json: false })).toBe(0);
-      expect(out).toContain("[shortened; read the exact file or use --post <id>]");
+      expect(out).toContain("[shortened; read this Thread's README.md for the full frame]");
     } finally { process.stdout.write = original; process.chdir(previous); }
   });
 

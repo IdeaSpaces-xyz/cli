@@ -124,9 +124,9 @@ function localText(
     return [
       header,
       parentLine,
-      lens.current_frame && `Current frame: ${clip(lens.current_frame, 1200)}`,
-      lens.goal && `Goal: ${clip(lens.goal, 1200)}`,
-      lens.done_when && `Done when: ${clip(lens.done_when, 1200)}`,
+      lens.current_frame && `Current frame: ${clip(lens.current_frame, 1200, "… [shortened; read this Thread's README.md for the full frame]")}`,
+      lens.goal && `Goal: ${clip(lens.goal, 1200, "… [shortened; read this Thread's _agent/agreement.md for the full goal]")}`,
+      lens.done_when && `Done when: ${clip(lens.done_when, 1200, "… [shortened; read this Thread's _agent/agreement.md for the full criterion]")}`,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -249,7 +249,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older]  # local cold default: surface",
     "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
-    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # omitted reply-to branches from opening post",
+    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
@@ -265,7 +265,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
     "ideaspaces threads push --remote <team-remote>  # never origin/GitHub",
     "ideaspaces threads read x_<id> --new --ack  # hosted",
-    "ideaspaces threads open <slug> --depth children  # branch roots/tips and child Threads attached by post path",
+    "ideaspaces threads open <slug> --depth children  # branches/children default newer; post ranges default older",
     "ideaspaces threads open <slug> --depth surface --limit 5  # head counts toward the limit; --order newer reverses the selected page",
     "ideaspaces threads open <slug> --depth full --limit 10 --order older  # page history; --since <post-id> continues (older order only)",
     "ideaspaces threads open <slug> --post msg_<id>  # one exact post plus child Threads attached to it",
