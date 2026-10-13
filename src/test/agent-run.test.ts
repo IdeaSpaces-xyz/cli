@@ -1645,12 +1645,28 @@ Body text
     const dir = makeAgentDir("record-test-");
     const runId = "test-run-123";
 
+    // Missing run-id returns 1
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], {}, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("A run id is required");
+
+    // Invalid status returns 1
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], { "run-id": runId, status: "invalid_status" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain('Invalid --status "invalid_status"');
+
+    // Invalid harness returns 1
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], { "run-id": runId, harness: "invalid_harness" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain('Invalid --harness "invalid_harness"');
+
     // 1. Initial record at session start
     stdoutChunks = [];
     const code1 = await agentCmd.run(
       ["record"],
       {
         "run-id": runId,
+        parent: "parent-root-1",
         agent: dir,
         harness: "claude",
         conversation: "conv-abc",
@@ -1659,16 +1675,21 @@ Body text
       JSON_GLOBAL,
     );
     expect(code1).toBe(0);
+    const jsonOutput1 = JSON.parse(stdout());
+    expect(jsonOutput1.run_id).toBe(runId);
+    expect(jsonOutput1.parent_id).toBe("parent-root-1");
+    expect(jsonOutput1.status).toBe("running");
 
     const runs1 = listAgentRuns();
     const recorded1 = runs1.find((r) => r.run_id === runId);
     expect(recorded1).toBeTruthy();
     expect(recorded1?.status).toBe("running");
+    expect(recorded1?.parent_id).toBe("parent-root-1");
     expect(recorded1?.conversation_id).toBe("conv-abc");
     expect(recorded1?.harness).toBe("claude");
     expect(recorded1?.ended_at).toBeNull();
 
-    // 2. Update with message (task extraction) and model
+    // 2. Update with message (task extraction) and model (parent preserved)
     stdoutChunks = [];
     const code2 = await agentCmd.run(
       ["record"],
@@ -1686,6 +1707,7 @@ Body text
     const recorded2 = runs2.find((r) => r.run_id === runId);
     expect(recorded2).toBeTruthy();
     expect(recorded2?.status).toBe("completed");
+    expect(recorded2?.parent_id).toBe("parent-root-1"); // preserved
     expect(recorded2?.task).toBe("Check all findings");
     expect(recorded2?.model).toBe("claude-opus-5-5");
     expect(recorded2?.ended_at).toBeTruthy();
@@ -1706,7 +1728,7 @@ Body text
     mkdirSync(sessionsDir, { recursive: true });
     writeFileSync(join(sessionsDir, key), "steward-session-uuid-999\n");
 
-    // Change cwd to parentDir and launch childDir
+    // 1. Direct parent directory
     const prevCwd = process.cwd();
     process.chdir(parentDir);
     try {
@@ -1728,6 +1750,70 @@ Body text
       expect(childRun).toBeTruthy();
       expect(childRun?.parent_id).toBe("steward-session-uuid-999");
     } finally {
+      process.chdir(prevCwd);
+    }
+
+    // 2. Grandparent directory resolution (nested subfolder)
+    const subfolder = join(parentDir, "sub", "deep");
+    mkdirSync(subfolder, { recursive: true });
+    process.chdir(subfolder);
+    try {
+      stdoutChunks = [];
+      const childDir2 = makeAgentDir("scout-child2-");
+      const fakeBin2 = join(childDir2, "fake-claude");
+      writeFileSync(join(childDir2, "fake-claude.cjs"), FAKE_CLAUDE);
+      writeFileSync(fakeBin2, `#!/bin/sh\nexec "${process.execPath}" "${join(childDir2, "fake-claude.cjs")}" "$@"\n`);
+      chmodSync(fakeBin2, 0o755);
+
+      const code = await agentCmd.run(
+        ["run", childDir2],
+        {
+          runtime: "claude",
+          model: "sonnet",
+          message: "Check deep child task",
+          "claude-bin": fakeBin2,
+        },
+        JSON_GLOBAL,
+      );
+      expect(code).toBe(0);
+
+      const runs = listAgentRuns();
+      const childRun2 = runs.find((r) => r.agent === realpathSync.native(childDir2));
+      expect(childRun2).toBeTruthy();
+      expect(childRun2?.parent_id).toBe("steward-session-uuid-999");
+    } finally {
+      process.chdir(prevCwd);
+    }
+
+    // 3. Environment variable takes precedence over cache
+    process.chdir(parentDir);
+    process.env.IDEASPACES_PARENT_ID = "explicit-env-parent-id";
+    try {
+      stdoutChunks = [];
+      const childDir3 = makeAgentDir("scout-child3-");
+      const fakeBin3 = join(childDir3, "fake-claude");
+      writeFileSync(join(childDir3, "fake-claude.cjs"), FAKE_CLAUDE);
+      writeFileSync(fakeBin3, `#!/bin/sh\nexec "${process.execPath}" "${join(childDir3, "fake-claude.cjs")}" "$@"\n`);
+      chmodSync(fakeBin3, 0o755);
+
+      const code = await agentCmd.run(
+        ["run", childDir3],
+        {
+          runtime: "claude",
+          model: "sonnet",
+          message: "Check env precedence task",
+          "claude-bin": fakeBin3,
+        },
+        JSON_GLOBAL,
+      );
+      expect(code).toBe(0);
+
+      const runs = listAgentRuns();
+      const childRun3 = runs.find((r) => r.agent === realpathSync.native(childDir3));
+      expect(childRun3).toBeTruthy();
+      expect(childRun3?.parent_id).toBe("explicit-env-parent-id");
+    } finally {
+      delete process.env.IDEASPACES_PARENT_ID;
       process.chdir(prevCwd);
     }
   });

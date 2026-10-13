@@ -18,6 +18,7 @@ import {
   deriveTask,
   findActiveClaudeSessionId,
   formatAgentRunsText,
+  getAgentRun,
   listAgentRuns,
   recordAgentRun,
   type AgentRunRecord,
@@ -564,20 +565,16 @@ function cmdRecord(
   flags: Flags,
   output: Output,
 ): number {
-  const runId = flagString(flags, "run-id")
-    ?? flagString(flags, "id")
-    ?? process.env.IDEASPACES_RUN_ID
-    ?? process.env.PI_SESSION_ID;
+  const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID;
 
   if (!runId) {
     output.error(`A run id is required: --run-id <id>\nUsage: ${RECORD_USAGE}`);
     return 1;
   }
 
-  const existing = listAgentRuns().find((r) => r.run_id === runId);
+  const existing = getAgentRun(runId);
 
   const parentId = flagString(flags, "parent")
-    ?? (flags["parent-id"] !== undefined ? flagString(flags, "parent-id") : undefined)
     ?? (existing ? existing.parent_id : (process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? null));
 
   const parentToolUseId = flagString(flags, "parent-tool-use-id")
@@ -597,12 +594,15 @@ function cmdRecord(
     task = existing.task;
   }
 
-  let harness: "pi" | "claude" = "claude";
+  const validHarnesses = ["pi", "claude"] as const;
   const harnessFlag = flagString(flags, "harness");
-  if (harnessFlag === "pi" || harnessFlag === "claude") {
+  let harness: "pi" | "claude" = existing?.harness ?? "claude";
+  if (harnessFlag !== undefined) {
+    if (harnessFlag !== "pi" && harnessFlag !== "claude") {
+      output.error(`Invalid --harness "${harnessFlag}". Valid values: ${validHarnesses.join(", ")}`);
+      return 1;
+    }
     harness = harnessFlag;
-  } else if (existing?.harness) {
-    harness = existing.harness;
   }
 
   const modelFlag = flagString(flags, "model");
@@ -611,33 +611,26 @@ function cmdRecord(
   const model = modelObserved ?? modelFlag ?? existing?.model ?? modelRequested ?? null;
 
   const convId = flagString(flags, "conversation")
-    ?? flagString(flags, "conversation-id")
-    ?? (flags["session-id"] !== undefined ? flagString(flags, "session-id") : undefined)
     ?? existing?.conversation_id
     ?? null;
 
-  const statusFlag = flagString(flags, "status");
   const validStatuses: AgentRunStatus[] = ["running", "completed", "failed", "interrupted", "cancelled"];
+  const statusFlag = flagString(flags, "status");
   let status: AgentRunStatus = existing?.status ?? "running";
-  if (statusFlag && validStatuses.includes(statusFlag as AgentRunStatus)) {
+  if (statusFlag !== undefined) {
+    if (!validStatuses.includes(statusFlag as AgentRunStatus)) {
+      output.error(`Invalid --status "${statusFlag}". Valid values: ${validStatuses.join(", ")}`);
+      return 1;
+    }
     status = statusFlag as AgentRunStatus;
   }
 
   const startedAt = flagString(flags, "started")
-    ?? flagString(flags, "started-at")
     ?? existing?.started_at
     ?? new Date().toISOString();
 
   let endedAt = flagString(flags, "ended")
-    ?? flagString(flags, "ended-at")
-    ?? existing?.ended_at
-    ?? null;
-
-  if (!endedAt && (status === "completed" || status === "failed" || status === "interrupted" || status === "cancelled")) {
-    endedAt = new Date().toISOString();
-  } else if (status === "running") {
-    endedAt = null;
-  }
+    ?? (status !== "running" ? (existing?.ended_at ?? new Date().toISOString()) : null);
 
   const record: AgentRunRecord = {
     run_id: runId,
@@ -655,7 +648,11 @@ function cmdRecord(
     ended_at: endedAt,
   };
 
-  recordAgentRun(record);
+  const ok = recordAgentRun(record);
+  if (!ok) {
+    output.error(`Failed to record agent run ${record.run_id}`);
+    return 1;
+  }
   output.result(record, `Recorded run ${record.run_id} (${record.status}) for ${agentDisplayName(record.agent)}`);
   return 0;
 }

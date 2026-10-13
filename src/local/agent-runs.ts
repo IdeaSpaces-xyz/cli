@@ -81,7 +81,7 @@ export function deriveTask(message?: string, cwd: string = process.cwd()): strin
   return (sanitized.length > 300 ? sanitized.slice(0, 300) : sanitized) || null;
 }
 
-export function recordAgentRun(record: AgentRunRecord): void {
+export function recordAgentRun(record: AgentRunRecord): boolean {
   try {
     const dir = configDir();
     if (!existsSync(dir)) {
@@ -89,8 +89,9 @@ export function recordAgentRun(record: AgentRunRecord): void {
     }
     const file = join(dir, "agent-runs.jsonl");
     appendFileSync(file, `${JSON.stringify(record)}\n`, { mode: 0o600, encoding: "utf8" });
+    return true;
   } catch {
-    // Bookkeeping must never crash the run
+    return false;
   }
 }
 
@@ -179,10 +180,14 @@ export function getAgentRun(runId: string): AgentRunRecord | undefined {
 export function cachedClaudeSessionId(projectDir: string, home: string = homedir()): string | null {
   try {
     const key = createHash("sha256").update(resolve(projectDir)).digest("hex").slice(0, 16);
-    const file = join(home, ".ideaspaces", "sessions", key);
-    if (existsSync(file)) {
-      const id = readFileSync(file, "utf8").trim();
-      return id || null;
+    // Prefer configDir parent if ~/.ideaspaces override is in use, fallback to home
+    const candidateDirs = [join(configDir(), "..", "sessions"), join(home, ".ideaspaces", "sessions")];
+    for (const dir of candidateDirs) {
+      const file = join(dir, key);
+      if (existsSync(file)) {
+        const id = readFileSync(file, "utf8").trim();
+        if (id) return id;
+      }
     }
   } catch {
     // ignore
@@ -192,17 +197,25 @@ export function cachedClaudeSessionId(projectDir: string, home: string = homedir
 
 /**
  * Walk upwards from cwd looking for a cached Claude Code session id in an
- * ancestor folder (e.g. agent dir or space root).
+ * ancestor folder (e.g. agent dir or space root), stopping at repository boundaries.
  */
 export function findActiveClaudeSessionId(cwd: string = process.cwd(), home: string = homedir()): string | null {
   let cur = resolve(cwd);
   while (true) {
     const id = cachedClaudeSessionId(cur, home);
     if (id) return id;
+    if (existsSync(join(cur, ".git")) || existsSync(join(cur, "_agent"))) {
+      // Check enclosing parent once if this was an agent subdirectory
+      const parent = dirname(cur);
+      if (parent !== cur) {
+        const parentId = cachedClaudeSessionId(parent, home);
+        if (parentId) return parentId;
+      }
+      break;
+    }
     const parent = dirname(cur);
     if (parent === cur) break;
     cur = parent;
   }
   return null;
 }
-
