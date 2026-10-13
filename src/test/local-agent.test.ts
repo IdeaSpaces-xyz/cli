@@ -200,6 +200,16 @@ process.stdin.on("data", (input) => {
     expect(events.some((event) => event.type === "turn_complete")).toBe(false);
   });
 
+  it("ends with pi_error if retry exhaustion has no final agent_end", async () => {
+    const events = await fakeRun([
+      { type: "agent_start" },
+      { type: "agent_end", willRetry: true, messages: [{ role: "assistant", stopReason: "error", errorMessage: "fetch failed" }] },
+      { type: "auto_retry_end", success: false, attempt: 3, finalError: "fetch failed after 3 attempts" },
+    ]);
+    expect(events.at(-1)).toMatchObject({ type: "error", error_type: "pi_error", message: "fetch failed after 3 attempts" });
+    expect(events.some((event) => event.type === "turn_complete")).toBe(false);
+  });
+
   it("reports the cause and resume id when Pi exits during its retry", async () => {
     const events = await fakeRun([
       { type: "agent_start" },

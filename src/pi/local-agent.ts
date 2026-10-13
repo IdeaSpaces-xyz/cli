@@ -269,7 +269,17 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         retryError = typeof lastAssistant?.errorMessage === "string" ? lastAssistant.errorMessage : "provider request failed";
         continue;
       }
-      if (type === "auto_retry_end" && msg.success === true) retryError = undefined;
+      if (type === "auto_retry_end") {
+        if (msg.success === true) retryError = undefined;
+        else if (msg.success === false) {
+          // Pi may settle a cancelled/exhausted backoff without another
+          // agent_end. Without this terminal the headless RPC child stays open
+          // indefinitely after willRetry, and the launcher sees neither result.
+          if (aborted) yield translator.cancelled("aborted");
+          else yield translator.error("pi_error", String(msg.finalError ?? retryError ?? "Pi provider retry failed"));
+          return;
+        }
+      }
       if (NON_AGENT_TYPES.has(type)) {
         if (type === "response" && msg.command === "get_state" && msg.success !== false) {
           const data = msg.data as { sessionName?: string } | undefined;
