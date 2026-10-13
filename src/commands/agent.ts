@@ -21,6 +21,7 @@ import {
   getAgentRun,
   listAgentRuns,
   recordAgentRun,
+  resolveParentId,
   type AgentRunRecord,
   type AgentRunStatus,
 } from "../local/agent-runs.js";
@@ -386,7 +387,7 @@ async function cmdRun(
     resumeOnly: flags.conversation !== undefined,
   };
 
-  const parentId = flagString(flags, "parent") ?? process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? process.env.PI_SESSION_ID ?? findActiveClaudeSessionId(process.cwd()) ?? null;
+  const parentId = resolveParentId(flagString(flags, "parent"), process.cwd());
   const parentToolUseId = flagString(flags, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
   const runId = flagString(flags, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID()}`;
   const task = flagString(flags, "task") ?? deriveTask(message, process.cwd());
@@ -406,12 +407,14 @@ async function cmdRun(
     started_at: new Date().toISOString(),
     ended_at: null,
   };
+  // Bookkeeping must never crash the run
   recordAgentRun(runRecord);
 
   function finishRun(status: AgentRunRecord["status"]) {
     if (runRecord.ended_at === null) {
       runRecord.status = status;
       runRecord.ended_at = new Date().toISOString();
+      // Bookkeeping must never crash the run
       recordAgentRun(runRecord);
     }
   }
@@ -575,7 +578,8 @@ function cmdRecord(
   const existing = getAgentRun(runId);
 
   const parentId = flagString(flags, "parent")
-    ?? (existing ? existing.parent_id : (process.env.IDEASPACES_PARENT_RUN_ID ?? process.env.IDEASPACES_PARENT_ID ?? null));
+    ?? existing?.parent_id
+    ?? resolveParentId(undefined, process.cwd());
 
   const parentToolUseId = flagString(flags, "parent-tool-use-id")
     ?? (existing ? existing.parent_tool_use_id : (process.env.PARENT_TOOL_USE_ID ?? null));
@@ -606,9 +610,23 @@ function cmdRecord(
   }
 
   const modelFlag = flagString(flags, "model");
-  const modelRequested = flagString(flags, "model-requested") ?? (modelFlag ?? existing?.model_requested ?? null);
-  const modelObserved = flagString(flags, "model-observed") ?? (existing?.model_observed ?? null);
-  const model = modelObserved ?? modelFlag ?? existing?.model ?? modelRequested ?? null;
+  const modelRequestedFlag = flagString(flags, "model-requested");
+  const modelObservedFlag = flagString(flags, "model-observed");
+
+  let modelRequested = modelRequestedFlag ?? existing?.model_requested ?? null;
+  let modelObserved = modelObservedFlag ?? existing?.model_observed ?? null;
+  let model: string | null = existing?.model ?? null;
+
+  if (modelObservedFlag) {
+    modelObserved = modelObservedFlag;
+    model = modelObservedFlag;
+  } else if (modelFlag) {
+    model = modelFlag;
+    if (!modelRequested) modelRequested = modelFlag;
+  } else if (modelRequestedFlag) {
+    modelRequested = modelRequestedFlag;
+    if (!model) model = modelRequestedFlag;
+  }
 
   const convId = flagString(flags, "conversation")
     ?? existing?.conversation_id
@@ -625,11 +643,21 @@ function cmdRecord(
     status = statusFlag as AgentRunStatus;
   }
 
-  const startedAt = flagString(flags, "started")
+  const startedRaw = flagString(flags, "started");
+  if (startedRaw && isNaN(Date.parse(startedRaw))) {
+    output.error(`Invalid --started timestamp "${startedRaw}". Use ISO 8601 format.`);
+    return 1;
+  }
+  const startedAt = startedRaw
     ?? existing?.started_at
     ?? new Date().toISOString();
 
-  let endedAt = flagString(flags, "ended")
+  const endedRaw = flagString(flags, "ended");
+  if (endedRaw && isNaN(Date.parse(endedRaw))) {
+    output.error(`Invalid --ended timestamp "${endedRaw}". Use ISO 8601 format.`);
+    return 1;
+  }
+  const endedAt = endedRaw
     ?? (status !== "running" ? (existing?.ended_at ?? new Date().toISOString()) : null);
 
   const record: AgentRunRecord = {
@@ -686,7 +714,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
+    description: "Run, record, or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. `agent record` appends run lifecycle updates (session start, task, model, completion) for external sessions and hooks. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
@@ -694,6 +722,8 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent runs",
       "ideaspaces agent runs --parent <id> --json",
       "ideaspaces agent runs --agent scout --limit 10",
+      "ideaspaces agent record --run-id run-123 --agent agents/steward --harness claude --status running",
+      "ideaspaces agent record --run-id run-123 --message 'Dispatch to Integrator' --model claude-opus-5-5 --status completed",
       "ideaspaces agent capabilities --json  # machine-readable run guarantees for launchers",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",

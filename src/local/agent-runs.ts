@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
@@ -179,15 +179,17 @@ export function getAgentRun(runId: string): AgentRunRecord | undefined {
  */
 export function cachedClaudeSessionId(projectDir: string, home: string = homedir()): string | null {
   try {
-    const key = createHash("sha256").update(resolve(projectDir)).digest("hex").slice(0, 16);
-    // Prefer configDir parent if ~/.ideaspaces override is in use, fallback to home
-    const candidateDirs = [join(configDir(), "..", "sessions"), join(home, ".ideaspaces", "sessions")];
-    for (const dir of candidateDirs) {
-      const file = join(dir, key);
-      if (existsSync(file)) {
-        const id = readFileSync(file, "utf8").trim();
-        if (id) return id;
-      }
+    let resolved = resolve(projectDir);
+    try {
+      resolved = realpathSync(resolved);
+    } catch {
+      // fallback to resolve(projectDir)
+    }
+    const key = createHash("sha256").update(resolved).digest("hex").slice(0, 16);
+    const file = join(home, ".ideaspaces", "sessions", key);
+    if (existsSync(file)) {
+      const id = readFileSync(file, "utf8").trim();
+      if (id) return id;
     }
   } catch {
     // ignore
@@ -205,12 +207,6 @@ export function findActiveClaudeSessionId(cwd: string = process.cwd(), home: str
     const id = cachedClaudeSessionId(cur, home);
     if (id) return id;
     if (existsSync(join(cur, ".git")) || existsSync(join(cur, "_agent"))) {
-      // Check enclosing parent once if this was an agent subdirectory
-      const parent = dirname(cur);
-      if (parent !== cur) {
-        const parentId = cachedClaudeSessionId(parent, home);
-        if (parentId) return parentId;
-      }
       break;
     }
     const parent = dirname(cur);
@@ -218,4 +214,22 @@ export function findActiveClaudeSessionId(cwd: string = process.cwd(), home: str
     cur = parent;
   }
   return null;
+}
+
+/**
+ * Resolve the parent run / session ID following priority order:
+ * 1. Explicit --parent flag
+ * 2. IDEASPACES_PARENT_RUN_ID / IDEASPACES_PARENT_ID environment variable
+ * 3. PI_SESSION_ID environment variable
+ * 4. Active cached Claude session ID for the context folder
+ */
+export function resolveParentId(explicitParent?: string, cwd: string = process.cwd()): string | null {
+  if (explicitParent && explicitParent.trim()) return explicitParent.trim();
+  return (
+    process.env.IDEASPACES_PARENT_RUN_ID?.trim() ||
+    process.env.IDEASPACES_PARENT_ID?.trim() ||
+    process.env.PI_SESSION_ID?.trim() ||
+    findActiveClaudeSessionId(cwd) ||
+    null
+  );
 }

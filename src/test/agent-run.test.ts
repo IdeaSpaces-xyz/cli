@@ -1660,6 +1660,15 @@ Body text
     expect(await agentCmd.run(["record"], { "run-id": runId, harness: "invalid_harness" }, JSON_GLOBAL)).toBe(1);
     expect(stderr()).toContain('Invalid --harness "invalid_harness"');
 
+    // Invalid timestamps return 1
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], { "run-id": runId, started: "not-a-date" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain('Invalid --started timestamp "not-a-date"');
+
+    stdoutChunks = []; stderrChunks = [];
+    expect(await agentCmd.run(["record"], { "run-id": runId, ended: "not-a-date" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain('Invalid --ended timestamp "not-a-date"');
+
     // 1. Initial record at session start
     stdoutChunks = [];
     const code1 = await agentCmd.run(
