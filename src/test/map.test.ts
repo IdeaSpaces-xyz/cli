@@ -8,7 +8,9 @@ import { join } from "node:path";
 import { MAP_DEPTHS, parseMap } from "@ideaspaces/protocol";
 import { loadConfig } from "../auth/credentials.js";
 import { loadSpaces } from "../auth/spaces.js";
+import { parseArgs } from "../argv.js";
 import { mapCommand } from "../commands/map.js";
+import { loadMapOrientation } from "../local/map-orientation.js";
 import type { GlobalFlags } from "../types.js";
 
 vi.mock("../auth/credentials.js", async (importOriginal) => ({
@@ -593,6 +595,181 @@ map:
       const humanRes = await runMap(["."], {}, { ...JSON_FLAGS, json: false, quiet: false });
       expect(humanRes.exit).toBe(0);
       expect(humanRes.stdout).toContain("Note: Multiple Space Maps found (home.map.md, team.map.md). Using home.map.md.");
+    });
+  });
+
+  describe("ideaspaces map --orientation", () => {
+    async function setupSpaceWithMap(): Promise<{ head: string }> {
+      await fs.mkdir(join(root, "_agent"), { recursive: true });
+      await fs.mkdir(join(root, "notes"), { recursive: true });
+      await fs.writeFile(
+        join(root, "_agent", "agreement.md"),
+        `---\nname: Test Space\nroot_node_id: ${ROOT_NODE_ID}\n---\n# Test Space\n`,
+      );
+      await fs.writeFile(
+        join(root, "notes", "finding.md"),
+        "---\nname: Finding Note\nsummary: Important finding.\n---\n# Finding Note\nBody content of finding.\n",
+      );
+      git(["add", "."]);
+      git(["commit", "-q", "-m", "init"]);
+      const head = git(["rev-parse", "HEAD"]);
+      await fs.writeFile(
+        join(root, "home.map.md"),
+        `---
+name: Home Map
+summary: Curated home space map.
+legend: User authored legend details.
+map:
+  roots:
+    - root_node_id: ${ROOT_NODE_ID}
+      sha: "${head}"
+  members:
+    - root: 0
+      position: notes/finding.md
+      depth: summary
+---
+# Home Map
+`,
+      );
+      return { head };
+    }
+
+    it("prints launch orientation text matching loadMapOrientation without launching a session", async () => {
+      await setupSpaceWithMap();
+      const savedEnvMap = process.env.IDEASPACES_MAP;
+
+      const expected = (await loadMapOrientation("home.map.md", root)).text + "\n";
+      const result = await runMap(["home.map.md"], { orientation: true }, { ...JSON_FLAGS, json: false, quiet: false });
+
+      expect(result.exit).toBe(0);
+      expect(result.stdout).toBe(expected);
+      expect(process.env.IDEASPACES_MAP).toBe(savedEnvMap);
+    });
+
+    it("emits structured JSON with budget, lowered, and legend fields", async () => {
+      await setupSpaceWithMap();
+
+      const result = await runMap(["home.map.md"], { orientation: true }, JSON_FLAGS);
+
+      expect(result.exit).toBe(0);
+      expect(result.data).toMatchObject({
+        kind: "map-orientation",
+        path: "home.map.md",
+        budget: 12_000,
+        lowered: [],
+        legend: true,
+        text: expect.stringContaining("[IdeaSpaces Map]"),
+      });
+      expect(result.data.text).toContain("Finding Note");
+    });
+
+    it("reports lowering and legend omission under a deliberately tight budget", async () => {
+      await setupSpaceWithMap();
+      await fs.writeFile(
+        join(root, "notes", "extra.md"),
+        "---\nname: Extra Note\nsummary: Second finding with a long explanation.\n---\n# Extra\nMore details.\n",
+      );
+      git(["add", "notes/extra.md"]);
+      git(["commit", "-q", "-m", "extra"]);
+      const head = git(["rev-parse", "HEAD"]);
+
+      await fs.writeFile(
+        join(root, "home.map.md"),
+        `---
+name: Home Map
+summary: Curated home space map.
+legend: User authored legend details that should be omitted when tight.
+map:
+  roots:
+    - root_node_id: ${ROOT_NODE_ID}
+      sha: "${head}"
+  members:
+    - root: 0
+      position: notes/finding.md
+      depth: full
+    - root: 0
+      position: notes/extra.md
+      depth: full
+---
+# Home Map
+`,
+      );
+
+      const unconstrained = await loadMapOrientation("home.map.md", root);
+      const fullLen = unconstrained.text.length;
+
+      // Budget tight enough to trigger lowering and legend omission
+      const tightBudget = fullLen - 150;
+      const result = await runMap(
+        ["home.map.md"],
+        { orientation: true, budget: String(tightBudget) },
+        JSON_FLAGS,
+      );
+
+      expect(result.exit).toBe(0);
+      expect(result.data.budget).toBe(tightBudget);
+      expect(result.data.lowered.length).toBeGreaterThan(0);
+      expect(result.data.lowered[0]).toMatchObject({
+        index: expect.any(Number),
+        declared: "full",
+        effective: expect.any(String),
+      });
+      expect(result.data.text.length).toBeLessThanOrEqual(tightBudget);
+    });
+
+    it("resolves the note identically for both argument orders through parseArgs", async () => {
+      await setupSpaceWithMap();
+
+      const parsedAfter = parseArgs(["map", "home.map.md", "--orientation", "--json"]);
+      const resAfter = await runMap(parsedAfter.args, parsedAfter.flags, parsedAfter.global);
+
+      const parsedBefore = parseArgs(["map", "--orientation", "home.map.md", "--json"]);
+      const resBefore = await runMap(parsedBefore.args, parsedBefore.flags, parsedBefore.global);
+
+      expect(resAfter.exit).toBe(0);
+      expect(resBefore.exit).toBe(0);
+      expect(resAfter.data).toEqual(resBefore.data);
+    });
+
+    it("refuses when map is over budget even with all members lowered to name", async () => {
+      await setupSpaceWithMap();
+
+      const result = await runMap(["home.map.md"], { orientation: true, budget: "50" }, JSON_FLAGS);
+
+      expect(result.exit).toBe(1);
+      expect(result.stderr).toContain("renders to");
+      expect(result.stderr).toContain("every member at name");
+    });
+
+    it("validates --budget and rejects non-positive or non-integer values", async () => {
+      await setupSpaceWithMap();
+
+      const zero = await runMap(["home.map.md"], { orientation: true, budget: "0" }, JSON_FLAGS);
+      expect(zero.exit).toBe(1);
+      expect(zero.stderr).toContain("Invalid --budget: must be a positive integer");
+
+      const negative = await runMap(["home.map.md"], { orientation: true, budget: "-10" }, JSON_FLAGS);
+      expect(negative.exit).toBe(1);
+      expect(negative.stderr).toContain("Invalid --budget: must be a positive integer");
+
+      const notNumber = await runMap(["home.map.md"], { orientation: true, budget: "invalid" }, JSON_FLAGS);
+      expect(notNumber.exit).toBe(1);
+      expect(notNumber.stderr).toContain("Invalid --budget: must be a positive integer");
+
+      const bareFlag = await runMap(["home.map.md"], { orientation: true, budget: true }, JSON_FLAGS);
+      expect(bareFlag.exit).toBe(1);
+      expect(bareFlag.stderr).toContain("Invalid --budget: must be a positive integer");
+    });
+
+    it("rejects a directory without a curated Map note", async () => {
+      await writeDeepTree();
+      git(["add", "."]);
+      git(["commit", "-q", "-m", "tree"]);
+
+      const result = await runMap(["."], { orientation: true }, JSON_FLAGS);
+
+      expect(result.exit).toBe(1);
+      expect(result.stderr).toContain("is required for --orientation");
     });
   });
 });

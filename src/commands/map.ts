@@ -21,7 +21,9 @@ import {
 } from "@ideaspaces/protocol";
 import { realpathSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import { parseBool } from "../argv.js";
 import { inspectPortableLocalRoot } from "../local-map-root.js";
+import { loadMapOrientation } from "../local/map-orientation.js";
 import { inspectSpaceMap } from "../local/space-map.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -50,9 +52,11 @@ function emptyTree(): ContentAwarenessTree {
 export const mapCommand: CommandDef = {
   name: "map",
   description: "Display a curated Space Map (*.map.md) or derive a local Content Map",
-  usage: `ideaspaces map [<folder|map-note>] [--depth <1..4|full>] [--json]\n       ${MAP_EDIT_USAGE}\n       ${MAP_SELECT_USAGE}`,
+  usage: `ideaspaces map [<folder|map-note>] [--depth <1..4|full>] [--json]\n       ideaspaces map <map-note> --orientation [--budget <chars>] [--json]\n       ${MAP_EDIT_USAGE}\n       ${MAP_SELECT_USAGE}`,
   examples: [
     "ideaspaces map . --json",
+    "ideaspaces map home.map.md --orientation",
+    "ideaspaces map home.map.md --orientation --budget 8000 --json",
     "ideaspaces map create team.map.md --name Team --summary 'Team space'",
     "ideaspaces map add team.map.md thread:x_0123456789abcdef01234567 --depth summary",
     "ideaspaces map remove team.map.md 0 --if-match <file_sha>  # from map team.map.md --json",
@@ -72,6 +76,21 @@ export const mapCommand: CommandDef = {
     if (depth === null) {
       output.error("Map depth must be 1, 2, 3, 4, or full: --depth <1..4|full>");
       return 1;
+    }
+
+    const orientation = flags.orientation !== undefined && parseBool(flags.orientation);
+    let budget: number | undefined;
+    if (flags.budget !== undefined) {
+      if (typeof flags.budget === "boolean" || (typeof flags.budget !== "string" && typeof flags.budget !== "number")) {
+        output.error("Invalid --budget: must be a positive integer");
+        return 1;
+      }
+      const parsed = Number(flags.budget);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        output.error("Invalid --budget: must be a positive integer");
+        return 1;
+      }
+      budget = parsed;
     }
 
     const requested = resolve((args[0] ?? ".").trim() || ".");
@@ -105,6 +124,31 @@ export const mapCommand: CommandDef = {
       output.error(`Could not open Space Map: ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
+
+    if (orientation) {
+      if (!spaceMap) {
+        output.error(`A curated Map note (*.map.md) is required for --orientation: ${requested}`);
+        return 1;
+      }
+      const mapRef = selectedFile ? resolve(target, selectedFile) : resolve(target, spaceMap.file);
+      try {
+        const orientationResult = await loadMapOrientation(mapRef, process.cwd(), { budget });
+        const data = {
+          kind: "map-orientation",
+          path: orientationResult.note.path,
+          budget: orientationResult.budget,
+          lowered: orientationResult.lowered,
+          legend: orientationResult.legend,
+          text: orientationResult.text,
+        };
+        output.result(data, orientationResult.text);
+        return 0;
+      } catch (error) {
+        output.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
+
     if (spaceMap) {
       const data = {
         kind: "space-map",

@@ -84,4 +84,22 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["status", "doctor", "--git-bin", "--json"])).toThrow(/--git-bin requires a path argument/);
     expect(() => parseArgs(["status", "doctor", "--git-bin="])).toThrow(/--git-bin requires a path argument/);
   });
+
+  it("parses --orientation before and after positional path as a boolean flag", () => {
+    const after = parseArgs(["map", "home.map.md", "--orientation"]);
+    expect(after.command).toBe("map");
+    expect(after.args).toEqual(["home.map.md"]);
+    expect(after.flags.orientation).toBe(true);
+
+    const before = parseArgs(["map", "--orientation", "home.map.md"]);
+    expect(before.command).toBe("map");
+    expect(before.args).toEqual(["home.map.md"]);
+    expect(before.flags.orientation).toBe(true);
+
+    const withBudget = parseArgs(["map", "--orientation", "home.map.md", "--budget", "8000"]);
+    expect(withBudget.command).toBe("map");
+    expect(withBudget.args).toEqual(["home.map.md"]);
+    expect(withBudget.flags.orientation).toBe(true);
+    expect(withBudget.flags.budget).toBe("8000");
+  });
 });
