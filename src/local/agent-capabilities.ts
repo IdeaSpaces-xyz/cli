@@ -25,6 +25,8 @@ export const AGENT_RUN_FEATURES = {
   "model.requested-observed": "message_start reports model_requested and model_observed separately; null means none requested or none reported.",
   /** `agent run` writes run records queryable via `agent runs`. */
   "run.records": "agent run writes run records (parent, agent, harness, model, conversation) read by agent runs.",
+  /** `agent record` writes or updates run records for external sessions and hooks. */
+  "run.record-command": "agent record appends or updates run records from external sessions and hooks.",
   "run.terminal-error": "A started agent run --json emits an error if the local runtime returns without a terminal event; preflight errors remain on stderr and cancelled remains a distinct terminal event.",
   "run.cancelled-nonzero": "A cancelled agent run preserves its cancelled event and run-record status, but exits nonzero so launchers do not count it as success.",
 } as const;

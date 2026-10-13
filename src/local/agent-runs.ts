@@ -177,7 +177,7 @@ export function getAgentRun(runId: string): AgentRunRecord | undefined {
  * Read the cached Claude Code session id for a project directory, matching
  * the plugin's `sessionIdCachePath` location (~/.ideaspaces/sessions/<sha256-prefix>).
  */
-export function cachedClaudeSessionId(projectDir: string, home: string = homedir()): string | null {
+export function cachedClaudeSessionId(projectDir: string): string | null {
   try {
     let resolved = resolve(projectDir);
     try {
@@ -186,7 +186,8 @@ export function cachedClaudeSessionId(projectDir: string, home: string = homedir
       // fallback to resolve(projectDir)
     }
     const key = createHash("sha256").update(resolved).digest("hex").slice(0, 16);
-    const file = join(home, ".ideaspaces", "sessions", key);
+    const sessionsDir = join(configDir(), "sessions");
+    const file = join(sessionsDir, key);
     if (existsSync(file)) {
       const id = readFileSync(file, "utf8").trim();
       if (id) return id;
@@ -201,10 +202,10 @@ export function cachedClaudeSessionId(projectDir: string, home: string = homedir
  * Walk upwards from cwd looking for a cached Claude Code session id in an
  * ancestor folder (e.g. agent dir or space root), stopping at repository boundaries.
  */
-export function findActiveClaudeSessionId(cwd: string = process.cwd(), home: string = homedir()): string | null {
+export function findActiveClaudeSessionId(cwd: string = process.cwd()): string | null {
   let cur = resolve(cwd);
   while (true) {
-    const id = cachedClaudeSessionId(cur, home);
+    const id = cachedClaudeSessionId(cur);
     if (id) return id;
     if (existsSync(join(cur, ".git")) || existsSync(join(cur, "_agent"))) {
       break;

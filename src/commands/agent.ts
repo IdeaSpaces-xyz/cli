@@ -1,3 +1,4 @@
+import { configDir } from "../auth/config-dir.js";
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -580,6 +581,11 @@ function cmdRecord(
     ?? existing?.parent_id
     ?? resolveParentId(undefined, process.cwd());
 
+  if (parentId && parentId === runId) {
+    output.error("A run cannot be its own parent");
+    return 1;
+  }
+
   const parentToolUseId = flagString(flags, "parent-tool-use-id")
     ?? (existing ? existing.parent_tool_use_id : (process.env.PARENT_TOOL_USE_ID ?? null));
 
@@ -656,8 +662,17 @@ function cmdRecord(
     output.error(`Invalid --ended timestamp "${endedRaw}". Use ISO 8601 format.`);
     return 1;
   }
+  if (status === "running" && endedRaw) {
+    output.error("A running run cannot specify an end timestamp");
+    return 1;
+  }
   const endedAt = endedRaw
     ?? (status !== "running" ? (existing?.ended_at ?? new Date().toISOString()) : null);
+
+  if (startedAt && endedAt && Date.parse(endedAt) < Date.parse(startedAt)) {
+    output.error("End timestamp cannot be earlier than start timestamp");
+    return 1;
+  }
 
   const record: AgentRunRecord = {
     run_id: runId,
@@ -677,7 +692,7 @@ function cmdRecord(
 
   const ok = recordAgentRun(record);
   if (!ok) {
-    output.error(`Failed to record agent run ${record.run_id}`);
+    output.error(`Failed to record agent run ${record.run_id} to ${join(configDir(), "agent-runs.jsonl")}`);
     return 1;
   }
   output.result(record, `Recorded run ${record.run_id} (${record.status}) for ${agentDisplayName(record.agent)}`);

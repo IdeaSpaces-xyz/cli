@@ -955,6 +955,7 @@ process.stdin.on("data", (chunk) => {
         "claude.permission-mode",
         "model.requested-observed",
         "run.records",
+        "run.record-command",
         "run.terminal-error",
         "run.cancelled-nonzero",
       ],
@@ -1698,6 +1699,29 @@ Body text
     expect(recorded1?.harness).toBe("claude");
     expect(recorded1?.ended_at).toBeNull();
 
+    // 2. Update with message (task extraction) and model (parent preserved)
+    stdoutChunks = [];
+    const code2 = await agentCmd.run(
+      ["record"],
+      {
+        "run-id": runId,
+        message: "Check all findings — a question, answered in your reply only.",
+        model: "claude-opus-5-5",
+        status: "completed",
+      },
+      JSON_GLOBAL,
+    );
+    expect(code2).toBe(0);
+
+    const runs2 = listAgentRuns();
+    const recorded2 = runs2.find((r) => r.run_id === runId);
+    expect(recorded2).toBeTruthy();
+    expect(recorded2?.status).toBe("completed");
+    expect(recorded2?.parent_id).toBe("parent-root-1"); // preserved
+    expect(recorded2?.task).toBe("Check all findings");
+    expect(recorded2?.model).toBe("claude-opus-5-5");
+    expect(recorded2?.ended_at).toBeTruthy();
+
     // 3. Model requested vs observed precedence
     const runId2 = "test-run-model-precedence";
     stdoutChunks = [];
@@ -1735,6 +1759,72 @@ Body text
     expect(recModel2?.model).toBe("claude-opus-5-5");
     expect(recModel2?.model_requested).toBe("opus");
     expect(recModel2?.model_observed).toBe("claude-opus-5-5");
+
+    // 4. Self-parenting refusal
+    stdoutChunks = []; stderrChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": "self-parent-run",
+          parent: "self-parent-run",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(1);
+    expect(stderr()).toContain("A run cannot be its own parent");
+
+    // 5. Running status with ended timestamp refusal
+    stdoutChunks = []; stderrChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": "running-with-ended",
+          status: "running",
+          ended: "2026-10-13T12:00:00.000Z",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(1);
+    expect(stderr()).toContain("A running run cannot specify an end timestamp");
+
+    // 6. Ended earlier than started refusal
+    stdoutChunks = []; stderrChunks = [];
+    expect(
+      await agentCmd.run(
+        ["record"],
+        {
+          "run-id": "ended-before-started",
+          status: "completed",
+          started: "2026-10-13T12:00:00.000Z",
+          ended: "2026-10-13T11:00:00.000Z",
+        },
+        JSON_GLOBAL,
+      ),
+    ).toBe(1);
+    expect(stderr()).toContain("End timestamp cannot be earlier than start timestamp");
+
+    // 7. IDEASPACES_RUN_ID fallback
+    process.env.IDEASPACES_RUN_ID = "env-minted-run-id";
+    try {
+      stdoutChunks = [];
+      expect(
+        await agentCmd.run(
+          ["record"],
+          {
+            agent: dir,
+            status: "running",
+          },
+          JSON_GLOBAL,
+        ),
+      ).toBe(0);
+      const recEnv = getAgentRun("env-minted-run-id");
+      expect(recEnv).toBeTruthy();
+      expect(recEnv?.run_id).toBe("env-minted-run-id");
+    } finally {
+      delete process.env.IDEASPACES_RUN_ID;
+    }
   });
 
   it("agent run inherits parent_id from cached Claude session ID when env is unset", async () => {
