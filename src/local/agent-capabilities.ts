@@ -13,6 +13,7 @@ export const AGENT_RUN_CAPABILITIES_VERSION = 1;
 export const AGENT_RUN_FEATURES = {
   /** Pi child loads only the `--ext` paths given; `--no-extensions` stops discovery. */
   "pi.explicit-extensions": "Pi loads only the --ext paths given; installed and project extensions are not discovered.",
+  "pi.retry-terminal": "Pi intermediate agent_end with willRetry waits for its built-in bounded retry; a started run ends in a final result or error.",
   /** Pi child loads only the `--skill` dirs given; `--no-skills` stops discovery. */
   "pi.skill-isolation": "Pi loads only the --skill dirs given; user and project skills are not discovered.",
   "pi.trust": "--pi-trust saved|explicit selects Pi project-resource trust.",
@@ -24,6 +25,7 @@ export const AGENT_RUN_FEATURES = {
   "model.requested-observed": "message_start reports model_requested and model_observed separately; null means none requested or none reported.",
   /** `agent run` writes run records queryable via `agent runs`. */
   "run.records": "agent run writes run records (parent, agent, harness, model, conversation) read by agent runs.",
+  "run.terminal-error": "A started agent run --json emits an error if the local runtime returns without a terminal event; preflight errors remain on stderr and cancelled remains a distinct terminal event.",
 } as const;
 
 export type AgentRunFeature = keyof typeof AGENT_RUN_FEATURES;

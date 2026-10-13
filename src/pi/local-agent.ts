@@ -167,6 +167,8 @@ function terminalExit(
   spawnError: Error | undefined,
   stderr: string,
   bin: string,
+  conversationId: string,
+  retryError?: string,
   err?: unknown,
 ): KeeperStreamEvent | undefined {
   if (translator.isEnded) return undefined;
@@ -175,8 +177,8 @@ function terminalExit(
   const streamErr = err instanceof Error && (err as { code?: string }).code !== "ERR_STREAM_PREMATURE_CLOSE" && err.message !== "Premature close"
     ? err.message
     : undefined;
-  const reason = streamErr ?? (stderr.trim() || `${bin} ended without completing the turn`);
-  return translator.error("pi_exit", reason);
+  const detail = streamErr ?? (stderr.trim() || retryError || "no terminal event");
+  return translator.error("pi_exit", `${bin} exited without completing the turn (${detail}). Resume conversation ${conversationId} at the same POV to continue its last step.`);
 }
 
 /**
@@ -236,6 +238,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
   let sessionName: string | undefined;
   // The model Pi resolved for this session, as Pi reports it — not the --model pattern.
   let observedModel: string | null = null;
+  let retryError: string | undefined;
   const send = (obj: Record<string, unknown>): void => {
     try {
       pi.stdin.write(`${JSON.stringify(obj)}\n`);
@@ -257,6 +260,15 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         continue; // non-JSON stdout noise
       }
       const type = typeof msg.type === "string" ? msg.type : "";
+      // Pi emits agent_end between a retryable provider failure and its own
+      // continuation. This is NOT a completed turn. Keep the same RPC child,
+      // session and tool history while Pi retries with its bounded backoff.
+      if (type === "agent_end" && msg.willRetry === true) {
+        const messages = Array.isArray(msg.messages) ? msg.messages : [];
+        const lastAssistant = [...messages].reverse().find((m) => m && typeof m === "object" && m.role === "assistant");
+        retryError = typeof lastAssistant?.errorMessage === "string" ? lastAssistant.errorMessage : "provider request failed";
+        continue;
+      }
       if (NON_AGENT_TYPES.has(type)) {
         if (type === "response" && msg.command === "get_state" && msg.success !== false) {
           const data = msg.data as { sessionName?: string } | undefined;
@@ -295,10 +307,10 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
       }
     }
     // stdout closed without a terminal event.
-    const exit = terminalExit(translator, aborted, spawnError, stderr, bin);
+    const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, retryError);
     if (exit) yield exit;
   } catch (err) {
-    const exit = terminalExit(translator, aborted, spawnError, stderr, bin, err);
+    const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, retryError, err);
     if (exit) yield exit;
   } finally {
     opts.signal?.removeEventListener("abort", onAbort);
