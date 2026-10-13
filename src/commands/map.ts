@@ -143,8 +143,10 @@ export const mapCommand: CommandDef = {
         return 1;
       }
       const mapRef = selectedFile ? resolve(target, selectedFile) : resolve(target, spaceMap.file);
+      const resolvedRepoRoot = await resolveRepoRoot(target);
+      const contextRoot = resolvedRepoRoot ? realpathSync.native(resolvedRepoRoot) : target;
       try {
-        const orientationResult = await loadMapOrientation(mapRef, target, { budget });
+        const orientationResult = await loadMapOrientation(mapRef, contextRoot, { budget });
         const data = {
           kind: "map-orientation",
           path: orientationResult.note.path,
