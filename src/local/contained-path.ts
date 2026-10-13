@@ -1,5 +1,15 @@
 import { realpathSync } from "node:fs";
-import { dirname, isAbsolute, relative, sep } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
+
+/** Expand a leading '~' or '~/' to the user's home directory. */
+export function expandHomePath(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/") || p.startsWith("~\\")) {
+    return join(homedir(), p.slice(2));
+  }
+  return p;
+}
 
 /** Lexical containment of already resolved paths, including Windows drives. */
 export function isContained(root: string, path: string): boolean {

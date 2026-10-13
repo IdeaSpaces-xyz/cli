@@ -1,14 +1,15 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync, writeSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { KeeperStreamEvent } from "@ideaspaces/sdk";
 import type { LocalMessageStartEvent } from "../local/send-options.js";
 import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
-import { enteredThroughRoot, isContained } from "../local/contained-path.js";
+import { enteredThroughRoot, expandHomePath, isContained } from "../local/contained-path.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
@@ -65,7 +66,25 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--task <text>] [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
+/** Pi's pi-is-space extension injects the selected POV Agreement via Awareness. */
+function piAwarenessSelected(extensionPaths: string[]): boolean {
+  return extensionPaths.some((path) => {
+    let dir = path;
+    for (let depth = 0; depth < 4; depth++) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { name?: string; pi?: { extensions?: string[] } };
+        if (pkg.name === "@ideaspaces/pi-is-space" && Array.isArray(pkg.pi?.extensions) &&
+          (dir === path || pkg.pi.extensions.some((entry) => resolve(dir, entry) === path))) return true;
+      } catch { /* Not a Pi package directory. */ }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return false;
+  });
+}
+
+const RUN_ARGS = "<pov> --message <text> [--task <text>] [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths|pi-is-space,pi-local-context> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const RUNS_USAGE =
@@ -128,8 +147,14 @@ async function cmdRun(
   args: string[],
   flags: Flags,
   local: LocalConversationOps,
-  output: Output,
+  outerOutput: Output,
+  jsonMode: boolean,
 ): Promise<number> {
+  let launched = false;
+  const output: Output = { ...outerOutput, error(message) {
+    outerOutput.error(message);
+    if (jsonMode && !launched) process.stdout.write(`${JSON.stringify({ type: "error", error_type: "run_preflight", message })}\n`);
+  } };
   const povArg = args[0];
   if (!povArg) {
     output.error(`Usage: ${RUN_USAGE}`);
@@ -257,7 +282,7 @@ async function cmdRun(
   }
   if (runtime === "pi") {
     if (typeof flags.ext !== "string" || !flags.ext.split(",").some((path) => path.trim())) {
-      output.error("Pi child launch needs explicit trusted extension paths; no child was started.\nPass --ext <pi-is-space-path,pi-local-context-path> (and --skill <dirs> if needed). Relative paths resolve from the selected POV. Installed packages and IDEASPACES_PI_EXTENSIONS do not authorize an agent run.");
+      output.error("Pi child launch needs an explicit approved extension selection; no child was started.\nPass --ext pi-is-space,pi-local-context for packages already installed in Pi, or --ext <path1,path2> (and --skill <dirs> if needed). Relative paths resolve from the selected POV. No installed package or IDEASPACES_PI_EXTENSIONS is selected without --ext.");
       return 1;
     }
     if (flags.skill !== undefined && typeof flags.skill !== "string") {
@@ -270,13 +295,26 @@ async function cmdRun(
     for (const key of ["ext", "skill"] as const) {
       if (typeof flags[key] !== "string") continue;
       for (const raw of flags[key].split(",").map((s) => s.trim()).filter(Boolean)) {
-        const path = isAbsolute(raw) ? raw : resolve(povPath, raw);
+        // Shells do not expand ~ after a comma; do so per approved item. Named
+        // installed packages are an explicit selector, never ambient discovery.
+        const expanded = expandHomePath(raw);
+        const installed = key === "ext" && (raw === "pi-is-space" || raw === "pi-local-context")
+          ? join(process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"), "npm", "node_modules", "@ideaspaces", raw)
+          : undefined;
+        const path = installed && existsSync(installed) ? installed : isAbsolute(expanded) ? expanded : resolve(povPath, expanded);
         if (!existsSync(path)) {
           output.error(`Refusing ${key} path ${raw}: path not found. Select an installed, reviewed path before launch.`);
           return 1;
         }
         try {
           const canonical = realpathSync(path);
+          if (installed && path === installed) {
+            const pkg = JSON.parse(readFileSync(join(canonical, "package.json"), "utf8")) as { name?: string; pi?: { extensions?: string[] } };
+            if (pkg.name !== `@ideaspaces/${raw}` || !Array.isArray(pkg.pi?.extensions) || pkg.pi.extensions.length === 0 ||
+              !pkg.pi.extensions.every((entry) => typeof entry === "string" && existsSync(resolve(canonical, entry)) && isContained(canonical, realpathSync(resolve(canonical, entry))))) {
+              throw new Error("installed Pi package has no valid IdeaSpaces extension entry");
+            }
+          }
           if (enteredThroughRoot(povPath, path) && !isContained(povPath, canonical)) {
             throw new Error("escapes the selected POV");
           }
@@ -398,6 +436,7 @@ async function cmdRun(
     ended_at: null,
   };
   recordAgentRun(runRecord);
+  launched = true;
 
   function finishRun(status: AgentRunRecord["status"]) {
     if (runRecord.ended_at === null) {
@@ -407,6 +446,7 @@ async function cmdRun(
     }
   }
 
+  let terminalEmitted = false;
   function handleRunEvent(event: KeeperStreamEvent): KeeperStreamEvent {
     if (event.type === "message_start") {
       const msgStart = event as LocalMessageStartEvent;
@@ -418,11 +458,16 @@ async function cmdRun(
       if (msgStart.model_requested !== undefined) runRecord.model_requested = msgStart.model_requested;
       recordAgentRun(runRecord);
     } else if (event.type === "turn_complete") {
+      terminalEmitted = true;
       finishRun("completed");
     } else if (event.type === "error") {
+      terminalEmitted = true;
       finishRun("failed");
     } else if (event.type === "cancelled") {
+      terminalEmitted = true;
       finishRun("cancelled");
+      // An unattended launcher needs a cause, not a silent cancelled run.
+      return { type: "error", error_type: "run_cancelled", message: `Pi run cancelled: ${event.reason}. Resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue.` };
     }
     return event;
   }
@@ -434,27 +479,42 @@ async function cmdRun(
     onEvent = (event) => {
       let current = event;
       if (event.type === "turn_complete") {
-        if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
-        const response = event.result.response;
-        if (!response?.trim()) throw new Error("Agent completed without a closing response.");
-        const { post, path } = appendPost(thread.directory, {
-          body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
-          summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
-          kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
-        });
-        snapshotWritten = true;
-        output.progress(`Thread snapshot: ${path}`);
-        current = withThreadSnapshot(event, post.id, path);
+        try {
+          if (snapshotWritten) throw new Error("Runtime emitted a second completion; refusing a duplicate Thread snapshot.");
+          const response = event.result.response;
+          if (!response?.trim()) throw new Error("Agent completed without a closing response.");
+          const { post, path } = appendPost(thread.directory, {
+            body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
+            summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
+            kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+          });
+          snapshotWritten = true;
+          output.progress(`Thread snapshot: ${path}`);
+          current = withThreadSnapshot(event, post.id, path);
+        } catch (err) {
+          current = { type: "error", error_type: "thread_snapshot", message: `Run completed but Thread snapshot was not appended: ${err instanceof Error ? err.message : String(err)}` };
+        }
       }
       return baseOnEvent(current);
     };
   }
 
-  const extraOrientation = thread ? `${povOrientation}\n\n${thread.orientation}` : povOrientation;
+  // Only drop the duplicate for a positively identified pi-is-space package.
+  // Arbitrary approved extensions may not inject Awareness, so keep the selected
+  // POV contract in their system prompt; Claude always needs it from the CLI.
+  const contractOrientation = runtime === "pi" && piAwarenessSelected(launchOptions.extensionPaths) ? undefined : povOrientation;
+  const extraOrientation = [contractOrientation, thread?.orientation].filter(Boolean).join("\n\n") || undefined;
   const onSig = (sig: NodeJS.Signals) => {
     finishRun("interrupted");
     process.off("SIGINT", onSigInt);
     process.off("SIGTERM", onSigTerm);
+    // A launcher watching JSONL can distinguish an interrupted run from a
+    // completed one even when the shell later exits on the same signal.
+    if (!terminalEmitted) {
+      try {
+        writeSync(1, `${JSON.stringify({ type: "error", error_type: "run_interrupted", message: `Agent run interrupted by ${sig}; resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue its last step.` })}\n`);
+      } catch { /* A closed output pipe cannot carry a terminal event. */ }
+    }
     process.kill(process.pid, sig);
   };
   const onSigInt = () => onSig("SIGINT");
@@ -463,14 +523,33 @@ async function cmdRun(
   process.once("SIGTERM", onSigTerm);
 
   let exitCode = 1;
+  let lastLocalError: string | undefined;
+  const runOutput: Output = {
+    ...output,
+    error(message) {
+      lastLocalError = message;
+      output.error(message);
+    },
+  };
   try {
-    exitCode = await local.send(forwardFlags, output, {
+    exitCode = await local.send(forwardFlags, runOutput, {
       ...launchOptions,
       extraOrientation,
       threadReceipt: thread?.receipt,
       onEvent,
     });
+    if (!terminalEmitted) {
+      const error = handleRunEvent({ type: "error", error_type: "run_incomplete", message: lastLocalError
+        ? `Agent run ended before turn_complete: ${lastLocalError}`
+        : `Agent runtime exited (code ${exitCode}) without turn_complete or an error event; resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue its last step.` });
+      process.stdout.write(`${JSON.stringify(error)}\n`);
+      exitCode = 1;
+    }
     return exitCode;
+  } catch (err) {
+    const error = handleRunEvent({ type: "error", error_type: "run_exception", message: `Agent run failed: ${err instanceof Error ? err.message : String(err)}. Resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue its last step.` });
+    process.stdout.write(`${JSON.stringify(error)}\n`);
+    return 1;
   } finally {
     process.off("SIGINT", onSigInt);
     process.off("SIGTERM", onSigTerm);
@@ -530,7 +609,7 @@ function cmdList(
 export function makeAgentCommand(local: LocalConversationOps): CommandDef {
   return {
     name: "agent",
-    description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
+    description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths or named installed packages and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
     examples: [
       "ideaspaces agent list --map home.map.md",
@@ -542,7 +621,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",
       "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts --pi-trust saved --pi-thinking high",
-      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext pi-is-space,pi-local-context  # only if both @ideaspaces/ packages are installed in Pi",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
       "ideaspaces agent run agents/scout --thread x_0123456789abcdef01234567 --message 'Draft a reply'  # private; does not post",
@@ -553,7 +632,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       const [sub, ...rest] = args;
       switch (sub) {
         case "run":
-          return cmdRun(rest, flags, local, output);
+          return cmdRun(rest, flags, local, output, global.json);
         case "runs":
           return cmdRuns(flags, output);
         case "list":

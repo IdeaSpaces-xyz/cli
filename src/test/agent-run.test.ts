@@ -15,6 +15,7 @@ import { saveSpace } from "../auth/spaces.js";
 import { claudeConversationOps } from "../claude/local-conversation-ops.js";
 import { localConversationOps as piConversationOps } from "../pi/local-conversation-ops.js";
 import { composeLocalConversationOps } from "../local/runtime.js";
+import type { LocalSendOptions } from "../local/send-options.js";
 import { canResumeClaudeConversation, claudeProjectDir } from "../claude/local-conversations.js";
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
@@ -204,7 +205,7 @@ describe("agent run — Agreement and Foundation defaults", () => {
 });
 
 describe("agent run — command options & validation", () => {
-  const mockSend = vi.fn<[Record<string, string | boolean>, any], Promise<number>>();
+  const mockSend = vi.fn<[Record<string, string | boolean>, any, LocalSendOptions?], Promise<number>>();
   const mockLocal: LocalConversationOps = {
     send: mockSend,
     createNew: vi.fn(),
@@ -216,7 +217,13 @@ describe("agent run — command options & validation", () => {
 
   beforeEach(() => {
     mockSend.mockReset();
-    mockSend.mockResolvedValue(0);
+    mockSend.mockImplementation(async (_flags, _output, options) => {
+      options?.onEvent?.({ type: "turn_complete", result: {
+        response: "done", usage: { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, total_tokens: 0, cost_usd: 0, model_tier: "local" },
+        tool_calls: [], iterations: 1, position: "", workspace: { created: [], modified: [], deleted: [], read: [], mentioned: [] },
+      } });
+      return 0;
+    });
   });
 
   it("honors pi_model fallback when runtime is omitted and defaults to pi", async () => {
@@ -251,6 +258,54 @@ describe("agent run — command options & validation", () => {
         extraOrientation: expect.stringContaining("# Agreement"),
       }),
     );
+  });
+
+  it("resolves explicitly selected installed Pi packages without ambient approval", async () => {
+    const dir = makeAgentDir();
+    const piDir = tempDir("pi-installed-");
+    const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = piDir;
+    try {
+      const packages = ["pi-is-space", "pi-local-context"];
+      for (const name of packages) {
+        const base = join(piDir, "npm", "node_modules", "@ideaspaces", name);
+        mkdirSync(join(base, "src"), { recursive: true });
+        writeFileSync(join(base, "src", "index.ts"), "export default () => {};");
+        writeFileSync(join(base, "package.json"), JSON.stringify({ name: `@ideaspaces/${name}`, pi: { extensions: ["./src/index.ts"] } }));
+      }
+      expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Do the next step", ext: packages.join(",") }, JSON_GLOBAL)).toBe(0);
+      expect(mockSend).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({
+        extensionPaths: packages.map((name) => realpathSync.native(join(piDir, "npm", "node_modules", "@ideaspaces", name))),
+        extraOrientation: undefined, // pi-is-space supplies the Agreement in Awareness
+      }));
+    } finally {
+      if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
+    }
+  });
+
+  it("expands ~ in each comma-separated --ext item before containment checks", async () => {
+    const dir = makeAgentDir();
+    const pathA = join(homeDir, "a.ts");
+    const pathB = join(homeDir, "b.ts");
+    writeFileSync(pathA, "export default () => {};");
+    writeFileSync(pathB, "export default () => {};");
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Do the next step", ext: "~/a.ts,~/b.ts" }, JSON_GLOBAL)).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ extensionPaths: [realpathSync.native(pathA), realpathSync.native(pathB)] }));
+  });
+
+  it("never returns success when the runtime silently ends without a terminal event", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockResolvedValueOnce(0);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Do the next step", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_incomplete" });
+  });
+
+  it("names an unexpected runtime exception as an error event", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockRejectedValueOnce(new Error("process exited during tool call"));
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Do the next step", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);
+    expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_exception", message: expect.stringContaining("process exited during tool call") });
   });
 
   it("refuses invocation without a POV argument", async () => {
@@ -750,7 +805,7 @@ process.stdin.on("data", (chunk) => {
       stdoutChunks = [];
       const pinnedFlags = { runtime: "pi", thread: thread.path, "thread-map": map, "thread-member": "0", ext: fakeBin, "pi-bin": fakeBin };
       expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "empty_response" }, JSON_GLOBAL)).toBe(1);
-      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "thread_snapshot" });
+      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "provider_empty" });
       expect(stdout()).not.toContain('"type":"turn_complete"');
       expect(loadThread(thread.path).posts).toHaveLength(4);
       chmodSync(thread.path, 0o500);
@@ -769,7 +824,7 @@ process.stdin.on("data", (chunk) => {
       appendPost(thread.path, { body: "Closed now", kind: "closure" });
       stdoutChunks = [];
       expect(await agentCmd.run(["run", pov], { ...pinnedFlags, message: "After close" }, JSON_GLOBAL)).toBe(1);
-      expect(stdout()).toBe(""); // refused before spawning the runtime
+      expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_preflight" }); // refused before spawning the runtime
       expect(stderr()).toContain("Thread is closed; no agent was launched");
       expect(loadThread(thread.path).posts).toHaveLength(5);
       stdoutChunks = [];
@@ -950,10 +1005,10 @@ process.stdin.on("data", (chunk) => {
     process.env.IDEASPACES_PI_EXTENSIONS = extension;
     try {
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin }, JSON_GLOBAL)).toBe(1);
-      expect(stderr()).toContain("explicit trusted extension paths");
+      expect(stderr()).toContain("explicit approved extension selection");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: " , " }, JSON_GLOBAL)).toBe(1);
-      expect(stderr()).toContain("explicit trusted extension paths");
-      expect(stdout()).toBe("");
+      expect(stderr()).toContain("explicit approved extension selection");
+      expect(stdout().trim().split("\n").every((line) => JSON.parse(line).error_type === "run_preflight")).toBe(true);
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "missing.ts" }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("path not found");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: extension, skill: "..escaping.ts" }, JSON_GLOBAL)).toBe(1);
@@ -962,7 +1017,7 @@ process.stdin.on("data", (chunk) => {
       expect(stderr()).toContain("a bare flag selects nothing");
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "..escaping.ts" }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("Refusing ext path ..escaping.ts");
-      expect(stdout()).toBe("");
+      expect(stdout().trim().split("\n").every((line) => JSON.parse(line).error_type === "run_preflight")).toBe(true);
       expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: `${extension},${join(dir, "duplicate.ts")},approved.ts,./approved.ts` }, JSON_GLOBAL)).toBe(0);
       const done = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
       expect(JSON.parse(done.result.response)).toEqual({ ext: 1, paths: [realpathSync.native(extension)], skill: 0, noDiscovery: true, noSkillsDiscovery: true });
@@ -977,7 +1032,7 @@ process.stdin.on("data", (chunk) => {
       stdoutChunks = [];
       expect(await agentCmd.run(["run", alias], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: join(alias, "..escaping.ts") }, JSON_GLOBAL)).toBe(1);
       expect(stderr()).toContain("escapes the selected POV");
-      expect(stdout()).toBe("");
+      expect(JSON.parse(stdout())).toMatchObject({ type: "error", error_type: "run_preflight" });
       expect(await agentCmd.run(["run", alias], { runtime: "pi", message: "selection_probe", "pi-bin": fakeBin, ext: "approved.ts" }, JSON_GLOBAL)).toBe(0);
       stdoutChunks = [];
       expect(await conversationCmd.run(["send"], { local: true, runtime: "pi", context: dir, message: "selection_probe", "pi-bin": fakeBin, "explicit-launch": true, "resume-only": true }, JSON_GLOBAL)).toBe(0);
@@ -997,7 +1052,7 @@ process.stdin.on("data", (chunk) => {
       const code = await selected.run(["run", dir], { runtime, conversation: id, message: "never spawn", ...ext }, JSON_GLOBAL);
       expect(code).toBe(1);
       expect(stderr()).toContain("refusing to create a replacement");
-      expect(stdout()).toBe("");
+      expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).at(-1)).toMatchObject({ type: "error", error_type: "run_incomplete", message: expect.stringContaining("refusing to create a replacement") });
     }
   });
 
@@ -1016,7 +1071,7 @@ process.stdin.on("data", (chunk) => {
       expect(stderr()).toContain(`No verified nonempty ${runtime} conversation`);
       expect(await agentCmd.run(["run", foreign], { runtime, message: "must not run", conversation: "typo", ...ext }, JSON_GLOBAL)).toBe(1);
     }
-    expect(stdout()).toBe("");
+    expect(stdout().trim().split("\n").every((line) => JSON.parse(line).error_type === "run_preflight")).toBe(true);
     mkdirSync(join(dir, ".pi", "sessions"), { recursive: true });
     writeFileSync(join(dir, ".pi", "sessions", "2026_local-empty.jsonl"), `${JSON.stringify({ type: "session", id: "local-empty", cwd: dir })}\n`);
     expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "must not run", conversation: "local-empty", ext: join(dir, "_agent", "agreement.md") }, JSON_GLOBAL)).toBe(1);

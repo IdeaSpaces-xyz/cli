@@ -19,6 +19,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
+import { expandHomePath } from "../local/contained-path.js";
 import { probeBinary, type ProbedBinary } from "../local/probe-binary.js";
 import { readAuthFile, resolvePiAuthPath } from "./pi-auth.js";
 import type { PiAuth } from "./pi-auth.js";
@@ -168,6 +169,7 @@ export const piStatusCommand: CommandDef = {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
+      .map(expandHomePath)
       .map(resolveExtension);
 
     const status = derivePiStatus({ binary, auth, extensions, now: Date.now() });

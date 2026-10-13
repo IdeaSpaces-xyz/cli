@@ -161,13 +161,25 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
  * `src/local/jsonl.ts`, kept under its RPC name here. */
 export const readRpcLines = readJsonLines;
 
+function providerError(message: string, conversationId: string): KeeperStreamEvent {
+  const network = /fetch failed|network|connection|ENOTFOUND|EAI_AGAIN|ECONN|socket|timed? out/i.test(message);
+  const refused = /429|RESOURCE_EXHAUSTED|rate.?limit|quota|auth|forbidden|401|403|refused/i.test(message);
+  const cause = network ? "network" : refused ? "provider_refusal" : "pi_error";
+  const next = /auth|401|403/i.test(message)
+    ? "Check Pi provider login and permissions, then resume"
+    : "Resume";
+  return { type: "error", error_type: cause, message: `Pi ${cause === "network" ? "provider network failure" : cause === "provider_refusal" ? "provider refusal" : "provider failure"}: ${message}. ${next} conversation ${conversationId} at the same POV to continue the last step.` };
+}
+
 function terminalExit(
   translator: KeeperTranslator,
   aborted: boolean,
   spawnError: Error | undefined,
   stderr: string,
   bin: string,
+  conversationId: string,
   err?: unknown,
+  retryError?: string,
 ): KeeperStreamEvent | undefined {
   if (translator.isEnded) return undefined;
   if (aborted) return translator.cancelled("aborted");
@@ -175,8 +187,8 @@ function terminalExit(
   const streamErr = err instanceof Error && (err as { code?: string }).code !== "ERR_STREAM_PREMATURE_CLOSE" && err.message !== "Premature close"
     ? err.message
     : undefined;
-  const reason = streamErr ?? (stderr.trim() || `${bin} ended without completing the turn`);
-  return translator.error("pi_exit", reason);
+  const detail = streamErr ?? (stderr.trim() || retryError || "no terminal event");
+  return translator.error("pi_exit", `${bin} exited without completing the turn (${detail}). Resume conversation ${conversationId} at the same POV to continue its last step.`);
 }
 
 /**
@@ -236,6 +248,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
   let sessionName: string | undefined;
   // The model Pi resolved for this session, as Pi reports it — not the --model pattern.
   let observedModel: string | null = null;
+  let retryError: string | undefined;
   const send = (obj: Record<string, unknown>): void => {
     try {
       pi.stdin.write(`${JSON.stringify(obj)}\n`);
@@ -257,6 +270,16 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         continue; // non-JSON stdout noise
       }
       const type = typeof msg.type === "string" ? msg.type : "";
+      // Pi emits agent_end at a failed provider attempt before its own
+      // auto-retry continues the same prompt. Returning here kills the RPC
+      // child, loses the retry, and leaves the run mid-step. The retrying end
+      // is NOT terminal; wait for Pi's final agent_end after its backoff.
+      if (type === "agent_end" && msg.willRetry === true) {
+        const messages = Array.isArray(msg.messages) ? msg.messages : [];
+        const lastAssistant = [...messages].reverse().find((m) => m && typeof m === "object" && m.role === "assistant");
+        retryError = typeof lastAssistant?.errorMessage === "string" ? lastAssistant.errorMessage : "provider request failed";
+        continue;
+      }
       if (NON_AGENT_TYPES.has(type)) {
         if (type === "response" && msg.command === "get_state" && msg.success !== false) {
           const data = msg.data as { sessionName?: string } | undefined;
@@ -264,7 +287,9 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
           observedModel = piStateModel(data);
         }
         if (type === "response" && msg.success === false && msg.command === "prompt") {
-          yield translator.error("pi_error", String(msg.error ?? "prompt failed"));
+          // Mark the translator terminal so stdout closure cannot add a second error.
+          translator.error("pi_error", String(msg.error ?? "prompt failed"));
+          yield providerError(String(msg.error ?? "prompt failed"), opts.conversationId);
           return;
         }
         continue; // command acks + UI chrome
@@ -281,8 +306,21 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
           });
           continue;
         }
+        if (ke.type === "error" && ke.error_type === "pi_error") {
+          yield providerError(ke.message, opts.conversationId);
+          continue;
+        }
         // Fill position from the turn's last navigate (translator can't do it lazily).
-        if (ke.type === "turn_complete") ke.result.position = lastPosition(turnTools);
+        if (ke.type === "turn_complete") {
+          ke.result.position = lastPosition(turnTools);
+          if (!ke.result.response.trim()) {
+            const failedTool = [...ke.result.tool_calls].reverse().find((tool) => tool.is_error);
+            yield { type: "error", error_type: failedTool ? "tool_failure" : "provider_empty", message: failedTool
+              ? `Pi ended after ${failedTool.name} failed without a closing response. Resume conversation ${opts.conversationId} at the same POV after inspecting the tool result.`
+              : `Pi ended without a closing response. Resume conversation ${opts.conversationId} at the same POV to finish the turn.` };
+            continue;
+          }
+        }
         yield ke;
       }
       if (type === "agent_end") {
@@ -295,10 +333,10 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
       }
     }
     // stdout closed without a terminal event.
-    const exit = terminalExit(translator, aborted, spawnError, stderr, bin);
+    const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, undefined, retryError);
     if (exit) yield exit;
   } catch (err) {
-    const exit = terminalExit(translator, aborted, spawnError, stderr, bin, err);
+    const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, err, retryError);
     if (exit) yield exit;
   } finally {
     opts.signal?.removeEventListener("abort", onAbort);
