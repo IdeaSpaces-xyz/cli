@@ -19,7 +19,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
-import { expandHomePath } from "../local/contained-path.js";
+import { expandHomePath } from "../local/expand-home-path.js";
 import { probeBinary, type ProbedBinary } from "../local/probe-binary.js";
 import { readAuthFile, resolvePiAuthPath } from "./pi-auth.js";
 import type { PiAuth } from "./pi-auth.js";

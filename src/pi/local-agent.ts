@@ -162,10 +162,12 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
 export const readRpcLines = readJsonLines;
 
 function providerError(message: string, conversationId: string): KeeperStreamEvent {
-  const network = /fetch failed|network|connection|ENOTFOUND|EAI_AGAIN|ECONN|socket|timed? out/i.test(message);
-  const refused = /429|RESOURCE_EXHAUSTED|rate.?limit|quota|auth|forbidden|401|403|refused/i.test(message);
+  // Pi exposes stopReason/errorMessage, not a structured provider error code.
+  // Match only recognizable failure words; unknown errors remain pi_error.
+  const network = /\bfetch failed\b|\bnetwork\b|\bconnection\b|\bENOTFOUND\b|\bEAI_AGAIN\b|\bECONN\w*\b|\bsocket\b|\btimed? out\b/i.test(message);
+  const refused = /\b429\b|\bRESOURCE_EXHAUSTED\b|\brate.?limit\b|\bquota\b|\bauth(?:entication|orization)?\b|\bforbidden\b|\b401\b|\b403\b|\brefused\b/i.test(message);
   const cause = network ? "network" : refused ? "provider_refusal" : "pi_error";
-  const next = /auth|401|403/i.test(message)
+  const next = /\bauth(?:entication|orization)?\b|\b401\b|\b403\b/i.test(message)
     ? "Check Pi provider login and permissions, then resume"
     : "Resume";
   return { type: "error", error_type: cause, message: `Pi ${cause === "network" ? "provider network failure" : cause === "provider_refusal" ? "provider refusal" : "provider failure"}: ${message}. ${next} conversation ${conversationId} at the same POV to continue the last step.` };

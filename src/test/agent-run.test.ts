@@ -294,6 +294,25 @@ describe("agent run — command options & validation", () => {
     expect(mockSend).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ extensionPaths: [realpathSync.native(pathA), realpathSync.native(pathB)] }));
   });
 
+  it("keeps Agreement orientation for a nested package entry that is not pi-is-space's declared entry", async () => {
+    const dir = makeAgentDir("agent-run-test-", "---\nname: Agreement — Test\n---\n# Agreement still required\n");
+    const root = tempDir("fake-pi-package-");
+    const entry = join(root, "nested", "src", "index.ts");
+    mkdirSync(join(root, "nested", "src"), { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "@ideaspaces/pi-is-space", pi: { extensions: ["./nested/src/index.ts"] } }));
+    writeFileSync(entry, "export default () => {};");
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Do the next step", ext: entry }, JSON_GLOBAL)).toBe(0);
+    expect(mockSend).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ extraOrientation: expect.stringContaining("# Agreement still required") }));
+  });
+
+  it("keeps new terminal errors off stdout for human mode", async () => {
+    const dir = makeAgentDir();
+    mockSend.mockResolvedValueOnce(0);
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "Do the next step", ext: join(dir, "_agent", "agreement.md") }, { ...JSON_GLOBAL, json: false })).toBe(1);
+    expect(stdout()).toBe("");
+    expect(stderr()).toContain("run_incomplete");
+  });
+
   it("never returns success when the runtime silently ends without a terminal event", async () => {
     const dir = makeAgentDir();
     mockSend.mockResolvedValueOnce(0);
@@ -937,6 +956,8 @@ process.stdin.on("data", (chunk) => {
       version: 1,
       features: [
         "pi.explicit-extensions",
+        "pi.installed-extension-selectors",
+        "pi.retry-terminal",
         "pi.skill-isolation",
         "pi.trust",
         "pi.thinking",
@@ -945,6 +966,7 @@ process.stdin.on("data", (chunk) => {
         "claude.permission-mode",
         "model.requested-observed",
         "run.records",
+        "run.terminal-error",
       ],
     });
   });

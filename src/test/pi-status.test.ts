@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { derivePiStatus, resolveExtension } from "../pi/pi-status.js";
+import { derivePiStatus, piStatusCommand, resolveExtension } from "../pi/pi-status.js";
 import type { PiBinary, PiExtensionCheck } from "../pi/pi-status.js";
 import type { PiAuth } from "../pi/pi-auth.js";
 
@@ -124,5 +124,26 @@ describe("resolveExtension", () => {
 
   it("does not resolve a nonexistent path", () => {
     expect(resolveExtension(join(dir, "nope")).resolvable).toBe(false);
+  });
+
+  it("expands ~ separately inside a comma-list --ext for pi-status", async () => {
+    const home = process.env.HOME;
+    process.env.HOME = dir;
+    const a = join(dir, "a.ts");
+    const b = join(dir, "b.ts");
+    await writeFile(a, "export default () => {};");
+    await writeFile(b, "export default () => {};");
+    const chunks: string[] = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => { chunks.push(String(chunk)); return true; });
+    try {
+      await piStatusCommand.run([], { ext: "~/a.ts,~/b.ts", "pi-bin": join(dir, "missing-pi") }, { json: true, quiet: false, yes: false, help: false });
+      const status = JSON.parse(chunks.join(""));
+      expect(status.extensions.map((entry: PiExtensionCheck) => entry.path)).toEqual([a, b]);
+      expect(status.extensionsResolvable).toBe(true);
+    } finally {
+      write.mockRestore();
+      if (home === undefined) delete process.env.HOME;
+      else process.env.HOME = home;
+    }
   });
 });

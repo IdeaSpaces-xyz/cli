@@ -1,6 +1,6 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync, writeSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { KeeperStreamEvent } from "@ideaspaces/sdk";
@@ -9,7 +9,8 @@ import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
-import { enteredThroughRoot, expandHomePath, isContained } from "../local/contained-path.js";
+import { enteredThroughRoot, isContained } from "../local/contained-path.js";
+import { expandHomePath } from "../local/expand-home-path.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
 import { appendPost } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
@@ -69,18 +70,13 @@ function flagString(flags: Flags, name: string): string | undefined {
 /** Pi's pi-is-space extension injects the selected POV Agreement via Awareness. */
 function piAwarenessSelected(extensionPaths: string[]): boolean {
   return extensionPaths.some((path) => {
-    let dir = path;
-    for (let depth = 0; depth < 4; depth++) {
-      try {
-        const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { name?: string; pi?: { extensions?: string[] } };
-        if (pkg.name === "@ideaspaces/pi-is-space" && Array.isArray(pkg.pi?.extensions) &&
-          (dir === path || pkg.pi.extensions.some((entry) => resolve(dir, entry) === path))) return true;
-      } catch { /* Not a Pi package directory. */ }
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-    return false;
+    const dir = path.endsWith("/src/index.ts") ? dirname(dirname(path)) : path;
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { name?: string; pi?: { extensions?: string[] } };
+      return pkg.name === "@ideaspaces/pi-is-space" && Array.isArray(pkg.pi?.extensions) &&
+        pkg.pi.extensions.some((entry) => typeof entry === "string" && existsSync(resolve(dir, entry)) &&
+          isContained(dir, realpathSync(resolve(dir, entry))) && (dir === path || realpathSync(resolve(dir, entry)) === path));
+    } catch { return false; }
   });
 }
 
@@ -465,9 +461,9 @@ async function cmdRun(
       finishRun("failed");
     } else if (event.type === "cancelled") {
       terminalEmitted = true;
-      finishRun("cancelled");
+      finishRun("failed");
       // An unattended launcher needs a cause, not a silent cancelled run.
-      return { type: "error", error_type: "run_cancelled", message: `Pi run cancelled: ${event.reason}. Resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue.` };
+      return { type: "error", error_type: "run_cancelled", message: `${runtime} run cancelled: ${event.reason}. Resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue.` };
     }
     return event;
   }
@@ -504,24 +500,9 @@ async function cmdRun(
   // POV contract in their system prompt; Claude always needs it from the CLI.
   const contractOrientation = runtime === "pi" && piAwarenessSelected(launchOptions.extensionPaths) ? undefined : povOrientation;
   const extraOrientation = [contractOrientation, thread?.orientation].filter(Boolean).join("\n\n") || undefined;
-  const onSig = (sig: NodeJS.Signals) => {
-    finishRun("interrupted");
-    process.off("SIGINT", onSigInt);
-    process.off("SIGTERM", onSigTerm);
-    // A launcher watching JSONL can distinguish an interrupted run from a
-    // completed one even when the shell later exits on the same signal.
-    if (!terminalEmitted) {
-      try {
-        writeSync(1, `${JSON.stringify({ type: "error", error_type: "run_interrupted", message: `Agent run interrupted by ${sig}; resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue its last step.` })}\n`);
-      } catch { /* A closed output pipe cannot carry a terminal event. */ }
-    }
-    process.kill(process.pid, sig);
-  };
-  const onSigInt = () => onSig("SIGINT");
-  const onSigTerm = () => onSig("SIGTERM");
-  process.once("SIGINT", onSigInt);
-  process.once("SIGTERM", onSigTerm);
-
+  // The runtime adapters own SIGINT/SIGTERM: they abort the child and emit a
+  // terminal cancellation. A second handler here used to kill the CLI before
+  // that event could reach a launcher.
   let exitCode = 1;
   let lastLocalError: string | undefined;
   const runOutput: Output = {
@@ -539,20 +520,22 @@ async function cmdRun(
       onEvent,
     });
     if (!terminalEmitted) {
-      const error = handleRunEvent({ type: "error", error_type: "run_incomplete", message: lastLocalError
+      const error = { type: "error" as const, error_type: "run_incomplete", message: lastLocalError
         ? `Agent run ended before turn_complete: ${lastLocalError}`
-        : `Agent runtime exited (code ${exitCode}) without turn_complete or an error event; resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue its last step.` });
-      process.stdout.write(`${JSON.stringify(error)}\n`);
+        : `Agent runtime exited (code ${exitCode}) without turn_complete or an error event; resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue its last step.` };
+      handleRunEvent(error);
+      if (jsonMode) process.stdout.write(`${JSON.stringify(error)}\n`);
+      else output.error(`${error.error_type}: ${error.message}`);
       exitCode = 1;
     }
     return exitCode;
   } catch (err) {
-    const error = handleRunEvent({ type: "error", error_type: "run_exception", message: `Agent run failed: ${err instanceof Error ? err.message : String(err)}. Resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue its last step.` });
-    process.stdout.write(`${JSON.stringify(error)}\n`);
+    const error = { type: "error" as const, error_type: "run_exception", message: `Agent run failed: ${err instanceof Error ? err.message : String(err)}. Resume conversation ${runRecord.conversation_id ?? "from message_start"} to continue its last step.` };
+    handleRunEvent(error);
+    if (jsonMode) process.stdout.write(`${JSON.stringify(error)}\n`);
+    else output.error(`${error.error_type}: ${error.message}`);
     return 1;
   } finally {
-    process.off("SIGINT", onSigInt);
-    process.off("SIGTERM", onSigTerm);
     finishRun(exitCode === 0 ? "completed" : "failed");
   }
 }

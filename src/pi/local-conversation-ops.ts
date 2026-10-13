@@ -7,7 +7,7 @@
 import { join } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
-import { expandHomePath } from "../local/contained-path.js";
+import { expandHomePath } from "../local/expand-home-path.js";
 import { observedEvent } from "../local/observed-event.js";
 import { joinLocalOrientation, type LocalSendOptions } from "../local/send-options.js";
 import { runLocalTurn, isValidPiThinkingLevel, PI_THINKING_LEVELS } from "./local-agent.js";
@@ -28,7 +28,6 @@ export function parseCommaList(flag: string | boolean | undefined, envFallback: 
     .filter(Boolean)
     .map(expandHomePath);
 }
-
 
 /** Local turns don't hit the remote auth path, so a plain message + exit-1 is the
  * whole error contract (no UnauthorizedError to special-case). */
