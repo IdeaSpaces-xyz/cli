@@ -132,6 +132,8 @@ Pick `claude` to continue a session you started in Claude Code; the same session
 
 ## Contributing
 
+Run `npm ci && npm run build` after any source, lockfile, or `build.mjs` change, and commit the rebuilt `bundle/ideaspaces.js` alongside the change. Rebuild after rebasing rather than hand-merging the generated file. `npm run check:package` compares the fresh bundle against the bytes committed at HEAD; CI and the release workflow run it before publishing.
+
 Every server operation the CLI performs is listed in [`contract/api-calls.json`](contract/api-calls.json), generated from `src/auth/api.ts` by `npm run api:inventory`; a test fails when the source changes without it. `npm run check:api -- <openapi.json>` holds that inventory against a server's OpenAPI document and fails on any operation the server does not serve or marks deprecated. The document is an input — set `IDEASPACES_OPENAPI=<path>` to run the same check inside `npm test`.
 
 ## License

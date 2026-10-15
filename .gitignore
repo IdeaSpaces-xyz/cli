@@ -1,6 +1,7 @@
 node_modules/
 dist/
-bundle/
+# The published CLI executable is source-controlled and verified against a clean build.
+# Do not ignore it: a stale local artifact must not silently become a release.
 *.tsbuildinfo
 
 # ideaspace defaults
