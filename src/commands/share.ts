@@ -49,7 +49,7 @@ import type { CommandDef, GlobalFlags } from "../types.js";
 type Flags = Record<string, string | boolean>;
 
 const USAGE =
-  "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> …";
+  "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> … (log is per-node: share log [--node <id>])";
 
 /**
  * The grades a Space is shared at. One per invitation, mutually exclusive.
@@ -489,14 +489,14 @@ async function accessTargets(config: LoadedConfig, root: string): Promise<Array<
   const seen = new Set<string>([root]);
   while (queue.length) {
     // Each directory response is a full depth-one tree, not a paginated list.
+    // This client-side crawl is a stopgap until a server aggregate exists.
     // Bound concurrent walks as well as the per-node access calls below.
     const trees = await Promise.all(queue.splice(0, 8).map((path) => fetchContentTree(config, root, path)));
     for (const tree of trees) for (const child of tree.children) {
       if (child.type === "dir" && !child.node_id) {
         throw new Error(`Cannot inspect access at ${child.path}: the hosted directory has no Node identity yet. Retry after indexing completes.`);
       }
-      if (child.node_id && !seen.has(child.node_id) &&
-          (child.type === "dir" || child.node_type === "note")) {
+      if (child.node_id && !seen.has(child.node_id)) {
         seen.add(child.node_id);
         targets.push({ path: child.path, node_id: child.node_id });
         if (child.type === "dir") queue.push(child.path);
@@ -890,7 +890,7 @@ export const shareCommand: CommandDef = {
     "ideaspaces share person someone@example.com --grade collaborate --history",
     "ideaspaces share team acme.com --grade collaborate",
     "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567  # exits nonzero if any path cannot be inspected",
-    "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events, not a repo-wide log",
+    "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events; scope identifies this partial log",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",
     "ideaspaces share history @someone off",

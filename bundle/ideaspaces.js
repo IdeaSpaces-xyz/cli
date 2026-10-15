@@ -27348,7 +27348,7 @@ init_api();
 init_credentials();
 init_git2();
 init_repo_locator();
-var USAGE13 = "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> \u2026";
+var USAGE13 = "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> \u2026 (log is per-node: share log [--node <id>])";
 var GRADES = ["explore", "fork", "collaborate"];
 function requireConfig2(output) {
   const config = loadConfig();
@@ -27671,7 +27671,7 @@ async function accessTargets(config, root) {
         if (child.type === "dir" && !child.node_id) {
           throw new Error(`Cannot inspect access at ${child.path}: the hosted directory has no Node identity yet. Retry after indexing completes.`);
         }
-        if (child.node_id && !seen.has(child.node_id) && (child.type === "dir" || child.node_type === "note")) {
+        if (child.node_id && !seen.has(child.node_id)) {
           seen.add(child.node_id);
           targets.push({ path: child.path, node_id: child.node_id });
           if (child.type === "dir")
@@ -27969,7 +27969,7 @@ var shareCommand = {
     "ideaspaces share person someone@example.com --grade collaborate --history",
     "ideaspaces share team acme.com --grade collaborate",
     "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567  # exits nonzero if any path cannot be inspected",
-    "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events, not a repo-wide log",
+    "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events; scope identifies this partial log",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",
     "ideaspaces share history @someone off",

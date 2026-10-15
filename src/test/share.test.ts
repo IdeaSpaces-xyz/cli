@@ -259,6 +259,16 @@ describe("share access inspection", () => {
     expect(JSON.parse(stdout)).toMatchObject({ paths_scanned: 2, paths: [{ path: "notes/one.md" }] });
   });
 
+  it("includes non-note hosted files that have Node identity", async () => {
+    const node = "n_cccccccccccccccccccccccc";
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [
+      { path: "image.png", node_id: node, type: "file", node_type: "asset" },
+    ] });
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout).paths_scanned).toBe(1);
+    expect(getNodePublicAccessMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", node);
+  });
+
   it("checks every path across more than one eight-node batch", async () => {
     fetchContentTreeMock.mockResolvedValueOnce({ children: Array.from({ length: 9 }, (_, i) => ({
       path: `note-${i}.md`, node_id: `n_${i}`, type: "file", node_type: "note",
