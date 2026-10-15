@@ -225,6 +225,7 @@ describe("share access inspection", () => {
     expect(result.paths[0].path).toBe("notes/one.md");
     expect(result.paths[0].public_access.publication_policy.search).toBe(true);
     expect(result.paths[0].grants[0].grantee).toBe("public");
+    expect(stdout).toBe(JSON.stringify(result, null, 2) + "\n"); // no progress in JSON stdout
   });
 
   it("labels the per-node fallback as incomplete, not a repo-wide log", async () => {
@@ -258,6 +259,19 @@ describe("share access inspection", () => {
     expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(0);
     expect(fetchContentTreeMock).toHaveBeenCalledTimes(2);
     expect(JSON.parse(stdout)).toMatchObject({ paths_scanned: 2, paths: [{ path: "notes/one.md" }] });
+  });
+
+  it("names a policy-only exception in text mode", async () => {
+    const node = "n_aaaaaaaaaaaaaaaaaaaaaaaa";
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "one.md", node_id: node, type: "file", node_type: "note" }] });
+    getNodePublicAccessMock.mockResolvedValueOnce({
+      node_id: node, node_type: "note", read_public: false, effective_read_public: false,
+      publication_policy: { search: true, ai_input: false, ai_train: false },
+      effective_publication_policy: { search: true, ai_input: false, ai_train: false },
+      policy_anchor_node_id: node,
+    });
+    expect(await shareCommand.run(["status"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain('one.md  private  grants:0  policy:{"search":true');
   });
 
   it("includes non-note hosted files that have Node identity", async () => {
@@ -318,6 +332,7 @@ describe("share access inspection", () => {
       id === node ? [{ grantee: "public", capability: "read" }] : []);
     expect(await shareCommand.run(["status"], {}, TEXT_G)).toBe(0);
     expect(stdout).toContain("one.md  private  grants:1");
+    expect(stdout).toContain("policy:");
     fetchAuthMeMock.mockClear();
     stdout = "";
     expect(await shareCommand.run(["log"], { node: "mistyped" }, JSON_G)).toBe(1);

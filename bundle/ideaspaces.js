@@ -27348,7 +27348,7 @@ init_api();
 init_credentials();
 init_git2();
 init_repo_locator();
-var USAGE13 = "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> \u2026 (log is per-node: share log [--node <id>])";
+var USAGE13 = "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> \u2026";
 var GRADES = ["explore", "fork", "collaborate"];
 function requireConfig2(output) {
   const config = loadConfig();
@@ -27741,7 +27741,7 @@ async function accessStatus(rest, flags2, output) {
     pending_invites: invites.invites
   };
   output.result(result, `${result.visibility} \u2014 ${exceptions.length} path${exceptions.length === 1 ? "" : "s"} with distinct access or policy (${paths.length} checked).
-People: ${people.standings.length}; teams: ${teams.relationships.length}; root grants: ${rootGrants.length}.` + (exceptions.length ? "\n" + exceptions.map(({ path, public_access, grants }) => `${path}  ${public_access.effective_read_public ? "public" : "private"}  grants:${grants.length}`).join("\n") : "") + "\nUse --json for exact grants and signals.");
+People: ${people.standings.length}; teams: ${teams.relationships.length}; root grants: ${rootGrants.length}.` + (exceptions.length ? "\n" + exceptions.map(({ path, public_access, grants }) => `${path}  ${public_access.effective_read_public ? "public" : "private"}  grants:${grants.length}  policy:${JSON.stringify(public_access.publication_policy)}  effective:${JSON.stringify(public_access.effective_publication_policy)}`).join("\n") : "") + "\nUse --json for exact grants and signals.");
   return 0;
 }
 async function accessLog(rest, flags2, output) {
@@ -27972,7 +27972,7 @@ async function run(sub, rest, flags2, output, yes2) {
 }
 var shareCommand = {
   name: "share",
-  description: "Inspect and manage a Space's access, public paths and grant log",
+  description: "Inspect and manage access (log is per-node: share log [--node <id>])",
   usage: USAGE13,
   examples: [
     "ideaspaces share person someone@example.com --grade explore",

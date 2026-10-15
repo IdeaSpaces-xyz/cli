@@ -50,7 +50,7 @@ import { NODE_ID } from "./thread-flags.js";
 type Flags = Record<string, string | boolean>;
 
 const USAGE =
-  "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> … (log is per-node: share log [--node <id>])";
+  "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> …";
 
 /**
  * The grades a Space is shared at. One per invitation, mutually exclusive.
@@ -500,6 +500,7 @@ async function accessTargets(config: LoadedConfig, root: string): Promise<Array<
       if (!child.node_id) {
         throw new Error(`Cannot inspect access at ${child.path}: the hosted path has no Node identity yet. Retry after indexing completes.`);
       }
+      // One identity is inspected once even if the tree aliases it at another path.
       if (!seen.has(child.node_id)) {
         seen.add(child.node_id);
         targets.push({ path: child.path, node_id: child.node_id });
@@ -566,7 +567,9 @@ async function accessStatus(rest: string[], flags: Flags, output: Output): Promi
     `${result.visibility} — ${exceptions.length} path${exceptions.length === 1 ? "" : "s"} with distinct access or policy (${paths.length} checked).\n` +
     `People: ${people.standings.length}; teams: ${teams.relationships.length}; root grants: ${rootGrants.length}.` +
     (exceptions.length ? "\n" + exceptions.map(({ path, public_access, grants }) =>
-      `${path}  ${public_access.effective_read_public ? "public" : "private"}  grants:${grants.length}`).join("\n") : "") +
+      `${path}  ${public_access.effective_read_public ? "public" : "private"}  grants:${grants.length}` +
+      `  policy:${JSON.stringify(public_access.publication_policy)}` +
+      `  effective:${JSON.stringify(public_access.effective_publication_policy)}`).join("\n") : "") +
     "\nUse --json for exact grants and signals.");
   return 0;
 }
@@ -890,7 +893,7 @@ async function run(
 
 export const shareCommand: CommandDef = {
   name: "share",
-  description: "Inspect and manage a Space's access, public paths and grant log",
+  description: "Inspect and manage access (log is per-node: share log [--node <id>])",
   usage: USAGE,
   examples: [
     "ideaspaces share person someone@example.com --grade explore",
