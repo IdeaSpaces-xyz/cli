@@ -179,8 +179,10 @@ beforeEach(() => {
   listPersonSharesMock.mockResolvedValue({ standings: [], actions: {} });
   listPersonShareInvitesMock.mockResolvedValue({ invites: [] });
   getNodePublicAccessMock.mockResolvedValue({
-    read_public: false, effective_read_public: false,
+    node_id: ROOT, node_type: "dir", read_public: false, effective_read_public: false,
     publication_policy: { search: false, ai_input: false, ai_train: false },
+    effective_publication_policy: { search: false, ai_input: false, ai_train: false },
+    policy_anchor_node_id: null,
   });
   setSpaceAccessMock.mockResolvedValue({
     repo_id: "repo_abc",
@@ -235,6 +237,64 @@ describe("share access inspection", () => {
     fetchContentTreeMock.mockRejectedValue(new Error("tree unavailable"));
     expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("tree unavailable");
+  });
+
+  it("walks nested directories once, comparing inherited effective policy with root", async () => {
+    const dir = "n_aaaaaaaaaaaaaaaaaaaaaaaa";
+    const note = "n_bbbbbbbbbbbbbbbbbbbbbbbb";
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [
+      { path: "notes", node_id: dir, type: "dir", node_type: "dir" },
+      { path: "notes", node_id: dir, type: "dir", node_type: "dir" },
+    ] }).mockResolvedValueOnce({ children: [
+      { path: "notes/one.md", node_id: note, type: "file", node_type: "note" },
+    ] });
+    getNodePublicAccessMock.mockImplementation(async (_config: unknown, _repo: string, id: string) => ({
+      node_id: id, node_type: id === dir ? "dir" : "note", read_public: false, effective_read_public: false,
+      publication_policy: { search: false, ai_input: false, ai_train: false },
+      effective_publication_policy: { search: id === note, ai_input: false, ai_train: false },
+      policy_anchor_node_id: id === note ? dir : null,
+    }));
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(0);
+    expect(fetchContentTreeMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(stdout)).toMatchObject({ paths_scanned: 2, paths: [{ path: "notes/one.md" }] });
+  });
+
+  it("checks every path across more than one eight-node batch", async () => {
+    fetchContentTreeMock.mockResolvedValueOnce({ children: Array.from({ length: 9 }, (_, i) => ({
+      path: `note-${i}.md`, node_id: `n_${i}`, type: "file", node_type: "note",
+    })) });
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout).paths_scanned).toBe(9);
+    expect(getNodePublicAccessMock).toHaveBeenCalledTimes(9);
+    expect(listNodeGrantsMock).toHaveBeenCalledTimes(10); // root plus nine paths
+  });
+
+  it("fails for missing directory identity and for failed per-node access", async () => {
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "notes", type: "dir", node_id: null }] });
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("no Node identity");
+    stderr = "";
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "one.md", node_id: "n_a", type: "file", node_type: "note" }] });
+    getNodePublicAccessMock.mockRejectedValueOnce(new Error("access unavailable"));
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("access unavailable");
+  });
+
+  it("rejects mixed and excess repo selectors; --node reaches the grant log", async () => {
+    expect(await shareCommand.run(["status", "one", "two"], {}, JSON_G)).toBe(1);
+    expect(await shareCommand.run(["status", "one"], { repo: "two" }, JSON_G)).toBe(1);
+    expect(listNodeGrantEventsMock).not.toHaveBeenCalled();
+    stderr = "";
+    stdout = "";
+    const args = parseArgs(["share", "log", "--node", "n_target", "--json"]);
+    expect(await shareCommand.run(args.args, args.flags, args.global)).toBe(0);
+    expect(listNodeGrantEventsMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", "n_target");
+    expect(JSON.parse(stdout)).toMatchObject({ node_id: "n_target", complete_repo_log: false });
+  });
+
+  it("explains an empty grant log in human output", async () => {
+    expect(await shareCommand.run(["log"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain(`No grant events for ${ROOT}.`);
   });
 });
 

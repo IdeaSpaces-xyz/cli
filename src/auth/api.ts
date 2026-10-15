@@ -1260,11 +1260,8 @@ export interface SpaceAccessResponse {
 }
 
 export interface SpaceAccessUpdate {
-  read_public?: boolean;
-  copy_access?: CopyAccessLevel;
-  search?: boolean;
-  ai_input?: boolean;
-  ai_train?: boolean;
+  read_public: boolean;
+  copy_access: CopyAccessLevel;
 }
 
 export interface NodePublicAccessResponse {
@@ -1295,7 +1292,6 @@ export interface NodeGrantEvent extends NodeGrant {
   by: string;
   at: string;
   source: string;
-  via?: unknown;
 }
 
 export async function getNodePublicAccess(config: ApiConfig, repoId: string, nodeId: string): Promise<NodePublicAccessResponse> {
@@ -1786,7 +1782,7 @@ export async function setSpaceAccess(
   update: SpaceAccessUpdate,
   opts?: RequestOptions,
 ): Promise<SpaceAccessResponse> {
-  // A cold server can take ~9 s to answer. Never retry a visibility write:
+  // A cold server can take longer than the normal request budget. Never retry a visibility write:
   // after a timeout the server may already have applied it.
   return request<SpaceAccessResponse>(config, "PATCH", `${repoBase(repoId)}/access`, update, {
     timeoutMs: 30_000,

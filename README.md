@@ -50,9 +50,7 @@ ideaspaces pull
 
 Anything that leaves your machine prints its plan and runs only with `--yes`.
 
-`share` stays recipient-shaped: `person`, `team`, `list`, `remove`, `resend`, `history`, and
-`visibility`. It does not expose repository memberships, internal Grant records, or organization
-administration.
+`share person`, `team`, `list`, `remove`, `resend`, `history`, and `visibility` manage recipient access without exposing repository memberships. `share status` inspects the root, every hosted path, and direct grants (`--json` for exact signals); it fails rather than report incomplete coverage. `share log [--node <id>]` reads **only that node's grant events**, not a repo-wide activity log or publication/ownership history. Neither command changes access.
 
 ## Commands
 

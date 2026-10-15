@@ -487,17 +487,18 @@ async function accessTargets(config: LoadedConfig, root: string): Promise<Array<
   const targets: Array<{ path: string; node_id: string }> = [];
   const seen = new Set<string>([root]);
   while (queue.length) {
-    const path = queue.shift()!;
-    const tree = await fetchContentTree(config, root, path);
-    for (const child of tree.children) {
-      if (child.type === "dir") {
-        if (!child.node_id) throw new Error(`Cannot inspect access at ${child.path}: the hosted directory has no Node identity yet. Retry after indexing completes.`);
-        queue.push(child.path);
+    // Each directory response is a full depth-one tree, not a paginated list.
+    // Bound concurrent walks as well as the per-node access calls below.
+    const trees = await Promise.all(queue.splice(0, 8).map((path) => fetchContentTree(config, root, path)));
+    for (const tree of trees) for (const child of tree.children) {
+      if (child.type === "dir" && !child.node_id) {
+        throw new Error(`Cannot inspect access at ${child.path}: the hosted directory has no Node identity yet. Retry after indexing completes.`);
       }
       if (child.node_id && !seen.has(child.node_id) &&
           (child.type === "dir" || child.node_type === "note")) {
         seen.add(child.node_id);
         targets.push({ path: child.path, node_id: child.node_id });
+        if (child.type === "dir") queue.push(child.path);
       }
     }
   }
@@ -522,6 +523,7 @@ async function accessStatus(rest: string[], flags: Flags, output: Output): Promi
   // Bound in-flight calls, not coverage. An inaccessible path is an error,
   // never a silently missing private/public item in an agent's answer.
   const paths: Array<{ path: string; node_id: string; public_access: NodePublicAccessResponse; grants: NodeGrant[] }> = [];
+  output.log(`Scanning ${targets.length} paths for access and grants…`);
   for (let i = 0; i < targets.length; i += 8) {
     const batch = await Promise.all(targets.slice(i, i + 8).map(async ({ path, node_id }) => {
       const [public_access, grants] = await Promise.all([
@@ -530,12 +532,15 @@ async function accessStatus(rest: string[], flags: Flags, output: Output): Promi
       return { path, node_id, public_access, grants };
     }));
     paths.push(...batch);
+    output.progress(`Scanned ${paths.length}/${targets.length} paths…`);
   }
   const exceptions = paths.filter(({ public_access, grants }) =>
     public_access.effective_read_public !== visibility.read_public ||
-    public_access.read_public || grants.some(({ grantee }) => grantee !== "public") ||
-    Object.entries(public_access.publication_policy).some(([key, value]) =>
-      value !== visibility.publication_policy[key as keyof typeof visibility.publication_policy]),
+    public_access.read_public !== visibility.read_public || grants.length > 0 ||
+    Object.entries(public_access.effective_publication_policy).some(([key, value]) =>
+      value !== visibility.effective_publication_policy[key as keyof typeof visibility.effective_publication_policy] ||
+      public_access.publication_policy[key as keyof typeof public_access.publication_policy] !==
+        visibility.publication_policy[key as keyof typeof visibility.publication_policy]),
   );
   const result = {
     repo_id: repoId, root_node_id: target,
@@ -565,7 +570,7 @@ async function accessLog(rest: string[], flags: Flags, output: Output): Promise<
   output.result(
     { repo_id: repoId, node_id: nodeId, scope: "node_grants_only", complete_repo_log: false, events },
     `Grant events for ${nodeId} only (not a repo-wide log; publication and ownership changes absent).\n` +
-      events.map((event) => `${event.at}  ${event.by}  ${event.action} ${event.grantee} ${event.capability} (${event.source})`).join("\n"),
+      (events.length ? events.map((event) => `${event.at}  ${event.by}  ${event.action} ${event.grantee} ${event.capability} (${event.source})`).join("\n") : `No grant events for ${nodeId}.`),
   );
   return 0;
 }
@@ -873,7 +878,7 @@ export const shareCommand: CommandDef = {
     "ideaspaces share person someone@example.com --grade collaborate --history",
     "ideaspaces share team acme.com --grade collaborate",
     "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 --json",
-    "ideaspaces share log --json  # per-node grant events until the repo activity feed ships",
+    "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events, not a repo-wide log",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",
     "ideaspaces share history @someone off",
