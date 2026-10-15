@@ -50,7 +50,7 @@ ideaspaces pull
 
 Anything that leaves your machine prints its plan and runs only with `--yes`.
 
-`share person`, `team`, `list`, `remove`, `resend`, `history`, and `visibility` manage recipient access without exposing repository memberships. `share status` crawls the root and every hosted path with Node identity, plus direct grants (`--json` for exact signals); it fails rather than report incomplete coverage. This client-side crawl may be slow on large Spaces until a server aggregate exists. `share log [--node <id>]` reads **only that node's grant events**, not a repo-wide activity log or publication/ownership history. Its JSON declares `scope: "node_grants_only"` and `complete_repo_log: false`; select by scope rather than assuming a future repo feed has this shape. Neither command changes access.
+`share person`, `team`, `list`, `remove`, `resend`, `history`, and `visibility` manage recipient access without exposing repository memberships. `share status` crawls the root and every hosted path with Node identity, plus direct grants (`--json` exposes raw internal grant records to an authorized reader, deliberately unlike the recipient-shaped write commands); it fails rather than report incomplete coverage. This client-side crawl may be slow on large Spaces until a server aggregate exists. `share log [--node <id>]` reads **only that node's grant events**, not a repo-wide activity log or publication/ownership history. Its JSON declares `scope: "node_grants_only"` and `complete_repo_log: false`; select by scope rather than assuming a future repo feed has this shape. Neither command changes access.
 
 ## Commands
 

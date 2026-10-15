@@ -45,6 +45,7 @@ import { repoRoot } from "../git.js";
 import { parseRepoLocator } from "../repo-locator.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
+import { NODE_ID } from "./thread-flags.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -527,11 +528,13 @@ async function accessStatus(rest: string[], flags: Flags, output: Output): Promi
   const target = await resolveTarget(rest[0] ?? repoFlag(flags), config, output);
   if (!target) return 1;
   const repoId = await repoIdForRoot(config, target);
-  const [visibility, people, teams, invites, rootGrants, targets] = await Promise.all([
+  const [visibility, people, teams, invites, rootGrants] = await Promise.all([
     getSpaceAccess(config, repoId), listPersonShares(config, target),
     listTeamShares(config, target), listPersonShareInvites(config, target),
-    listNodeGrants(config, repoId, target), accessTargets(config, target),
+    listNodeGrants(config, repoId, target),
   ]);
+  output.log("Walking hosted paths for access inspection; large Spaces may take a while…");
+  const targets = await accessTargets(config, target);
   // Bound in-flight calls, not coverage. An inaccessible path is an error,
   // never a silently missing private/public item in an agent's answer.
   const paths: Array<{ path: string; node_id: string; public_access: NodePublicAccessResponse; grants: NodeGrant[] }> = [];
@@ -572,12 +575,12 @@ async function accessLog(rest: string[], flags: Flags, output: Output): Promise<
   if (!config) return 1;
   const root = await resolveTarget(rest[0] ?? repoFlag(flags), config, output);
   if (!root) return 1;
-  const repoId = await repoIdForRoot(config, root);
   const nodeId = flagStr(flags, "node") ?? root;
-  if (!/^n_[0-9a-f]{24}$/.test(nodeId)) {
+  if (!NODE_ID.test(nodeId)) {
     output.error(`Invalid Node id: ${nodeId}. Use a n_… id from this Space (for example, from share status --json).`);
     return 1;
   }
+  const repoId = await repoIdForRoot(config, root);
   const events = await listNodeGrantEvents(config, repoId, nodeId);
   output.result(
     { repo_id: repoId, node_id: nodeId, scope: "node_grants_only", complete_repo_log: false, events },
@@ -889,7 +892,7 @@ export const shareCommand: CommandDef = {
     "ideaspaces share person @someone --grade fork",
     "ideaspaces share person someone@example.com --grade collaborate --history",
     "ideaspaces share team acme.com --grade collaborate",
-    "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567  # exits nonzero if any path cannot be inspected",
+    "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567  # crawls the whole Space; may take a while, exits nonzero on failure",
     "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events; scope identifies this partial log",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",

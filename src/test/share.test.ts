@@ -283,11 +283,13 @@ describe("share access inspection", () => {
     fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "notes", type: "dir", node_id: null }] });
     expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("no Node identity");
+    expect(stdout).toBe("");
     stderr = "";
     fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "one.md", node_id: "n_a", type: "file", node_type: "note" }] });
     getNodePublicAccessMock.mockRejectedValueOnce(new Error("access unavailable"));
     expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("access unavailable");
+    expect(stdout).toBe("");
   });
 
   it("rejects mixed and excess repo selectors; --node reaches the grant log", async () => {
@@ -310,9 +312,11 @@ describe("share access inspection", () => {
       id === node ? [{ grantee: "public", capability: "read" }] : []);
     expect(await shareCommand.run(["status"], {}, TEXT_G)).toBe(0);
     expect(stdout).toContain("one.md  private  grants:1");
+    fetchAuthMeMock.mockClear();
     stdout = "";
     expect(await shareCommand.run(["log"], { node: "mistyped" }, JSON_G)).toBe(1);
     expect(stderr).toContain("Invalid Node id");
+    expect(fetchAuthMeMock).not.toHaveBeenCalled();
     expect(listNodeGrantEventsMock).not.toHaveBeenCalled();
   });
 
