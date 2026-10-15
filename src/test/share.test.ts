@@ -83,6 +83,7 @@ vi.mock("../git.js", async (importOriginal) => {
 });
 
 const { shareCommand } = await import("../commands/share.js");
+const { UnauthorizedError } = await import("../auth/api.js");
 
 const ROOT = "n_0123456789abcdef01234567";
 let stdout: string;
@@ -309,6 +310,17 @@ describe("share access inspection", () => {
     getNodePublicAccessMock.mockRejectedValueOnce(new Error("access unavailable"));
     expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("Cannot inspect access at one.md: access unavailable");
+    expect(stdout).toBe("");
+  });
+
+  it("keeps the re-auth hint when a path returns 401 mid-scan", async () => {
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "one.md", node_id: "n_a", type: "file", node_type: "note" }] });
+    listNodeGrantsMock.mockImplementation(async (_config: unknown, _repo: string, id: string) => {
+      if (id === "n_a") throw new UnauthorizedError("expired");
+      return [];
+    });
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Session expired. Run `ideaspaces login`.");
     expect(stdout).toBe("");
   });
 

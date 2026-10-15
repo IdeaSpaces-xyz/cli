@@ -27669,7 +27669,9 @@ async function accessTargets(config, root) {
       try {
         return await fetchContentTree(config, root, path);
       } catch (err) {
-        throw new Error(`Cannot inspect hosted tree at ${path || "/"}: ${errorText(err)}`);
+        if (err instanceof UnauthorizedError)
+          throw err;
+        throw new Error(`Cannot inspect hosted tree at ${path || "/"}: ${errorText(err)}`, { cause: err });
       }
     }));
     for (const tree of trees)
@@ -27722,7 +27724,9 @@ async function accessStatus(rest, flags2, output) {
         ]);
         return { path, node_id, public_access, grants };
       } catch (err) {
-        throw new Error(`Cannot inspect access at ${path}: ${errorText(err)}`);
+        if (err instanceof UnauthorizedError)
+          throw err;
+        throw new Error(`Cannot inspect access at ${path}: ${errorText(err)}`, { cause: err });
       }
     }));
     paths.push(...batch);

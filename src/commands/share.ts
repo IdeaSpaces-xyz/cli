@@ -494,7 +494,10 @@ async function accessTargets(config: LoadedConfig, root: string): Promise<Array<
     // Bound concurrent walks as well as the per-node access calls below.
     const trees = await Promise.all(queue.splice(0, 8).map(async (path) => {
       try { return await fetchContentTree(config, root, path); }
-      catch (err) { throw new Error(`Cannot inspect hosted tree at ${path || "/"}: ${errorText(err)}`); }
+      catch (err) {
+        if (err instanceof UnauthorizedError) throw err;
+        throw new Error(`Cannot inspect hosted tree at ${path || "/"}: ${errorText(err)}`, { cause: err });
+      }
     }));
     for (const tree of trees) for (const child of tree.children) {
       if (!child.node_id) {
@@ -550,7 +553,10 @@ async function accessStatus(rest: string[], flags: Flags, output: Output): Promi
           getNodePublicAccess(config, repoId, node_id), listNodeGrants(config, repoId, node_id),
         ]);
         return { path, node_id, public_access, grants };
-      } catch (err) { throw new Error(`Cannot inspect access at ${path}: ${errorText(err)}`); }
+      } catch (err) {
+        if (err instanceof UnauthorizedError) throw err;
+        throw new Error(`Cannot inspect access at ${path}: ${errorText(err)}`, { cause: err });
+      }
     }));
     paths.push(...batch);
     output.progress(`Scanned ${paths.length}/${targets.length} paths…`);
