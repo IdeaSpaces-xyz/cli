@@ -23,7 +23,7 @@
     "clean": "node -e \"const fs=require('node:fs'); for (const path of ['bundle', 'dist']) fs.rmSync(path, { recursive: true, force: true })\"",
     "build": "npm run clean && tsc && npm run bundle",
     "bundle": "node build.mjs",
-    "check:package": "npm run build && node scripts/check-package.mjs",
+    "check:package": "npm run build && node scripts/check-package.mjs && node scripts/check-bundle.mjs",
     "check:consumers": "node scripts/check-consumers.mjs",
     "api:inventory": "node scripts/api-calls.mjs",
     "check:api": "node scripts/check-api-parity.mjs",
