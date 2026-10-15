@@ -236,7 +236,8 @@ describe("share access inspection", () => {
   it("fails instead of calling partial path coverage a complete status", async () => {
     fetchContentTreeMock.mockRejectedValue(new Error("tree unavailable"));
     expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
-    expect(stderr).toContain("tree unavailable");
+    expect(stderr).toContain("Cannot inspect hosted tree at /: tree unavailable");
+    expect(stdout).toBe("");
   });
 
   it("walks nested directories once, comparing inherited effective policy with root", async () => {
@@ -285,10 +286,15 @@ describe("share access inspection", () => {
     expect(stderr).toContain("no Node identity");
     expect(stdout).toBe("");
     stderr = "";
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "missing.md", type: "file", node_id: null }] });
+    expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("missing.md");
+    expect(stdout).toBe("");
+    stderr = "";
     fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "one.md", node_id: "n_a", type: "file", node_type: "note" }] });
     getNodePublicAccessMock.mockRejectedValueOnce(new Error("access unavailable"));
     expect(await shareCommand.run(["status"], {}, JSON_G)).toBe(1);
-    expect(stderr).toContain("access unavailable");
+    expect(stderr).toContain("Cannot inspect access at one.md: access unavailable");
     expect(stdout).toBe("");
   });
 

@@ -27665,13 +27665,19 @@ async function accessTargets(config, root) {
   const targets = [];
   const seen = /* @__PURE__ */ new Set([root]);
   while (queue.length) {
-    const trees = await Promise.all(queue.splice(0, 8).map((path) => fetchContentTree(config, root, path)));
+    const trees = await Promise.all(queue.splice(0, 8).map(async (path) => {
+      try {
+        return await fetchContentTree(config, root, path);
+      } catch (err) {
+        throw new Error(`Cannot inspect hosted tree at ${path || "/"}: ${errorText(err)}`);
+      }
+    }));
     for (const tree of trees)
       for (const child of tree.children) {
-        if (child.type === "dir" && !child.node_id) {
-          throw new Error(`Cannot inspect access at ${child.path}: the hosted directory has no Node identity yet. Retry after indexing completes.`);
+        if (!child.node_id) {
+          throw new Error(`Cannot inspect access at ${child.path}: the hosted path has no Node identity yet. Retry after indexing completes.`);
         }
-        if (child.node_id && !seen.has(child.node_id)) {
+        if (!seen.has(child.node_id)) {
           seen.add(child.node_id);
           targets.push({ path: child.path, node_id: child.node_id });
           if (child.type === "dir")
@@ -27706,14 +27712,18 @@ async function accessStatus(rest, flags2, output) {
   output.log("Walking hosted paths for access inspection; large Spaces may take a while\u2026");
   const targets = await accessTargets(config, target);
   const paths = [];
-  output.log(`Scanning ${targets.length} paths for access and grants\u2026`);
+  output.progress(`Scanning ${targets.length} paths for access and grants\u2026`);
   for (let i = 0; i < targets.length; i += 8) {
     const batch = await Promise.all(targets.slice(i, i + 8).map(async ({ path, node_id }) => {
-      const [public_access, grants] = await Promise.all([
-        getNodePublicAccess(config, repoId, node_id),
-        listNodeGrants(config, repoId, node_id)
-      ]);
-      return { path, node_id, public_access, grants };
+      try {
+        const [public_access, grants] = await Promise.all([
+          getNodePublicAccess(config, repoId, node_id),
+          listNodeGrants(config, repoId, node_id)
+        ]);
+        return { path, node_id, public_access, grants };
+      } catch (err) {
+        throw new Error(`Cannot inspect access at ${path}: ${errorText(err)}`);
+      }
     }));
     paths.push(...batch);
     output.progress(`Scanned ${paths.length}/${targets.length} paths\u2026`);

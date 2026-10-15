@@ -492,12 +492,15 @@ async function accessTargets(config: LoadedConfig, root: string): Promise<Array<
     // Each directory response is a full depth-one tree, not a paginated list.
     // This client-side crawl is a stopgap until a server aggregate exists.
     // Bound concurrent walks as well as the per-node access calls below.
-    const trees = await Promise.all(queue.splice(0, 8).map((path) => fetchContentTree(config, root, path)));
+    const trees = await Promise.all(queue.splice(0, 8).map(async (path) => {
+      try { return await fetchContentTree(config, root, path); }
+      catch (err) { throw new Error(`Cannot inspect hosted tree at ${path || "/"}: ${errorText(err)}`); }
+    }));
     for (const tree of trees) for (const child of tree.children) {
-      if (child.type === "dir" && !child.node_id) {
-        throw new Error(`Cannot inspect access at ${child.path}: the hosted directory has no Node identity yet. Retry after indexing completes.`);
+      if (!child.node_id) {
+        throw new Error(`Cannot inspect access at ${child.path}: the hosted path has no Node identity yet. Retry after indexing completes.`);
       }
-      if (child.node_id && !seen.has(child.node_id)) {
+      if (!seen.has(child.node_id)) {
         seen.add(child.node_id);
         targets.push({ path: child.path, node_id: child.node_id });
         if (child.type === "dir") queue.push(child.path);
@@ -538,13 +541,15 @@ async function accessStatus(rest: string[], flags: Flags, output: Output): Promi
   // Bound in-flight calls, not coverage. An inaccessible path is an error,
   // never a silently missing private/public item in an agent's answer.
   const paths: Array<{ path: string; node_id: string; public_access: NodePublicAccessResponse; grants: NodeGrant[] }> = [];
-  output.log(`Scanning ${targets.length} paths for access and grants…`);
+  output.progress(`Scanning ${targets.length} paths for access and grants…`);
   for (let i = 0; i < targets.length; i += 8) {
     const batch = await Promise.all(targets.slice(i, i + 8).map(async ({ path, node_id }) => {
-      const [public_access, grants] = await Promise.all([
-        getNodePublicAccess(config, repoId, node_id), listNodeGrants(config, repoId, node_id),
-      ]);
-      return { path, node_id, public_access, grants };
+      try {
+        const [public_access, grants] = await Promise.all([
+          getNodePublicAccess(config, repoId, node_id), listNodeGrants(config, repoId, node_id),
+        ]);
+        return { path, node_id, public_access, grants };
+      } catch (err) { throw new Error(`Cannot inspect access at ${path}: ${errorText(err)}`); }
     }));
     paths.push(...batch);
     output.progress(`Scanned ${paths.length}/${targets.length} paths…`);
