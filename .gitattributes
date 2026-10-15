@@ -1,1 +1,2 @@
 contract/*.json text eol=lf
+bundle/ideaspaces.js text eol=lf linguist-generated=true
