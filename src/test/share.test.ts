@@ -286,10 +286,24 @@ describe("share access inspection", () => {
     expect(listNodeGrantEventsMock).not.toHaveBeenCalled();
     stderr = "";
     stdout = "";
-    const args = parseArgs(["share", "log", "--node", "n_target", "--json"]);
+    const node = "n_aaaaaaaaaaaaaaaaaaaaaaaa";
+    const args = parseArgs(["share", "log", "--node", node, "--json"]);
     expect(await shareCommand.run(args.args, args.flags, args.global)).toBe(0);
-    expect(listNodeGrantEventsMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", "n_target");
-    expect(JSON.parse(stdout)).toMatchObject({ node_id: "n_target", complete_repo_log: false });
+    expect(listNodeGrantEventsMock).toHaveBeenCalledWith(expect.anything(), "repo_abc", node);
+    expect(JSON.parse(stdout)).toMatchObject({ node_id: node, complete_repo_log: false });
+  });
+
+  it("names exceptional paths in human output and rejects malformed node ids", async () => {
+    const node = "n_aaaaaaaaaaaaaaaaaaaaaaaa";
+    fetchContentTreeMock.mockResolvedValueOnce({ children: [{ path: "one.md", node_id: node, type: "file", node_type: "note" }] });
+    listNodeGrantsMock.mockImplementation(async (_config: unknown, _repo: string, id: string) =>
+      id === node ? [{ grantee: "public", capability: "read" }] : []);
+    expect(await shareCommand.run(["status"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("one.md  private  grants:1");
+    stdout = "";
+    expect(await shareCommand.run(["log"], { node: "mistyped" }, JSON_G)).toBe(1);
+    expect(stderr).toContain("Invalid Node id");
+    expect(listNodeGrantEventsMock).not.toHaveBeenCalled();
   });
 
   it("explains an empty grant log in human output", async () => {

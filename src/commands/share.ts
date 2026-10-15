@@ -37,6 +37,7 @@ import {
   type PersonShareStanding,
   type NodeGrant,
   type NodePublicAccessResponse,
+  type SpaceAccessResponse,
 } from "../auth/api.js";
 import { loadConfig, type LoadedConfig } from "../auth/credentials.js";
 import { resolveSpaceBinding } from "../auth/resolve-space.js";
@@ -505,6 +506,17 @@ async function accessTargets(config: LoadedConfig, root: string): Promise<Array<
   return targets;
 }
 
+function differsFromRoot(public_access: NodePublicAccessResponse, grants: NodeGrant[], root: SpaceAccessResponse): boolean {
+  // Show direct grants even when the current public bit matches the root: an
+  // override is important to see before somebody widens the Space later.
+  return public_access.effective_read_public !== root.read_public ||
+    public_access.read_public !== root.read_public || grants.length > 0 ||
+    Object.entries(public_access.effective_publication_policy).some(([key, value]) =>
+      value !== root.effective_publication_policy[key as keyof typeof root.effective_publication_policy] ||
+      public_access.publication_policy[key as keyof typeof public_access.publication_policy] !==
+        root.publication_policy[key as keyof typeof root.publication_policy]);
+}
+
 async function accessStatus(rest: string[], flags: Flags, output: Output): Promise<number> {
   if (rest.length > 1 || (rest.length && repoFlag(flags))) {
     output.error("Usage: ideaspaces share status [<repo-url>|--repo <url>]");
@@ -534,14 +546,7 @@ async function accessStatus(rest: string[], flags: Flags, output: Output): Promi
     paths.push(...batch);
     output.progress(`Scanned ${paths.length}/${targets.length} paths…`);
   }
-  const exceptions = paths.filter(({ public_access, grants }) =>
-    public_access.effective_read_public !== visibility.read_public ||
-    public_access.read_public !== visibility.read_public || grants.length > 0 ||
-    Object.entries(public_access.effective_publication_policy).some(([key, value]) =>
-      value !== visibility.effective_publication_policy[key as keyof typeof visibility.effective_publication_policy] ||
-      public_access.publication_policy[key as keyof typeof public_access.publication_policy] !==
-        visibility.publication_policy[key as keyof typeof visibility.publication_policy]),
-  );
+  const exceptions = paths.filter(({ public_access, grants }) => differsFromRoot(public_access, grants, visibility));
   const result = {
     repo_id: repoId, root_node_id: target,
     visibility: visibility.read_public ? "public" : "private",
@@ -551,7 +556,10 @@ async function accessStatus(rest: string[], flags: Flags, output: Output): Promi
   };
   output.result(result,
     `${result.visibility} — ${exceptions.length} path${exceptions.length === 1 ? "" : "s"} with distinct access or policy (${paths.length} checked).\n` +
-    `People: ${people.standings.length}; teams: ${teams.relationships.length}; root grants: ${rootGrants.length}. Use --json for exact grants and signals.`);
+    `People: ${people.standings.length}; teams: ${teams.relationships.length}; root grants: ${rootGrants.length}.` +
+    (exceptions.length ? "\n" + exceptions.map(({ path, public_access, grants }) =>
+      `${path}  ${public_access.effective_read_public ? "public" : "private"}  grants:${grants.length}`).join("\n") : "") +
+    "\nUse --json for exact grants and signals.");
   return 0;
 }
 
@@ -566,6 +574,10 @@ async function accessLog(rest: string[], flags: Flags, output: Output): Promise<
   if (!root) return 1;
   const repoId = await repoIdForRoot(config, root);
   const nodeId = flagStr(flags, "node") ?? root;
+  if (!/^n_[0-9a-f]{24}$/.test(nodeId)) {
+    output.error(`Invalid Node id: ${nodeId}. Use a n_… id from this Space (for example, from share status --json).`);
+    return 1;
+  }
   const events = await listNodeGrantEvents(config, repoId, nodeId);
   output.result(
     { repo_id: repoId, node_id: nodeId, scope: "node_grants_only", complete_repo_log: false, events },
@@ -877,7 +889,7 @@ export const shareCommand: CommandDef = {
     "ideaspaces share person @someone --grade fork",
     "ideaspaces share person someone@example.com --grade collaborate --history",
     "ideaspaces share team acme.com --grade collaborate",
-    "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 --json",
+    "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567  # exits nonzero if any path cannot be inspected",
     "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events, not a repo-wide log",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",
