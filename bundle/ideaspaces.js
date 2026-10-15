@@ -12151,6 +12151,15 @@ async function putFile(config, repoId, path, content, opts) {
     throw new NetworkError(`Save confirmation timed out for ${path}. The server may still have saved it. Check the note on the server before retrying; the write was not sent again.`);
   }
 }
+async function getNodePublicAccess(config, repoId, nodeId2) {
+  return request(config, "GET", `${repoBase(repoId)}/nodes/${encodeURIComponent(nodeId2)}/public-access`);
+}
+async function listNodeGrants(config, repoId, nodeId2) {
+  return request(config, "GET", `${repoBase(repoId)}/nodes/${encodeURIComponent(nodeId2)}/grants`);
+}
+async function listNodeGrantEvents(config, repoId, nodeId2) {
+  return request(config, "GET", `${repoBase(repoId)}/nodes/${encodeURIComponent(nodeId2)}/grant-events`);
+}
 async function addPersonShare(config, targetNodeId, body, opts) {
   return request(config, "POST", `${nodeBase(targetNodeId)}/person-shares`, body, opts);
 }
@@ -12228,8 +12237,12 @@ async function cancelAccessRequest(config, requestId, opts) {
 async function getSpaceAccess(config, repoId) {
   return request(config, "GET", `${repoBase(repoId)}/access`);
 }
-async function setSpaceAccess(config, repoId, update) {
-  return request(config, "PATCH", `${repoBase(repoId)}/access`, update);
+async function setSpaceAccess(config, repoId, update, opts) {
+  return request(config, "PATCH", `${repoBase(repoId)}/access`, update, {
+    timeoutMs: 3e4,
+    ...opts,
+    retry: false
+  });
 }
 async function getConversation(config, repoId, conversationId, opts) {
   return request(config, "GET", `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}`, void 0, opts);
@@ -27335,7 +27348,7 @@ init_api();
 init_credentials();
 init_git2();
 init_repo_locator();
-var USAGE13 = "ideaspaces share <person|team|list|remove|resend|history|visibility> \u2026";
+var USAGE13 = "ideaspaces share <status|log|person|team|list|remove|resend|history|visibility> \u2026";
 var GRADES = ["explore", "fork", "collaborate"];
 function requireConfig2(output) {
   const config = loadConfig();
@@ -27647,6 +27660,116 @@ async function listProductAccess(rest, flags2, output) {
   }, lines.join("\n"));
   return 0;
 }
+async function accessTargets(config, root) {
+  const queue = [""];
+  const targets = [];
+  const seen = /* @__PURE__ */ new Set([root]);
+  while (queue.length) {
+    const trees = await Promise.all(queue.splice(0, 8).map(async (path) => {
+      try {
+        return await fetchContentTree(config, root, path);
+      } catch (err) {
+        if (err instanceof UnauthorizedError)
+          throw err;
+        throw new Error(`Cannot inspect hosted tree at ${path || "/"}: ${errorText(err)}`, { cause: err });
+      }
+    }));
+    for (const tree of trees)
+      for (const child of tree.children) {
+        if (!child.node_id) {
+          throw new Error(`Cannot inspect access at ${child.path}: the hosted path has no Node identity yet. Retry after indexing completes.`);
+        }
+        if (!seen.has(child.node_id)) {
+          seen.add(child.node_id);
+          targets.push({ path: child.path, node_id: child.node_id });
+          if (child.type === "dir")
+            queue.push(child.path);
+        }
+      }
+  }
+  return targets;
+}
+function differsFromRoot(public_access, grants, root) {
+  return public_access.effective_read_public !== root.read_public || public_access.read_public !== root.read_public || grants.length > 0 || Object.entries(public_access.effective_publication_policy).some(([key2, value2]) => value2 !== root.effective_publication_policy[key2] || public_access.publication_policy[key2] !== root.publication_policy[key2]);
+}
+async function accessStatus(rest, flags2, output) {
+  if (rest.length > 1 || rest.length && repoFlag(flags2)) {
+    output.error("Usage: ideaspaces share status [<repo-url>|--repo <url>]");
+    return 1;
+  }
+  const config = requireConfig2(output);
+  if (!config)
+    return 1;
+  const target = await resolveTarget(rest[0] ?? repoFlag(flags2), config, output);
+  if (!target)
+    return 1;
+  const repoId = await repoIdForRoot(config, target);
+  const [visibility, people, teams, invites, rootGrants] = await Promise.all([
+    getSpaceAccess(config, repoId),
+    listPersonShares(config, target),
+    listTeamShares(config, target),
+    listPersonShareInvites(config, target),
+    listNodeGrants(config, repoId, target)
+  ]);
+  output.log("Walking hosted paths for access inspection; large Spaces may take a while\u2026");
+  const targets = await accessTargets(config, target);
+  const paths = [];
+  output.progress(`Scanning ${targets.length} paths for access and grants\u2026`);
+  for (let i = 0; i < targets.length; i += 8) {
+    const batch = await Promise.all(targets.slice(i, i + 8).map(async ({ path, node_id }) => {
+      try {
+        const [public_access, grants] = await Promise.all([
+          getNodePublicAccess(config, repoId, node_id),
+          listNodeGrants(config, repoId, node_id)
+        ]);
+        return { path, node_id, public_access, grants };
+      } catch (err) {
+        if (err instanceof UnauthorizedError)
+          throw err;
+        throw new Error(`Cannot inspect access at ${path}: ${errorText(err)}`, { cause: err });
+      }
+    }));
+    paths.push(...batch);
+    output.progress(`Scanned ${paths.length}/${targets.length} paths\u2026`);
+  }
+  const exceptions = paths.filter(({ public_access, grants }) => differsFromRoot(public_access, grants, visibility));
+  const result = {
+    repo_id: repoId,
+    root_node_id: target,
+    visibility: visibility.read_public ? "public" : "private",
+    root: { access: visibility, grants: rootGrants },
+    paths: exceptions,
+    paths_scanned: paths.length,
+    people,
+    teams,
+    pending_invites: invites.invites
+  };
+  output.result(result, `${result.visibility} \u2014 ${exceptions.length} path${exceptions.length === 1 ? "" : "s"} with distinct access or policy (${paths.length} checked).
+People: ${people.standings.length}; teams: ${teams.relationships.length}; root grants: ${rootGrants.length}.` + (exceptions.length ? "\n" + exceptions.map(({ path, public_access, grants }) => `${path}  ${public_access.effective_read_public ? "public" : "private"}  grants:${grants.length}  policy:${JSON.stringify(public_access.publication_policy)}  effective:${JSON.stringify(public_access.effective_publication_policy)}`).join("\n") : "") + "\nUse --json for exact grants and signals.");
+  return 0;
+}
+async function accessLog(rest, flags2, output) {
+  if (rest.length > 1 || rest.length && repoFlag(flags2)) {
+    output.error("Usage: ideaspaces share log [<repo-url>|--repo <url>] [--node <node-id>]");
+    return 1;
+  }
+  const config = requireConfig2(output);
+  if (!config)
+    return 1;
+  const root = await resolveTarget(rest[0] ?? repoFlag(flags2), config, output);
+  if (!root)
+    return 1;
+  const nodeId2 = flagStr(flags2, "node") ?? root;
+  if (!NODE_ID3.test(nodeId2)) {
+    output.error(`Invalid Node id: ${nodeId2}. Use a n_\u2026 id from this Space (for example, from share status --json).`);
+    return 1;
+  }
+  const repoId = await repoIdForRoot(config, root);
+  const events = await listNodeGrantEvents(config, repoId, nodeId2);
+  output.result({ repo_id: repoId, node_id: nodeId2, scope: "node_grants_only", complete_repo_log: false, events }, `Grant events for ${nodeId2} only (not a repo-wide log; publication and ownership changes absent).
+` + (events.length ? events.map((event) => `${event.at}  ${event.by}  ${event.action} ${event.grantee} ${event.capability} (${event.source})`).join("\n") : `No grant events for ${nodeId2}.`));
+  return 0;
+}
 async function removeProductAccess(rest, flags2, output) {
   const who = rest[0];
   if (!who || rest.length !== 1) {
@@ -27805,6 +27928,10 @@ async function setVisibility(rest, flags2, output, yes2) {
 async function run(sub, rest, flags2, output, yes2) {
   try {
     switch (sub) {
+      case "status":
+        return await accessStatus(rest, flags2, output);
+      case "log":
+        return await accessLog(rest, flags2, output);
       case "person":
         return await shareWithPerson(rest, flags2, output);
       case "team":
@@ -27849,13 +27976,15 @@ async function run(sub, rest, flags2, output, yes2) {
 }
 var shareCommand = {
   name: "share",
-  description: "Share a Space and manage recipient access",
+  description: "Inspect and manage access (log is per-node: share log [--node <id>])",
   usage: USAGE13,
   examples: [
     "ideaspaces share person someone@example.com --grade explore",
     "ideaspaces share person @someone --grade fork",
     "ideaspaces share person someone@example.com --grade collaborate --history",
     "ideaspaces share team acme.com --grade collaborate",
+    "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567  # crawls the whole Space; may take a while, exits nonzero on failure",
+    "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events; scope identifies this partial log",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",
     "ideaspaces share history @someone off",
