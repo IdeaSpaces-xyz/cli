@@ -10513,7 +10513,7 @@ function isMapPosition(value2) {
     return false;
   }
   const segments = value2.split("/");
-  return !segments.some((segment) => segment === "." || segment === ".." || segment.toLowerCase() === ".git" || segment.startsWith("_") && segment !== "_threads");
+  return !segments.some((segment) => segment === "." || segment === ".." || segment.toLowerCase() === ".git" || segment.startsWith("_") && segment !== "_threads" && segment !== "_agent");
 }
 function invalidRepo() {
   return { status: "invalid", code: "invalid_repo" };

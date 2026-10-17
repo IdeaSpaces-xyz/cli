@@ -215,7 +215,7 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
   });
 
   it("never reads a position that climbs out of its root or is absolute", async () => {
-    for (const address of ["@notes//../planner/plans/one.md", "@notes///etc/passwd", "@notes//ideas/../../x.md"]) {
+    for (const address of ["@notes//../planner/plans/one.md", "@notes///etc/passwd", "@notes//ideas/../../x.md", "@notes//_agent/../private.md"]) {
       const { exit, stderr } = await run(lookCommand, [address], { map: join(space, "space.map.md") }, TEXT_FLAGS);
       expect(exit, address).toBe(1);
       expect(stderr, address).toContain("status: invalid_address");
@@ -235,6 +235,40 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
     const { exit, data } = await run(lookCommand, ["@notes//_agent/agreement.md"], { map: join(space, "space.map.md") });
     expect(exit).toBe(0);
     expect(data.target.name).toBe("Agreement — Notes");
+  });
+
+  it("reads a pinned _agent file and directory as Map members, never substituting HEAD", async () => {
+    const agreement = (summary: string, body: string) =>
+      `---\nname: Agreement — Notes\nroot_node_id: ${ID_NOTES}\nsummary: ${summary}\n---\n# Notes\n\n${body}\n`;
+    const agentPin = commit(notes, "_agent/agreement.md", agreement("At the authored pin.", "OLD_AGENT_BODY"));
+    const map = writeMap(
+      join(space, "agent-context.map.md"),
+      [{ root_node_id: ID_NOTES, sha: agentPin, name: "notes" }],
+      [
+        { root: 0, position: "_agent/agreement.md", depth: "full" },
+        { root: 0, position: "_agent", depth: "children" },
+      ],
+    );
+    commit(notes, "_agent/agreement.md", agreement("Changed after the pin.", "NEW_AGENT_BODY"));
+
+    const pinned = await run(lookCommand, ["@notes//_agent/agreement.md"], { map, at: "pin", depth: "full" });
+    expect(pinned.exit, pinned.stderr).toBe(0);
+    expect(pinned.data).toMatchObject({ status: "checkout_at_pin", commit: agentPin, at: "pin" });
+    expect(pinned.data.target.position).toBe("_agent/agreement.md");
+    expect(pinned.data.target.summary).toBe("At the authored pin.");
+    expect(pinned.data.target.surface).toContain("OLD_AGENT_BODY");
+    expect(JSON.stringify(pinned.data)).not.toContain("NEW_AGENT_BODY");
+
+    const folder = await run(lookCommand, ["@notes//_agent"], { map, at: "pin", depth: "children" });
+    expect(folder.exit, folder.stderr).toBe(0);
+    expect(folder.data).toMatchObject({ status: "checkout_at_pin", commit: agentPin });
+    expect(folder.data.target.children).toContainEqual(expect.objectContaining({ position: "_agent/agreement.md" }));
+
+    const head = await run(lookCommand, ["@notes//_agent/agreement.md"], { map, at: "head", depth: "full" });
+    expect(head.exit, head.stderr).toBe(0);
+    expect(head.data).toMatchObject({ status: "checkout_at_head", drift: true });
+    expect(head.data.target.summary).toBe("Changed after the pin.");
+    expect(head.data.target.surface).toContain("NEW_AGENT_BODY");
   });
 
   it("gives navigate by address one JSON shape: where it read, then the focus", async () => {
