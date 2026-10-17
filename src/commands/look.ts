@@ -146,20 +146,6 @@ export const lookCommand: CommandDef = {
       return 1;
     }
     const path = resolve(raw);
-    // Thread folders are extension payload, not Content. Route the five rungs
-    // through the same bounded Thread reader as `threads open`; never reinterpret
-    // their posts as ordinary Notes or substitute a pin from working-tree HEAD.
-    if (/(?:^|[\\/])_threads[\\/][^\\/]+$/.test(path) && existsSync(path) && statSync(path).isDirectory()) {
-      if (flags.contract !== undefined || flags.limit !== undefined || flags.pin !== undefined) {
-        output.error("A Thread folder has its own Agreement and post rungs; omit --contract, --limit and --pin. Use threads open with an authored pin for a post.");
-        return 1;
-      }
-      const allowed = new Set(["depth", "new", "since", "post"]);
-      const extra = Object.keys(flags).find((flag) => !allowed.has(flag));
-      if (extra) { output.error(`Unknown flag for a Thread folder: --${extra}`); return 1; }
-      return threadsCommand.run(["open", path], { depth, ...("new" in flags ? { new: flags.new } : {}),
-        ...("since" in flags ? { since: flags.since } : {}), ...("post" in flags ? { post: flags.post } : {}) }, global);
-    }
     if (flags.pin !== undefined) {
       return lookAtPin(output, global.json, raw, flags.pin, {
         depth,

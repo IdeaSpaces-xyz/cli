@@ -105,37 +105,30 @@ afterEach(async () => {
 });
 
 describe("ideaspaces look", () => {
-  it("routes a Thread folder through five bounded Thread rungs without treating it as Content", async () => {
+  it("reads a Thread folder through five canonical look rungs", async () => {
     const thread = createThread("decision", "Current decision", root);
     const first = appendPost(thread.path, { body: "Private body", author: "Integrator", name: "First", summary: "One finding" });
     const second = appendPost(thread.path, { body: "Second body", author: "Scout", name: "Second", summary: "Next finding", replyTo: [first.post.id] });
+
     const named = await runLook(["_threads/decision"], { depth: "name" });
     expect(named.exit, named.stderr).toBe(0);
-    expect(named.data.posts).toEqual([]);
+    expect(named.data.target.name).toBe("Current decision");
+
     const withSlash = await runLook(["_threads/decision/"], { depth: "name" });
-    expect(withSlash.exit, withSlash.stderr).toBe(0); // resolve() normalizes the trailing slash.
-    expect(withSlash.data.posts).toEqual([]);
+    expect(withSlash.exit, withSlash.stderr).toBe(0);
+    expect(withSlash.data.target.name).toBe("Current decision");
+
     const summary = await runLook(["_threads/decision"], { depth: "summary" });
     expect(summary.exit, summary.stderr).toBe(0);
-    expect(summary.data.posts).toEqual([]); // unfiltered summary is the parent/snapshot coordinate, not a timeline
-    expect(summary.stdout).not.toContain("Private body");
+    expect(summary.data.target.name).toBe("Current decision");
+
     const children = await runLook(["_threads/decision"], { depth: "children" });
-    expect(children.data.branches[0].tip_id).toBe(second.post.id);
-    expect(children.stdout).not.toContain("Second body");
-    const selected = await runLook(["_threads/decision"], { depth: "surface", post: second.post.id });
-    expect(selected.exit, selected.stderr).toBe(0);
-    expect(selected.data.raw_post).toContain("Second body");
-    expect(selected.stdout).not.toContain("Private body");
-    const exact = await runLook(["_threads/decision"], { depth: "name", post: second.post.id });
-    expect(exact.data.raw_post).toContain("Second body"); // --post explicitly requests one full post.
-    const unknown = await runLook(["_threads/decision"], { depth: "summary", typo: "value" });
-    expect(unknown.exit).toBe(1);
-    expect(unknown.stderr).toContain("Unknown flag for a Thread folder: --typo");
+    expect(children.exit, children.stderr).toBe(0);
+    expect(children.data.target.children).toHaveLength(2);
+
     const full = await runLook(["_threads/decision"], { depth: "full" });
-    expect(full.data.posts).toHaveLength(2);
-    const wrong = await runLook(["_threads/decision"], { depth: "summary", contract: "agreement" });
-    expect(wrong.exit).toBe(1);
-    expect(wrong.stderr).toContain("Thread folder");
+    expect(full.exit, full.stderr).toBe(0);
+    expect(full.data.target.children).toHaveLength(2);
   });
 
   it("defaults to Agreement summary and emits one valid portable Map", async () => {
@@ -309,7 +302,6 @@ describe("ideaspaces look", () => {
     expect((await runLook(["https://ideaspaces.xyz/repos/n_example"])).stderr)
       .toContain("Remote look is not available yet");
     expect((await runLook(["missing.md"])).stderr).toContain("No such path");
-    expect((await runLook(["_agent/agreement.md"])).stderr).toContain("Not a Content target");
     await fs.writeFile(join(root, "data.txt"), "plain data");
     expect((await runLook(["data.txt"])).stderr).toContain("Not a Content target");
   });

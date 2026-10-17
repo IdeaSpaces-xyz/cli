@@ -223,9 +223,18 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
   });
 
   it("says when an address names something that is not Content", async () => {
-    const { exit, stderr } = await run(lookCommand, ["@notes//_agent/agreement.md"], { map: join(space, "space.map.md") }, TEXT_FLAGS);
+    writeFileSync(join(notes, "data.txt"), "plain data", "utf-8");
+    git(notes, ["add", "data.txt"]);
+    git(notes, ["commit", "-m", "data"]);
+    const { exit, stderr } = await run(lookCommand, ["@notes//data.txt"], { map: join(space, "space.map.md") }, TEXT_FLAGS);
     expect(exit).toBe(1);
-    expect(stderr).toContain("status: not_content — _agent/agreement.md is not a Markdown Note or Content directory.");
+    expect(stderr).toContain("status: not_content — data.txt is not a Markdown Note or Content directory.");
+  });
+
+  it("reads _agent agreement by address", async () => {
+    const { exit, data } = await run(lookCommand, ["@notes//_agent/agreement.md"], { map: join(space, "space.map.md") });
+    expect(exit).toBe(0);
+    expect(data.target.name).toBe("Agreement — Notes");
   });
 
   it("gives navigate by address one JSON shape: where it read, then the focus", async () => {

@@ -33,7 +33,7 @@
     "prepare": "npm run build"
   },
   "devDependencies": {
-    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#efc07df1deea04d1ab5c45e00f45f1c9045720b0",
+    "@ideaspaces/protocol": "file:../protocol-shared-thread-reader",
     "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#96f51f660eb05dc6eb4a222b670efb066994c93b",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.0",
