@@ -68,7 +68,7 @@ Neither inspection command changes access.
 | Start, bring home | `create`, `get` (`clone`, `fork`, `link`), `clones`, `forget` |
 | Share and sync | `login`, `status account` (`whoami`), `publish`, `share`, `push`, `integrate` (`pull`, `update`), `sync`, `repos`, `catalog` |
 | Talk | `conversation`, `conversations`, `threads` (`inbox` legacy alias for one release), `spaces`, `agents`, `agent list`, `agent runs`, `agent record` |
-| Run a local agent | `listener create/enable/disable/status/watch`, `agent run` (`--runtime=pi` or `--runtime=claude`, `--model`, `--parent`, pinned local `--thread`), `agent runs` (query run records), `agent record` (append/update run records), `agent capabilities`, `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
+| Run a local agent | `listener create/enable/disable/status/tick/watch/resolve`, `agent run` (`--runtime=pi` or `--runtime=claude`, `--model`, `--parent`, pinned local `--thread`), `agent runs` (query run records), `agent record` (append/update run records), `agent capabilities`, `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
 | Housekeeping | `status doctor` (`doctor`), `credential`, `power logout` |
 
 ## What the CLI promises

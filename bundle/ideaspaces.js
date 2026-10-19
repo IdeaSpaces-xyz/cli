@@ -28061,10 +28061,10 @@ var spacesCommand = {
 init_threads2();
 
 // dist/local/listener.js
+init_config_dir();
 init_threads2();
 import { createHash as createHash8, randomUUID as randomUUID9 } from "node:crypto";
 import { existsSync as existsSync28, lstatSync as lstatSync8, mkdirSync as mkdirSync9, openSync, closeSync, readFileSync as readFileSync19, realpathSync as realpathSync21, renameSync as renameSync6, unlinkSync as unlinkSync3, writeFileSync as writeFileSync9 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
 import { dirname as dirname22, join as join38 } from "node:path";
 var ListenerGuardRefusal = class extends Error {
 };
@@ -28089,7 +28089,7 @@ function paths(thread) {
     throw new Error("Listener needs a Thread with a stable opening post id.");
   const space = dirname22(dirname22(thread.path));
   const key2 = createHash8("sha256").update(`${realpathSync21(space)}\0${thread.thread_id}`).digest("hex");
-  const dir = join38(homedir4(), ".ideaspaces", "listeners", key2);
+  const dir = join38(configDir(), "listeners", key2);
   return { record: join38(space, "_agent", "listeners", `${thread.thread_id}.json`), grant: join38(dir, "grant.json"), ledger: join38(dir, "ledger.json"), lock: join38(dir, "run.lock") };
 }
 function revision(record) {
@@ -28586,9 +28586,9 @@ init_credentials();
 
 // dist/auth/session-state.js
 import { existsSync as existsSync29, unlinkSync as unlinkSync4 } from "node:fs";
-import { homedir as homedir5 } from "node:os";
+import { homedir as homedir4 } from "node:os";
 import { join as join39 } from "node:path";
-var SESSION_FILE = join39(homedir5(), ".ideaspaces", "session.json");
+var SESSION_FILE = join39(homedir4(), ".ideaspaces", "session.json");
 function clearSessionState() {
   try {
     if (existsSync29(SESSION_FILE))
@@ -28631,13 +28631,13 @@ function probeBinary(bin, env = process.env) {
 
 // dist/pi/pi-auth.js
 import { chmodSync, existsSync as existsSync30, mkdirSync as mkdirSync10, readFileSync as readFileSync20, writeFileSync as writeFileSync10 } from "node:fs";
-import { homedir as homedir6 } from "node:os";
+import { homedir as homedir5 } from "node:os";
 import { dirname as dirname23, join as join40 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
   const override = env.PI_CODING_AGENT_DIR?.trim();
   if (override)
-    return override.startsWith("~") ? join40(homedir6(), override.slice(1)) : override;
-  return join40(homedir6(), ".pi", "agent");
+    return override.startsWith("~") ? join40(homedir5(), override.slice(1)) : override;
+  return join40(homedir5(), ".pi", "agent");
 }
 function resolvePiAuthPath(env = process.env) {
   return join40(resolvePiAgentDir(env), "auth.json");
@@ -30290,10 +30290,10 @@ import { spawn as spawn4 } from "node:child_process";
 // dist/claude/local-conversations.js
 import { existsSync as existsSync35, readdirSync as readdirSync5, readFileSync as readFileSync23, realpathSync as realpathSync25, statSync as statSync20 } from "node:fs";
 import { randomUUID as randomUUID11 } from "node:crypto";
-import { homedir as homedir7 } from "node:os";
+import { homedir as homedir6 } from "node:os";
 import { basename as basename19, dirname as dirname26, join as join45, resolve as resolve40 } from "node:path";
 function claudeConfigDir(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR?.trim() || join45(homedir7(), ".claude");
+  return env.CLAUDE_CONFIG_DIR?.trim() || join45(homedir6(), ".claude");
 }
 function slugOf(path) {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");

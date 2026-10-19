@@ -2,8 +2,8 @@
  * the host reads its source post and calls the existing Thread writer itself. */
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, openSync, closeSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { configDir } from "../auth/config-dir.js";
 import { appendPost, loadThread, type LocalThread } from "./threads.js";
 
 export interface ListenerRecord {
@@ -45,7 +45,7 @@ function paths(thread: LocalThread) {
   if (!thread.thread_id || !/^msg_[0-9a-f-]{36}$/.test(thread.thread_id)) throw new Error("Listener needs a Thread with a stable opening post id.");
   const space = dirname(dirname(thread.path));
   const key = createHash("sha256").update(`${realpathSync(space)}\0${thread.thread_id}`).digest("hex");
-  const dir = join(homedir(), ".ideaspaces", "listeners", key);
+  const dir = join(configDir(), "listeners", key);
   return { record: join(space, "_agent", "listeners", `${thread.thread_id}.json`), grant: join(dir, "grant.json"), ledger: join(dir, "ledger.json"), lock: join(dir, "run.lock") };
 }
 function revision(record: ListenerRecord): string { return createHash("sha256").update(JSON.stringify(record)).digest("hex"); }
