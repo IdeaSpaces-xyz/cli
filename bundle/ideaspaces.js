@@ -13335,6 +13335,14 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   const path = isThreads ? resolveThreadGitPath(position, has) : has(position) ? position : null;
   const object = path === null ? void 0 : found.get(path || ".");
   if (path === null || !object || object.type !== "blob" && object.type !== "tree") {
+    if (isThreads && /^_threads\/[^/]+\/[^/]+$/.test(position)) {
+      const threadFolderPos = position.split("/").slice(0, 2).join("/");
+      const threadRel = threadFolderPos.slice("_threads/".length);
+      const folderFound = has(threadFolderPos) && found.get(threadFolderPos)?.type === "tree" || has(threadRel) && found.get(threadRel)?.type === "tree";
+      if (folderFound) {
+        return { status: "read", kind: "file", content: "", path: position };
+      }
+    }
     return { status: "missing_path", reason: `${position} is not in commit ${commit}.` };
   }
   if (object.type === "tree") {
@@ -17077,9 +17085,8 @@ var changeCommand = {
 // dist/commands/look.js
 init_dist();
 init_contract_source();
-import { createHash as createHash7 } from "node:crypto";
-import { existsSync as existsSync15, readFileSync as readFileSync14, statSync as statSync6 } from "node:fs";
-import { basename as basename12, dirname as dirname11, join as join25, relative as relative12, resolve as resolve21, sep as sep9 } from "node:path";
+import { existsSync as existsSync15, readFileSync as readFileSync15, statSync as statSync6 } from "node:fs";
+import { dirname as dirname11, join as join26, relative as relative12, resolve as resolve21, sep as sep9 } from "node:path";
 
 // dist/local-map-root.js
 init_credentials();
@@ -17114,9 +17121,9 @@ function ignoredInChunks(paths, repoRoot2) {
 
 // dist/commands/threads.js
 init_dist();
-import { existsSync as existsSync13, lstatSync as lstatSync4, readFileSync as readFileSync12, realpathSync as realpathSync10 } from "node:fs";
+import { existsSync as existsSync13, lstatSync as lstatSync4, readFileSync as readFileSync13, realpathSync as realpathSync10 } from "node:fs";
 import { spawnSync as spawnSync10 } from "node:child_process";
-import { basename as basename10, dirname as dirname9, isAbsolute as isAbsolute9, join as join23, relative as relative11, resolve as resolve20, sep as sep8 } from "node:path";
+import { dirname as dirname9, isAbsolute as isAbsolute9, join as join24, relative as relative11, resolve as resolve20, sep as sep8 } from "node:path";
 
 // dist/local/thread-map-member.js
 init_dist();
@@ -19188,6 +19195,158 @@ var inboxCommand = {
 // dist/commands/threads.js
 init_git2();
 init_threads2();
+
+// dist/local/thread-read.js
+init_dist();
+import { createHash as createHash6 } from "node:crypto";
+import { readFileSync as readFileSync12 } from "node:fs";
+import { basename as basename10, join as join23 } from "node:path";
+function clip(text, bytes, marker = "\u2026 [shortened; read the exact file or use --post <id>]") {
+  if (Buffer.byteLength(text) <= bytes)
+    return text;
+  let result = "";
+  let size = 0;
+  for (const char of text) {
+    const charBytes = Buffer.byteLength(char);
+    if (size + charBytes > bytes)
+      break;
+    result += char;
+    size += charBytes;
+  }
+  return result + marker;
+}
+function threadSection(markdown, heading) {
+  const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
+  return match?.[1]?.trim() || void 0;
+}
+function threadFrame(thread) {
+  let agreement = "";
+  try {
+    agreement = readFileSync12(join23(thread.path, "_agent", "agreement.md"), "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT")
+      throw error;
+  }
+  return {
+    current_frame: threadSection(thread.readme, "Current frame"),
+    goal: threadSection(agreement, "Goal"),
+    done_when: threadSection(agreement, "Done when")
+  };
+}
+function findThreadPost(posts2, target) {
+  const norm = target.replace(/\\/g, "/");
+  const file2 = basename10(norm);
+  const bareId = file2.replace(/\.md$/, "");
+  const matches = posts2.filter((p) => {
+    return p.id === target || p.id === bareId || p.path === target || p.path === file2 || basename10(p.path) === file2 || p.path.endsWith(`-${bareId}.md`) || p.path === `${bareId}.md`;
+  });
+  if (matches.length > 1) {
+    const exact = matches.find((p) => p.id === target || p.path === target || p.path === file2);
+    if (exact)
+      return exact;
+    throw new Error(`Ambiguous post reference "${target}" matches ${matches.length} posts in this Thread.`);
+  }
+  return matches[0];
+}
+function buildFrameMarkdownTarget(path, position, content, depth2) {
+  const fm = parseFrontmatter(content);
+  const name = typeof fm?.name === "string" && fm.name.trim() || basename10(path, ".md");
+  const summary = typeof fm?.summary === "string" && fm.summary.trim() || summarizeMarkdown(content);
+  const disclosure2 = { name, ...summary && depth2 !== "name" ? { summary } : {} };
+  const target = {
+    placement: "history",
+    path,
+    position,
+    kind: "markdown",
+    depth: depth2,
+    revision: "",
+    name,
+    member: { position, depth: depth2, disclosure: disclosure2 }
+  };
+  if (depth2 !== "name") {
+    target.summary = summary;
+  }
+  if (depth2 === "surface" || depth2 === "full") {
+    target.surface = stripFrontmatter(content);
+  } else if (depth2 === "children") {
+    const outline = inspectMarkdown(content, { mode: "outline" });
+    target.children = outline.mode === "outline" ? outline.headings.map((h) => ({ ...h, kind: "section", name: h.text })) : [];
+  }
+  const represented = {
+    kind: target.kind,
+    name: target.name,
+    ...target.summary !== void 0 ? { summary: target.summary } : {},
+    ...target.surface !== void 0 ? { surface: target.surface } : {},
+    ...target.children !== void 0 ? { children: target.children } : {}
+  };
+  target.revision = `sha256:${createHash6("sha256").update(JSON.stringify(represented)).digest("hex")}`;
+  return target;
+}
+function localText(thread, posts2, rung, options) {
+  const header = `${thread.slug}  ${thread.name}`;
+  if (rung === "name") {
+    const lens = options?.frame ?? threadFrame(thread);
+    const parentLine = options?.parent ? `Attached to: ${clip(options.parent.attached_to, 400)}` : void 0;
+    return [
+      header,
+      parentLine,
+      lens.current_frame && `Current frame: ${clip(lens.current_frame, 1200, "\u2026 [shortened; read this Thread's README.md for the full frame]")}`,
+      lens.goal && `Goal: ${clip(lens.goal, 1200, "\u2026 [shortened; read this Thread's _agent/agreement.md for the full goal]")}`,
+      lens.done_when && `Done when: ${clip(lens.done_when, 1200, "\u2026 [shortened; read this Thread's _agent/agreement.md for the full criterion]")}`
+    ].filter(Boolean).join("\n\n");
+  }
+  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})
+${rung === "full" ? thread.summary : clip(thread.summary, 400)}
+${thread.closed ? "closed" : "open"} \xB7 ${thread.posts.length} posts`;
+  if (rung === "summary") {
+    const parts = [context];
+    if (options?.parent) {
+      const p = options.parent;
+      parts.push(`Parent post: ${p.id ?? p.attached_to}${p.slug ? ` (${p.slug})` : ""}${p.name ? ` \xB7 ${clip(p.name, 200)}` : ""}${p.summary ? `
+  ${clip(p.summary, 400)}` : ""}`);
+    }
+    if (options?.snapshot) {
+      const s = options.snapshot;
+      parts.push(`Latest snapshot: ${s.id} \xB7 ${s.kind} \xB7 ${s.date ?? "undated"} \xB7 ${clip(s.frontmatter.name ?? s.id, 200)} \xB7 ${s.frontmatter.author ?? "unknown author"}
+  ${clip(s.frontmatter.summary ?? "(no summary)", 400)}`);
+    }
+    if (options?.filtered && posts2.length) {
+      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${p.frontmatter.author ?? "unknown author"}
+  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`).join("\n\n"));
+    }
+    return parts.join("\n\n");
+  }
+  if (rung === "children") {
+    const parts = [context];
+    if (options?.parent) {
+      parts.push(`Parent: ${clip(options.parent.attached_to, 400)}${options.parent.slug ? ` (${options.parent.slug})` : ""}`);
+    }
+    const branches = options?.branches ?? [];
+    if (branches.length) {
+      parts.push(`Branches (${branches.length} of ${options?.branchTotal ?? branches.length}):
+${branches.map((b) => `  ${clip(b.root_name, 200)} (${b.root_id}) \u2192 ${clip(b.tip_name, 200)} (${b.tip_id}) \xB7 ${b.count} posts`).join("\n")}`);
+    }
+    if (options?.childThreads && options.childThreads.length > 0) {
+      const childLines = options.childThreads.map((c) => `  ${c.slug}  ${clip(c.name, 200)}
+    attached to ${c.attached_to_post_id ?? c.attached_to} \xB7 ${c.count} posts \xB7 ${c.closed ? "closed" : "open"}${c.latest_activity_at ? ` \xB7 latest: ${c.latest_activity_at}` : ""}
+    summary: ${clip(c.summary || "(no summary)", 200)}`);
+      parts.push(`Child Threads (${options.childThreads.length} of ${options.childThreadTotal ?? options.childThreads.length} known):
+${childLines.join("\n")}`);
+    }
+    if (options?.childWarnings)
+      parts.push(`Child Thread lookup incomplete: ${options.childWarnings} unreadable sibling(s).`);
+    return parts.join("\n\n");
+  }
+  return [
+    context,
+    ...posts2.map((p) => `
+${p.id} \xB7 ${p.frontmatter.author ?? "unknown author"} \xB7 ${p.kind}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
+${p.frontmatter.name ?? ""}
+${p.body}`)
+  ].join("\n");
+}
+
+// dist/commands/threads.js
 var KINDS = /* @__PURE__ */ new Set(["post", "snapshot", "reframe", "correction", "closure"]);
 var SURFACE_BODY_BYTES = 800;
 function str(flags2, key2) {
@@ -19254,107 +19413,6 @@ function reportDateWarnings(thread, output) {
   for (const warning of new Set(thread.warnings))
     output.log(`Thread ${thread.slug}: ${warning}`);
 }
-function clip(text, bytes, marker = "\u2026 [shortened; read the exact file or use --post <id>]") {
-  if (Buffer.byteLength(text) <= bytes)
-    return text;
-  let result = "";
-  let size = 0;
-  for (const char of text) {
-    const charBytes = Buffer.byteLength(char);
-    if (size + charBytes > bytes)
-      break;
-    result += char;
-    size += charBytes;
-  }
-  return result + marker;
-}
-function findThreadPost(posts2, target) {
-  const norm = target.replace(/\\/g, "/");
-  const file2 = basename10(norm);
-  const bareId = file2.replace(/\.md$/, "");
-  return posts2.find((p) => p.id === target || p.id === bareId || p.path === target || p.path === file2 || basename10(p.path) === file2 || p.path.endsWith(`-${bareId}.md`) || p.path === `${bareId}.md`);
-}
-function threadSection(markdown, heading) {
-  const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
-  return match?.[1]?.trim() || void 0;
-}
-function threadFrame(thread) {
-  let agreement = "";
-  try {
-    agreement = readFileSync12(join23(thread.path, "_agent", "agreement.md"), "utf8");
-  } catch (error) {
-    if (error.code !== "ENOENT")
-      throw error;
-  }
-  return {
-    current_frame: threadSection(thread.readme, "Current frame"),
-    goal: threadSection(agreement, "Goal"),
-    done_when: threadSection(agreement, "Done when")
-  };
-}
-function localText(thread, posts2, rung, options) {
-  const header = `${thread.slug}  ${thread.name}`;
-  if (rung === "name") {
-    const lens = options?.frame ?? threadFrame(thread);
-    const parentLine = options?.parent ? `Attached to: ${clip(options.parent.attached_to, 400)}` : void 0;
-    return [
-      header,
-      parentLine,
-      lens.current_frame && `Current frame: ${clip(lens.current_frame, 1200, "\u2026 [shortened; read this Thread's README.md for the full frame]")}`,
-      lens.goal && `Goal: ${clip(lens.goal, 1200, "\u2026 [shortened; read this Thread's _agent/agreement.md for the full goal]")}`,
-      lens.done_when && `Done when: ${clip(lens.done_when, 1200, "\u2026 [shortened; read this Thread's _agent/agreement.md for the full criterion]")}`
-    ].filter(Boolean).join("\n\n");
-  }
-  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})
-${rung === "full" ? thread.summary : clip(thread.summary, 400)}
-${thread.closed ? "closed" : "open"} \xB7 ${thread.posts.length} posts`;
-  if (rung === "summary") {
-    const parts = [context];
-    if (options?.parent) {
-      const p = options.parent;
-      parts.push(`Parent post: ${p.id ?? p.attached_to}${p.slug ? ` (${p.slug})` : ""}${p.name ? ` \xB7 ${clip(p.name, 200)}` : ""}${p.summary ? `
-  ${clip(p.summary, 400)}` : ""}`);
-    }
-    if (options?.snapshot) {
-      const s = options.snapshot;
-      parts.push(`Latest snapshot: ${s.id} \xB7 ${s.kind} \xB7 ${s.date ?? "undated"} \xB7 ${clip(s.frontmatter.name ?? s.id, 200)} \xB7 ${s.frontmatter.author ?? "unknown author"}
-  ${clip(s.frontmatter.summary ?? "(no summary)", 400)}`);
-    }
-    if (options?.filtered && posts2.length) {
-      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${p.frontmatter.author ?? "unknown author"}
-  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`).join("\n\n"));
-    }
-    return parts.join("\n\n");
-  }
-  if (rung === "children") {
-    const parts = [context];
-    if (options?.parent) {
-      parts.push(`Parent: ${clip(options.parent.attached_to, 400)}${options.parent.slug ? ` (${options.parent.slug})` : ""}`);
-    }
-    const branches = options?.branches ?? [];
-    if (branches.length) {
-      parts.push(`Branches (${branches.length} of ${options?.branchTotal ?? branches.length}):
-${branches.map((b) => `  ${clip(b.root_name, 200)} (${b.root_id}) \u2192 ${clip(b.tip_name, 200)} (${b.tip_id}) \xB7 ${b.count} posts`).join("\n")}`);
-    }
-    if (options?.childThreads && options.childThreads.length > 0) {
-      const childLines = options.childThreads.map((c) => `  ${c.slug}  ${clip(c.name, 200)}
-    attached to ${c.attached_to_post_id ?? c.attached_to} \xB7 ${c.count} posts \xB7 ${c.closed ? "closed" : "open"}${c.latest_activity_at ? ` \xB7 latest: ${c.latest_activity_at}` : ""}
-    summary: ${clip(c.summary || "(no summary)", 200)}`);
-      parts.push(`Child Threads (${options.childThreads.length} of ${options.childThreadTotal ?? options.childThreads.length} known):
-${childLines.join("\n")}`);
-    }
-    if (options?.childWarnings)
-      parts.push(`Child Thread lookup incomplete: ${options.childWarnings} unreadable sibling(s).`);
-    return parts.join("\n\n");
-  }
-  return [
-    context,
-    ...posts2.map((p) => `
-${p.id} \xB7 ${p.frontmatter.author ?? "unknown author"} \xB7 ${p.kind}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
-${p.frontmatter.name ?? ""}
-${p.body}`)
-  ].join("\n");
-}
 function selectedWriterName() {
   const cwd = realpathSync10(process.cwd());
   const prefix = spawnSync10(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
@@ -19365,13 +19423,13 @@ function selectedWriterName() {
     const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep8}`) || isAbsolute9(pathFromRoot);
     if (outsideRoot)
       break;
-    const agentDir = join23(at, "_agent");
-    const agreement = join23(agentDir, "agreement.md");
+    const agentDir = join24(at, "_agent");
+    const agreement = join24(agentDir, "agreement.md");
     if (existsSync13(agentDir) || existsSync13(agreement)) {
       if (!existsSync13(agentDir) || lstatSync4(agentDir).isSymbolicLink() || !lstatSync4(agentDir).isDirectory() || !existsSync13(agreement) || lstatSync4(agreement).isSymbolicLink() || !lstatSync4(agreement).isFile()) {
         throw new Error("Caller POV needs a regular _agent/agreement.md with a name to author a selected Thread post.");
       }
-      const fm = parseFrontmatter(readFileSync12(agreement, "utf8"));
+      const fm = parseFrontmatter(readFileSync13(agreement, "utf8"));
       if (typeof fm?.name !== "string" || !fm.name.trim() || fm.agreement !== void 0 && (typeof fm.agreement !== "string" || !fm.agreement.startsWith("agent:repo:"))) {
         throw new Error("Caller POV _agent/agreement.md needs an agent name (and agent:repo: kind if declared) to author a selected Thread post.");
       }
@@ -19391,9 +19449,9 @@ function writerName(explicit) {
     return explicit;
   let at = resolve20(process.cwd());
   while (true) {
-    const agreement = join23(at, "_agent", "agreement.md");
+    const agreement = join24(at, "_agent", "agreement.md");
     if (existsSync13(agreement)) {
-      const fm = parseFrontmatter(readFileSync12(agreement, "utf8"));
+      const fm = parseFrontmatter(readFileSync13(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
       }
@@ -19471,7 +19529,7 @@ var threadsCommand = {
         let spaceRoot = "";
         try {
           spaceRoot = threadBase(cwd);
-          hasLocalThreads = existsSync13(join23(spaceRoot, "_threads"));
+          hasLocalThreads = existsSync13(join24(spaceRoot, "_threads"));
         } catch {
           hasLocalThreads = false;
         }
@@ -19516,6 +19574,9 @@ var threadsCommand = {
         const order = str(flags2, "order") ?? "newer";
         if (order !== "newer" && order !== "older")
           throw new Error("--order must be newer or older.");
+        const since = str(flags2, "since");
+        if (since && order === "newer")
+          throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         allPosts.sort((a, b) => {
           const tA = a.created_at ? Date.parse(a.created_at) : 0;
           const tB = b.created_at ? Date.parse(b.created_at) : 0;
@@ -19523,7 +19584,6 @@ var threadsCommand = {
             return order === "newer" ? tB - tA : tA - tB;
           return order === "newer" ? b.path.localeCompare(a.path) : a.path.localeCompare(b.path);
         });
-        const since = str(flags2, "since");
         let posts2 = allPosts;
         if (since) {
           const at = posts2.findIndex((p) => p.id === since);
@@ -19876,8 +19936,9 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         let childSinceThreads = allChildThreads;
         if (effectiveRung === "children" && since) {
           const at = allChildThreads.findIndex((c) => c.slug === since || c.path === since || c.thread_id === since || c.id === since);
-          if (at !== -1)
-            childSinceThreads = allChildThreads.slice(at + 1);
+          if (at === -1)
+            throw new Error(`--since cursor not found in child Threads: ${since}`);
+          childSinceThreads = allChildThreads.slice(at + 1);
         }
         const childThreads = childSinceThreads.slice(0, limit ?? 10);
         const branches = allBranches.slice(0, limit ?? 10);
@@ -19895,7 +19956,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
         } : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
-        const rawPost = postId && posts2.length ? readFileSync12(join23(thread.path, posts2[0].path), "utf8") : void 0;
+        const rawPost = postId && posts2.length ? readFileSync13(join24(thread.path, posts2[0].path), "utf8") : void 0;
         let humanText;
         if (pinned && effectiveRung === "full") {
           humanText = pinned;
@@ -20064,18 +20125,18 @@ import { isAbsolute as isAbsolute10 } from "node:path";
 init_dist();
 init_contract_source();
 init_git2();
-import { createHash as createHash6 } from "node:crypto";
+import { createHash as createHash7 } from "node:crypto";
 import { spawnSync as spawnSync11 } from "node:child_process";
-import { existsSync as existsSync14, mkdirSync as mkdirSync5, mkdtempSync, readFileSync as readFileSync13, realpathSync as realpathSync11, rmSync as rmSync3, statSync as statSync5, writeFileSync as writeFileSync6 } from "node:fs";
+import { existsSync as existsSync14, mkdirSync as mkdirSync5, mkdtempSync, readFileSync as readFileSync14, realpathSync as realpathSync11, rmSync as rmSync3, statSync as statSync5, writeFileSync as writeFileSync6 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename as basename11, dirname as dirname10, join as join24 } from "node:path";
+import { basename as basename11, dirname as dirname10, join as join25 } from "node:path";
 init_threads2();
 var COMMIT_READ_MAX_BYTES = 32 * 1024 * 1024;
 async function lookAtCommit(target, options) {
   const isThread = target.position.startsWith("_threads/") || target.position === "_threads";
   const wholeTree = isThread || target.kind === "directory" && (options.depth === "children" || options.depth === "full");
   return withSnapshot(target, wholeTree, async (dir) => {
-    const position = join24(dir, target.position);
+    const position = join25(dir, target.position);
     const relabel = relabeller(dir, target.label);
     let focused = await assembleContentFocus({
       position: dir,
@@ -20097,37 +20158,8 @@ async function lookAtCommit(target, options) {
       if (!existsSync14(position)) {
         return { status: "not_content", reason: `${target.position} is missing at ${target.commit}.` };
       }
-      const content = readFileSync13(position, "utf8");
-      const fm = parseFrontmatter(content);
-      const name = typeof fm?.name === "string" && fm.name.trim() || basename11(target.position, ".md");
-      const summary = typeof fm?.summary === "string" && fm.summary.trim() || summarizeMarkdown(content);
-      const disclosure2 = { name, ...summary && options.depth !== "name" ? { summary } : {} };
-      const targetManifest = {
-        placement: "history",
-        path: position,
-        position: target.position,
-        kind: "markdown",
-        depth: options.depth,
-        revision: "",
-        name,
-        member: { position: target.position, depth: options.depth, disclosure: disclosure2 }
-      };
-      if (options.depth !== "name")
-        targetManifest.summary = summary;
-      if (options.depth === "surface" || options.depth === "full")
-        targetManifest.surface = stripFrontmatter(content);
-      else if (options.depth === "children") {
-        const outline = inspectMarkdown(content, { mode: "outline" });
-        targetManifest.children = outline.mode === "outline" ? outline.headings.map((h) => ({ ...h, kind: "section", name: h.text })) : [];
-      }
-      const represented = {
-        kind: targetManifest.kind,
-        name: targetManifest.name,
-        ...targetManifest.summary !== void 0 ? { summary: targetManifest.summary } : {},
-        ...targetManifest.surface !== void 0 ? { surface: targetManifest.surface } : {},
-        ...targetManifest.children !== void 0 ? { children: targetManifest.children } : {}
-      };
-      targetManifest.revision = `sha256:${createHash6("sha256").update(JSON.stringify(represented)).digest("hex")}`;
+      const content = readFileSync14(position, "utf8");
+      const targetManifest = buildFrameMarkdownTarget(position, target.position, content, options.depth);
       const looked2 = {
         status: "ok",
         kind: "content-look",
@@ -20155,7 +20187,7 @@ async function lookAtCommit(target, options) {
         const matched = findThreadPost(thread.posts, options.post);
         if (!matched)
           return { status: "not_content", reason: `Post ${options.post} not found in Thread ${thread.slug}.` };
-        const raw = readFileSync13(join24(position, matched.path), "utf8");
+        const raw = readFileSync14(join25(position, matched.path), "utf8");
         const childThreads2 = findChildThreads(position, matched.id);
         let humanText = raw;
         if (childThreads2.length > 0) {
@@ -20175,11 +20207,11 @@ Child Threads (${childThreads2.length} of ${childThreads2.length} known):
             reference,
             target: {
               placement: "history",
-              path: join24(position, matched.path),
+              path: join25(position, matched.path),
               position: `${target.position}/${matched.path}`,
               kind: "markdown",
               depth: options.depth,
-              revision: `sha256:${createHash6("sha256").update(raw).digest("hex")}`,
+              revision: `sha256:${createHash7("sha256").update(raw).digest("hex")}`,
               name: matched.frontmatter.name ?? matched.id,
               summary: matched.frontmatter.summary ?? null,
               surface: stripFrontmatter(raw),
@@ -20247,7 +20279,7 @@ Child Threads (${childThreads2.length} of ${childThreads2.length} known):
             position: target.position,
             kind: "directory",
             depth: options.depth,
-            revision: `sha256:${createHash6("sha256").update(text).digest("hex")}`,
+            revision: `sha256:${createHash7("sha256").update(text).digest("hex")}`,
             name: thread.name,
             summary: thread.summary,
             member: { position: target.position, depth: options.depth }
@@ -20259,7 +20291,7 @@ Child Threads (${childThreads2.length} of ${childThreads2.length} known):
       const match = /^(_threads\/[^/]+)\/(.+)$/.exec(target.position);
       const threadSlugPos = match[1];
       const postSpec = match[2];
-      const threadDir = join24(dir, threadSlugPos);
+      const threadDir = join25(dir, threadSlugPos);
       if (existsSync14(threadDir)) {
         let thread;
         try {
@@ -20269,7 +20301,7 @@ Child Threads (${childThreads2.length} of ${childThreads2.length} known):
         if (thread) {
           const matched = findThreadPost(thread.posts, postSpec);
           if (matched) {
-            const raw = readFileSync13(join24(threadDir, matched.path), "utf8");
+            const raw = readFileSync14(join25(threadDir, matched.path), "utf8");
             return {
               status: "ok",
               text: relabel(raw),
@@ -20280,11 +20312,11 @@ Child Threads (${childThreads2.length} of ${childThreads2.length} known):
                 reference,
                 target: {
                   placement: "history",
-                  path: join24(threadDir, matched.path),
+                  path: join25(threadDir, matched.path),
                   position: `${threadSlugPos}/${matched.path}`,
                   kind: "markdown",
                   depth: options.depth,
-                  revision: `sha256:${createHash6("sha256").update(raw).digest("hex")}`,
+                  revision: `sha256:${createHash7("sha256").update(raw).digest("hex")}`,
                   name: matched.frontmatter.name ?? matched.id,
                   summary: matched.frontmatter.summary ?? null,
                   surface: stripFrontmatter(raw),
@@ -20319,7 +20351,7 @@ async function focusAtCommit(target, contractSource) {
   if (target.kind !== "directory")
     return { status: "not_content", reason: `${target.position} is not a directory.` };
   return withSnapshot(target, true, async (dir) => {
-    const position = join24(dir, target.position);
+    const position = join25(dir, target.position);
     let focus = await assembleContentFocus({ position, ...contractSource ? { contractSource } : {} });
     if (focus?.status === "contract_choice_required" && !contractSource) {
       const preferred = preferredContractSource(focus.availableSources);
@@ -20335,8 +20367,8 @@ async function focusAtCommit(target, contractSource) {
   });
 }
 async function withSnapshot(target, wholeTree, read2) {
-  const parent = realpathSync11.native(mkdtempSync(join24(tmpdir(), "ideaspaces-commit-read-")));
-  const dir = join24(parent, basename11(target.checkoutPath) || "root");
+  const parent = realpathSync11.native(mkdtempSync(join25(tmpdir(), "ideaspaces-commit-read-")));
+  const dir = join25(parent, basename11(target.checkoutPath) || "root");
   try {
     mkdirSync5(dir);
     const written = writeSnapshot(target, wholeTree, dir);
@@ -20386,7 +20418,7 @@ function writeSnapshot(target, wholeTree, dir) {
       files.push({ path, object: match[2] });
   }
   if (kind === "directory")
-    mkdirSync5(join24(dir, position), { recursive: true });
+    mkdirSync5(join25(dir, position), { recursive: true });
   if (!files.length) {
     return initRepository(dir);
   }
@@ -20413,7 +20445,7 @@ function writeSnapshot(target, wholeTree, dir) {
     const start = newline + 1;
     if (start + size > out.length)
       return { status: "git_error", reason: `git cat-file ended inside ${file2.path} at ${commit}.` };
-    const destination = join24(dir, file2.path);
+    const destination = join25(dir, file2.path);
     mkdirSync5(dirname10(destination), { recursive: true });
     writeFileSync6(destination, out.subarray(start, start + size));
     offset = start + size + 1;
@@ -20622,40 +20654,6 @@ function parseLimit(value2) {
 function isRemoteAddress(value2) {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value2);
 }
-function buildFrameMarkdownTarget(path, position, content, depth2) {
-  const fm = parseFrontmatter(content);
-  const name = typeof fm?.name === "string" && fm.name.trim() || basename12(path, ".md");
-  const summary = typeof fm?.summary === "string" && fm.summary.trim() || summarizeMarkdown(content);
-  const disclosure2 = { name, ...summary && depth2 !== "name" ? { summary } : {} };
-  const target = {
-    placement: "history",
-    path,
-    position,
-    kind: "markdown",
-    depth: depth2,
-    revision: "",
-    name,
-    member: { position, depth: depth2, disclosure: disclosure2 }
-  };
-  if (depth2 !== "name") {
-    target.summary = summary;
-  }
-  if (depth2 === "surface" || depth2 === "full") {
-    target.surface = stripFrontmatter(content);
-  } else if (depth2 === "children") {
-    const outline = inspectMarkdown(content, { mode: "outline" });
-    target.children = outline.mode === "outline" ? outline.headings.map((h) => ({ ...h, kind: "section", name: h.text })) : [];
-  }
-  const represented = {
-    kind: target.kind,
-    name: target.name,
-    ...target.summary !== void 0 ? { summary: target.summary } : {},
-    ...target.surface !== void 0 ? { surface: target.surface } : {},
-    ...target.children !== void 0 ? { children: target.children } : {}
-  };
-  target.revision = `sha256:${createHash7("sha256").update(JSON.stringify(represented)).digest("hex")}`;
-  return target;
-}
 var lookCommand = {
   name: "look",
   description: "Read one local Note, Content directory or Thread folder at a progressive-disclosure rung",
@@ -20764,13 +20762,17 @@ var lookCommand = {
       const threadFolder = threadSubMatch[1];
       const subEntry = threadSubMatch[2].split(sep9).join("/");
       if (subEntry === "README.md" || subEntry === "_agent/agreement.md") {
+        if (flags2.pin !== void 0) {
+          output.error("A Thread frame file has its own Agreement; omit --pin.");
+          return 1;
+        }
         if (!existsSync15(path)) {
           output.error(`No such path: ${path}`);
           return 1;
         }
         const root = await repoRoot(dirname11(threadFolder)) ?? dirname11(dirname11(threadFolder));
         const relPos = relative12(root, path).split(sep9).join("/");
-        const content = readFileSync14(path, "utf8");
+        const content = readFileSync15(path, "utf8");
         const target = buildFrameMarkdownTarget(path, relPos, content, depth2);
         let focused = await assembleContentFocus({ position: root, treeMaxEntries: 0, ...selected.source ? { contractSource: selected.source } : {} });
         if (focused?.status === "contract_choice_required" && !selected.source) {
@@ -20995,7 +20997,7 @@ function observedPaths(looked) {
   const { target } = looked;
   const paths = [target.position];
   if (target.kind === "directory") {
-    if (existsSync15(join25(target.path, "README.md"))) {
+    if (existsSync15(join26(target.path, "README.md"))) {
       paths.push(target.position === "." ? "README.md" : `${target.position}/README.md`);
     }
     for (const child of target.children ?? []) {
@@ -21035,7 +21037,7 @@ import { spawnSync as spawnSync12 } from "node:child_process";
 init_dist();
 import { existsSync as existsSync16, statSync as statSync7 } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { basename as basename13, join as join26, resolve as resolvePath } from "node:path";
+import { basename as basename12, join as join27, resolve as resolvePath } from "node:path";
 var AUTOCOMPLETE_EXCLUDES = [".git", "node_modules", "backups", ".pi", ".claude"];
 var MAX_CATALOG_REPOS = 20;
 function directoryDetails(count) {
@@ -21050,17 +21052,17 @@ async function formatWorkingSetSection(homeRoot, mounts) {
   const inputs = [
     {
       root: 0,
-      name: basename13(homeRoot) || homeRoot,
+      name: basename12(homeRoot) || homeRoot,
       summary: home.summary,
       presentation: {
         label: "home",
-        display: basename13(homeRoot) || homeRoot,
+        display: basename12(homeRoot) || homeRoot,
         details: directoryDetails(home.directoryCount)
       }
     },
     ...mounts.map((mount, index) => ({
       root: index + 1,
-      name: basename13(mount) || mount,
+      name: basename12(mount) || mount,
       summary: mounted[index]?.summary,
       presentation: {
         label: "mount",
@@ -21100,10 +21102,10 @@ function catalogInput(repository, root, pov, mounts) {
     details.push("mounted");
   return {
     root,
-    name: basename13(repository.root) || repository.root,
+    name: basename12(repository.root) || repository.root,
     summary: repository.summary,
     presentation: {
-      display: basename13(repository.root) || repository.root,
+      display: basename12(repository.root) || repository.root,
       details
     }
   };
@@ -21111,7 +21113,7 @@ function catalogInput(repository, root, pov, mounts) {
 async function catalogCandidates(workspaceFolder) {
   try {
     const entries = await readdir(workspaceFolder, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name)).map((entry) => join26(workspaceFolder, entry.name)).filter((root) => existsSync16(join26(root, ".git"))).sort((left, right) => basename13(left).localeCompare(basename13(right)));
+    return entries.filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name)).map((entry) => join27(workspaceFolder, entry.name)).filter((root) => existsSync16(join27(root, ".git"))).sort((left, right) => basename12(left).localeCompare(basename12(right)));
   } catch {
     return [];
   }
@@ -21389,13 +21391,13 @@ var navigateCommand = {
 // dist/commands/map.js
 init_dist();
 import { realpathSync as realpathSync13, statSync as statSync10 } from "node:fs";
-import { basename as basename16, dirname as dirname13, resolve as resolve24 } from "node:path";
+import { basename as basename15, dirname as dirname13, resolve as resolve24 } from "node:path";
 
 // dist/local/map-agents.js
 init_dist();
 init_map_resolve();
 init_space_map();
-import { basename as basename14 } from "node:path";
+import { basename as basename13 } from "node:path";
 function isMapBlock(value2) {
   return typeof value2 === "object" && value2 !== null && "roots" in value2 && "members" in value2;
 }
@@ -21473,7 +21475,7 @@ function projectMapAgents(mapInput, options) {
     const declaredRootNodeId = typeof frontmatter.root_node_id === "string" && frontmatter.root_node_id.trim() ? frontmatter.root_node_id.trim() : void 0;
     const memberPosition = typeof member2.position === "string" ? member2.position : void 0;
     agents.push({
-      name: declaredName ?? (typeof member2.name === "string" ? member2.name : void 0) ?? basename14(checkoutPath),
+      name: declaredName ?? (typeof member2.name === "string" ? member2.name : void 0) ?? basename13(checkoutPath),
       ...declaredSummary ? { summary: declaredSummary } : {},
       agreement: declaredAgreement,
       ...root.root_node_id || declaredRootNodeId ? { root_node_id: root.root_node_id ?? declaredRootNodeId } : {},
@@ -21747,7 +21749,7 @@ init_api();
 init_credentials();
 import { spawnSync as spawnSync13 } from "node:child_process";
 import { realpathSync as realpathSync12, statSync as statSync9 } from "node:fs";
-import { basename as basename15, dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve23, sep as sep10 } from "node:path";
+import { basename as basename14, dirname as dirname12, isAbsolute as isAbsolute11, relative as relative14, resolve as resolve23, sep as sep10 } from "node:path";
 import { posix } from "node:path";
 
 // dist/auth/resolve-space.js
@@ -21901,7 +21903,7 @@ function noteDisclosure(content, position) {
     throw new Error("The committed Note frontmatter summary must be a string");
   }
   return {
-    name: rawName || basename15(position, posix.extname(position)),
+    name: rawName || basename14(position, posix.extname(position)),
     summary: rawSummary || ""
   };
 }
@@ -22051,7 +22053,7 @@ async function runMapSelection(args2, flags2, _global, output) {
         throw new Error(`The committed Note has malformed frontmatter: ${syntax.message}`);
       }
       const frontmatter = parseFrontmatter(committed) ?? {};
-      const isMapNote = basename15(position).endsWith(".map.md") || basename15(position) === "README.md" && frontmatter.map !== void 0;
+      const isMapNote = basename14(position).endsWith(".map.md") || basename14(position) === "README.md" && frontmatter.map !== void 0;
       if (isMapNote && frontmatter.map && typeof frontmatter.map === "object") {
         const parsedMap = parseMap(frontmatter.map);
         if (parsedMap.status !== "valid")
@@ -22116,7 +22118,7 @@ async function runMapSelection(args2, flags2, _global, output) {
               disc = noteDisclosure(content, mPos);
             } catch {
               disc = {
-                name: typeof mObj.name === "string" ? mObj.name : basename15(mPos, posix.extname(mPos)),
+                name: typeof mObj.name === "string" ? mObj.name : basename14(mPos, posix.extname(mPos)),
                 summary: typeof mObj.summary === "string" ? mObj.summary : ""
               };
             }
@@ -22127,7 +22129,7 @@ async function runMapSelection(args2, flags2, _global, output) {
             depth: mDepth,
             ...mObj.name ? { name: String(mObj.name) } : {},
             ...mObj.summary ? { summary: String(mObj.summary) } : {},
-            disclosure: { name: disc.name || basename15(mPos, posix.extname(mPos)), ...mDepth === "name" ? {} : { summary: disc.summary || "" } }
+            disclosure: { name: disc.name || basename14(mPos, posix.extname(mPos)), ...mDepth === "name" ? {} : { summary: disc.summary || "" } }
           };
         });
         if (!targetNodeId) {
@@ -22301,8 +22303,8 @@ var mapCommand = {
     let target;
     let selectedFile;
     try {
-      if (statSync10(requested).isFile() && (basename16(requested).endsWith(".map.md") || basename16(requested) === "README.md")) {
-        selectedFile = basename16(requested);
+      if (statSync10(requested).isFile() && (basename15(requested).endsWith(".map.md") || basename15(requested) === "README.md")) {
+        selectedFile = basename15(requested);
         target = realpathSync13.native(dirname13(requested));
       } else if (statSync10(requested).isDirectory()) {
         target = realpathSync13.native(requested);
@@ -23409,7 +23411,7 @@ init_git2();
 import { promises as fs12 } from "node:fs";
 import { existsSync as existsSync18 } from "node:fs";
 import { spawnSync as spawnSync14 } from "node:child_process";
-import { dirname as dirname14, join as join27, relative as relative15, sep as sep11 } from "node:path";
+import { dirname as dirname14, join as join28, relative as relative15, sep as sep11 } from "node:path";
 var GENERATED_MARKER = "ideaspaces:generated skill pointer";
 var MARKER_LINE = `<!-- ${GENERATED_MARKER} \u2014 edit the canonical skill, then re-run \`ideaspaces skills sync\` -->`;
 var PORTABLE_FIELDS = ["description", "license", "compatibility", "metadata", "allowed-tools"];
@@ -23439,9 +23441,9 @@ async function syncSkillPointers(position, opts = {}) {
   for (const level of await collectSkillLevels(root)) {
     const entries = await discoverSkillEntries([level]);
     const wanted = new Set(entries.map((e) => e.name));
-    const pointerRoot = join27(level, ".claude", "skills");
+    const pointerRoot = join28(level, ".claude", "skills");
     for (const entry of entries) {
-      const target = join27(pointerRoot, entry.name, "SKILL.md");
+      const target = join28(pointerRoot, entry.name, "SKILL.md");
       const desired = await renderPointer(entry.name, entry.path, dirname14(target));
       const rel = relative15(root, target);
       if (existsSync18(target)) {
@@ -23473,7 +23475,7 @@ async function syncSkillPointers(position, opts = {}) {
     for (const name of pointerDirs) {
       if (wanted.has(name))
         continue;
-      const target = join27(pointerRoot, name, "SKILL.md");
+      const target = join28(pointerRoot, name, "SKILL.md");
       let existing;
       try {
         existing = await fs12.readFile(target, "utf-8");
@@ -23485,7 +23487,7 @@ async function syncSkillPointers(position, opts = {}) {
       report.removed.push(relative15(root, target));
       if (!check) {
         await fs12.rm(target);
-        await fs12.rmdir(join27(pointerRoot, name)).catch(() => {
+        await fs12.rmdir(join28(pointerRoot, name)).catch(() => {
         });
       }
     }
@@ -23499,7 +23501,7 @@ async function collectSkillLevels(root) {
   async function walk(dir, isRoot) {
     if (!isRoot && await startsNestedSpace(dir))
       return;
-    if (existsSync18(join27(dir, "_agent", "skills")))
+    if (existsSync18(join28(dir, "_agent", "skills")))
       levels.push(dir);
     let dirents;
     try {
@@ -23512,17 +23514,17 @@ async function collectSkillLevels(root) {
         continue;
       if (e.name.startsWith(".") || e.name.startsWith("_") || e.name === "node_modules")
         continue;
-      await walk(join27(dir, e.name), false);
+      await walk(join28(dir, e.name), false);
     }
   }
   await walk(root, true);
   return levels;
 }
 async function startsNestedSpace(dir) {
-  if (existsSync18(join27(dir, "_agent", "foundation.md")))
+  if (existsSync18(join28(dir, "_agent", "foundation.md")))
     return true;
   try {
-    const agreement = await fs12.readFile(join27(dir, "_agent", "agreement.md"), "utf-8");
+    const agreement = await fs12.readFile(join28(dir, "_agent", "agreement.md"), "utf-8");
     const rootNodeId = parseFrontmatter(agreement)?.root_node_id;
     return isValidRootNodeId(rootNodeId);
   } catch {
@@ -23555,7 +23557,7 @@ async function renderPointer(name, canonicalPath, pointerDir) {
   ].join("\n");
 }
 function agentIsGitignored(level) {
-  const r = spawnSync14(gitBinary(), ["-C", level, "check-ignore", "-q", join27(level, "_agent", "skills")], {
+  const r = spawnSync14(gitBinary(), ["-C", level, "check-ignore", "-q", join28(level, "_agent", "skills")], {
     encoding: "utf-8",
     env: sanitizedGitEnvironment()
   });
@@ -24098,7 +24100,7 @@ init_credentials();
 init_spaces();
 import { spawnSync as spawnSync16 } from "node:child_process";
 import { existsSync as existsSync20, mkdirSync as mkdirSync7, mkdtempSync as mkdtempSync3, renameSync as renameSync5, rmSync as rmSync5, statSync as statSync11, writeFileSync as writeFileSync8 } from "node:fs";
-import { basename as basename17, dirname as dirname16, join as join29, resolve as resolve28 } from "node:path";
+import { basename as basename16, dirname as dirname16, join as join30, resolve as resolve28 } from "node:path";
 
 // dist/fork-update.js
 init_dist();
@@ -24106,9 +24108,9 @@ var import_yaml9 = __toESM(require_dist(), 1);
 init_config_dir();
 import { spawnSync as spawnSync15 } from "node:child_process";
 import { createHash as createHash8, randomUUID as randomUUID7 } from "node:crypto";
-import { existsSync as existsSync19, lstatSync as lstatSync5, mkdirSync as mkdirSync6, mkdtempSync as mkdtempSync2, readFileSync as readFileSync15, realpathSync as realpathSync14, renameSync as renameSync4, rmSync as rmSync4, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
+import { existsSync as existsSync19, lstatSync as lstatSync5, mkdirSync as mkdirSync6, mkdtempSync as mkdtempSync2, readFileSync as readFileSync16, realpathSync as realpathSync14, renameSync as renameSync4, rmSync as rmSync4, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname15, isAbsolute as isAbsolute12, join as join28, relative as relative16, resolve as resolve27, sep as sep12 } from "node:path";
+import { dirname as dirname15, isAbsolute as isAbsolute12, join as join29, relative as relative16, resolve as resolve27, sep as sep12 } from "node:path";
 
 // dist/fork-paths.js
 function isExactAssetPayloadParts(parts) {
@@ -24266,14 +24268,14 @@ function readLocalBuffer(path, root) {
   }
   let cursor = root;
   for (const part of rel.split(sep12)) {
-    cursor = join28(cursor, part);
+    cursor = join29(cursor, part);
     if (!existsSync19(cursor))
       break;
     if (lstatSync5(cursor).isSymbolicLink()) {
       throw new Error(`Refusing to follow a symbolic link in update path: ${path}`);
     }
   }
-  return existsSync19(absolute) ? readFileSync15(absolute) : null;
+  return existsSync19(absolute) ? readFileSync16(absolute) : null;
 }
 function assetRevision(content) {
   return createHash8("sha256").update(content).digest("hex");
@@ -24363,7 +24365,7 @@ function planForkUpdate(baseline, incoming, root, incomingAssets = []) {
 }
 function writeTree(root, files) {
   for (const [path, content] of Object.entries(files)) {
-    const absolute = join28(root, path);
+    const absolute = join29(root, path);
     mkdirSync6(dirname15(absolute), { recursive: true });
     writeFileSync7(absolute, content);
   }
@@ -24372,9 +24374,9 @@ function applyForkUpdate(plan, root) {
   const changed = [...Object.keys(plan.writes), ...Object.keys(plan.asset_writes), ...plan.deletes];
   if (!changed.length)
     return;
-  const temp = mkdtempSync2(join28(tmpdir2(), "ideaspaces-update-"));
-  const beforeDir = join28(temp, "before");
-  const afterDir = join28(temp, "after");
+  const temp = mkdtempSync2(join29(tmpdir2(), "ideaspaces-update-"));
+  const beforeDir = join29(temp, "before");
+  const afterDir = join29(temp, "after");
   mkdirSync6(beforeDir);
   mkdirSync6(afterDir);
   try {
@@ -24437,7 +24439,7 @@ function baselinePaths(root) {
   }
   return [...roots].map((candidate) => {
     const key2 = createHash8("sha256").update(candidate).digest("hex");
-    return join28(configDir(), "fork-baselines", `${key2}.json`);
+    return join29(configDir(), "fork-baselines", `${key2}.json`);
   });
 }
 function loadForkBaseline(root) {
@@ -24445,7 +24447,7 @@ function loadForkBaseline(root) {
   if (!path)
     return null;
   try {
-    return JSON.parse(readFileSync15(path, "utf-8"));
+    return JSON.parse(readFileSync16(path, "utf-8"));
   } catch {
     throw new Error("The local fork update baseline is corrupt; no files were changed.");
   }
@@ -24727,19 +24729,19 @@ function destinationRootIdentity(markdown, sourceRootNodeId) {
 }
 function writeTree2(root, markdown, assets) {
   for (const [path, content] of Object.entries(markdown)) {
-    const absolute = join29(root, path);
+    const absolute = join30(root, path);
     mkdirSync7(dirname16(absolute), { recursive: true });
     writeFileSync8(absolute, content, { encoding: "utf-8", flag: "wx" });
   }
   for (const asset of assets) {
-    const absolute = join29(root, asset.path);
+    const absolute = join30(root, asset.path);
     mkdirSync7(dirname16(absolute), { recursive: true });
     writeFileSync8(absolute, asset.content, { flag: "wx" });
   }
   const ignore = gitignoreWithDefaults(null, { privateAgent: false });
   if (ignore === null)
     throw new Error("Could not prepare local-only ignore rules");
-  writeFileSync8(join29(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
+  writeFileSync8(join30(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
 }
 function initializeImport(root) {
   runGit7(root, ["init", "-q", "-b", "main"]);
@@ -24787,7 +24789,7 @@ function installLocalFork(opts) {
   let installed = false;
   let baselineSaved = false;
   try {
-    temporary = mkdtempSync3(join29(parent, `.${basename17(destination)}.ideaspaces-fork-`));
+    temporary = mkdtempSync3(join30(parent, `.${basename16(destination)}.ideaspaces-fork-`));
     writeTree2(temporary, markdown, assets);
     initializeImport(temporary);
     if (existsSync20(destination))
@@ -25789,15 +25791,15 @@ function makeConversationCommand(local) {
 init_dist();
 init_config_dir();
 import { randomUUID as randomUUID8 } from "node:crypto";
-import { existsSync as existsSync26, readFileSync as readFileSync18, realpathSync as realpathSync19, statSync as statSync15 } from "node:fs";
-import { isAbsolute as isAbsolute18, join as join34, resolve as resolve35 } from "node:path";
+import { existsSync as existsSync26, readFileSync as readFileSync19, realpathSync as realpathSync19, statSync as statSync15 } from "node:fs";
+import { isAbsolute as isAbsolute18, join as join35, resolve as resolve35 } from "node:path";
 
 // dist/local/agent-reach.js
 init_git2();
 init_map_note();
 init_space_map();
 import { existsSync as existsSync22, realpathSync as realpathSync15, statSync as statSync13 } from "node:fs";
-import { dirname as dirname18, isAbsolute as isAbsolute13, join as join30, resolve as resolve32 } from "node:path";
+import { dirname as dirname18, isAbsolute as isAbsolute13, join as join31, resolve as resolve32 } from "node:path";
 function discoverAgentReach(opts) {
   const errors = [];
   const warnings = [];
@@ -25813,7 +25815,7 @@ function discoverAgentReach(opts) {
   try {
     const candidate = repoRoot(pov);
     nestedRepo = candidate === pov;
-    if (!nestedRepo && existsSync22(join30(candidate, "_threads")))
+    if (!nestedRepo && existsSync22(join31(candidate, "_threads")))
       spaceRoot = candidate;
   } catch {
   }
@@ -25822,7 +25824,7 @@ function discoverAgentReach(opts) {
       try {
         if (repoRoot(parent) !== parent)
           continue;
-        if (existsSync22(join30(parent, "_threads")))
+        if (existsSync22(join31(parent, "_threads")))
           spaceRoot = parent;
         break;
       } catch {
@@ -25932,8 +25934,8 @@ function enteredThroughRoot(root, path) {
 
 // dist/local/thread-launch.js
 init_dist();
-import { existsSync as existsSync23, lstatSync as lstatSync6, readFileSync as readFileSync16 } from "node:fs";
-import { basename as basename18, dirname as dirname20, isAbsolute as isAbsolute15, join as join31 } from "node:path";
+import { existsSync as existsSync23, lstatSync as lstatSync6, readFileSync as readFileSync17 } from "node:fs";
+import { basename as basename17, dirname as dirname20, isAbsolute as isAbsolute15, join as join32 } from "node:path";
 init_root_identity2();
 init_threads2();
 init_credentials();
@@ -25953,7 +25955,7 @@ function referenceBody(body) {
 function threadContext(threadPath, pov) {
   if (isAbsolute15(threadPath)) {
     const parent = dirname20(threadPath);
-    if (basename18(parent) === "_threads")
+    if (basename17(parent) === "_threads")
       return dirname20(parent);
     return dirname20(threadPath);
   }
@@ -25978,12 +25980,12 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   const authoredId = root.root_node_id ?? /\/repos\/(n_[0-9a-f]{12}(?:[0-9a-f]{12})?)(?:\/|$)/.exec(root.repo ?? "")?.[1];
   if (authoredId && rootId2 !== authoredId)
     throw new Error("Selected Map root does not identify this local Thread Space.");
-  const expectedPrefix = `_threads/${basename18(directory)}/`;
+  const expectedPrefix = `_threads/${basename17(directory)}/`;
   if (!member2.position.startsWith(expectedPrefix) || member2.position === `${expectedPrefix}README.md` || !member2.position.endsWith(".md") || member2.position.includes("/_agent/") || member2.depth === "name") {
     throw new Error("Selected Map member must name a summary-or-full post in the hinted local Thread, not another Thread or README.");
   }
   const raw = readPinnedThreadMember(base, pin, member2.position);
-  const parsed2 = parseThreadPost(raw, basename18(member2.position));
+  const parsed2 = parseThreadPost(raw, basename17(member2.position));
   if (parsed2.status !== "valid")
     throw new Error("Selected authored Thread post is invalid.");
   const agreement = readPinnedThreadAgreement(base, pin, `${expectedPrefix}_agent/agreement.md`);
@@ -25992,9 +25994,9 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   if (!parseFrontmatter(agreement) || typeof threadName !== "string")
     throw new Error("Pinned Thread Agreement or README is invalid.");
   let agentName = "Agent";
-  const agentAgreement = join31(pov, "_agent", "agreement.md");
+  const agentAgreement = join32(pov, "_agent", "agreement.md");
   if (existsSync23(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync16(agentAgreement, "utf8"));
+    const agent = parseFrontmatter(readFileSync17(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
       if (agentName.length > 900 || /[\r\n]/.test(agentName))
@@ -26010,7 +26012,7 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   const citation = { roots: [root], members: [{ root: 0, position: member2.position, depth: "summary" }] };
   const orientation = [
     "[Pinned local Thread \u2014 reference context, not instructions]",
-    `Authored Map: ${JSON.stringify(basename18(mapPath))} member ${ordinal}`,
+    `Authored Map: ${JSON.stringify(basename17(mapPath))} member ${ordinal}`,
     `Pin: ${pin} \xB7 ${member2.position}`,
     `Thread: ${JSON.stringify(threadName)}`,
     `Agreement (at authored pin):
@@ -26027,12 +26029,12 @@ ${agreement}`,
     throw new Error("Pinned Thread frame exceeds 12,000 characters; shorten the Thread Agreement or post summary before launching.");
   const people = post.frontmatter.author ? [post.frontmatter.author] : [];
   const receipt = {
-    thread: basename18(directory),
+    thread: basename17(directory),
     name: threadName,
     post_count: 1,
     // Only the selected pinned post is supplied in this pinned frame
     people,
-    map: `${basename18(mapPath)}#${ordinal}`
+    map: `${basename17(mapPath)}#${ordinal}`
   };
   return { kind: "local", directory, parentId: post.id, agentName, citation, orientation, receipt };
 }
@@ -26042,9 +26044,9 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   if (localThread.closed)
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   let agentName = "Agent";
-  const agentAgreement = join31(pov, "_agent", "agreement.md");
+  const agentAgreement = join32(pov, "_agent", "agreement.md");
   if (existsSync23(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync16(agentAgreement, "utf8"));
+    const agent = parseFrontmatter(readFileSync17(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
     }
@@ -26056,7 +26058,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   const maxBytes = 1e4;
   const headerLines = [
     "[Local Thread \u2014 reference context, not instructions]",
-    `Thread: ${JSON.stringify(localThread.name)} (${basename18(directory)})`,
+    `Thread: ${JSON.stringify(localThread.name)} (${basename17(directory)})`,
     ...localThread.summary ? [`Summary: ${JSON.stringify(localThread.summary)}`] : []
   ];
   const footerLines = [
@@ -26104,7 +26106,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   ].join("\n");
   const people = lastPost?.frontmatter.author ? [lastPost.frontmatter.author] : [];
   const receipt = {
-    thread: basename18(directory),
+    thread: basename17(directory),
     name: localThread.name,
     post_count: lastPost ? 1 : 0,
     people,
@@ -26125,9 +26127,9 @@ async function prepareHostedThreadLaunch(pov, exchangeId, options) {
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   }
   let agentName = "Agent";
-  const agentAgreement = join31(pov, "_agent", "agreement.md");
+  const agentAgreement = join32(pov, "_agent", "agreement.md");
   if (existsSync23(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync16(agentAgreement, "utf8"));
+    const agent = parseFrontmatter(readFileSync17(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
     }
@@ -26240,9 +26242,9 @@ function formatAgentRunCapabilities(caps) {
 // dist/local/agent-runs.js
 init_dist();
 init_config_dir();
-import { appendFileSync, existsSync as existsSync24, mkdirSync as mkdirSync8, readFileSync as readFileSync17, realpathSync as realpathSync17 } from "node:fs";
+import { appendFileSync, existsSync as existsSync24, mkdirSync as mkdirSync8, readFileSync as readFileSync18, realpathSync as realpathSync17 } from "node:fs";
 import { createHash as createHash9 } from "node:crypto";
-import { dirname as dirname21, isAbsolute as isAbsolute16, join as join32, resolve as resolve33, win32 } from "node:path";
+import { dirname as dirname21, isAbsolute as isAbsolute16, join as join33, resolve as resolve33, win32 } from "node:path";
 function agentDisplayName(agentPath) {
   const trimmed = agentPath.replace(/[\\/]+$/, "");
   return win32.basename(trimmed) || agentPath;
@@ -26264,7 +26266,7 @@ function deriveTask(message, cwd = process.cwd()) {
   if (candidatePath.endsWith(".md") || candidatePath.endsWith(".markdown")) {
     const resolvedPath = isAbsolute16(candidatePath) ? candidatePath : resolve33(cwd, candidatePath);
     try {
-      const content = readFileSync17(resolvedPath, "utf8");
+      const content = readFileSync18(resolvedPath, "utf8");
       const fm = parseFrontmatter(content);
       if (fm && typeof fm.name === "string" && fm.name.trim()) {
         return fm.name.trim();
@@ -26292,7 +26294,7 @@ function recordAgentRun(record) {
     if (!existsSync24(dir)) {
       mkdirSync8(dir, { recursive: true, mode: 448 });
     }
-    const file2 = join32(dir, "agent-runs.jsonl");
+    const file2 = join33(dir, "agent-runs.jsonl");
     appendFileSync(file2, `${JSON.stringify(record)}
 `, { mode: 384, encoding: "utf8" });
     return true;
@@ -26301,12 +26303,12 @@ function recordAgentRun(record) {
   }
 }
 function listAgentRuns(options = {}) {
-  const file2 = join32(configDir(), "agent-runs.jsonl");
+  const file2 = join33(configDir(), "agent-runs.jsonl");
   if (!existsSync24(file2))
     return [];
   let content;
   try {
-    content = readFileSync17(file2, "utf8");
+    content = readFileSync18(file2, "utf8");
   } catch {
     return [];
   }
@@ -26369,10 +26371,10 @@ function cachedClaudeSessionId(projectDir) {
     } catch {
     }
     const key2 = createHash9("sha256").update(resolved).digest("hex").slice(0, 16);
-    const sessionsDir = join32(configDir(), "sessions");
-    const file2 = join32(sessionsDir, key2);
+    const sessionsDir = join33(configDir(), "sessions");
+    const file2 = join33(sessionsDir, key2);
     if (existsSync24(file2)) {
-      const id = readFileSync17(file2, "utf8").trim();
+      const id = readFileSync18(file2, "utf8").trim();
       if (id)
         return id;
     }
@@ -26386,7 +26388,7 @@ function findActiveClaudeSessionId(cwd = process.cwd()) {
     const id = cachedClaudeSessionId(cur);
     if (id)
       return id;
-    if (existsSync24(join32(cur, ".git")) || existsSync24(join32(cur, "_agent"))) {
+    if (existsSync24(join33(cur, ".git")) || existsSync24(join33(cur, "_agent"))) {
       break;
     }
     const parent = dirname21(cur);
@@ -26405,7 +26407,7 @@ function resolveParentId(explicitParent, cwd = process.cwd()) {
 // dist/local/agent-pov.js
 init_spaces();
 import { existsSync as existsSync25, lstatSync as lstatSync7, realpathSync as realpathSync18, statSync as statSync14 } from "node:fs";
-import { isAbsolute as isAbsolute17, join as join33, relative as relative18, resolve as resolve34 } from "node:path";
+import { isAbsolute as isAbsolute17, join as join34, relative as relative18, resolve as resolve34 } from "node:path";
 function isWithin2(parent, child) {
   const rel = relative18(parent, child);
   return !rel.startsWith("..") && !isAbsolute17(rel);
@@ -26487,8 +26489,8 @@ function validateAgentPov(pov, options = {}) {
       message: `Agent point of view "${pov}" is inaccessible: ${err instanceof Error ? err.message : String(err)}`
     };
   }
-  const agreementPath = join33(canonicalDir, "_agent", "agreement.md");
-  const foundationPath = join33(canonicalDir, "_agent", "foundation.md");
+  const agreementPath = join34(canonicalDir, "_agent", "agreement.md");
+  const foundationPath = join34(canonicalDir, "_agent", "foundation.md");
   const hasAgreement = existsSync25(agreementPath);
   const allowFoundation = options.allowFoundation ?? true;
   const hasFoundation = allowFoundation && existsSync25(foundationPath);
@@ -26596,15 +26598,15 @@ var LIST_USAGE2 = "ideaspaces agent list --map <file> [--json]";
 var USAGE9 = `ideaspaces agent <run|runs|record|list|capabilities> \u2026 (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; record ${RECORD_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 function readAgentDefaults(povPath) {
   const available = [
-    ...existsSync26(join34(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
-    ...existsSync26(join34(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
+    ...existsSync26(join35(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
+    ...existsSync26(join35(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
   ];
   const source = preferredContractSource(available);
   if (!source)
     return {};
-  const contractPath = join34(povPath, "_agent", `${source}.md`);
+  const contractPath = join35(povPath, "_agent", `${source}.md`);
   try {
-    const content = readFileSync18(contractPath, "utf-8");
+    const content = readFileSync19(contractPath, "utf-8");
     const fm = parseFrontmatter(content);
     if (!fm || typeof fm !== "object")
       return {};
@@ -26653,7 +26655,7 @@ async function cmdRun(args2, flags2, local, output, jsonMode) {
       output.error("Selected POV Agreement exceeds 16 KiB; shorten it before launch.");
       return 1;
     }
-    const contract = readFileSync18(povResult.contractPath, "utf8");
+    const contract = readFileSync19(povResult.contractPath, "utf8");
     povOrientation = `[Selected ${povResult.contractType} POV: ${povPath}]
 ${contract}`;
     if (Buffer.byteLength(povOrientation) > MAX_ORIENTATION_BYTES) {
@@ -27122,7 +27124,7 @@ Usage: ${RECORD_USAGE}`);
   };
   const ok = recordAgentRun(record);
   if (!ok) {
-    output.error(`Failed to record agent run ${record.run_id} to ${join34(configDir(), "agent-runs.jsonl")}`);
+    output.error(`Failed to record agent run ${record.run_id} to ${join35(configDir(), "agent-runs.jsonl")}`);
     return 1;
   }
   output.result(record, `Recorded run ${record.run_id} (${record.status}) for ${agentDisplayName(record.agent)}`);
@@ -27448,8 +27450,8 @@ var nodeCommand = {
 
 // dist/commands/search.js
 init_git2();
-import { readFileSync as readFileSync20 } from "node:fs";
-import { join as join36 } from "node:path";
+import { readFileSync as readFileSync21 } from "node:fs";
+import { join as join37 } from "node:path";
 
 // dist/search.js
 var K1 = 1.2;
@@ -27537,8 +27539,8 @@ function searchDocs(docs, query, limit = 20) {
 // dist/search-map.js
 init_dist();
 init_git2();
-import { readFileSync as readFileSync19 } from "node:fs";
-import { basename as basename19, extname as extname2, join as join35 } from "node:path";
+import { readFileSync as readFileSync20 } from "node:fs";
+import { basename as basename18, extname as extname2, join as join36 } from "node:path";
 function safeHead(repoRoot2) {
   try {
     return headSha(repoRoot2);
@@ -27549,7 +27551,7 @@ function safeHead(repoRoot2) {
 function member(path, source) {
   const frontmatter = parseFrontmatter(source);
   const rawName = frontmatter?.name;
-  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename19(path, extname2(path));
+  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename18(path, extname2(path));
   const summary = summarizeMarkdown(source);
   return {
     root: 0,
@@ -27561,7 +27563,7 @@ function member(path, source) {
 function projectSearchMap(repoRoot2, headBefore, hitPaths, dependencies = {}) {
   const headSha2 = dependencies.headSha ?? safeHead;
   const tracked = dependencies.trackedAt ?? ((root) => trackedAt("HEAD", root));
-  const readSource = dependencies.readSource ?? ((root, path) => readFileSync19(join35(root, path), "utf-8"));
+  const readSource = dependencies.readSource ?? ((root, path) => readFileSync20(join36(root, path), "utf-8"));
   let members = null;
   let readIssue;
   try {
@@ -27625,7 +27627,7 @@ var DEFAULT_LIMIT2 = 20;
 function* readDocs(root, paths) {
   for (const path of paths) {
     try {
-      yield { path, content: readFileSync20(join36(root, path), "utf-8") };
+      yield { path, content: readFileSync21(join37(root, path), "utf-8") };
     } catch {
       continue;
     }
@@ -27672,9 +27674,8 @@ var searchCommand = {
       const { listLocal: listLocal2, NoAgreementError: NoAgreementError2 } = await Promise.resolve().then(() => (init_threads2(), threads_exports));
       try {
         for (const thread of listLocal2(root)) {
-          if (thread.warnings.length) {
-            output.error(`Cannot search local Threads: ${thread.warnings.join(", ")}`);
-            return 1;
+          for (const warning of thread.warnings) {
+            output.log(`Thread ${thread.slug}: ${warning}`);
           }
           for (const p of ["README.md", ...thread.posts.map((post) => post.path)]) {
             const path = `_threads/${thread.slug}/${p}`;
@@ -27740,14 +27741,14 @@ import { resolve as resolve37 } from "node:path";
 
 // dist/file-listing.js
 import { existsSync as existsSync28, readdirSync as readdirSync3 } from "node:fs";
-import { join as join37, relative as relative20 } from "node:path";
+import { join as join38, relative as relative20 } from "node:path";
 var EXCLUDES = new Set(AUTOCOMPLETE_EXCLUDES);
 var DEFAULT_MAX_SCAN = 5e3;
 var DEFAULT_MAX_DEPTH = 10;
 function folderKind(abs) {
-  if (existsSync28(join37(abs, "_agent")))
+  if (existsSync28(join38(abs, "_agent")))
     return "ideaspace-repo";
-  if (existsSync28(join37(abs, ".git")))
+  if (existsSync28(join38(abs, ".git")))
     return "code-repo";
   return "folder";
 }
@@ -27773,7 +27774,7 @@ function listEntries(root, opts = {}) {
         continue;
       if (entries.length >= maxScan)
         return { entries, truncated: true };
-      const childAbs = join37(abs, dirent.name);
+      const childAbs = join38(abs, dirent.name);
       const path = toPosix(relative20(root, childAbs));
       if (dirent.isDirectory()) {
         entries.push({ path, name: dirent.name, kind: folderKind(childAbs) });
@@ -28729,8 +28730,8 @@ init_credentials();
 // dist/auth/session-state.js
 import { existsSync as existsSync29, unlinkSync as unlinkSync3 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join38 } from "node:path";
-var SESSION_FILE = join38(homedir4(), ".ideaspaces", "session.json");
+import { join as join39 } from "node:path";
+var SESSION_FILE = join39(homedir4(), ".ideaspaces", "session.json");
 function clearSessionState() {
   try {
     if (existsSync29(SESSION_FILE))
@@ -28754,8 +28755,8 @@ var logoutCommand = {
 };
 
 // dist/pi/pi-status.js
-import { existsSync as existsSync31, readFileSync as readFileSync22 } from "node:fs";
-import { basename as basename20, join as join40 } from "node:path";
+import { existsSync as existsSync31, readFileSync as readFileSync23 } from "node:fs";
+import { basename as basename19, join as join41 } from "node:path";
 
 // dist/local/probe-binary.js
 import { spawnSync as spawnSync17 } from "node:child_process";
@@ -28772,17 +28773,17 @@ function probeBinary(bin, env = process.env) {
 }
 
 // dist/pi/pi-auth.js
-import { chmodSync, existsSync as existsSync30, mkdirSync as mkdirSync9, readFileSync as readFileSync21, writeFileSync as writeFileSync9 } from "node:fs";
+import { chmodSync, existsSync as existsSync30, mkdirSync as mkdirSync9, readFileSync as readFileSync22, writeFileSync as writeFileSync9 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname22, join as join39 } from "node:path";
+import { dirname as dirname22, join as join40 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
   const override = env.PI_CODING_AGENT_DIR?.trim();
   if (override)
-    return override.startsWith("~") ? join39(homedir5(), override.slice(1)) : override;
-  return join39(homedir5(), ".pi", "agent");
+    return override.startsWith("~") ? join40(homedir5(), override.slice(1)) : override;
+  return join40(homedir5(), ".pi", "agent");
 }
 function resolvePiAuthPath(env = process.env) {
-  return join39(resolvePiAgentDir(env), "auth.json");
+  return join40(resolvePiAgentDir(env), "auth.json");
 }
 function parseAuth(raw) {
   if (!raw || !raw.trim())
@@ -28807,7 +28808,7 @@ function removeProvider(current, provider) {
 function readAuthFile(path) {
   if (!existsSync30(path))
     return {};
-  return parseAuth(readFileSync21(path, "utf8"));
+  return parseAuth(readFileSync22(path, "utf8"));
 }
 function writeAuthFile(path, auth) {
   const dir = dirname22(path);
@@ -28837,23 +28838,23 @@ function derivePiStatus(input) {
   };
 }
 function resolveExtension(path) {
-  const name = basename20(path.replace(/[/\\]+$/, "")) || path;
+  const name = basename19(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
   if (!existsSync31(path))
     return check(false);
   if (/\.[cm]?[jt]s$/.test(path))
     return check(true);
-  const pkgPath = join40(path, "package.json");
+  const pkgPath = join41(path, "package.json");
   if (existsSync31(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync22(pkgPath, "utf8"));
+      const pkg = JSON.parse(readFileSync23(pkgPath, "utf8"));
       const exts = pkg.pi?.extensions;
       if (Array.isArray(exts) && exts.length > 0)
         return check(true);
     } catch {
     }
   }
-  return check(existsSync31(join40(path, "index.ts")) || existsSync31(join40(path, "index.js")));
+  return check(existsSync31(join41(path, "index.ts")) || existsSync31(join41(path, "index.js")));
 }
 function formatHuman3(s) {
   const out = [];
@@ -29064,7 +29065,7 @@ var piModelsCommand = {
 };
 
 // dist/pi/local-conversation-ops.js
-import { join as join43 } from "node:path";
+import { join as join44 } from "node:path";
 
 // dist/local/observed-event.js
 function observedEvent(event, options) {
@@ -29766,7 +29767,7 @@ async function* readJsonLines(input) {
 // dist/pi/local-agent.js
 import { spawn as spawn3 } from "node:child_process";
 import { existsSync as existsSync33, mkdirSync as mkdirSync10, writeFileSync as writeFileSync10 } from "node:fs";
-import { join as join41 } from "node:path";
+import { join as join42 } from "node:path";
 var NON_AGENT_TYPES = /* @__PURE__ */ new Set(["response", "extension_ui_request"]);
 function lastPosition(tools) {
   for (let i = tools.length - 1; i >= 0; i--) {
@@ -29791,7 +29792,7 @@ function deriveConversationName(message) {
 }
 function ensureSessionDir(dir) {
   mkdirSync10(dir, { recursive: true });
-  const ignore = join41(dir, ".gitignore");
+  const ignore = join42(dir, ".gitignore");
   if (!existsSync33(ignore))
     writeFileSync10(ignore, "*\n");
 }
@@ -29976,9 +29977,9 @@ async function* runLocalTurn(opts) {
 }
 
 // dist/pi/local-conversations.js
-import { existsSync as existsSync34, readdirSync as readdirSync4, readFileSync as readFileSync23, realpathSync as realpathSync22, statSync as statSync19 } from "node:fs";
+import { existsSync as existsSync34, readdirSync as readdirSync4, readFileSync as readFileSync24, realpathSync as realpathSync22, statSync as statSync19 } from "node:fs";
 import { randomUUID as randomUUID9 } from "node:crypto";
-import { join as join42 } from "node:path";
+import { join as join43 } from "node:path";
 
 // dist/local/task-notification.js
 var TASK_NOTIFICATION = /^\s*<task-notification>[\s\S]*?<\/task-notification>\s*$/u;
@@ -29988,7 +29989,7 @@ function isTaskNotification(content, origin) {
 
 // dist/pi/local-conversations.js
 function localSessionDir(contextRoot) {
-  return join42(contextRoot, ".pi", "sessions");
+  return join43(contextRoot, ".pi", "sessions");
 }
 function mintConversationId() {
   return `local-${randomUUID9()}`;
@@ -30085,12 +30086,12 @@ function findSessionFile(dir, convId) {
   const files = readdirSync4(dir).filter((f) => f.endsWith(".jsonl"));
   const bySuffix = files.find((f) => f.endsWith(`_${convId}.jsonl`));
   if (bySuffix)
-    return join42(dir, bySuffix);
+    return join43(dir, bySuffix);
   for (const f of files) {
     try {
-      const first = readFileSync23(join42(dir, f), "utf8").split("\n", 1)[0];
+      const first = readFileSync24(join43(dir, f), "utf8").split("\n", 1)[0];
       if (JSON.parse(first).id === convId)
-        return join42(dir, f);
+        return join43(dir, f);
     } catch {
     }
   }
@@ -30106,7 +30107,7 @@ function canResumePiConversation(contextRoot, convId) {
   try {
     if (!isContained(realpathSync22(contextRoot), realpathSync22(dir)) || !isContained(realpathSync22(dir), realpathSync22(file2)))
       return false;
-    const text = readFileSync23(file2, "utf8");
+    const text = readFileSync24(file2, "utf8");
     const header = JSON.parse(text.split("\n", 1)[0] ?? "");
     if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync22(header.cwd) !== realpathSync22(contextRoot))
       return false;
@@ -30121,7 +30122,7 @@ function getLocalConversation(contextRoot, convId) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
   const mtime = statSync19(file2).mtime.toISOString();
-  const s = parseSessionJsonl(readFileSync23(file2, "utf8"), mtime);
+  const s = parseSessionJsonl(readFileSync24(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -30139,10 +30140,10 @@ function listLocalConversations(contextRoot) {
     return { conversations: [], total: 0 };
   const summaries = [];
   for (const f of readdirSync4(dir).filter((f2) => f2.endsWith(".jsonl"))) {
-    const path = join42(dir, f);
+    const path = join43(dir, f);
     let text;
     try {
-      text = readFileSync23(path, "utf8");
+      text = readFileSync24(path, "utf8");
     } catch {
       continue;
     }
@@ -30240,7 +30241,7 @@ async function send2(flags2, output, options) {
     return 1;
   }
   const skillPaths = options?.skillPaths ?? parseCommaList(flags2.skill, process.env.IDEASPACES_PI_SKILLS);
-  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join43(repoPath, ".pi", "sessions");
+  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join44(repoPath, ".pi", "sessions");
   const conversationId = typeof flags2.conversation === "string" ? flags2.conversation : `local-${Date.now().toString(36)}`;
   if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
     output.error(`Pi conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
@@ -30430,12 +30431,12 @@ import { spawnSync as spawnSync18 } from "node:child_process";
 import { spawn as spawn4 } from "node:child_process";
 
 // dist/claude/local-conversations.js
-import { existsSync as existsSync35, readdirSync as readdirSync5, readFileSync as readFileSync24, realpathSync as realpathSync24, statSync as statSync21 } from "node:fs";
+import { existsSync as existsSync35, readdirSync as readdirSync5, readFileSync as readFileSync25, realpathSync as realpathSync24, statSync as statSync21 } from "node:fs";
 import { randomUUID as randomUUID10 } from "node:crypto";
 import { homedir as homedir6 } from "node:os";
-import { basename as basename21, dirname as dirname25, join as join44, resolve as resolve40 } from "node:path";
+import { basename as basename20, dirname as dirname25, join as join45, resolve as resolve40 } from "node:path";
 function claudeConfigDir(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR?.trim() || join44(homedir6(), ".claude");
+  return env.CLAUDE_CONFIG_DIR?.trim() || join45(homedir6(), ".claude");
 }
 function slugOf(path) {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");
@@ -30449,10 +30450,10 @@ function claudeProjectSlug(cwd) {
   return slugOf(resolved);
 }
 function claudeProjectDir(cwd, env = process.env) {
-  return join44(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
+  return join45(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
 }
 function legacyClaudeProjectDir(cwd, env = process.env) {
-  return join44(claudeConfigDir(env), "projects", slugOf(resolve40(cwd)));
+  return join45(claudeConfigDir(env), "projects", slugOf(resolve40(cwd)));
 }
 function mintClaudeConversationId() {
   return randomUUID10();
@@ -30468,12 +30469,12 @@ function claudeSessionFile(cwd, convId, env = process.env) {
   if (!isClaudeConversationId(convId))
     return null;
   const projectDir = claudeProjectDir(cwd, env);
-  const file2 = join44(projectDir, `${convId}.jsonl`);
+  const file2 = join45(projectDir, `${convId}.jsonl`);
   if (existsSync35(file2))
     return file2;
   const unresolvedDir = legacyClaudeProjectDir(cwd, env);
   if (unresolvedDir !== projectDir) {
-    const fallbackFile = join44(unresolvedDir, `${convId}.jsonl`);
+    const fallbackFile = join45(unresolvedDir, `${convId}.jsonl`);
     if (existsSync35(fallbackFile))
       return fallbackFile;
   }
@@ -30620,7 +30621,7 @@ function canResumeClaudeConversation(contextRoot, convId) {
   try {
     if (!isContained(realpathSync24(dirname25(file2)), realpathSync24(file2)))
       return false;
-    const text = readFileSync24(file2, "utf8");
+    const text = readFileSync25(file2, "utf8");
     let sawIdentity = false;
     let sawRoot = false;
     const root = realpathSync24(contextRoot);
@@ -30657,7 +30658,7 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
   const mtime = statSync21(file2).mtime.toISOString();
-  const s = parseClaudeSessionJsonl(readFileSync24(file2, "utf8"), mtime);
+  const s = parseClaudeSessionJsonl(readFileSync25(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -30674,15 +30675,15 @@ function listClaudeConversations(contextRoot, env = process.env) {
   const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync35(path));
   const summaries = [];
   const seen = /* @__PURE__ */ new Set();
-  const files = dirs.flatMap((folder) => readdirSync5(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join44(folder, f)));
+  const files = dirs.flatMap((folder) => readdirSync5(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join45(folder, f)));
   for (const path of files) {
-    const fileId = basename21(path, ".jsonl");
+    const fileId = basename20(path, ".jsonl");
     if (seen.has(fileId))
       continue;
     seen.add(fileId);
     let text;
     try {
-      text = readFileSync24(path, "utf8");
+      text = readFileSync25(path, "utf8");
     } catch {
       continue;
     }

@@ -81,42 +81,9 @@ function isRemoteAddress(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 
-export function buildFrameMarkdownTarget(path: string, position: string, content: string, depth: MapDepth): ContentLookTarget {
-  const fm = parseFrontmatter(content);
-  const name = (typeof fm?.name === "string" && fm.name.trim()) || basename(path, ".md");
-  const summary = (typeof fm?.summary === "string" && fm.summary.trim()) || summarizeMarkdown(content);
-  const disclosure = { name, ...(summary && depth !== "name" ? { summary } : {}) };
-  const target: ContentLookTarget = {
-    placement: "history",
-    path,
-    position,
-    kind: "markdown",
-    depth,
-    revision: "",
-    name,
-    member: { position, depth, disclosure },
-  };
-  if (depth !== "name") {
-    target.summary = summary;
-  }
-  if (depth === "surface" || depth === "full") {
-    target.surface = stripFrontmatter(content);
-  } else if (depth === "children") {
-    const outline = inspectMarkdown(content, { mode: "outline" });
-    target.children = outline.mode === "outline"
-      ? outline.headings.map((h) => ({ ...h, kind: "section" as const, name: h.text }))
-      : [];
-  }
-  const represented = {
-    kind: target.kind,
-    name: target.name,
-    ...(target.summary !== undefined ? { summary: target.summary } : {}),
-    ...(target.surface !== undefined ? { surface: target.surface } : {}),
-    ...(target.children !== undefined ? { children: target.children } : {}),
-  };
-  target.revision = `sha256:${createHash("sha256").update(JSON.stringify(represented)).digest("hex")}`;
-  return target;
-}
+import { buildFrameMarkdownTarget } from "../local/thread-read.js";
+
+export { buildFrameMarkdownTarget };
 
 export const lookCommand: CommandDef = {
   name: "look",
@@ -231,6 +198,10 @@ export const lookCommand: CommandDef = {
       const threadFolder = threadSubMatch[1];
       const subEntry = threadSubMatch[2].split(sep).join("/");
       if (subEntry === "README.md" || subEntry === "_agent/agreement.md") {
+        if (flags.pin !== undefined) {
+          output.error("A Thread frame file has its own Agreement; omit --pin.");
+          return 1;
+        }
         if (!existsSync(path)) {
           output.error(`No such path: ${path}`);
           return 1;

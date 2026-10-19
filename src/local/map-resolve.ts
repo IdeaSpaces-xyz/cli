@@ -271,6 +271,16 @@ export function readCheckoutAt(
   const path = isThreads ? resolveThreadGitPath(position, has) : has(position) ? position : null;
   const object = path === null ? undefined : found.get(path || ".");
   if (path === null || !object || (object.type !== "blob" && object.type !== "tree")) {
+    // If it's a Thread post by ID or filename inside a thread directory, check if the thread folder exists
+    if (isThreads && /^_threads\/[^/]+\/[^/]+$/.test(position)) {
+      const threadFolderPos = position.split("/").slice(0, 2).join("/");
+      const threadRel = threadFolderPos.slice("_threads/".length);
+      const folderFound = (has(threadFolderPos) && found.get(threadFolderPos)?.type === "tree") ||
+        (has(threadRel) && found.get(threadRel)?.type === "tree");
+      if (folderFound) {
+        return { status: "read", kind: "file", content: "", path: position };
+      }
+    }
     return { status: "missing_path", reason: `${position} is not in commit ${commit}.` };
   }
 

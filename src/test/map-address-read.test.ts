@@ -222,6 +222,60 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
     }
   });
 
+  it("reads a Thread folder, frame files, and posts by address across disclosure rungs", async () => {
+    const ID_SPACE = "n_000000000000000000000001";
+    mkdirSync(join(space, "_agent"), { recursive: true });
+    writeFileSync(join(space, "_agent", "agreement.md"), `---\nname: Space\nroot_node_id: ${ID_SPACE}\n---\n# Space\n`);
+    mkdirSync(join(space, "_threads", "topic", "_agent"), { recursive: true });
+    writeFileSync(join(space, "_threads", "topic", "README.md"), "---\nname: Topic\nsummary: Topic summary\n---\n## Current frame\nNow deciding.\n");
+    writeFileSync(join(space, "_threads", "topic", "_agent", "agreement.md"), "---\nname: Agreement — Topic\nsummary: Topic agreement\n---\n## Goal\nReach consensus.\n");
+    writeFileSync(join(space, "_threads", "topic", "2026-10-18T10-00-00Z-msg_post1.md"), "---\nid: msg_post1\nname: First post\nsummary: Post summary\n---\nPost body.\n");
+    git(space, ["add", "_agent", "_threads"]);
+    git(space, ["commit", "-qm", "add space agreement and thread"]);
+    const spacePin = git(space, ["rev-parse", "HEAD"]);
+    writeMap(
+      join(space, "thread-test.map.md"),
+      [
+        { root_node_id: ID_SPACE, sha: spacePin, name: "space" },
+      ],
+      [
+        { root: 0, position: "_threads/topic", depth: "summary" },
+      ],
+    );
+    const map = join(space, "thread-test.map.md");
+
+    // 1. Thread folder at summary
+    const folderLook = await run(lookCommand, ["@space//_threads/topic"], { map, depth: "summary" });
+    expect(folderLook.exit).toBe(0);
+    expect(folderLook.stdout).toContain("Topic summary");
+
+    // 2. Thread folder at name (frame)
+    const nameLook = await run(lookCommand, ["@space//_threads/topic"], { map, depth: "name" });
+    expect(nameLook.exit).toBe(0);
+    expect(nameLook.stdout).toContain("Current frame: Now deciding.");
+    expect(nameLook.stdout).toContain("Goal: Reach consensus.");
+
+    // 3. Thread README frame file
+    const readmeLook = await run(lookCommand, ["@space//_threads/topic/README.md"], { map, depth: "surface" });
+    expect(readmeLook.exit).toBe(0);
+    expect(readmeLook.stdout).toContain("Now deciding.");
+
+    // 4. Thread Agreement frame file
+    const agreementLook = await run(lookCommand, ["@space//_threads/topic/_agent/agreement.md"], { map, depth: "summary" });
+    expect(agreementLook.exit).toBe(0);
+    expect(agreementLook.stdout).toContain("Topic agreement");
+
+    // 5. Post by filename in position address
+    const postFileLook = await run(lookCommand, ["@space//_threads/topic/2026-10-18T10-00-00Z-msg_post1.md"], { map, depth: "full" });
+    expect(postFileLook.exit).toBe(0);
+    expect(postFileLook.stdout).toContain("Post body.");
+
+    // 6. Post by id through --post flag on address
+    const postIdLook = await run(lookCommand, ["@space//_threads/topic"], { map, post: "msg_post1", depth: "full" });
+    expect(postIdLook.exit).toBe(0);
+    expect(postIdLook.stdout).toContain("Post body.");
+  });
+
   it("says when an address names something that is not Content", async () => {
     const { exit, stderr } = await run(lookCommand, ["@notes//_agent/agreement.md"], { map: join(space, "space.map.md") }, TEXT_FLAGS);
     expect(exit).toBe(1);

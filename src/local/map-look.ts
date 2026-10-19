@@ -114,36 +114,7 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
         return { status: "not_content", reason: `${target.position} is missing at ${target.commit}.` };
       }
       const content = readFileSync(position, "utf8");
-      const fm = parseFrontmatter(content);
-      const name = (typeof fm?.name === "string" && fm.name.trim()) || basename(target.position, ".md");
-      const summary = (typeof fm?.summary === "string" && fm.summary.trim()) || summarizeMarkdown(content);
-      const disclosure = { name, ...(summary && options.depth !== "name" ? { summary } : {}) };
-      const targetManifest: ContentLookTarget = {
-        placement: "history",
-        path: position,
-        position: target.position,
-        kind: "markdown",
-        depth: options.depth,
-        revision: "",
-        name,
-        member: { position: target.position, depth: options.depth, disclosure },
-      };
-      if (options.depth !== "name") targetManifest.summary = summary;
-      if (options.depth === "surface" || options.depth === "full") targetManifest.surface = stripFrontmatter(content);
-      else if (options.depth === "children") {
-        const outline = inspectMarkdown(content, { mode: "outline" });
-        targetManifest.children = outline.mode === "outline"
-          ? outline.headings.map((h) => ({ ...h, kind: "section" as const, name: h.text }))
-          : [];
-      }
-      const represented = {
-        kind: targetManifest.kind,
-        name: targetManifest.name,
-        ...(targetManifest.summary !== undefined ? { summary: targetManifest.summary } : {}),
-        ...(targetManifest.surface !== undefined ? { surface: targetManifest.surface } : {}),
-        ...(targetManifest.children !== undefined ? { children: targetManifest.children } : {}),
-      };
-      targetManifest.revision = `sha256:${createHash("sha256").update(JSON.stringify(represented)).digest("hex")}`;
+      const targetManifest = buildFrameMarkdownTarget(position, target.position, content, options.depth);
       const looked: ContentLookManifest = {
         status: "ok",
         kind: "content-look",

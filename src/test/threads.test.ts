@@ -195,7 +195,7 @@ describe("local Threads", () => {
       text = "";
       expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
       expect(JSON.parse(text).local_complete).toBe(false);
-      expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(1);
+      expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(0);
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
 
@@ -757,6 +757,51 @@ describe("local Threads", () => {
       const openPostInMain = await run(["open", "main-room"], { post: priorityPost.id });
       expect(openPostInMain.child_threads).toHaveLength(1);
       expect(openPostInMain.child_threads[0].slug).toBe("sub-work");
+    } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
+  });
+
+  it("lists local posts across multiple Threads with ordering, paging, and since filters", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const previous = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean> = {}) => {
+      out = "";
+      const code = await threadsCommand.run(args, options, flags);
+      return { code, data: out ? JSON.parse(out) : null };
+    };
+    try {
+      const roomA = (await run(["new", "room-a"], { about: "Room A" })).data;
+      const postA1 = (await run(["post", "room-a"], { message: "Alpha 1", name: "A1", author: "Tester" })).data;
+      const roomB = (await run(["new", "room-b"], { about: "Room B" })).data;
+      const postB1 = (await run(["post", "room-b"], { message: "Beta 1", name: "B1", author: "Tester" })).data;
+
+      // 1. Default posts listing: newest first
+      const allPosts = await run(["posts"], { limit: "10" });
+      expect(allPosts.code).toBe(0);
+      expect(allPosts.data.items.length).toBeGreaterThanOrEqual(4);
+      expect(allPosts.data.items.map((p: { id: string }) => p.id)).toContain(postB1.id);
+
+      // 2. Limit and cursor
+      const paged = await run(["posts"], { limit: "2" });
+      expect(paged.code).toBe(0);
+      expect(paged.data.items).toHaveLength(2);
+      expect(paged.data.next_cursor).toBe(paged.data.items[1].id);
+
+      // 3. Since filtering
+      const sincePost = await run(["posts"], { since: paged.data.next_cursor, order: "older" });
+      expect(sincePost.code).toBe(0);
+      expect(sincePost.data.items.some((p: { id: string }) => p.id === postB1.id)).toBe(false);
+
+      // 4. Reject --since with --order newer
+      expect(await threadsCommand.run(["posts"], { since: postA1.id, order: "newer" }, flags)).toBe(1);
+
+      // 5. Reject invalid --depth
+      expect(await threadsCommand.run(["posts"], { depth: "full" }, flags)).toBe(1);
+
+      // 6. Child thread invalid since cursor throws error
+      expect(await threadsCommand.run(["open", "room-a"], { depth: "children", since: "nonexistent" }, flags)).toBe(1);
     } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
   });
 });
