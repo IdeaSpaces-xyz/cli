@@ -113,11 +113,13 @@ describe("local Threads", () => {
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }], members: [{ root: 0, position: "." }] } })).toThrow(/depth ceiling/);
     expect(readdirSync(t.path).filter((p) => p.startsWith("20"))).toEqual([]);
     writeFileSync(join(t.path, "bad.md"), "---\nkind: post\n---\nMissing id");
-    expect(() => loadThread(t.path)).toThrow(/Invalid post/);
+    const loadedBad = loadThread(t.path);
+    expect(loadedBad.warnings).toContainEqual(expect.stringMatching(/invalid/));
     rmSync(join(t.path, "bad.md"));
     const first = appendPost(t.path, { body: "First" });
     writeFileSync(join(t.path, "duplicate.md"), readFileSync(first.path));
-    expect(() => loadThread(t.path)).toThrow(/Duplicate post id/);
+    const loadedDup = loadThread(t.path);
+    expect(loadedDup.warnings).toContainEqual(expect.stringMatching(/duplicate/));
     rmSync(join(t.path, "duplicate.md"));
     const outside = join(root, "outside"); mkdirSync(outside);
     symlinkSync(outside, join(root, "_threads", "escape"));
@@ -417,8 +419,8 @@ describe("local Threads", () => {
     const root = fixture(); process.env.HOME = root;
     const healthy = createThread("healthy", "Healthy", root);
     const opening = appendPost(healthy.path, { body: "Good" });
-    const bad = createThread("bad", "Bad", root);
-    writeFileSync(join(bad.path, "invalid.md"), "---\nkind: post\n---\nNo id");
+    const bad = join(root, "_threads", "bad");
+    mkdirSync(bad); // Unreadable Thread folder: missing README.md and _agent/agreement.md
     const previous = process.cwd(); process.chdir(root);
     const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
     let out = "", err = "";
@@ -718,7 +720,7 @@ describe("local Threads", () => {
     } finally { process.stdout.write = writer; process.chdir(old); }
   });
 
-  it("does not resolve the deferred msg_ attachment form", async () => {
+  it("resolves the msg_ attachment form", async () => {
     const root = fixture(); process.env.HOME = root;
     git(root, "init", "-b", "main");
     git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
@@ -737,16 +739,24 @@ describe("local Threads", () => {
       const mainThread = await run(["new", "main-room"], { about: "Main room" });
       const priorityPost = await run(["post", "main-room"], { message: "Priority 1 item", name: "Priority 1", "reply-to": mainThread.opening_post_id });
 
-      // The Agreement retains the authored value; the id grammar is not shipped.
+      // The Agreement retains the authored value and resolves the msg_ attachment form.
       await run(["new", "sub-work"], { about: "Sub work" });
       writeFileSync(join(root, "_threads", "sub-work", "_agent", "agreement.md"),
         `---\nname: Agreement — Sub Work\nsummary: Sub work summary\nattached_to: ${priorityPost.id}\n---\n# Sub Work\n`);
 
       const openSub = await run(["open", "sub-work"], { depth: "name" });
-      expect(openSub.thread.parent).toEqual({ attached_to: priorityPost.id });
+      expect(openSub.thread.parent).toEqual({
+        attached_to: priorityPost.id,
+        id: priorityPost.id,
+        slug: "main-room",
+        path: expect.stringMatching(/^_threads\/main-room\/.+\.md$/),
+        name: "Priority 1",
+        summary: "",
+      });
 
       const openPostInMain = await run(["open", "main-room"], { post: priorityPost.id });
-      expect(openPostInMain.child_threads).toEqual([]);
+      expect(openPostInMain.child_threads).toHaveLength(1);
+      expect(openPostInMain.child_threads[0].slug).toBe("sub-work");
     } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
   });
 });

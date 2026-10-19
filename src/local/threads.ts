@@ -3,7 +3,18 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import {
+  isPinnedMomentMap,
+  parseFrontmatter,
+  parseMap,
+  parseThreadAgreementAttachment,
+  parseThreadPost,
+  reconstructThreadTimeline,
+  resolveThreadParent as protocolResolveThreadParent,
+  type ThreadAttachmentRoot,
+  type ThreadPost,
+  type ThreadKind,
+} from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -137,11 +148,24 @@ export function loadThread(dir: string): LocalThread {
   const seen = new Set<string>();
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent") continue;
-    if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
-    const parsed = parseThreadPost(safeFile(join(path, entry.name)), entry.name);
-    if (parsed.status !== "valid") throw new Error(`Invalid post ${entry.name}: ${parsed.issues.join(", ")}`);
+    const entryPath = join(path, entry.name);
+    if (lstatSync(entryPath).isSymbolicLink() || !entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
+    let parsed;
+    try {
+      parsed = parseThreadPost(safeFile(entryPath), entry.name);
+    } catch (err) {
+      warnings.push(`Post ${entry.name}: could not read (${err instanceof Error ? err.message : String(err)}); skipped.`);
+      continue;
+    }
+    if (parsed.status !== "valid") {
+      warnings.push(`Post ${entry.name}: invalid (${parsed.issues.join(", ")}); skipped.`);
+      continue;
+    }
     if (parsed.post.dateWarning) warnings.push(`Post ${entry.name}: malformed date; time omitted.`);
-    if (seen.has(parsed.post.id)) throw new Error(`Duplicate post id: ${parsed.post.id}`);
+    if (seen.has(parsed.post.id)) {
+      warnings.push(`Post ${entry.name}: duplicate post id ${parsed.post.id}; skipped.`);
+      continue;
+    }
     seen.add(parsed.post.id);
     posts.push(parsed.post);
   }
@@ -207,30 +231,48 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
 
 export function resolveThreadParent(threadDir: string): ThreadParentInfo | null {
   const agreement = join(threadDir, "_agent", "agreement.md");
-  const fm = parseFrontmatter(safeFile(agreement));
+  const content = safeFile(agreement);
+  const fm = parseFrontmatter(content);
   if (!fm) throw new Error(`Malformed Thread Agreement frontmatter: ${agreement}`);
   if (typeof fm.attached_to !== "string" || !fm.attached_to.trim()) return null;
   const attachedTo = fm.attached_to.trim();
   const spaceRoot = spaceForThread(threadDir);
 
-  // Only the existing repository-root-relative post path is a local parent.
-  // TODO(protocol): Move attachment resolution into schema/types/vectors only
-  // after a separate protocol decision; msg_ ids are not a CLI grammar here.
-  if (!/^_threads\/[a-z0-9-]+\/[^/]+\.md$/.test(attachedTo)) return { attached_to: attachedTo };
-  const normPath = join(spaceRoot, attachedTo);
-  const threadsRoot = join(spaceRoot, "_threads");
-  if (!existsSync(normPath)) return { attached_to: attachedTo }; // Missing authored target, never substitute a different post.
-  if (dirname(dirname(normPath)) !== threadsRoot) return { attached_to: attachedTo };
-  if (lstatSync(dirname(normPath)).isSymbolicLink()) throw new Error(`Refusing symlink parent Thread: ${dirname(normPath)}`);
-  const parsed = parseThreadPost(safeFile(normPath), basename(normPath));
-  if (parsed.status !== "valid") throw new Error(`Invalid attached parent post ${attachedTo}: ${parsed.issues.join(", ")}`);
+  const parsedAttachment = parseThreadAgreementAttachment(content, `_threads/${basename(threadDir)}/_agent/agreement.md`);
+  if (parsedAttachment.status !== "valid") return { attached_to: attachedTo };
+
+  if (parsedAttachment.attachment.kind === "path") {
+    const normPath = join(spaceRoot, parsedAttachment.attachment.value);
+    if (existsSync(normPath)) {
+      safeFile(normPath);
+    }
+  }
+
+  const allThreads = listLocal(spaceRoot, () => {});
+  const roots: ThreadAttachmentRoot[] = [{
+    root: spaceRoot,
+    pin: "HEAD",
+    posts: allThreads.flatMap((t) => t.posts.map((p) => ({
+      path: `_threads/${t.slug}/${p.path}`,
+      id: p.id,
+    }))),
+  }];
+
+  const resolution = protocolResolveThreadParent(parsedAttachment.attachment, roots);
+  if (resolution.status !== "resolved") return { attached_to: attachedTo };
+
+  const resolved = resolution.parent;
+  const targetSlug = basename(dirname(resolved.path));
+  const targetThread = allThreads.find((t) => t.slug === targetSlug);
+  const post = targetThread?.posts.find((p) => p.id === resolved.id);
+
   return {
     attached_to: attachedTo,
-    id: parsed.post.id,
-    slug: basename(dirname(normPath)),
-    path: attachedTo,
-    name: parsed.post.frontmatter.name ?? parsed.post.id,
-    summary: parsed.post.frontmatter.summary ?? "",
+    id: resolved.id,
+    slug: targetSlug,
+    path: resolved.path,
+    name: post?.frontmatter.name ?? post?.id ?? resolved.id,
+    summary: post?.frontmatter.summary ?? "",
   };
 }
 
@@ -382,7 +424,12 @@ export function appendPost(dir: string, options: {
   if (options.supersedes && options.kind !== "correction") throw new Error("--supersedes requires --kind correction.");
   if (options.map !== undefined) {
     const map = parseMap(options.map);
-    if (map.status !== "valid") throw new Error("--map must contain a valid protocol Map block; no implicit HEAD pin is substituted.");
+    if (map.status !== "valid") {
+      const details = map.status === "invalid"
+        ? map.issues.map((i) => (i.path ? `${i.path} (${i.code})` : i.code)).join(", ")
+        : "absent";
+      throw new Error(`--map must contain a valid protocol Map block: ${details}; no implicit HEAD pin is substituted.`);
+    }
     if (!isPinnedMomentMap(map.map)) {
       for (const [index, root] of map.map.roots.entries()) {
         if (!root.sha) throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);

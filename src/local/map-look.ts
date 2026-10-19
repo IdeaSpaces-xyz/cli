@@ -1,19 +1,27 @@
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
   assembleContentFocus,
   assembleContentLook,
+  inspectMarkdown,
+  parseFrontmatter,
   renderContentFocus,
   renderContentLook,
+  stripFrontmatter,
+  summarizeMarkdown,
   type ContentFocusResult,
+  type ContentLookManifest,
   type ContentLookResult,
+  type ContentLookTarget,
   type ContractSource,
   type MapDepth,
 } from "@ideaspaces/protocol";
 import { preferredContractSource } from "../contract-source.js";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
+import { loadThread } from "./threads.js";
 
 /**
  * Reading Content at a commit, not in a working tree.
@@ -62,13 +70,223 @@ export interface CommitLookOptions {
   depth: MapDepth;
   contractSource?: ContractSource;
   maxChildren?: number;
+  limit?: number;
+  order?: "newer" | "older";
+  since?: string;
+  post?: string;
 }
 
 /** Look at one Note or directory as it is in a commit, at one rung. */
 export async function lookAtCommit(target: CommitReadTarget, options: CommitLookOptions): Promise<CommitLook> {
-  const wholeTree = target.kind === "directory" && (options.depth === "children" || options.depth === "full");
+  const isThread = target.position.startsWith("_threads/") || target.position === "_threads";
+  const wholeTree = isThread || (target.kind === "directory" && (options.depth === "children" || options.depth === "full"));
   return withSnapshot(target, wholeTree, async (dir) => {
     const position = join(dir, target.position);
+    const relabel = relabeller(dir, target.label);
+
+    let focused = await assembleContentFocus({
+      position: dir,
+      treeMaxEntries: 0,
+      ...(options.contractSource ? { contractSource: options.contractSource } : {}),
+    });
+    if (focused?.status === "contract_choice_required" && !options.contractSource) {
+      const preferred = preferredContractSource(focused.availableSources);
+      if (preferred) {
+        focused = await assembleContentFocus({ position: dir, treeMaxEntries: 0, contractSource: preferred });
+      }
+    }
+    if (!focused) return { status: "not_content", reason: `Cannot frame commit snapshot for ${target.position}.` };
+    if (focused.status !== "ok") return { status: "diagnostic", text: relabel(renderContentFocus(focused)) };
+
+    const reference = { ...focused, tree: null };
+
+    // Frame files under _threads/ (README.md or _agent/agreement.md)
+    if (/^_threads\/[^/]+\/(README\.md|_agent\/agreement\.md)$/.test(target.position)) {
+      if (!existsSync(position)) {
+        return { status: "not_content", reason: `${target.position} is missing at ${target.commit}.` };
+      }
+      const content = readFileSync(position, "utf8");
+      const fm = parseFrontmatter(content);
+      const name = (typeof fm?.name === "string" && fm.name.trim()) || basename(target.position, ".md");
+      const summary = (typeof fm?.summary === "string" && fm.summary.trim()) || summarizeMarkdown(content);
+      const disclosure = { name, ...(summary && options.depth !== "name" ? { summary } : {}) };
+      const targetManifest: ContentLookTarget = {
+        placement: "history",
+        path: position,
+        position: target.position,
+        kind: "markdown",
+        depth: options.depth,
+        revision: "",
+        name,
+        member: { position: target.position, depth: options.depth, disclosure },
+      };
+      if (options.depth !== "name") targetManifest.summary = summary;
+      if (options.depth === "surface" || options.depth === "full") targetManifest.surface = stripFrontmatter(content);
+      else if (options.depth === "children") {
+        const outline = inspectMarkdown(content, { mode: "outline" });
+        targetManifest.children = outline.mode === "outline"
+          ? outline.headings.map((h) => ({ ...h, kind: "section" as const, name: h.text }))
+          : [];
+      }
+      const represented = {
+        kind: targetManifest.kind,
+        name: targetManifest.name,
+        ...(targetManifest.summary !== undefined ? { summary: targetManifest.summary } : {}),
+        ...(targetManifest.surface !== undefined ? { surface: targetManifest.surface } : {}),
+        ...(targetManifest.children !== undefined ? { children: targetManifest.children } : {}),
+      };
+      targetManifest.revision = `sha256:${createHash("sha256").update(JSON.stringify(represented)).digest("hex")}`;
+      const looked: ContentLookManifest = {
+        status: "ok",
+        kind: "content-look",
+        contractRole: "reference",
+        reference,
+        target: targetManifest,
+      };
+      return {
+        status: "ok",
+        text: relabel(renderContentLook(looked)),
+        result: relabelDeep(looked, relabelValue(dir, target.label, relabel)),
+      };
+    }
+
+    // Thread folders (_threads/<slug>)
+    if (/^_threads\/[^/]+$/.test(target.position)) {
+      if (!existsSync(position) || !statSync(position).isDirectory()) {
+        return { status: "not_content", reason: `${target.position} is not a Thread directory.` };
+      }
+      let thread;
+      try {
+        thread = loadThread(position);
+      } catch (err) {
+        return { status: "diagnostic", text: `Thread ${target.position} cannot be read: ${err instanceof Error ? err.message : String(err)}` };
+      }
+      if (options.post) {
+        const norm = options.post.replace(/\\/g, "/");
+        const file = basename(norm);
+        const bareId = file.replace(/\.md$/, "");
+        const matched = thread.posts.find((p) =>
+          p.id === options.post || p.id === bareId || p.path === options.post || p.path === file || basename(p.path) === file
+        );
+        if (!matched) return { status: "not_content", reason: `Post ${options.post} not found in Thread ${thread.slug}.` };
+        const raw = readFileSync(join(position, matched.path), "utf8");
+        return {
+          status: "ok",
+          text: relabel(raw),
+          result: {
+            status: "ok",
+            kind: "content-look",
+            contractRole: "reference",
+            reference,
+            target: {
+              placement: "history",
+              path: join(position, matched.path),
+              position: `${target.position}/${matched.path}`,
+              kind: "markdown",
+              depth: options.depth,
+              revision: `sha256:${createHash("sha256").update(raw).digest("hex")}`,
+              name: matched.frontmatter.name ?? matched.id,
+              summary: matched.frontmatter.summary ?? null,
+              surface: stripFrontmatter(raw),
+              member: { position: `${target.position}/${matched.path}`, depth: options.depth },
+            },
+          },
+        };
+      }
+
+      const order = options.order ?? "newer";
+      let posts = [...thread.posts];
+      if (options.since) {
+        const at = posts.findIndex((p) => p.id === options.since);
+        if (at !== -1) posts = posts.slice(at + 1);
+        else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(options.since) && !Number.isNaN(Date.parse(options.since))) {
+          const cutoff = Date.parse(options.since);
+          posts = posts.filter((p) => p.date && Date.parse(p.date) > cutoff);
+        }
+      }
+      if (order === "newer") posts.reverse();
+      const limit = options.limit ?? (options.depth === "surface" ? 5 : 10);
+      const boundedPosts = posts.slice(0, limit);
+
+      let text = `${thread.slug}  ${thread.name}\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
+      if (options.depth === "name") {
+        text = `${thread.slug}  ${thread.name}`;
+      } else if (options.depth === "summary") {
+        text = `${thread.name} (${target.position})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
+      } else if (options.depth === "surface" || options.depth === "full") {
+        text = `${thread.name} (${target.position})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts\n\n` +
+          boundedPosts.map((p) => `${p.id} · ${p.frontmatter.author ?? "unknown"} · ${p.kind}\n${p.frontmatter.name ?? ""}\n${p.body}`).join("\n\n");
+      }
+      return {
+        status: "ok",
+        text: relabel(text),
+        result: {
+          status: "ok",
+          kind: "content-look",
+          contractRole: "reference",
+          reference,
+          target: {
+            placement: "history",
+            path: position,
+            position: target.position,
+            kind: "directory",
+            depth: options.depth,
+            revision: `sha256:${createHash("sha256").update(text).digest("hex")}`,
+            name: thread.name,
+            summary: thread.summary,
+            member: { position: target.position, depth: options.depth },
+          },
+        },
+      };
+    }
+
+    // Direct post lookup by subpath (_threads/<slug>/<entry>)
+    if (/^_threads\/[^/]+\/[^/]+$/.test(target.position)) {
+      const match = /^(_threads\/[^/]+)\/(.+)$/.exec(target.position)!;
+      const threadSlugPos = match[1];
+      const postSpec = match[2];
+      const threadDir = join(dir, threadSlugPos);
+      if (existsSync(threadDir)) {
+        let thread;
+        try {
+          thread = loadThread(threadDir);
+        } catch { /* proceed */ }
+        if (thread) {
+          const norm = postSpec.replace(/\\/g, "/");
+          const file = basename(norm);
+          const bareId = file.replace(/\.md$/, "");
+          const matched = thread.posts.find((p) =>
+            p.id === postSpec || p.id === bareId || p.path === postSpec || p.path === file || basename(p.path) === file
+          );
+          if (matched) {
+            const raw = readFileSync(join(threadDir, matched.path), "utf8");
+            return {
+              status: "ok",
+              text: relabel(raw),
+              result: {
+                status: "ok",
+                kind: "content-look",
+                contractRole: "reference",
+                reference,
+                target: {
+                  placement: "history",
+                  path: join(threadDir, matched.path),
+                  position: `${threadSlugPos}/${matched.path}`,
+                  kind: "markdown",
+                  depth: options.depth,
+                  revision: `sha256:${createHash("sha256").update(raw).digest("hex")}`,
+                  name: matched.frontmatter.name ?? matched.id,
+                  summary: matched.frontmatter.summary ?? null,
+                  surface: stripFrontmatter(raw),
+                  member: { position: `${threadSlugPos}/${matched.path}`, depth: options.depth },
+                },
+              },
+            };
+          }
+        }
+      }
+    }
+
     const request = {
       position,
       depth: options.depth,
@@ -81,7 +299,6 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
       if (preferred) looked = await assembleContentLook({ ...request, contractSource: preferred });
     }
     if (!looked) return { status: "not_content", reason: `${target.position} is not a Markdown Note or Content directory.` };
-    const relabel = relabeller(dir, target.label);
     if (looked.status !== "ok") return { status: "diagnostic", text: relabel(renderContentLook(looked)) };
     return { status: "ok", text: relabel(renderContentLook(looked)), result: relabelDeep(looked, relabelValue(dir, target.label, relabel)) };
   });
@@ -150,7 +367,18 @@ function writeSnapshot(target: CommitReadTarget, wholeTree: boolean, dir: string
   const { checkoutPath, commit, position, kind } = target;
   const agentDirs = framingFolders(position, kind).map((folder) => (folder ? `${folder}/_agent` : "_agent"));
   const below = position === "." ? "" : `${position}/`;
-  const specs = [...agentDirs, ...(kind === "file" ? [position] : wholeTree ? [position] : [`${below}README.md`])];
+  const isThread = position.startsWith("_threads/") || position === "_threads";
+  const threadRoot = isThread && position.includes("/") ? position.split("/").slice(0, 2).join("/") : position;
+  const specs = [
+    ...agentDirs,
+    ...(isThread
+      ? [threadRoot]
+      : kind === "file"
+        ? [position]
+        : wholeTree
+          ? [position]
+          : [`${below}README.md`]),
+  ];
 
   // A whole-tree read of the root lists everything; otherwise only the framing and the target.
   const pathspecs = specs.includes(".") ? [] : ["--", ...specs.map((spec) => `:(literal)${spec}`)];
@@ -165,7 +393,7 @@ function writeSnapshot(target: CommitReadTarget, wholeTree: boolean, dir: string
     if (!match) continue;
     const path = match[3];
     const framing = agentDirs.some((agent) => path.startsWith(`${agent}/`));
-    if (framing || path === position || path.endsWith(".md")) files.push({ path, object: match[2] });
+    if (framing || path === position || path.startsWith(`${position}/`) || path.endsWith(".md") || path.startsWith("_threads/")) files.push({ path, object: match[2] });
   }
   // A directory is in the commit even when nothing below it is written out.
   if (kind === "directory") mkdirSync(join(dir, position), { recursive: true });

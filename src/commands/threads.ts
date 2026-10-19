@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { parseFrontmatter, parseThreadPost, type ThreadKind, type ThreadPost } from "@ideaspaces/protocol";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
@@ -13,7 +13,7 @@ import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
-  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity,
+  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, activityAt,
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./thread-flags.js";
@@ -280,11 +280,119 @@ export const threadsCommand: CommandDef = {
       if ((sub === "open" || sub === "read") && HOSTED.test(rest[0] ?? "") && (flags.limit !== undefined || flags.order !== undefined)) {
         throw new Error("Local open only: --limit and --order are not supported for hosted Threads.");
       }
-      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || sub === "posts" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
+      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
         if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
           return threadsCommand.run(["open", rest[0]], flags, global);
         }
         return hostedThreadsCommand.run(args, flags, global);
+      }
+      if (sub === "posts") {
+        const cwd = rest[0] ? resolve(rest[0]) : process.cwd();
+        let hasLocalThreads = false;
+        let spaceRoot = "";
+        try {
+          spaceRoot = threadBase(cwd);
+          hasLocalThreads = existsSync(join(spaceRoot, "_threads"));
+        } catch {
+          hasLocalThreads = false;
+        }
+
+        if (!hasLocalThreads || flags.space !== undefined || flags.scope !== undefined || flags.cursor !== undefined || (rest.length === 1 && HOSTED.test(rest[0]))) {
+          return hostedThreadsCommand.run(args, flags, global);
+        }
+        if (rest.length > 1) throw new Error("Usage: ideaspaces threads posts [<dir>] [--limit <n>] [--since <id|date>] [--depth name|summary] [--order newer|older]");
+        let localWarnings = 0;
+        const warn = (message: string) => { output.log(message); localWarnings++; };
+        const threads = listLocal(spaceRoot, warn);
+        for (const t of threads) reportDateWarnings(t, output);
+
+        interface LocalPostRow {
+          thread_name: string;
+          thread_slug: string;
+          thread_path: string;
+          id: string;
+          path: string;
+          created_at: string | null;
+          author: string | null;
+          name: string;
+          summary: string | null;
+          kind: string;
+          in_reply_to: string[];
+        }
+
+        const allPosts: LocalPostRow[] = [];
+        for (const thread of threads) {
+          for (const p of thread.posts) {
+            allPosts.push({
+              thread_name: thread.name,
+              thread_slug: thread.slug,
+              thread_path: thread.path,
+              id: p.id,
+              path: `_threads/${thread.slug}/${p.path}`,
+              created_at: activityAt(p) ?? p.date ?? null,
+              author: p.frontmatter.author ?? null,
+              name: p.frontmatter.name ?? p.id,
+              summary: p.frontmatter.summary ?? null,
+              kind: p.kind,
+              in_reply_to: p.inReplyTo,
+            });
+          }
+        }
+
+        const order = str(flags, "order") ?? "newer";
+        if (order !== "newer" && order !== "older") throw new Error("--order must be newer or older.");
+
+        allPosts.sort((a, b) => {
+          const tA = a.created_at ? Date.parse(a.created_at) : 0;
+          const tB = b.created_at ? Date.parse(b.created_at) : 0;
+          if (tA !== tB) return order === "newer" ? tB - tA : tA - tB;
+          return order === "newer" ? b.path.localeCompare(a.path) : a.path.localeCompare(b.path);
+        });
+
+        const since = str(flags, "since");
+        let posts = allPosts;
+        if (since) {
+          const at = posts.findIndex((p) => p.id === since);
+          if (at !== -1) posts = posts.slice(at + 1);
+          else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
+            const cutoff = Date.parse(since);
+            posts = posts.filter((p) => p.created_at && Date.parse(p.created_at) > cutoff);
+          } else {
+            throw new Error(`--since needs a post id or valid ISO date: ${since}`);
+          }
+        }
+
+        let limit = 10;
+        const limitStr = str(flags, "limit");
+        if (flags.limit !== undefined) {
+          if (!limitStr || !/^\d+$/.test(limitStr) || parseInt(limitStr, 10) <= 0) {
+            throw new Error("--limit must be a positive integer.");
+          }
+          limit = parseInt(limitStr, 10);
+        }
+
+        const items = posts.slice(0, limit);
+        const nextCursor = posts.length > items.length ? items.at(-1)?.id : null;
+        const depthVal = flags.depth === "name" ? "name" : "summary";
+
+        let text: string;
+        if (!items.length) {
+          text = "No local posts found.";
+        } else {
+          const postLines = items.map((post) => {
+            const header = `${post.thread_name}  (${post.thread_slug})\n  ${post.id} · ${post.created_at ?? "undated"} · ${post.author ?? "unknown author"} — ${post.name}`;
+            if (depthVal === "name" || !post.summary) return header;
+            return `${header}\n  ${post.summary}`;
+          }).join("\n\n");
+          if (nextCursor) {
+            text = `${postLines}\n\nMore posts: ideaspaces threads posts --limit ${limit} --order ${order} --since ${nextCursor}`;
+          } else {
+            text = postLines;
+          }
+        }
+
+        output.result({ items, next_cursor: nextCursor }, text);
+        return 0;
       }
       if (sub === "locate") {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0])) throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
@@ -321,7 +429,10 @@ export const threadsCommand: CommandDef = {
         if (!space) {
           try {
             localThreads = listLocal(cwd, warn);
-            for (const thread of localThreads) reportDateWarnings(thread, output);
+            for (const thread of localThreads) {
+              reportDateWarnings(thread, output);
+              for (const w of thread.warnings) warn(w);
+            }
             local = localRows(localThreads, newOnly, warn);
           } catch (error) {
             // Outside a Space, hosted listing still works. A malformed Thread or
@@ -455,9 +566,22 @@ export const threadsCommand: CommandDef = {
         // Count the entire selected range before the surface head moves it.
         // Unseen posts before a snapshot must not be silently acknowledged.
         const rangeCount = posts.length;
+        let matchedPost: ThreadPost | undefined;
         if (postId) {
-          if (!thread.posts.some((p) => p.id === postId)) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
-          posts = thread.posts.filter((p) => p.id === postId);
+          const norm = postId.replace(/\\/g, "/");
+          const file = basename(norm);
+          const bareId = file.replace(/\.md$/, "");
+          matchedPost = thread.posts.find((p) =>
+            p.id === postId ||
+            p.id === bareId ||
+            p.path === postId ||
+            p.path === file ||
+            basename(p.path) === file ||
+            p.path.endsWith(`-${bareId}.md`) ||
+            p.path === `${bareId}.md`
+          );
+          if (!matchedPost) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
+          posts = [matchedPost];
         } else if (rung === "surface") {
           const snapshot = findNewestSnapshot(posts);
           if (snapshot) {
@@ -509,14 +633,20 @@ export const threadsCommand: CommandDef = {
         const warnChild = (message: string) => { output.log(message); childWarnings++; };
         let allChildThreads: ChildThreadInfo[] = [];
         if (postId || effectiveRung === "children") {
-          try { allChildThreads = findChildThreads(thread.path, postId, warnChild); }
+          try { allChildThreads = findChildThreads(thread.path, matchedPost?.id ?? postId, warnChild); }
           catch (error) {
             warnChild(`Thread ${thread.slug} child lookup incomplete: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
         const allBranches = effectiveRung === "children" ? computeBranches(thread.posts).sort((a, b) => (b.tip_date ?? "").localeCompare(a.tip_date ?? "")) : [];
         if (effectiveRung === "children" && order === "older") { allChildThreads.reverse(); allBranches.reverse(); }
-        const childThreads = allChildThreads.slice(0, limit ?? 10);
+
+        let childSinceThreads = allChildThreads;
+        if (effectiveRung === "children" && since) {
+          const at = allChildThreads.findIndex((c) => c.slug === since || c.path === since || c.thread_id === since || c.id === since);
+          if (at !== -1) childSinceThreads = allChildThreads.slice(at + 1);
+        }
+        const childThreads = childSinceThreads.slice(0, limit ?? 10);
         const branches = allBranches.slice(0, limit ?? 10);
         const snapshot = findNewestSnapshot(thread.posts);
 
@@ -544,6 +674,13 @@ export const threadsCommand: CommandDef = {
           humanText = localText(thread, boundedPosts, effectiveRung, {
             frame, parent, snapshot, branches, childThreads, branchTotal: allBranches.length, childThreadTotal: allChildThreads.length, childWarnings, filtered,
           });
+        }
+
+        if (effectiveRung === "children" && allChildThreads.length > childThreads.length) {
+          const nextChildCursor = childThreads.at(-1)?.slug;
+          if (nextChildCursor) {
+            humanText += `\n\nShowing ${childThreads.length} of ${allChildThreads.length} child Threads. Continue with --since ${nextChildCursor}.`;
+          }
         }
 
         if (parentWarning) humanText += `\nParent lookup incomplete: ${parentWarning}`;

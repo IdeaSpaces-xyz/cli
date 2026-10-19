@@ -133,6 +133,30 @@ describe("ideaspaces look", () => {
     expect(unknown.stderr).toContain("Unknown flag for a Thread folder: --typo");
     const full = await runLook(["_threads/decision"], { depth: "full" });
     expect(full.data.posts).toHaveLength(2);
+    const paged = await runLook(["_threads/decision"], { depth: "surface", limit: "1", order: "newer" });
+    expect(paged.exit, paged.stderr).toBe(0);
+    expect(paged.data.posts).toHaveLength(1);
+    expect(paged.data.posts[0].id).toBe(second.post.id);
+
+    // Frame files readable through look
+    const readmeLook = await runLook(["_threads/decision/README.md"], { depth: "surface" });
+    expect(readmeLook.exit, readmeLook.stderr).toBe(0);
+    expect(readmeLook.data.target.kind).toBe("markdown");
+    expect(readmeLook.data.target.surface).toContain("Current decision");
+
+    const agreementLook = await runLook(["_threads/decision/_agent/agreement.md"], { depth: "summary" });
+    expect(agreementLook.exit, agreementLook.stderr).toBe(0);
+    expect(agreementLook.data.target.name).toContain("Agreement — Current decision");
+
+    // Post readable by filename or id
+    const postByFile = await runLook([`_threads/decision/${second.post.path}`], { depth: "full" });
+    expect(postByFile.exit, postByFile.stderr).toBe(0);
+    expect(postByFile.data.posts[0].id).toBe(second.post.id);
+
+    const postById = await runLook([`_threads/decision/${first.post.id}`], { depth: "full" });
+    expect(postById.exit, postById.stderr).toBe(0);
+    expect(postById.data.posts[0].id).toBe(first.post.id);
+
     const wrong = await runLook(["_threads/decision"], { depth: "summary", contract: "agreement" });
     expect(wrong.exit).toBe(1);
     expect(wrong.stderr).toContain("Thread folder");

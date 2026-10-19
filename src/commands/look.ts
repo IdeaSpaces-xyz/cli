@@ -12,15 +12,23 @@
  * portable Map only when the local root is clean, pinned, and identified.
  */
 
-import { existsSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import {
   MAP_DEPTHS,
+  assembleContentFocus,
   assembleContentLook,
   buildMap,
   gitState,
+  inspectMarkdown,
+  parseFrontmatter,
   renderContentLook,
+  stripFrontmatter,
+  summarizeMarkdown,
   type ContentLookManifest,
+  type ContentLookResult,
+  type ContentLookTarget,
   type MapBlock,
   type MapDepth,
   type MapParseIssue,
@@ -41,9 +49,9 @@ import type { CommandDef } from "../types.js";
 
 const DEPTHS = "<name|summary|surface|children|full>";
 const USAGE =
-  `ideaspaces look <path> [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--limit <n>] [--pin <sha>] [--json]\n` +
-  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--json]\n` +
-  `       ideaspaces look _threads/<slug> [--depth ${DEPTHS}] [--new|--since <ISO date|post id>] [--post <id>] [--json]`;
+  `ideaspaces look <path> [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--limit <n>] [--order <newer|older>] [--pin <sha>] [--json]\n` +
+  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--limit <n>] [--order <newer|older>] [--since <ISO date|post id>] [--post <id>] [--json]\n` +
+  `       ideaspaces look _threads/<slug> [--depth ${DEPTHS}] [--new|--since <ISO date|post id>] [--post <id>] [--limit <n>] [--order <newer|older>] [--json]`;
 
 interface PortableProjection {
   root: LocalProjectionRoot;
@@ -71,6 +79,43 @@ function parseLimit(value: string | boolean | undefined): number | null | undefi
 
 function isRemoteAddress(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+
+function buildFrameMarkdownTarget(path: string, position: string, content: string, depth: MapDepth): ContentLookTarget {
+  const fm = parseFrontmatter(content);
+  const name = (typeof fm?.name === "string" && fm.name.trim()) || basename(path, ".md");
+  const summary = (typeof fm?.summary === "string" && fm.summary.trim()) || summarizeMarkdown(content);
+  const disclosure = { name, ...(summary && depth !== "name" ? { summary } : {}) };
+  const target: ContentLookTarget = {
+    placement: "history",
+    path,
+    position,
+    kind: "markdown",
+    depth,
+    revision: "",
+    name,
+    member: { position, depth, disclosure },
+  };
+  if (depth !== "name") {
+    target.summary = summary;
+  }
+  if (depth === "surface" || depth === "full") {
+    target.surface = stripFrontmatter(content);
+  } else if (depth === "children") {
+    const outline = inspectMarkdown(content, { mode: "outline" });
+    target.children = outline.mode === "outline"
+      ? outline.headings.map((h) => ({ ...h, kind: "section" as const, name: h.text }))
+      : [];
+  }
+  const represented = {
+    kind: target.kind,
+    name: target.name,
+    ...(target.summary !== undefined ? { summary: target.summary } : {}),
+    ...(target.surface !== undefined ? { surface: target.surface } : {}),
+    ...(target.children !== undefined ? { children: target.children } : {}),
+  };
+  target.revision = `sha256:${createHash("sha256").update(JSON.stringify(represented)).digest("hex")}`;
+  return target;
 }
 
 export const lookCommand: CommandDef = {
@@ -137,7 +182,10 @@ export const lookCommand: CommandDef = {
         depth,
         ...(at ? { at } : {}),
         ...(selected.source ? { contractSource: selected.source } : {}),
-        ...(limit !== undefined ? { maxChildren: limit } : {}),
+        ...(limit !== undefined ? { maxChildren: limit, limit } : {}),
+        ...("order" in flags && typeof flags.order === "string" ? { order: flags.order as "newer" | "older" } : {}),
+        ...("since" in flags && typeof flags.since === "string" ? { since: flags.since } : {}),
+        ...("post" in flags && typeof flags.post === "string" ? { post: flags.post } : {}),
       });
       return emit(output, global.json, read.ok, read.data, read.text);
     }
@@ -150,15 +198,73 @@ export const lookCommand: CommandDef = {
     // through the same bounded Thread reader as `threads open`; never reinterpret
     // their posts as ordinary Notes or substitute a pin from working-tree HEAD.
     if (/(?:^|[\\/])_threads[\\/][^\\/]+$/.test(path) && existsSync(path) && statSync(path).isDirectory()) {
-      if (flags.contract !== undefined || flags.limit !== undefined || flags.pin !== undefined) {
-        output.error("A Thread folder has its own Agreement and post rungs; omit --contract, --limit and --pin. Use threads open with an authored pin for a post.");
+      if (flags.contract !== undefined || flags.pin !== undefined) {
+        output.error("A Thread folder has its own Agreement and post rungs; omit --contract and --pin. Use threads open with an authored pin for a post.");
         return 1;
       }
-      const allowed = new Set(["depth", "new", "since", "post"]);
+      const allowed = new Set(["depth", "new", "since", "post", "limit", "order"]);
       const extra = Object.keys(flags).find((flag) => !allowed.has(flag));
       if (extra) { output.error(`Unknown flag for a Thread folder: --${extra}`); return 1; }
-      return threadsCommand.run(["open", path], { depth, ...("new" in flags ? { new: flags.new } : {}),
-        ...("since" in flags ? { since: flags.since } : {}), ...("post" in flags ? { post: flags.post } : {}) }, global);
+      return threadsCommand.run(["open", path], {
+        depth,
+        ...("new" in flags ? { new: flags.new } : {}),
+        ...("since" in flags ? { since: flags.since } : {}),
+        ...("post" in flags ? { post: flags.post } : {}),
+        ...(flags.limit !== undefined ? { limit: flags.limit } : {}),
+        ...("order" in flags ? { order: flags.order } : {}),
+      }, global);
+    }
+
+    let looked: ContentLookResult | null = null;
+
+    // Thread subpaths: posts or frame files (README.md, _agent/agreement.md)
+    const threadSubMatch = /^(.*[\\/]_threads[\\/][^\\/]+)[\\/](.+)$/.exec(path);
+    if (threadSubMatch && existsSync(threadSubMatch[1]) && statSync(threadSubMatch[1]).isDirectory()) {
+      const threadFolder = threadSubMatch[1];
+      const subEntry = threadSubMatch[2].split(sep).join("/");
+      if (subEntry === "README.md" || subEntry === "_agent/agreement.md") {
+        if (!existsSync(path)) {
+          output.error(`No such path: ${path}`);
+          return 1;
+        }
+        const root = await repoRoot(dirname(threadFolder)) ?? dirname(dirname(threadFolder));
+        const relPos = relative(root, path).split(sep).join("/");
+        const content = readFileSync(path, "utf8");
+        const target = buildFrameMarkdownTarget(path, relPos, content, depth);
+        let focused = await assembleContentFocus({ position: root, treeMaxEntries: 0, ...(selected.source ? { contractSource: selected.source } : {}) });
+        if (focused?.status === "contract_choice_required" && !selected.source) {
+          const preferred = preferredContractSource(focused.availableSources);
+          if (preferred) {
+            focused = await assembleContentFocus({ position: root, treeMaxEntries: 0, contractSource: preferred });
+          }
+        }
+        if (!focused || focused.status !== "ok") {
+          output.error(`Not a Content target: ${path}`);
+          return 1;
+        }
+        looked = {
+          status: "ok",
+          kind: "content-look",
+          contractRole: "reference",
+          reference: { ...focused, tree: null },
+          target,
+        };
+      } else if (subEntry === "_agent" && statSync(path).isDirectory()) {
+        output.error("A Thread's _agent/ folder has its own Agreement; read _agent/agreement.md directly.");
+        return 1;
+      } else {
+        // Treat as post lookup
+        if (flags.contract !== undefined || flags.pin !== undefined) {
+          output.error("A Thread post has its own Agreement and post rungs; omit --contract and --pin.");
+          return 1;
+        }
+        return threadsCommand.run(["open", threadFolder], {
+          depth,
+          post: subEntry,
+          ...(flags.limit !== undefined ? { limit: flags.limit } : {}),
+          ...("order" in flags ? { order: flags.order } : {}),
+        }, global);
+      }
     }
     if (flags.pin !== undefined) {
       return lookAtPin(output, global.json, raw, flags.pin, {
@@ -168,30 +274,31 @@ export const lookCommand: CommandDef = {
       });
     }
 
-    let looked;
-    try {
-      const options = {
-        position: path,
-        depth,
-        ...(selected.source ? { contractSource: selected.source } : {}),
-        ...(limit !== undefined ? { maxChildren: limit } : {}),
-      };
-      looked = await assembleContentLook(options);
-      // The protocol remains neutral. Agreement-first is explicit CLI policy.
-      if (looked?.status === "contract_choice_required" && !selected.source) {
-        const preferred = preferredContractSource(looked.availableSources);
-        if (preferred) {
-          looked = await assembleContentLook({ ...options, contractSource: preferred });
+    if (!looked) {
+      try {
+        const options = {
+          position: path,
+          depth,
+          ...(selected.source ? { contractSource: selected.source } : {}),
+          ...(limit !== undefined ? { maxChildren: limit } : {}),
+        };
+        looked = await assembleContentLook(options);
+        // The protocol remains neutral. Agreement-first is explicit CLI policy.
+        if (looked?.status === "contract_choice_required" && !selected.source) {
+          const preferred = preferredContractSource(looked.availableSources);
+          if (preferred) {
+            looked = await assembleContentLook({ ...options, contractSource: preferred });
+          }
         }
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        output.error(
+          code === "ENOENT"
+            ? `No such path: ${path}`
+            : `Cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return 1;
       }
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      output.error(
-        code === "ENOENT"
-          ? `No such path: ${path}`
-          : `Cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return 1;
     }
 
     if (!looked) {

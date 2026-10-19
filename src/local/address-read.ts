@@ -62,13 +62,24 @@ interface AddressReadOptions {
 export async function lookAtAddress(
   note: LoadedMapNote,
   address: string,
-  options: AddressReadOptions & { depth: MapDepth; maxChildren?: number },
+  options: AddressReadOptions & {
+    depth: MapDepth;
+    maxChildren?: number;
+    limit?: number;
+    order?: "newer" | "older";
+    since?: string;
+    post?: string;
+  },
 ): Promise<AddressRead> {
   return readAddress(note, address, options, (target) =>
     lookAtCommit(target, {
       depth: options.depth,
       ...(options.contractSource ? { contractSource: options.contractSource } : {}),
       ...(options.maxChildren !== undefined ? { maxChildren: options.maxChildren } : {}),
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options.order ? { order: options.order } : {}),
+      ...(options.since ? { since: options.since } : {}),
+      ...(options.post ? { post: options.post } : {}),
     }),
   );
 }

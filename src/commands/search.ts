@@ -90,6 +90,10 @@ export const searchCommand: CommandDef = {
       const { listLocal, NoAgreementError } = await import("../local/threads.js");
       try {
         for (const thread of listLocal(root)) {
+          if (thread.warnings.length) {
+            output.error(`Cannot search local Threads: ${thread.warnings.join(", ")}`);
+            return 1;
+          }
           for (const p of ["README.md", ...thread.posts.map((post) => post.path)]) {
             const path = `_threads/${thread.slug}/${p}`;
             if (!markdown.includes(path)) markdown.push(path);
