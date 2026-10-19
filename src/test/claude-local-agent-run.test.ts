@@ -99,6 +99,22 @@ describe.skipIf(process.platform === "win32")("runClaudeTurn against a stand-in 
     expect(done.result.usage).toMatchObject({ input_tokens: 1, output_tokens: 2, cost_usd: 0.001, model_tier: "fake" });
   });
 
+  it("refuses a listener turn when Claude exposes a tool, even if it returns a plausible answer", async () => {
+    const fake = join(dir, "listener-claude.cjs");
+    await writeFile(fake, `process.stdin.resume(); process.stdin.on('end', () => {
+      const out = (record) => process.stdout.write(JSON.stringify(record) + '\\n');
+      out({ type: 'system', subtype: 'init', session_id: '${ID}', tools: ['Bash'] });
+      out({ type: 'result', subtype: 'success', is_error: false, result: 'fake summary' });
+    });`);
+    const launcher = join(dir, "listener-claude");
+    await writeFile(launcher, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
+    await chmod(launcher, 0o755);
+    const events = await collect(runClaudeTurn({ repoPath: join(dir, "space"), message: "adversarial source", conversationId: ID,
+      sessionExists: false, listenerOnly: true, claudeBin: launcher }));
+    expect(events.some((event) => event.type === "turn_complete")).toBe(false);
+    expect(events.find((event) => event.type === "error")).toMatchObject({ type: "error", error_type: "claude_exit" });
+  });
+
   it("kills the child and emits cancelled when aborted mid-turn", async () => {
     const controller = new AbortController();
     const gen = runClaudeTurn({

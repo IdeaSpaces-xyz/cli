@@ -119,6 +119,8 @@ export interface ClaudeTurnOptions {
   permissionPromptsNone?: boolean;
   /** Restrict the headless child to built-in read tools, with no plugin MCP tools. */
   readOnly?: boolean;
+  /** Listener-only turn: no model tools, no settings/hooks or project MCP. Never resume. */
+  listenerOnly?: boolean;
   /** Claude Code's --effort, if supported by the installed version. */
   effort?: ClaudeEffort;
   /** Auth path. Default `login` — scrubs API-key variables from the child env. */
@@ -155,12 +157,18 @@ export function buildClaudeArgs(opts: ClaudeTurnOptions & { sessionExists: boole
 
   if (opts.model) args.push("--model", opts.model);
   if (opts.effort) args.push("--effort", opts.effort);
-  if (opts.readOnly) {
+  if (opts.listenerOnly) {
+    // A prompt is not a permission boundary. Reject older Claude versions at runtime
+    // if their init does not confirm an empty tool inventory.
+    args.push("--restricted", "--tools", "", "--strict-mcp-config",
+      "--setting-sources", "", "--disable-slash-commands", "--permission-prompts", "none");
+  } else if (opts.readOnly) {
     // --allowedTools is preapproval, never a restriction. Drop every MCP server
     // (including the plugin) and all non-read builtins for an actual ask boundary.
     args.push("--tools", "Read,Grep,Glob", "--strict-mcp-config");
   }
   if (opts.allowedTools && opts.allowedTools.length > 0) {
+    if (opts.listenerOnly) throw new Error("Listener runs cannot allow model tools.");
     args.push("--allowedTools", opts.allowedTools.join(","));
   }
 
@@ -272,7 +280,8 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
   }
 
   const addedDirs = resolveAddedDirs(opts);
-  const allowedTools = opts.allowedTools ?? (opts.readOnly ? ["Read", "Grep", "Glob"] : null);
+  const allowedTools = opts.allowedTools ?? (opts.listenerOnly ? [] : opts.readOnly ? ["Read", "Grep", "Glob"] : null);
+  let restrictedInit = false;
   // The model Claude Code reports (init, else the first assistant message) — not the --model alias.
   let observedModel: string | null = null;
 
@@ -281,13 +290,27 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
       const record = parseClaudeStreamLine(line);
       if (!record) continue; // Claude Code prints some failures as prose before its result line
       observedModel ??= claudeRecordModel(record);
+      const init = record as { type: string; subtype?: string; tools?: unknown };
+      if (opts.listenerOnly && init.type === "system" && init.subtype === "init") {
+        if (!Array.isArray(init.tools) || init.tools.length !== 0) {
+          throw new Error("Listener confinement failed: Claude exposed model tools; no answer may be posted.");
+        }
+        restrictedInit = true;
+      }
+      if (opts.listenerOnly && (record.type === "assistant" || record.type === "result") && !restrictedInit) {
+        throw new Error("Listener confinement failed: Claude did not report an empty tool inventory.");
+      }
+      const assistant = record as { type: string; message?: { content?: { type: string }[] } };
+      if (opts.listenerOnly && assistant.type === "assistant" && assistant.message?.content?.some((block) => block.type === "tool_use")) {
+        throw new Error("Listener confinement failed: Claude attempted a tool call.");
+      }
       for (const ke of translator.translate(record)) {
         if (ke.type === "message_start") {
           yield discloseLaunch(ke, {
             cwd: opts.repoPath, added_dirs: addedDirs,
             permission_mode: opts.permissionMode ?? "acceptEdits",
             allowed_tools: allowedTools ?? null, allowed_tools_semantics: "preapproval",
-            shell_available: !opts.readOnly, runtime: "claude",
+            shell_available: !opts.readOnly && !opts.listenerOnly, runtime: "claude",
             model: opts.model ?? ke.model_tier,
             model_requested: opts.model ?? null, model_observed: observedModel,
             thread: opts.threadReceipt,
