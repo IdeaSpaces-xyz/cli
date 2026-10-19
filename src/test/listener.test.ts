@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendPost, createThread, loadThread } from "../local/threads.js";
-import { createListener, listenerRecord, listenerStatus, reconcileListener, setListenerEnabled, type ListenerRun } from "../local/listener.js";
+import { createListener, listenerRecord, listenerStatus, reconcileListener, resolveListenerRun, setListenerEnabled, type ListenerRun } from "../local/listener.js";
 import { buildClaudeArgs } from "../claude/local-agent.js";
+import { makeListenerCommand } from "../commands/listener.js";
 
 const dirs: string[] = [];
 const home = process.env.HOME;
@@ -62,16 +63,25 @@ describe("bounded local listener", () => {
     }
   });
 
-  it("rechecks disable at the writer after the model answers; ambiguous append remains inspectable, not retried", async () => {
+  it("keeps the agent-readable record valid when the Thread folder moves", () => {
+    const { root, thread } = fixture();
+    const moved = join(root, "_threads", "renamed");
+    renameSync(thread, moved);
+    expect(listenerRecord(moved).sourceThreadId).toBe(loadThread(moved).thread_id);
+    expect(listenerStatus(moved).reviewed).toBe(true);
+  });
+
+  it("rechecks disable at the writer after the model answers and reports a definite non-write", async () => {
     const { thread } = fixture();
     appendPost(thread, { body: "Before disable" });
     const runs = await reconcileListener(thread, async () => {
       setListenerEnabled(thread, false);
       return "Should never be written";
     });
-    expect(runs[0].status).toBe("uncertain");
+    expect(runs[0].status).toBe("failed");
+    expect(runs[0].reason).toContain("refused before writing");
     expect(loadThread(thread).posts.some((p) => p.body.includes("Should never"))).toBe(false);
-    expect((await reconcileListener(thread, summary))[0].status).toBe("uncertain");
+    expect((await reconcileListener(thread, summary))[0].status).toBe("failed");
   });
 
   it("reconciles an output after a crash between append and ledger ack", async () => {
@@ -90,6 +100,10 @@ describe("bounded local listener", () => {
     delete pending[0].outputPostId;
     writeFileSync(cache, JSON.stringify(pending));
     expect((await reconcileListener(thread, summary))[0].status).toBe("uncertain");
+    await expect(resolveListenerRun(thread, source.id, run.outputPostId!)).rejects.toThrow(/unique reply/);
+    const resolved = await resolveListenerRun(thread, source.id, "none");
+    expect(resolved.status).toBe("failed");
+    expect(resolved.reason).toContain("Person inspected");
   });
 
   it("records a model failure without acknowledging the input or retrying it; an ordinary tagged post still runs", async () => {
@@ -102,6 +116,27 @@ describe("bounded local listener", () => {
     expect(runs[0].reason).toContain("provider unavailable");
     expect(await reconcileListener(thread, async () => { throw new Error("must not retry"); })).toHaveLength(1);
     expect(loadThread(thread).posts).toHaveLength(2);
+  });
+
+  it("CLI rejects bad flags and returns an inspectable status/tick JSON shape", async () => {
+    const { root, thread } = fixture();
+    const command = makeListenerCommand(summary);
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const oldCwd = process.cwd(), oldWrite = process.stdout.write;
+    let output = "";
+    process.stdout.write = ((value: string) => { output += value; return true; }) as typeof process.stdout.write;
+    try {
+      process.chdir(root);
+      expect(await command.run(["tick"], {}, flags)).toBe(1);
+      expect(await command.run(["create", "_threads/topic"], {}, flags)).toBe(1);
+      expect(await command.run(["watch", "_threads/topic"], { interval: "not-a-number" }, flags)).toBe(1);
+      expect(await command.run(["status", "_threads/topic"], {}, flags)).toBe(0);
+      expect(JSON.parse(output)).toMatchObject({ enabled: true, reviewed: true, runs: [] });
+      output = "";
+      appendPost(thread, { body: "CLI tick input" });
+      expect(await command.run(["tick", "_threads/topic"], {}, flags)).toBe(0);
+      expect(JSON.parse(output).runs).toMatchObject([{ status: "posted" }]);
+    } finally { process.chdir(oldCwd); process.stdout.write = oldWrite; }
   });
 
   it("turns off every built-in tool, MCP, settings, hooks and approval path for the model", () => {

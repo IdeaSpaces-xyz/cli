@@ -9,8 +9,7 @@ import { appendPost, loadThread, type LocalThread } from "./threads.js";
 export interface ListenerRecord {
   version: 1;
   id: string;
-  source: string; // real local Thread directory
-  sourcePostId: string; // its opening post, not a mutable folder name
+  sourceThreadId: string; // opening post id; portable across clones and folder moves
   signal: "new-post";
   pov: string;
   task: string;
@@ -24,7 +23,9 @@ export interface ListenerRun {
   status: "running" | "writing" | "posted" | "failed" | "uncertain";
   outputPostId?: string; reason?: string;
 }
-export type Summarize = (record: ListenerRecord, source: { id: string; body: string }, runId: string) => Promise<string>;
+export type Summarize = (record: ListenerRecord, source: { id: string; body: string; threadPath: string }, runId: string) => Promise<string>;
+
+class ListenerGuardRefusal extends Error {}
 
 function regular(path: string): boolean {
   return existsSync(path) && lstatSync(path).isFile() && !lstatSync(path).isSymbolicLink();
@@ -49,8 +50,8 @@ function paths(thread: LocalThread) {
 }
 function revision(record: ListenerRecord): string { return createHash("sha256").update(JSON.stringify(record)).digest("hex"); }
 function validate(thread: LocalThread, record: ListenerRecord): void {
-  if (record.version !== 1 || record.id !== thread.thread_id || record.source !== thread.path ||
-    record.sourcePostId !== thread.thread_id || record.destinationPostId !== thread.thread_id ||
+  if (record.version !== 1 || record.id !== thread.thread_id || record.sourceThreadId !== thread.thread_id ||
+    record.destinationPostId !== thread.thread_id ||
     record.signal !== "new-post" || !record.task?.trim() || !record.pov?.trim() || !record.model?.trim() ||
     JSON.stringify(record.capabilities) !== JSON.stringify(["thread-read", "thread-post"])) {
     throw new Error("Listener record must bind this local Thread, same-Thread destination, task, POV and read/post-only capabilities.");
@@ -65,8 +66,8 @@ export function listenerRecord(threadPath: string): ListenerRecord {
 export function createListener(threadPath: string, pov: string, task: string, model = "haiku"): string {
   const thread = loadThread(threadPath);
   if (!thread.thread_id) throw new Error("Thread needs an opening post id.");
-  const record: ListenerRecord = { version: 1, id: thread.thread_id, source: thread.path,
-    sourcePostId: thread.thread_id, signal: "new-post", pov, task, model,
+  const record: ListenerRecord = { version: 1, id: thread.thread_id, sourceThreadId: thread.thread_id,
+    signal: "new-post", pov, task, model,
     capabilities: ["thread-read", "thread-post"], destinationPostId: thread.thread_id };
   validate(thread, record);
   const target = paths(thread).record;
@@ -96,8 +97,8 @@ export function listenerStatus(threadPath: string) {
   try { reviewed = !!grant?.enabled && grant.revision === revision(listenerRecord(thread.path)); } catch { /* edited/invalid record cannot run */ }
   return { record: state.record, enabled: !!grant?.enabled, reviewed, runs: ledger };
 }
-function provenance(record: ListenerRecord, source: string, run: string): string[] {
-  return [`listener:${record.id}`, `source:${source}`, `run:${run}`];
+function provenance(listenerId: string, source: string, run: string): string[] {
+  return [`listener:${listenerId}`, `source:${source}`, `run:${run}`];
 }
 function outputs(thread: LocalThread, tags: string[]): string[] {
   return thread.posts.filter((p) => tags.every((t) => p.frontmatter.tags?.includes(t))).map((p) => p.id);
@@ -112,14 +113,50 @@ function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
     const pid = Number(readFileSync(path, "utf8"));
     if (!Number.isSafeInteger(pid) || pid < 1) throw new Error("Invalid listener lock; inspect it before continuing.");
     try { process.kill(pid, 0); throw new Error(`Listener already runs in process ${pid}.`); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EPERM") throw new Error(`Cannot verify listener lock process ${pid}; inspect before continuing.`);
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
     unlinkSync(path);
   }
-  const fd = openSync(path, "wx", 0o600);
+  let fd: number;
+  try { fd = openSync(path, "wx", 0o600); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Listener already runs or another runner claimed its lock; inspect before continuing.");
+    throw error;
+  }
   writeFileSync(fd, String(process.pid)); closeSync(fd);
   return fn().finally(() => { if (regular(path) && readFileSync(path, "utf8") === String(process.pid)) unlinkSync(path); });
 }
 /** One scan. The outer watch process calls this repeatedly; startup always scans all posts. */
+/** Person-inspected resolution of an ambiguous append, without a blind retry.
+ * Stop the watcher first. `none` records a checked absence; only a proven
+ * provenance/reply-linked post can be acknowledged as written. */
+export function resolveListenerRun(threadPath: string, sourcePostId: string, outputPostId: string | "none"): Promise<ListenerRun> {
+  const thread = loadThread(threadPath);
+  const state = paths(thread);
+  return withLock(state.lock, async () => {
+    const runs = json<ListenerRun[]>(state.ledger);
+    const run = runs.find((item) => item.sourcePostId === sourcePostId && item.status === "uncertain");
+    if (!run) throw new Error(`No uncertain listener run for ${sourcePostId}.`);
+    const tags = provenance(thread.thread_id!, run.sourcePostId, run.runId);
+    const current = loadThread(threadPath);
+    const found = outputs(current, tags);
+    if (outputPostId === "none") {
+      if (found.length) throw new Error("An output with this run's provenance exists; inspect and resolve with its post id.");
+      run.status = "failed"; run.reason = "Person inspected the Thread; no output confirmed. No automatic retry.";
+    } else {
+      const post = current.posts.find((item) => item.id === outputPostId);
+      if (found.length !== 1 || found[0] !== outputPostId || !post?.inReplyTo.includes(sourcePostId)) {
+        throw new Error("Output is not a unique reply with this run's listener/source/run provenance.");
+      }
+      run.status = "posted"; run.outputPostId = post.id; delete run.reason;
+    }
+    saveRuns(state.ledger, runs);
+    return run;
+  });
+}
+
 export function reconcileListener(threadPath: string, summarize: Summarize): Promise<ListenerRun[]> {
   const initial = loadThread(threadPath);
   const state = paths(initial);
@@ -129,7 +166,7 @@ export function reconcileListener(threadPath: string, summarize: Summarize): Pro
     // an absent post after an interrupted append cannot prove the write failed.
     for (const run of runs) {
       if (run.status !== "running" && run.status !== "writing") continue;
-      const tags = provenance({ id: initial.thread_id! } as ListenerRecord, run.sourcePostId, run.runId);
+      const tags = provenance(initial.thread_id!, run.sourcePostId, run.runId);
       const found = outputs(loadThread(threadPath), tags);
       if (found.length === 1) { run.status = "posted"; run.outputPostId = found[0]; }
       else { run.status = "uncertain"; run.reason = found.length ? "Multiple outputs for one input; inspect the Thread." : "Run interrupted; inspect before retry."; }
@@ -149,11 +186,11 @@ export function reconcileListener(threadPath: string, summarize: Summarize): Pro
       const run: ListenerRun = { key, sourcePostId: post.id, revision: grant.revision, runId: randomUUID(), status: "running" };
       runs.push(run); saveRuns(state.ledger, runs);
       let body: string;
-      try { body = await summarize(record, { id: post.id, body: post.body }, run.runId); }
+      try { body = await summarize(record, { id: post.id, body: post.body, threadPath: thread.path }, run.runId); }
       catch (error) { run.status = "failed"; run.reason = `Agent failed: ${String(error)}`; saveRuns(state.ledger, runs); continue; }
       if (!body.trim()) { run.status = "failed"; run.reason = "Agent returned no summary."; saveRuns(state.ledger, runs); continue; }
       run.status = "writing"; saveRuns(state.ledger, runs);
-      const tags = provenance(record, post.id, run.runId);
+      const tags = provenance(record.id, post.id, run.runId);
       try {
         const { post: output } = appendPost(threadPath, {
           body, author: record.pov, kind: "snapshot", replyTo: [post.id], tags,
@@ -162,19 +199,24 @@ export function reconcileListener(threadPath: string, summarize: Summarize): Pro
             const live = json<ListenerGrant>(state.grant);
             const checked = listenerRecord(current.path);
             if (!live.enabled || live.revision !== run.revision || revision(checked) !== run.revision ||
-                checked.destinationPostId !== current.thread_id || checked.sourcePostId !== current.thread_id ||
+                checked.destinationPostId !== current.thread_id || checked.sourceThreadId !== current.thread_id ||
                 parents.length !== 1 || parents[0] !== post.id ||
                 !current.posts.some((p) => p.id === post.id && p.kind === "post") || outputs(current, tags).length) {
-              throw new Error("Listener grant, source or destination changed; guarded append refused.");
+              throw new ListenerGuardRefusal("Listener grant, source or destination changed; guarded append refused before writing.");
             }
           },
         });
         run.status = "posted"; run.outputPostId = output.id;
       } catch (error) {
-        // appendPost can throw after an exclusive create. Never assume no write.
-        const found = outputs(loadThread(threadPath), tags);
-        if (found.length === 1) { run.status = "posted"; run.outputPostId = found[0]; }
-        else { run.status = "uncertain"; run.reason = `Append outcome requires inspection: ${String(error)}`; }
+        // A known pre-write refusal is a failure, not an ambiguous write.
+        if (error instanceof ListenerGuardRefusal) {
+          run.status = "failed"; run.reason = error.message;
+        } else {
+          // appendPost can throw after an exclusive create. Never assume no write.
+          const found = outputs(loadThread(threadPath), tags);
+          if (found.length === 1) { run.status = "posted"; run.outputPostId = found[0]; }
+          else { run.status = "uncertain"; run.reason = `Append outcome requires inspection: ${String(error)}`; }
+        }
       }
       saveRuns(state.ledger, runs);
     }

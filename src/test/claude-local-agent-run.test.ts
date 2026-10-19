@@ -115,6 +115,23 @@ describe.skipIf(process.platform === "win32")("runClaudeTurn against a stand-in 
     expect(events.find((event) => event.type === "error")).toMatchObject({ type: "error", error_type: "claude_exit" });
   });
 
+  it("rejects a tool-use block even after an empty init inventory", async () => {
+    const fake = join(dir, "tool-claude.cjs");
+    await writeFile(fake, `process.stdin.resume(); process.stdin.on('end', () => {
+      const out = (record) => process.stdout.write(JSON.stringify(record) + '\\n');
+      out({ type: 'system', subtype: 'init', session_id: '${ID}', tools: [] });
+      out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'echo bad' } }] } });
+      out({ type: 'result', subtype: 'success', is_error: false, result: 'fake summary' });
+    });`);
+    const launcher = join(dir, "tool-claude");
+    await writeFile(launcher, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`);
+    await chmod(launcher, 0o755);
+    const events = await collect(runClaudeTurn({ repoPath: join(dir, "space"), message: "adversarial source", conversationId: ID,
+      sessionExists: false, listenerOnly: true, claudeBin: launcher }));
+    expect(events.some((event) => event.type === "turn_complete")).toBe(false);
+    expect(events.find((event) => event.type === "error")).toMatchObject({ type: "error", error_type: "claude_exit" });
+  });
+
   it("kills the child and emits cancelled when aborted mid-turn", async () => {
     const controller = new AbortController();
     const gen = runClaudeTurn({
