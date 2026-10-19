@@ -28,10 +28,13 @@ export const makeListenerCommand = (summarizeThreadPost: Summarize): CommandDef 
         const grant = setListenerEnabled(thread, verb === "enable");
         const record = verb === "enable" ? listenerRecord(thread) : undefined;
         output.result({ grant, ...(record ? { record } : {}) }, verb === "enable"
-          ? `Enabled revision ${grant.revision} for ${record!.pov} (${record!.model}): ${record!.task}\nSource/destination: ${record!.sourceThreadId}; capabilities: ${record!.capabilities.join(", ")}.`
+          ? `Enabled revision ${grant.revision} for ${record!.pov} (${record!.model}): ${record!.task}\nSource/destination: ${record!.sourceThreadId}; capabilities: ${record!.capabilities.join(", ")}. Baseline: ${grant.baseline.length} existing posts.`
           : "Listener disabled."); return 0;
       }
-      if (verb === "status") { const status = listenerStatus(thread); output.result(status, JSON.stringify(status, null, 2)); return 0; }
+      if (verb === "status") {
+        const status = listenerStatus(thread);
+        output.result(status, `Listener ${status.enabled ? (status.reviewed ? "enabled" : "changed; run listener enable after review") : "disabled"}; ${status.runs.length} run(s).\n${status.runs.map((run) => `${run.sourcePostId}: ${run.status}${run.outputPostId ? ` → ${run.outputPostId}` : run.reason ? `: ${run.reason}` : ""}`).join("\n")}`); return 0;
+      }
       if (verb === "resolve") {
         const source = text(flags, "source"), result = text(flags, "output");
         if (!source || !result) throw new Error("Resolve needs --source <post-id> --output <post-id|none>. Stop the watcher and inspect the Thread first.");
@@ -41,20 +44,39 @@ export const makeListenerCommand = (summarizeThreadPost: Summarize): CommandDef 
       if (verb !== "tick" && verb !== "watch") throw new Error(USAGE);
       const interval = flags.interval === undefined ? 1000 : Number(text(flags, "interval"));
       if (!Number.isSafeInteger(interval) || interval < 100) throw new Error("--interval must be an integer >= 100ms.");
-      let stopping = false;
-      const stop = () => { stopping = true; };
+      let stopping = false, warnedRevision = false;
+      const controller = new AbortController();
+      const stop = () => {
+        if (stopping) process.exit(130); // A second signal forces exit; restart reconciles the ledger.
+        stopping = true;
+        controller.abort(); // Stops an in-flight Claude child and wakes the poll sleep.
+      };
       process.on("SIGINT", stop); process.on("SIGTERM", stop);
       try {
         const iterate = async () => {
-        do {
-          const before = new Map(listenerStatus(thread).runs.map((run) => [run.key, run.status]));
-          const runs = await reconcileListener(thread, summarizeThreadPost, verb === "watch");
-          const changed = runs.filter((run) => before.get(run.key) !== run.status);
-          for (const run of changed) output.log(`${run.sourcePostId}: ${run.status}${run.outputPostId ? ` → ${run.outputPostId}` : run.reason ? `: ${run.reason}` : ""}`);
-          if (verb === "tick") { output.result({ runs }, JSON.stringify({ runs }, null, 2)); return 0; }
-          await new Promise<void>((resolve) => { setTimeout(resolve, interval); });
-        } while (!stopping);
-        return 0;
+          do {
+            const state = listenerStatus(thread);
+            if (state.enabled && !state.reviewed && !warnedRevision) {
+              output.log("Listener record changed; review it and run listener enable to approve a new revision.");
+              warnedRevision = true;
+            }
+            if (state.reviewed) warnedRevision = false;
+            const before = new Map(state.runs.map((run) => [run.key, run.status]));
+            const runs = await reconcileListener(thread, summarizeThreadPost, verb === "watch", controller.signal);
+            const changed = runs.filter((run) => before.get(run.key) !== run.status);
+            for (const run of changed) output.log(`${run.sourcePostId}: ${run.status}${run.outputPostId ? ` → ${run.outputPostId}` : run.reason ? `: ${run.reason}` : ""}`);
+            if (verb === "tick") {
+              output.result({ runs }, `${runs.length} run(s).\n${runs.map((run) => `${run.sourcePostId}: ${run.status}${run.outputPostId ? ` → ${run.outputPostId}` : run.reason ? `: ${run.reason}` : ""}`).join("\n")}`);
+              return 0;
+            }
+            if (stopping) break;
+            await new Promise<void>((resolve) => {
+              const wake = () => { clearTimeout(timer); controller.signal.removeEventListener("abort", wake); resolve(); };
+              const timer = setTimeout(wake, interval);
+              controller.signal.addEventListener("abort", wake, { once: true });
+            });
+          } while (!stopping);
+          return 0;
         };
         return verb === "watch" ? await withListenerWatch(thread, iterate) : await iterate();
       } finally { process.off("SIGINT", stop); process.off("SIGTERM", stop); }

@@ -23,7 +23,7 @@ export interface ListenerRun {
   status: "running" | "writing" | "posted" | "failed" | "uncertain";
   outputPostId?: string; reason?: string;
 }
-export type Summarize = (record: ListenerRecord, source: { id: string; body: string; threadPath: string }, runId: string) => Promise<string>;
+export type Summarize = (record: ListenerRecord, source: { id: string; body: string; threadPath: string }, runId: string, signal?: AbortSignal) => Promise<string>;
 
 class ListenerGuardRefusal extends Error {}
 
@@ -146,6 +146,7 @@ export function resolveListenerRun(threadPath: string, sourcePostId: string, out
   const thread = loadThread(threadPath);
   const state = paths(thread);
   return withLock(state.lock, async () => {
+    if (!existsSync(state.ledger)) throw new Error("No listener runs recorded; there is nothing to resolve.");
     const runs = json<ListenerRun[]>(state.ledger);
     const run = runs.find((item) => item.sourcePostId === sourcePostId && item.status === "uncertain");
     if (!run) throw new Error(`No uncertain listener run for ${sourcePostId}.`);
@@ -173,27 +174,30 @@ export function withListenerWatch<T>(threadPath: string, run: () => Promise<T>):
 }
 
 /** One scan. The watcher holds the lock across polls; tick acquires it per scan. */
-export function reconcileListener(threadPath: string, summarize: Summarize, watchLocked = false): Promise<ListenerRun[]> {
+export function reconcileListener(threadPath: string, summarize: Summarize, watchLocked = false, signal?: AbortSignal): Promise<ListenerRun[]> {
   const initial = loadThread(threadPath);
   const state = paths(initial);
   const scan = async () => {
     const runs = existsSync(state.ledger) ? json<ListenerRun[]>(state.ledger) : [];
     // Any interrupted run is not retried. A proven post is recovered by provenance;
     // an absent post after an interrupted append cannot prove the write failed.
+    let recovered = false;
     for (const run of runs) {
       if (run.status !== "running" && run.status !== "writing") continue;
+      recovered = true;
       const tags = provenance(initial.thread_id!, run.sourcePostId, run.runId);
       const found = outputs(loadThread(threadPath), tags);
       if (found.length === 1) { run.status = "posted"; run.outputPostId = found[0]; }
       else { run.status = "uncertain"; run.reason = found.length ? "Multiple outputs for one input; inspect the Thread." : "Run interrupted; inspect before retry."; }
     }
-    saveRuns(state.ledger, runs);
+    if (recovered) saveRuns(state.ledger, runs);
     const grant = existsSync(state.grant) ? json<ListenerGrant>(state.grant) : undefined;
     let record: ListenerRecord;
     try { record = listenerRecord(threadPath); } catch { return runs; }
     if (!grant?.enabled || grant.revision !== revision(record)) return runs;
     const thread = loadThread(threadPath);
     for (const post of thread.posts) {
+      if (signal?.aborted) break;
       // Our output is a snapshot bearing stable provenance, not an ordinary source post.
       // A user's ordinary post cannot suppress intake by copying its tags.
       if (post.kind !== "post" || post.id === thread.thread_id || grant.baseline.includes(post.id)) continue;
@@ -202,7 +206,7 @@ export function reconcileListener(threadPath: string, summarize: Summarize, watc
       const run: ListenerRun = { key, sourcePostId: post.id, revision: grant.revision, runId: randomUUID(), status: "running" };
       runs.push(run); saveRuns(state.ledger, runs);
       let body: string;
-      try { body = await summarize(record, { id: post.id, body: post.body, threadPath: thread.path }, run.runId); }
+      try { body = await summarize(record, { id: post.id, body: post.body, threadPath: thread.path }, run.runId, signal); }
       catch (error) { run.status = "failed"; run.reason = `Agent failed: ${String(error)}`; saveRuns(state.ledger, runs); continue; }
       if (!body.trim()) { run.status = "failed"; run.reason = "Agent returned no summary."; saveRuns(state.ledger, runs); continue; }
       run.status = "writing"; saveRuns(state.ledger, runs);
