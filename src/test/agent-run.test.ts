@@ -14,6 +14,7 @@ import type { GlobalFlags } from "../types.js";
 import { saveSpace } from "../auth/spaces.js";
 import { claudeConversationOps } from "../claude/local-conversation-ops.js";
 import { localConversationOps as piConversationOps } from "../pi/local-conversation-ops.js";
+import { getLocalConversation } from "../pi/local-conversations.js";
 import { composeLocalConversationOps } from "../local/runtime.js";
 import type { LocalSendOptions } from "../local/send-options.js";
 import { canResumeClaudeConversation, claudeProjectDir } from "../claude/local-conversations.js";
@@ -697,7 +698,11 @@ process.stdin.on("end", () => {
 `;
 
   const FAKE_PI = `
+const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2);
+const sessionId = args[args.indexOf('--session-id') + 1];
+const sessionDir = args[args.indexOf('--session-dir') + 1];
+const transcript = path.join(sessionDir, '2026_' + sessionId + '.jsonl');
 let buffered = "";
 process.stdin.on("data", (chunk) => {
   buffered += String(chunk);
@@ -708,11 +713,20 @@ process.stdin.on("data", (chunk) => {
     if (!line) continue;
     const command = JSON.parse(line);
     if (command.type === "get_state") {
+      if (args.includes('--name') && args[args.indexOf('--name') + 1] === 'Silent state') continue;
       const pattern = args.includes("--model") ? args[args.indexOf("--model") + 1] : "";
       const model = command.id === "__state" ? { provider: "fake", id: pattern ? "resolved-" + pattern.split("/").pop() : "default-model" } : undefined;
-      console.log(JSON.stringify({ type: "response", command: "get_state", success: true, data: { sessionName: "Agent run test", model } }));
+      const saved = fs.existsSync(transcript) ? fs.readFileSync(transcript, 'utf8').split('\\n').filter(Boolean).map(JSON.parse).filter((e) => e.type === 'session_info').at(-1)?.name : null;
+      const failedState = args.includes('--name') && args[args.indexOf('--name') + 1] === 'Failed state';
+      console.log(JSON.stringify({ type: "response", command: "get_state", success: !failedState, ...(failedState ? { error: 'State unavailable' } : { data: { sessionName: args.includes("--name") ? (args[args.indexOf("--name") + 1] === "Rejected topic" ? null : args[args.indexOf("--name") + 1]) : saved ?? null, model } }) }));
     }
+    if (command.type === 'set_session_name' && fs.existsSync(transcript)) fs.appendFileSync(transcript, JSON.stringify({type:'session_info', name:command.name}) + '\\n');
     if (command.type === "prompt") {
+      if (command.message === 'topic_probe') {
+        if (!fs.existsSync(transcript)) fs.writeFileSync(transcript, JSON.stringify({type:'session',id:sessionId,cwd:process.cwd()}) + '\\n');
+        if (args.includes('--name')) fs.appendFileSync(transcript, JSON.stringify({type:'session_info',name:args[args.indexOf('--name')+1]}) + '\\n');
+        fs.appendFileSync(transcript, JSON.stringify({type:'message',message:{role:'user',content:[{type:'text',text:command.message}]}}) + '\\n');
+      }
       if (command.message.includes("auth_fail")) {
         console.log(JSON.stringify({ type: "response", command: "prompt", success: false, error: "Authentication failed: invalid token" }));
         return;
@@ -722,7 +736,8 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
       const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
-      const answer = command.message === "selection_probe" ? JSON.stringify({ ext: args.filter((arg) => arg === "--extension").length, paths: args.flatMap((arg, i) => arg === "--extension" ? [args[i + 1]] : []), skill: args.filter((arg) => arg === "--skill").length, noDiscovery: args.includes("--no-extensions"), noSkillsDiscovery: args.includes("--no-skills") })
+      const answer = command.message === "topic_probe" ? JSON.stringify({ name: args.includes("--name") ? args[args.indexOf("--name") + 1] : null, resumed: args.includes("--session-id") ? args[args.indexOf("--session-id") + 1] : null })
+        : command.message === "selection_probe" ? JSON.stringify({ ext: args.filter((arg) => arg === "--extension").length, paths: args.flatMap((arg, i) => arg === "--extension" ? [args[i + 1]] : []), skill: args.filter((arg) => arg === "--skill").length, noDiscovery: args.includes("--no-extensions"), noSkillsDiscovery: args.includes("--no-skills") })
         : command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
         : command.message === "policy_probe" ? JSON.stringify({ approved: args.includes("-a"), thinking: args[args.indexOf("--thinking") + 1] })
         : "pi:" + command.message + frame;
@@ -950,6 +965,7 @@ process.stdin.on("data", (chunk) => {
         "pi.skill-isolation",
         "pi.trust",
         "pi.thinking",
+        "pi.topic",
         "claude.read-only",
         "claude.effort",
         "claude.permission-mode",
@@ -1172,6 +1188,74 @@ process.stdin.on("data", (chunk) => {
     const delta = lines.find((e) => e.type === "text_delta");
     expect(delta.delta).toBe("pi:hello pi");
   });
+
+  it("names only new Pi runs explicitly, preserving the unnamed fallback and refusing Claude/resume topics before spawn", async () => {
+    const dir = makeAgentDir();
+    const fakeBin = join(dir, "fake-pi");
+    writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+    const run = (flags: Record<string, string | boolean>) => agentCmd.run(["run", dir], {
+      runtime: "pi", message: "topic_probe", ext: fakeBin, "pi-bin": fakeBin, ...flags,
+    }, JSON_GLOBAL);
+    expect(await run({ topic: "  Exact Pi topic  " })).toBe(0);
+    const lines = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    const first = lines.find((e) => e.type === "turn_complete");
+    expect(JSON.parse(first.result.response).name).toBe("Exact Pi topic");
+    const conversationId = lines.find((e) => e.type === "message_start").conversation_id;
+    expect(getLocalConversation(dir, conversationId).name).toBe("Exact Pi topic");
+    stdoutChunks = [];
+    expect(await run({ conversation: conversationId })).toBe(0);
+    expect(getLocalConversation(dir, conversationId).name).toBe("Exact Pi topic");
+    stdoutChunks = [];
+    expect(await run({})).toBe(0);
+    const unnamed = stdout().trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.type === "turn_complete");
+    expect(JSON.parse(unnamed.result.response).name).toBeNull();
+    const unnamedId = stdout().trim().split("\n").map((l) => JSON.parse(l)).find((e) => e.type === "message_start").conversation_id;
+    expect(getLocalConversation(dir, unnamedId).name).toBe("topic_probe");
+    stdoutChunks = [];
+    expect(await run({ topic: "Rejected topic" })).toBe(1);
+    const refused = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    expect(refused.some((e) => e.type === "message_start" || e.type === "turn_complete")).toBe(false);
+    expect(refused.find((e) => e.type === "error")?.error_type).toBe("pi_session_name");
+    stdoutChunks = [];
+    expect(await run({ topic: "Failed state" })).toBe(1);
+    const failedState = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    expect(failedState.some((e) => e.type === "message_start" || e.type === "turn_complete")).toBe(false);
+    expect(failedState.find((e) => e.type === "error")).toMatchObject({ error_type: "pi_session_name", message: expect.stringContaining("State unavailable") });
+    for (const topic of [true, "  ", "x".repeat(201)]) {
+      stderrChunks = [];
+      expect(await run({ topic })).toBe(1);
+      expect(stderr()).toContain("--topic requires");
+    }
+    stderrChunks = [];
+    expect(await agentCmd.run(["run", dir], { runtime: "claude", message: "hello", topic: "No Claude" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Claude naming is not supported");
+    stderrChunks = [];
+    expect(await run({ topic: "No resume", conversation: "local-session-123" })).toBe(1);
+    expect(stderr()).toContain("omit it when resuming");
+  });
+
+  it("refuses --topic on direct Claude conversation send instead of dropping it", async () => {
+    const conversation = makeConversationCommand(composeLocalConversationOps({ pi: piConversationOps, claude: claudeConversationOps }));
+    expect(await conversation.run(["send"], { local: true, runtime: "claude", topic: "No Claude", message: "hello" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("--topic names a new Pi agent run only");
+  });
+
+  it("fails a silent Pi name handshake without starting a turn or leaving a running record", async () => {
+    const dir = makeAgentDir();
+    const fakeBin = join(dir, "fake-pi");
+    writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+    const runId = "topic-silent-state";
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "topic_probe", topic: "Silent state",
+      ext: fakeBin, "pi-bin": fakeBin, "run-id": runId }, JSON_GLOBAL)).toBe(1);
+    const events = stdout().trim().split("\n").map((line) => JSON.parse(line));
+    expect(events.map((event) => event.type)).toEqual(["error"]);
+    expect(events[0]).toMatchObject({ error_type: "pi_session_name", message: expect.stringContaining("within 10 seconds") });
+    expect(getAgentRun(runId)).toMatchObject({ status: "failed", conversation_id: null });
+  }, 15_000);
 
   it("reports child auth failure as failure (exit code 1) for claude", async () => {
     const dir = makeAgentDir();

@@ -25228,6 +25228,10 @@ function makeConversationCommand(local) {
         case "new":
           return flags2.local ? local.createNew(flags2, output) : cmdNew2(rest, flags2, output);
         case "send":
+          if (flags2.topic !== void 0) {
+            output.error("--topic names a new Pi agent run only; omit it for conversation send.");
+            return 1;
+          }
           return flags2.local ? local.send(flags2, output) : cmdSend(rest, flags2, output);
         case "get":
           return flags2.local ? local.get(flags2, output) : cmdGet(rest, output);
@@ -25677,6 +25681,7 @@ var AGENT_RUN_FEATURES = {
   "pi.skill-isolation": "Pi loads only the --skill dirs given; user and project skills are not discovered.",
   "pi.trust": "--pi-trust saved|explicit selects Pi project-resource trust.",
   "pi.thinking": "--pi-thinking passes a Pi thinking level.",
+  "pi.topic": "--topic names a new Pi transcript explicitly; without it the first message names an unnamed session. Claude and resumed runs refuse --topic.",
   "claude.read-only": "--read-only exposes only Read, Grep and Glob and drops MCP servers.",
   "claude.effort": "--claude-effort passes a Claude Code effort level.",
   "claude.permission-mode": "--permission-mode selects a Claude Code permission mode (bypass refused).",
@@ -26054,7 +26059,7 @@ function flagString4(flags2, name) {
   const value2 = flags2[name];
   return typeof value2 === "string" && value2.trim() ? value2.trim() : void 0;
 }
-var RUN_ARGS = "<pov> --message <text> [--task <text>] [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
+var RUN_ARGS = "<pov> --message <text> [--task <text>] [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--topic <Pi session name>] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 var RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 var RECORD_ARGS = "--run-id <id> [--parent <id>] [--parent-tool-use-id <id>] [--agent <path>] [--task <text>] [--message <text>] [--harness pi|claude] [--model <name>] [--model-requested <name>] [--model-observed <name>] [--conversation <id>] [--status running|completed|failed|interrupted|cancelled] [--started <iso>] [--ended <iso>] [--json]";
 var RECORD_USAGE = `ideaspaces agent record ${RECORD_ARGS}`;
@@ -26201,6 +26206,20 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
     model = defaults.pi_model;
   } else if (runtime === "claude" && defaults.claude_model) {
     model = defaults.claude_model;
+  }
+  if (flags2.topic !== void 0) {
+    if (runtime !== "pi") {
+      output.error("--topic names a new Pi session only; Claude naming is not supported.");
+      return 1;
+    }
+    if (flags2.conversation !== void 0) {
+      output.error("--topic names a new Pi session only; omit it when resuming --conversation.");
+      return 1;
+    }
+    if (typeof flags2.topic !== "string" || !flags2.topic.trim() || flags2.topic.includes("\0") || flags2.topic.trim().length > 200) {
+      output.error("--topic requires non-empty text without NUL bytes, at most 200 characters.");
+      return 1;
+    }
   }
   const selectedPaths = { ext: [], skill: [] };
   if (runtime === "claude" && (flags2.ext !== void 0 || flags2.skill !== void 0)) {
@@ -26632,7 +26651,7 @@ function makeAgentCommand(local) {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",
       "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts --pi-trust saved --pi-thinking high",
-      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --topic 'Findings review' --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
       "ideaspaces agent run agents/scout --thread x_0123456789abcdef01234567 --message 'Draft a reply'  # private; does not post",
@@ -29268,6 +29287,8 @@ function buildPiArgs(opts) {
   ];
   if (opts.trust === "explicit")
     args2.push("-a");
+  if (opts.sessionName)
+    args2.push("--name", opts.sessionName);
   if (opts.extensionPaths.length)
     args2.push("--no-extensions");
   for (const ext of opts.extensionPaths)
@@ -29349,7 +29370,20 @@ async function* runLocalTurn(opts) {
     }
   };
   send4({ type: "get_state", id: "__state" });
-  send4({ type: "prompt", message: opts.message, id: "p1" });
+  let nameStateTimedOut = false;
+  let nameStateTimer;
+  let nameStateKillTimer;
+  if (opts.sessionName) {
+    nameStateTimer = setTimeout(() => {
+      nameStateTimedOut = true;
+      pi.kill("SIGTERM");
+      nameStateKillTimer = setTimeout(() => pi.kill("SIGKILL"), 2e3);
+      nameStateKillTimer.unref();
+      pi.stdout.destroy();
+    }, 1e4);
+  }
+  if (!opts.sessionName)
+    send4({ type: "prompt", message: opts.message, id: "p1" });
   try {
     for await (const line2 of readRpcLines(pi.stdout)) {
       const text = line2.trim();
@@ -29380,10 +29414,26 @@ async function* runLocalTurn(opts) {
         }
       }
       if (NON_AGENT_TYPES.has(type)) {
+        if (type === "response" && msg.command === "get_state" && opts.sessionName) {
+          if (nameStateTimer)
+            clearTimeout(nameStateTimer);
+          nameStateTimer = void 0;
+        }
+        if (type === "response" && msg.command === "get_state" && msg.success === false && opts.sessionName) {
+          yield translator.error("pi_session_name", `Pi could not verify the requested session name: ${String(msg.error ?? "get_state failed")}; no turn was started.`);
+          return;
+        }
         if (type === "response" && msg.command === "get_state" && msg.success !== false) {
           const data = msg.data;
           sessionName = data?.sessionName;
           observedModel = piStateModel(data);
+          if (opts.sessionName) {
+            if (sessionName !== opts.sessionName) {
+              yield translator.error("pi_session_name", `Pi did not retain the requested session name ${JSON.stringify(opts.sessionName)}; no turn was started.`);
+              return;
+            }
+            send4({ type: "prompt", message: opts.message, id: "p1" });
+          }
         }
         if (type === "response" && msg.success === false && msg.command === "prompt") {
           yield translator.error("pi_error", String(msg.error ?? "prompt failed"));
@@ -29413,21 +29463,33 @@ async function* runLocalTurn(opts) {
         yield ke;
       }
       if (type === "agent_end") {
-        if (!sessionName || !sessionName.trim()) {
+        if (!opts.sessionName && (!sessionName || !sessionName.trim())) {
           send4({ type: "set_session_name", name: deriveConversationName(opts.message), id: "__name" });
           await new Promise((r) => setTimeout(r, 250));
         }
         return;
       }
     }
+    if (nameStateTimedOut) {
+      yield translator.error("pi_session_name", "Pi did not answer get_state within 10 seconds; no turn was started. Check the Pi runtime and retry.");
+      return;
+    }
     const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, retryError);
     if (exit)
       yield exit;
   } catch (err) {
+    if (nameStateTimedOut) {
+      yield translator.error("pi_session_name", "Pi did not answer get_state within 10 seconds; no turn was started. Check the Pi runtime and retry.");
+      return;
+    }
     const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, retryError, err);
     if (exit)
       yield exit;
   } finally {
+    if (nameStateTimer)
+      clearTimeout(nameStateTimer);
+    if (nameStateKillTimer)
+      clearTimeout(nameStateKillTimer);
     opts.signal?.removeEventListener("abort", onAbort);
     try {
       pi.stdin.end();
@@ -29702,6 +29764,10 @@ async function send2(flags2, output, options) {
     return 1;
   }
   const skillPaths = options?.skillPaths ?? parseCommaList(flags2.skill, process.env.IDEASPACES_PI_SKILLS);
+  if (flags2.topic !== void 0 && !options?.agentRun) {
+    output.error("--topic is supported only on agent run for a new Pi session.");
+    return 1;
+  }
   const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join43(repoPath, ".pi", "sessions");
   const conversationId = typeof flags2.conversation === "string" ? flags2.conversation : `local-${Date.now().toString(36)}`;
   if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
@@ -29825,6 +29891,8 @@ async function send2(flags2, output, options) {
       repoPath,
       workingRoot,
       message,
+      // Only agent run accepts --topic; direct conversation send keeps first-message naming.
+      sessionName: options?.agentRun && typeof flags2.topic === "string" ? flags2.topic.trim() : void 0,
       extensionPaths,
       skillPaths,
       // Agent run always supplies a selected array (including empty); only

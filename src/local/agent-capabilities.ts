@@ -18,6 +18,7 @@ export const AGENT_RUN_FEATURES = {
   "pi.skill-isolation": "Pi loads only the --skill dirs given; user and project skills are not discovered.",
   "pi.trust": "--pi-trust saved|explicit selects Pi project-resource trust.",
   "pi.thinking": "--pi-thinking passes a Pi thinking level.",
+  "pi.topic": "--topic names a new Pi transcript explicitly; without it the first message names an unnamed session. Claude and resumed runs refuse --topic.",
   "claude.read-only": "--read-only exposes only Read, Grep and Glob and drops MCP servers.",
   "claude.effort": "--claude-effort passes a Claude Code effort level.",
   "claude.permission-mode": "--permission-mode selects a Claude Code permission mode (bypass refused).",

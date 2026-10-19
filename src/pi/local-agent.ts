@@ -70,6 +70,8 @@ export interface LocalTurnOptions {
   workingRoot?: string;
   /** The user's message for this turn. */
   message: string;
+  /** Explicit name of a new agent-run Pi transcript; never supplied for resume. */
+  sessionName?: string;
   /** Extensions to load, in order — pi-is-space (Space) + pi-local-context. */
   extensionPaths: string[];
   /** Skill dirs to load. Separate from extensions: `--extension` loads code but
@@ -137,6 +139,7 @@ export function buildPiArgs(opts: LocalTurnOptions): string[] {
     "--session-dir", opts.sessionDir,
   ];
   if (opts.trust === "explicit") args.push("-a");
+  if (opts.sessionName) args.push("--name", opts.sessionName);
   // The extensions we pass are authoritative: a local turn must load exactly
   // these (the desktop's bundled, pinned set), NOT also whatever the user has
   // globally `pi install`ed — the same extension loaded twice hard-errors on
@@ -247,7 +250,23 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
     }
   };
   send({ type: "get_state", id: "__state" });
-  send({ type: "prompt", message: opts.message, id: "p1" });
+  // This is a pre-turn RPC handshake, not a turn deadline. A silent child must
+  // not hold a topic launch forever without starting a conversation.
+  let nameStateTimedOut = false;
+  let nameStateTimer: NodeJS.Timeout | undefined;
+  let nameStateKillTimer: NodeJS.Timeout | undefined;
+  if (opts.sessionName) {
+    nameStateTimer = setTimeout(() => {
+      nameStateTimedOut = true;
+      pi.kill("SIGTERM");
+      nameStateKillTimer = setTimeout(() => pi.kill("SIGKILL"), 2_000);
+      nameStateKillTimer.unref();
+      pi.stdout.destroy(); // unblock the RPC reader even if the child ignores SIGTERM
+    }, 10_000);
+  }
+  // Confirm Pi accepted the explicit name before starting a turn. A rejected
+  // --name must not become a successful unnamed run.
+  if (!opts.sessionName) send({ type: "prompt", message: opts.message, id: "p1" });
 
   try {
     for await (const line of readRpcLines(pi.stdout)) {
@@ -281,10 +300,25 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
         }
       }
       if (NON_AGENT_TYPES.has(type)) {
+        if (type === "response" && msg.command === "get_state" && opts.sessionName) {
+          if (nameStateTimer) clearTimeout(nameStateTimer);
+          nameStateTimer = undefined;
+        }
+        if (type === "response" && msg.command === "get_state" && msg.success === false && opts.sessionName) {
+          yield translator.error("pi_session_name", `Pi could not verify the requested session name: ${String(msg.error ?? "get_state failed")}; no turn was started.`);
+          return;
+        }
         if (type === "response" && msg.command === "get_state" && msg.success !== false) {
           const data = msg.data as { sessionName?: string } | undefined;
           sessionName = data?.sessionName;
           observedModel = piStateModel(data);
+          if (opts.sessionName) {
+            if (sessionName !== opts.sessionName) {
+              yield translator.error("pi_session_name", `Pi did not retain the requested session name ${JSON.stringify(opts.sessionName)}; no turn was started.`);
+              return;
+            }
+            send({ type: "prompt", message: opts.message, id: "p1" });
+          }
         }
         if (type === "response" && msg.success === false && msg.command === "prompt") {
           yield translator.error("pi_error", String(msg.error ?? "prompt failed"));
@@ -310,7 +344,7 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
       }
       if (type === "agent_end") {
         // Name a still-unnamed conversation from its first message before we exit.
-        if (!sessionName || !sessionName.trim()) {
+        if (!opts.sessionName && (!sessionName || !sessionName.trim())) {
           send({ type: "set_session_name", name: deriveConversationName(opts.message), id: "__name" });
           await new Promise((r) => setTimeout(r, 250)); // let pi persist it
         }
@@ -318,12 +352,22 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
       }
     }
     // stdout closed without a terminal event.
+    if (nameStateTimedOut) {
+      yield translator.error("pi_session_name", "Pi did not answer get_state within 10 seconds; no turn was started. Check the Pi runtime and retry.");
+      return;
+    }
     const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, retryError);
     if (exit) yield exit;
   } catch (err) {
+    if (nameStateTimedOut) {
+      yield translator.error("pi_session_name", "Pi did not answer get_state within 10 seconds; no turn was started. Check the Pi runtime and retry.");
+      return;
+    }
     const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, retryError, err);
     if (exit) yield exit;
   } finally {
+    if (nameStateTimer) clearTimeout(nameStateTimer);
+    if (nameStateKillTimer) clearTimeout(nameStateKillTimer);
     opts.signal?.removeEventListener("abort", onAbort);
     try {
       pi.stdin.end();
