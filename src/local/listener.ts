@@ -1,7 +1,7 @@
 /* One local Thread listener. The model never receives a filesystem, network or post tool;
  * the host reads its source post and calls the existing Thread writer itself. */
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, openSync, closeSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, fstatSync, lstatSync, mkdirSync, openSync, closeSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { configDir } from "../auth/config-dir.js";
 import { appendPost, loadThread, type LocalThread } from "./threads.js";
@@ -46,7 +46,7 @@ function paths(thread: LocalThread) {
   const space = dirname(dirname(thread.path));
   const key = createHash("sha256").update(`${realpathSync(space)}\0${thread.thread_id}`).digest("hex");
   const dir = join(configDir(), "listeners", key);
-  return { record: join(space, "_agent", "listeners", `${thread.thread_id}.json`), grant: join(dir, "grant.json"), ledger: join(dir, "ledger.json"), lock: join(dir, "run.lock") };
+  return { record: join(space, "_agent", "listeners", `${thread.thread_id}.json`), grant: join(dir, "grant.json"), ledger: join(dir, "ledger.json"), lock: join(dir, "run.lock"), mutation: join(dir, "mutation.lock") };
 }
 function revision(record: ListenerRecord): string { return createHash("sha256").update(JSON.stringify(record)).digest("hex"); }
 function validate(thread: LocalThread, record: ListenerRecord): void {
@@ -76,17 +76,19 @@ export function createListener(threadPath: string, pov: string, task: string, mo
   return target;
 }
 export function setListenerEnabled(threadPath: string, enabled: boolean): ListenerGrant {
-  const thread = loadThread(threadPath);
-  const path = paths(thread).grant;
-  if (!enabled) {
-    const current = existsSync(path) ? json<ListenerGrant>(path) : { revision: "", baseline: [] };
-    const grant = { ...current, enabled: false }; atomic(path, grant); return grant;
-  }
-  const record = listenerRecord(thread.path);
-  // A new approval starts at the present head, not at every historical post.
-  const grant = { enabled: true, revision: revision(record), baseline: thread.posts.map((p) => p.id) };
-  atomic(path, grant);
-  return grant;
+  const state = paths(loadThread(threadPath));
+  return withMutationLock(state.mutation, () => {
+    const thread = loadThread(threadPath);
+    if (!enabled) {
+      const current = existsSync(state.grant) ? json<ListenerGrant>(state.grant) : { revision: "", baseline: [] };
+      const grant = { ...current, enabled: false }; atomic(state.grant, grant); return grant;
+    }
+    const record = listenerRecord(thread.path);
+    // A new approval starts at the present head, not at every historical post.
+    const grant = { enabled: true, revision: revision(record), baseline: thread.posts.map((p) => p.id) };
+    atomic(state.grant, grant);
+    return grant;
+  });
 }
 export function listenerStatus(threadPath: string) {
   const thread = loadThread(threadPath);
@@ -111,6 +113,60 @@ function outputs(thread: LocalThread, listenerId: string, sourcePostId: string, 
   }).map((post) => post.id);
 }
 function saveRuns(path: string, runs: ListenerRun[]): void { atomic(path, runs); }
+
+/** Cooperative, short critical section. Lock order: watcher/run.lock (if held),
+ * then mutation.lock; grant commands take only mutation.lock. Never take run.lock
+ * while holding mutation.lock, or hold mutation.lock during model work.
+ * An interrupted/invalid lock is NOT stolen: inspect the Thread and ledger,
+ * then explicitly remove the stale lock before retrying. */
+function withMutationLock<T>(path: string, fn: () => T): T {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  if (lstatSync(dirname(path)).isSymbolicLink()) throw new Error(`Unsafe listener mutation directory: ${dirname(path)}`);
+  const token = `${process.pid}:${randomUUID()}`;
+  const deadline = Date.now() + 10_000;
+  let fd: number;
+  for (;;) {
+    try { fd = openSync(path, "wx", 0o600); break; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // The owner may have just created the file, or may have released it
+      // between our EEXIST and read. An empty file may be in that tiny window.
+      if (!existsSync(path)) continue;
+      if (!regular(path)) throw new Error(`Unsafe listener mutation lock ${path}; inspect before continuing.`);
+      let contents: string;
+      try { contents = readFileSync(path, "utf8"); }
+      catch (readError) {
+        if ((readError as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw readError;
+      }
+      const pid = Number(contents.split(":", 1)[0]);
+      if (!Number.isSafeInteger(pid) || pid < 1) {
+        if (Date.now() >= deadline) throw new Error(`Incomplete listener mutation lock ${path}; inspect before continuing; never steal it automatically.`);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+        continue;
+      }
+      try { process.kill(pid, 0); }
+      catch (check) {
+        if ((check as NodeJS.ErrnoException).code === "ESRCH") throw new Error(`Stale listener mutation lock ${path} (PID ${pid}); inspect Thread and ledger, then remove it manually. No append or grant change was retried.`);
+        if ((check as NodeJS.ErrnoException).code !== "EPERM") throw check;
+      }
+      if (Date.now() >= deadline) throw new Error(`Timed out waiting for listener mutation lock ${path} (PID ${pid}); inspect the holder, do not steal it.`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  try {
+    writeFileSync(fd, token);
+    const own = fstatSync(fd);
+    try { return fn(); }
+    finally {
+      // Never unlink a replacement lock (even if a cooperating process was killed).
+      if (regular(path)) {
+        const current = lstatSync(path);
+        if (current.dev === own.dev && current.ino === own.ino && readFileSync(path, "utf8") === token) unlinkSync(path);
+      }
+    }
+  } finally { closeSync(fd); }
+}
 function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   // Serialize *acquisition* too: without this gate two starters could both see
@@ -180,7 +236,7 @@ export function withListenerWatch<T>(threadPath: string, run: () => Promise<T>):
 }
 
 /** One scan. The watcher holds the lock across polls; tick acquires it per scan. */
-export function reconcileListener(threadPath: string, summarize: Summarize, watchLocked = false, signal?: AbortSignal): Promise<ListenerRun[]> {
+export function reconcileListener(threadPath: string, summarize: Summarize, watchLocked = false, signal?: AbortSignal, beforeCreate?: () => void): Promise<ListenerRun[]> {
   const initial = loadThread(threadPath);
   const state = paths(initial);
   const scan = async () => {
@@ -217,9 +273,10 @@ export function reconcileListener(threadPath: string, summarize: Summarize, watc
       run.status = "writing"; saveRuns(state.ledger, runs);
       const tags = provenance(record.id, post.id, run.runId);
       try {
-        const { post: output } = appendPost(threadPath, {
+        const { post: output } = withMutationLock(state.mutation, () => appendPost(threadPath, {
           body, author: record.pov, kind: "snapshot", replyTo: [post.id], tags,
           name: `Summary — ${record.pov}`,
+          beforeCreate,
           verifyTarget(current, parents) {
             const live = json<ListenerGrant>(state.grant);
             const checked = listenerRecord(current.path);
@@ -231,7 +288,7 @@ export function reconcileListener(threadPath: string, summarize: Summarize, watc
               throw new ListenerGuardRefusal("Listener grant, source or destination changed; guarded append refused before writing.");
             }
           },
-        });
+        }));
         run.status = "posted"; run.outputPostId = output.id;
       } catch (error) {
         // A known pre-write refusal is a failure, not an ambiguous write.

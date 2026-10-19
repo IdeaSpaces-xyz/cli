@@ -13769,6 +13769,7 @@ function appendPost(dir, options) {
     }
   }
   options.verifyTarget?.(thread, parentIds, options.supersedes);
+  options.beforeCreate?.();
   const id = `msg_${randomUUID4()}`;
   const date = (/* @__PURE__ */ new Date()).toISOString();
   const stamp = date.replace(/[:.]/g, "-");
@@ -28064,7 +28065,7 @@ init_threads2();
 init_config_dir();
 init_threads2();
 import { createHash as createHash8, randomUUID as randomUUID9 } from "node:crypto";
-import { existsSync as existsSync28, lstatSync as lstatSync8, mkdirSync as mkdirSync9, openSync, closeSync, readFileSync as readFileSync19, realpathSync as realpathSync21, renameSync as renameSync6, unlinkSync as unlinkSync3, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync28, fstatSync, lstatSync as lstatSync8, mkdirSync as mkdirSync9, openSync, closeSync, readFileSync as readFileSync19, realpathSync as realpathSync21, renameSync as renameSync6, unlinkSync as unlinkSync3, writeFileSync as writeFileSync9 } from "node:fs";
 import { dirname as dirname22, join as join38 } from "node:path";
 var ListenerGuardRefusal = class extends Error {
 };
@@ -28090,7 +28091,7 @@ function paths(thread) {
   const space = dirname22(dirname22(thread.path));
   const key2 = createHash8("sha256").update(`${realpathSync21(space)}\0${thread.thread_id}`).digest("hex");
   const dir = join38(configDir(), "listeners", key2);
-  return { record: join38(space, "_agent", "listeners", `${thread.thread_id}.json`), grant: join38(dir, "grant.json"), ledger: join38(dir, "ledger.json"), lock: join38(dir, "run.lock") };
+  return { record: join38(space, "_agent", "listeners", `${thread.thread_id}.json`), grant: join38(dir, "grant.json"), ledger: join38(dir, "ledger.json"), lock: join38(dir, "run.lock"), mutation: join38(dir, "mutation.lock") };
 }
 function revision(record) {
   return createHash8("sha256").update(JSON.stringify(record)).digest("hex");
@@ -28129,18 +28130,20 @@ function createListener(threadPath, pov, task, model = "haiku") {
   return target;
 }
 function setListenerEnabled(threadPath, enabled) {
-  const thread = loadThread(threadPath);
-  const path = paths(thread).grant;
-  if (!enabled) {
-    const current = existsSync28(path) ? json(path) : { revision: "", baseline: [] };
-    const grant2 = { ...current, enabled: false };
-    atomic(path, grant2);
-    return grant2;
-  }
-  const record = listenerRecord(thread.path);
-  const grant = { enabled: true, revision: revision(record), baseline: thread.posts.map((p) => p.id) };
-  atomic(path, grant);
-  return grant;
+  const state = paths(loadThread(threadPath));
+  return withMutationLock(state.mutation, () => {
+    const thread = loadThread(threadPath);
+    if (!enabled) {
+      const current = existsSync28(state.grant) ? json(state.grant) : { revision: "", baseline: [] };
+      const grant2 = { ...current, enabled: false };
+      atomic(state.grant, grant2);
+      return grant2;
+    }
+    const record = listenerRecord(thread.path);
+    const grant = { enabled: true, revision: revision(record), baseline: thread.posts.map((p) => p.id) };
+    atomic(state.grant, grant);
+    return grant;
+  });
 }
 function listenerStatus(threadPath) {
   const thread = loadThread(threadPath);
@@ -28166,6 +28169,68 @@ function outputs(thread, listenerId, sourcePostId, runId) {
 }
 function saveRuns(path, runs) {
   atomic(path, runs);
+}
+function withMutationLock(path, fn) {
+  mkdirSync9(dirname22(path), { recursive: true, mode: 448 });
+  if (lstatSync8(dirname22(path)).isSymbolicLink())
+    throw new Error(`Unsafe listener mutation directory: ${dirname22(path)}`);
+  const token = `${process.pid}:${randomUUID9()}`;
+  const deadline = Date.now() + 1e4;
+  let fd;
+  for (; ; ) {
+    try {
+      fd = openSync(path, "wx", 384);
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST")
+        throw error;
+      if (!existsSync28(path))
+        continue;
+      if (!regular(path))
+        throw new Error(`Unsafe listener mutation lock ${path}; inspect before continuing.`);
+      let contents;
+      try {
+        contents = readFileSync19(path, "utf8");
+      } catch (readError) {
+        if (readError.code === "ENOENT")
+          continue;
+        throw readError;
+      }
+      const pid = Number(contents.split(":", 1)[0]);
+      if (!Number.isSafeInteger(pid) || pid < 1) {
+        if (Date.now() >= deadline)
+          throw new Error(`Incomplete listener mutation lock ${path}; inspect before continuing; never steal it automatically.`);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+        continue;
+      }
+      try {
+        process.kill(pid, 0);
+      } catch (check) {
+        if (check.code === "ESRCH")
+          throw new Error(`Stale listener mutation lock ${path} (PID ${pid}); inspect Thread and ledger, then remove it manually. No append or grant change was retried.`);
+        if (check.code !== "EPERM")
+          throw check;
+      }
+      if (Date.now() >= deadline)
+        throw new Error(`Timed out waiting for listener mutation lock ${path} (PID ${pid}); inspect the holder, do not steal it.`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  try {
+    writeFileSync9(fd, token);
+    const own = fstatSync(fd);
+    try {
+      return fn();
+    } finally {
+      if (regular(path)) {
+        const current = lstatSync8(path);
+        if (current.dev === own.dev && current.ino === own.ino && readFileSync19(path, "utf8") === token)
+          unlinkSync3(path);
+      }
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
 function withLock(path, fn) {
   mkdirSync9(dirname22(path), { recursive: true, mode: 448 });
@@ -28248,7 +28313,7 @@ function resolveListenerRun(threadPath, sourcePostId, outputPostId) {
 function withListenerWatch(threadPath, run2) {
   return withLock(paths(loadThread(threadPath)).lock, run2);
 }
-function reconcileListener(threadPath, summarize, watchLocked = false, signal) {
+function reconcileListener(threadPath, summarize, watchLocked = false, signal, beforeCreate) {
   const initial = loadThread(threadPath);
   const state = paths(initial);
   const scan = async () => {
@@ -28309,13 +28374,14 @@ function reconcileListener(threadPath, summarize, watchLocked = false, signal) {
       saveRuns(state.ledger, runs);
       const tags = provenance(record.id, post.id, run2.runId);
       try {
-        const { post: output } = appendPost(threadPath, {
+        const { post: output } = withMutationLock(state.mutation, () => appendPost(threadPath, {
           body,
           author: record.pov,
           kind: "snapshot",
           replyTo: [post.id],
           tags,
           name: `Summary \u2014 ${record.pov}`,
+          beforeCreate,
           verifyTarget(current, parents) {
             const live = json(state.grant);
             const checked = listenerRecord(current.path);
@@ -28323,7 +28389,7 @@ function reconcileListener(threadPath, summarize, watchLocked = false, signal) {
               throw new ListenerGuardRefusal("Listener grant, source or destination changed; guarded append refused before writing.");
             }
           }
-        });
+        }));
         run2.status = "posted";
         run2.outputPostId = output.id;
       } catch (error) {
