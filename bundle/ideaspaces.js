@@ -19616,10 +19616,11 @@ var threadsCommand = {
             return `${header}
   ${post.summary}`;
           }).join("\n\n");
+          const dirArg = rest[0] ? ` ${rest[0]}` : "";
           if (nextCursor) {
             text = `${postLines}
 
-More posts: ideaspaces threads posts --limit ${limit} --order ${order} --since ${nextCursor}`;
+More posts: ideaspaces threads posts${dirArg} --limit ${limit} --order ${order} --since ${nextCursor}`;
           } else {
             text = postLines;
           }
@@ -19628,7 +19629,7 @@ More posts: ideaspaces threads posts --limit ${limit} --order ${order} --since $
           text += `
 Local Thread reading had ${localWarnings} issue(s).`;
         }
-        output.result({ items, next_cursor: nextCursor }, text);
+        output.result({ items, next_cursor: nextCursor, local_complete: localWarnings === 0 }, text);
         return 0;
       }
       if (sub === "locate") {

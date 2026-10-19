@@ -286,8 +286,9 @@ export const threadsCommand: CommandDef = {
             if (depthVal === "name" || !post.summary) return header;
             return `${header}\n  ${post.summary}`;
           }).join("\n\n");
+          const dirArg = rest[0] ? ` ${rest[0]}` : "";
           if (nextCursor) {
-            text = `${postLines}\n\nMore posts: ideaspaces threads posts --limit ${limit} --order ${order} --since ${nextCursor}`;
+            text = `${postLines}\n\nMore posts: ideaspaces threads posts${dirArg} --limit ${limit} --order ${order} --since ${nextCursor}`;
           } else {
             text = postLines;
           }
@@ -296,7 +297,7 @@ export const threadsCommand: CommandDef = {
           text += `\nLocal Thread reading had ${localWarnings} issue(s).`;
         }
 
-        output.result({ items, next_cursor: nextCursor }, text);
+        output.result({ items, next_cursor: nextCursor, local_complete: localWarnings === 0 }, text);
         return 0;
       }
       if (sub === "locate") {

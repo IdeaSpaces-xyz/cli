@@ -22,7 +22,7 @@ import {
 import { preferredContractSource } from "../contract-source.js";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import { buildFrameMarkdownTarget } from "../commands/look.js";
-import { findThreadPost, localText, threadFrame } from "../commands/threads.js";
+import { findThreadPost, localText, threadFrame, type ThreadDepth } from "../local/thread-read.js";
 import {
   computeBranches,
   findChildThreads,
@@ -206,7 +206,7 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
       const branches = allBranches.slice(0, limit);
       const childThreads = allChildThreads.slice(0, limit);
 
-      let text = localText(thread, boundedPosts, options.depth as any, {
+      let text = localText(thread, boundedPosts, options.depth as ThreadDepth, {
         frame,
         parent,
         snapshot,

@@ -14,8 +14,6 @@ import type { BranchInfo, ChildThreadInfo, LocalThread, ThreadParentInfo } from 
 
 export type ThreadDepth = "name" | "summary" | "children" | "surface" | "full";
 
-const SURFACE_BODY_BYTES = 800;
-
 export function clip(text: string, bytes: number, marker = "… [shortened; read the exact file or use --post <id>]"): string {
   if (Buffer.byteLength(text) <= bytes) return text;
   let result = "";
