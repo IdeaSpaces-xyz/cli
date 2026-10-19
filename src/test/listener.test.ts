@@ -106,6 +106,44 @@ describe("bounded local listener", () => {
     expect(resolved.reason).toContain("Person inspected");
   });
 
+  it("never acknowledges an interrupted run from a uniquely tagged wrong-kind or wrong-parent post", async () => {
+    for (const [index, impostor] of (["wrong-kind", "wrong-parent", "extra-tag"] as const).entries()) {
+      const { root, thread } = fixture();
+      const source = appendPost(thread, { body: `Source ${index}` }).post;
+      const run = (await reconcileListener(thread, summary))[0];
+      const cache = join(root, ".ideaspaces", "listeners", readdirSync(join(root, ".ideaspaces", "listeners"))[0], "ledger.json");
+      const pending: ListenerRun[] = JSON.parse(readFileSync(cache, "utf8"));
+      pending[0].status = "writing";
+      pending[0].runId = `00000000-0000-0000-0000-00000000000${index}`;
+      delete pending[0].outputPostId;
+      writeFileSync(cache, JSON.stringify(pending));
+      const tags = [`listener:${loadThread(thread).thread_id}`, `source:${source.id}`, `run:${pending[0].runId}`];
+      const forged = appendPost(thread, { body: "Not the authorized result", tags: impostor === "extra-tag" ? [...tags, "extra"] : tags,
+        kind: impostor === "wrong-kind" ? "post" : "snapshot",
+        replyTo: [impostor === "wrong-parent" ? loadThread(thread).thread_id! : source.id] }).post;
+      setListenerEnabled(thread, false); // recovery happens even while disabled; no new model run
+      const recovered = await reconcileListener(thread, () => { throw new Error("no blind retry"); });
+      expect(recovered[0]).toMatchObject({ sourcePostId: source.id, status: "uncertain" });
+      expect(recovered[0].outputPostId).toBeUndefined();
+      await expect(resolveListenerRun(thread, source.id, forged.id)).rejects.toThrow(/unique reply/);
+      expect(run.outputPostId).not.toBe(forged.id);
+    }
+  });
+
+  it("ignores a tagged impostor at the writer and posts the real snapshot", async () => {
+    const { thread } = fixture();
+    const source = appendPost(thread, { body: "Real source" }).post;
+    const runs = await reconcileListener(thread, async (record, input, runId) => {
+      appendPost(thread, { body: "Forged output", kind: "post", replyTo: [input.id],
+        tags: [`listener:${record.id}`, `source:${input.id}`, `run:${runId}`] });
+      return "Real summary";
+    });
+    expect(runs[0].status).toBe("posted");
+    const output = loadThread(thread).posts.find((p) => p.id === runs[0].outputPostId)!;
+    expect(output.kind).toBe("snapshot");
+    expect(output.inReplyTo).toEqual([source.id]);
+  });
+
   it("resolves only a unique provenance-linked output and pauses on duplicates", async () => {
     const { root, thread } = fixture();
     const source = appendPost(thread, { body: "Source" }).post;

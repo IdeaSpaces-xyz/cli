@@ -100,8 +100,15 @@ export function listenerStatus(threadPath: string) {
 function provenance(listenerId: string, source: string, run: string): string[] {
   return [`listener:${listenerId}`, `source:${source}`, `run:${run}`];
 }
-function outputs(thread: LocalThread, tags: string[]): string[] {
-  return thread.posts.filter((p) => tags.every((t) => p.frontmatter.tags?.includes(t))).map((p) => p.id);
+/* An input is posted only when the existing Thread writer's exact output shape
+ * is proven. Tags alone are not an ack: an unrelated post may copy them. */
+function outputs(thread: LocalThread, listenerId: string, sourcePostId: string, runId: string): string[] {
+  const expected = provenance(listenerId, sourcePostId, runId);
+  return thread.posts.filter((post) => {
+    const tags = post.frontmatter.tags;
+    return post.kind === "snapshot" && post.inReplyTo.length === 1 && post.inReplyTo[0] === sourcePostId &&
+      tags?.length === expected.length && expected.every((tag) => tags.includes(tag));
+  }).map((post) => post.id);
 }
 function saveRuns(path: string, runs: ListenerRun[]): void { atomic(path, runs); }
 function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
@@ -150,9 +157,8 @@ export function resolveListenerRun(threadPath: string, sourcePostId: string, out
     const runs = json<ListenerRun[]>(state.ledger);
     const run = runs.find((item) => item.sourcePostId === sourcePostId && item.status === "uncertain");
     if (!run) throw new Error(`No uncertain listener run for ${sourcePostId}.`);
-    const tags = provenance(thread.thread_id!, run.sourcePostId, run.runId);
     const current = loadThread(threadPath);
-    const found = outputs(current, tags);
+    const found = outputs(current, thread.thread_id!, run.sourcePostId, run.runId);
     if (outputPostId === "none") {
       if (found.length) throw new Error("An output with this run's provenance exists; inspect and resolve with its post id.");
       run.status = "failed"; run.reason = "Person inspected the Thread; no output confirmed. No automatic retry.";
@@ -185,8 +191,7 @@ export function reconcileListener(threadPath: string, summarize: Summarize, watc
     for (const run of runs) {
       if (run.status !== "running" && run.status !== "writing") continue;
       recovered = true;
-      const tags = provenance(initial.thread_id!, run.sourcePostId, run.runId);
-      const found = outputs(loadThread(threadPath), tags);
+      const found = outputs(loadThread(threadPath), initial.thread_id!, run.sourcePostId, run.runId);
       if (found.length === 1) { run.status = "posted"; run.outputPostId = found[0]; }
       else { run.status = "uncertain"; run.reason = found.length ? "Multiple outputs for one input; inspect the Thread." : "Run interrupted; inspect before retry."; }
     }
@@ -221,7 +226,8 @@ export function reconcileListener(threadPath: string, summarize: Summarize, watc
             if (!live.enabled || live.revision !== run.revision || revision(checked) !== run.revision ||
                 checked.destinationPostId !== current.thread_id || checked.sourceThreadId !== current.thread_id ||
                 parents.length !== 1 || parents[0] !== post.id ||
-                !current.posts.some((p) => p.id === post.id && p.kind === "post") || outputs(current, tags).length) {
+                !current.posts.some((p) => p.id === post.id && p.kind === "post") ||
+                outputs(current, record.id, post.id, run.runId).length) {
               throw new ListenerGuardRefusal("Listener grant, source or destination changed; guarded append refused before writing.");
             }
           },
@@ -233,7 +239,7 @@ export function reconcileListener(threadPath: string, summarize: Summarize, watc
           run.status = "failed"; run.reason = error.message;
         } else {
           // appendPost can throw after an exclusive create. Never assume no write.
-          const found = outputs(loadThread(threadPath), tags);
+          const found = outputs(loadThread(threadPath), record.id, post.id, run.runId);
           if (found.length === 1) { run.status = "posted"; run.outputPostId = found[0]; }
           else { run.status = "uncertain"; run.reason = `Append outcome requires inspection: ${String(error)}`; }
         }

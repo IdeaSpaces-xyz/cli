@@ -28157,8 +28157,12 @@ function listenerStatus(threadPath) {
 function provenance(listenerId, source, run2) {
   return [`listener:${listenerId}`, `source:${source}`, `run:${run2}`];
 }
-function outputs(thread, tags) {
-  return thread.posts.filter((p) => tags.every((t) => p.frontmatter.tags?.includes(t))).map((p) => p.id);
+function outputs(thread, listenerId, sourcePostId, runId) {
+  const expected = provenance(listenerId, sourcePostId, runId);
+  return thread.posts.filter((post) => {
+    const tags = post.frontmatter.tags;
+    return post.kind === "snapshot" && post.inReplyTo.length === 1 && post.inReplyTo[0] === sourcePostId && tags?.length === expected.length && expected.every((tag) => tags.includes(tag));
+  }).map((post) => post.id);
 }
 function saveRuns(path, runs) {
   atomic(path, runs);
@@ -28221,9 +28225,8 @@ function resolveListenerRun(threadPath, sourcePostId, outputPostId) {
     const run2 = runs.find((item) => item.sourcePostId === sourcePostId && item.status === "uncertain");
     if (!run2)
       throw new Error(`No uncertain listener run for ${sourcePostId}.`);
-    const tags = provenance(thread.thread_id, run2.sourcePostId, run2.runId);
     const current = loadThread(threadPath);
-    const found = outputs(current, tags);
+    const found = outputs(current, thread.thread_id, run2.sourcePostId, run2.runId);
     if (outputPostId === "none") {
       if (found.length)
         throw new Error("An output with this run's provenance exists; inspect and resolve with its post id.");
@@ -28255,8 +28258,7 @@ function reconcileListener(threadPath, summarize, watchLocked = false, signal) {
       if (run2.status !== "running" && run2.status !== "writing")
         continue;
       recovered = true;
-      const tags = provenance(initial.thread_id, run2.sourcePostId, run2.runId);
-      const found = outputs(loadThread(threadPath), tags);
+      const found = outputs(loadThread(threadPath), initial.thread_id, run2.sourcePostId, run2.runId);
       if (found.length === 1) {
         run2.status = "posted";
         run2.outputPostId = found[0];
@@ -28317,7 +28319,7 @@ function reconcileListener(threadPath, summarize, watchLocked = false, signal) {
           verifyTarget(current, parents) {
             const live = json(state.grant);
             const checked = listenerRecord(current.path);
-            if (!live.enabled || live.revision !== run2.revision || revision(checked) !== run2.revision || checked.destinationPostId !== current.thread_id || checked.sourceThreadId !== current.thread_id || parents.length !== 1 || parents[0] !== post.id || !current.posts.some((p) => p.id === post.id && p.kind === "post") || outputs(current, tags).length) {
+            if (!live.enabled || live.revision !== run2.revision || revision(checked) !== run2.revision || checked.destinationPostId !== current.thread_id || checked.sourceThreadId !== current.thread_id || parents.length !== 1 || parents[0] !== post.id || !current.posts.some((p) => p.id === post.id && p.kind === "post") || outputs(current, record.id, post.id, run2.runId).length) {
               throw new ListenerGuardRefusal("Listener grant, source or destination changed; guarded append refused before writing.");
             }
           }
@@ -28329,7 +28331,7 @@ function reconcileListener(threadPath, summarize, watchLocked = false, signal) {
           run2.status = "failed";
           run2.reason = error.message;
         } else {
-          const found = outputs(loadThread(threadPath), tags);
+          const found = outputs(loadThread(threadPath), record.id, post.id, run2.runId);
           if (found.length === 1) {
             run2.status = "posted";
             run2.outputPostId = found[0];
