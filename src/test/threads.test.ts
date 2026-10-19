@@ -790,14 +790,11 @@ describe("local Threads", () => {
       expect(paged.data.next_cursor).toBe(paged.data.items[1].id);
 
       // 3. Since filtering
-      const sincePost = await run(["posts"], { since: paged.data.next_cursor, order: "older" });
+      const sincePost = await run(["posts"], { since: paged.data.next_cursor });
       expect(sincePost.code).toBe(0);
-      expect(sincePost.data.items.some((p: { id: string }) => p.id === postB1.id)).toBe(false);
+      expect(sincePost.data.items.some((p: { id: string }) => p.id === paged.data.items[0].id)).toBe(false);
 
-      // 4. Reject --since with --order newer
-      expect(await threadsCommand.run(["posts"], { since: postA1.id, order: "newer" }, flags)).toBe(1);
-
-      // 5. Reject invalid --depth
+      // 4. Reject invalid --depth
       expect(await threadsCommand.run(["posts"], { depth: "full" }, flags)).toBe(1);
 
       // 6. Child thread invalid since cursor throws error

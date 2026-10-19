@@ -224,6 +224,8 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
 
   it("reads a Thread folder, frame files, and posts by address across disclosure rungs", async () => {
     const ID_SPACE = "n_000000000000000000000001";
+    git(space, ["config", "user.name", "Test"]);
+    git(space, ["config", "user.email", "test@example.com"]);
     mkdirSync(join(space, "_agent"), { recursive: true });
     writeFileSync(join(space, "_agent", "agreement.md"), `---\nname: Space\nroot_node_id: ${ID_SPACE}\n---\n# Space\n`);
     mkdirSync(join(space, "_threads", "topic", "_agent"), { recursive: true });

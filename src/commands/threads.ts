@@ -245,9 +245,6 @@ export const threadsCommand: CommandDef = {
         const order = str(flags, "order") ?? "newer";
         if (order !== "newer" && order !== "older") throw new Error("--order must be newer or older.");
 
-        const since = str(flags, "since");
-        if (since && order === "newer") throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
-
         allPosts.sort((a, b) => {
           const tA = a.created_at ? Date.parse(a.created_at) : 0;
           const tB = b.created_at ? Date.parse(b.created_at) : 0;
@@ -255,13 +252,14 @@ export const threadsCommand: CommandDef = {
           return order === "newer" ? b.path.localeCompare(a.path) : a.path.localeCompare(b.path);
         });
 
+        const since = str(flags, "since");
         let posts = allPosts;
         if (since) {
           const at = posts.findIndex((p) => p.id === since);
           if (at !== -1) posts = posts.slice(at + 1);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
             const cutoff = Date.parse(since);
-            posts = posts.filter((p) => p.created_at && Date.parse(p.created_at) > cutoff);
+            posts = posts.filter((p) => p.created_at && (order === "newer" ? Date.parse(p.created_at) < cutoff : Date.parse(p.created_at) > cutoff));
           } else {
             throw new Error(`--since needs a post id or valid ISO date: ${since}`);
           }

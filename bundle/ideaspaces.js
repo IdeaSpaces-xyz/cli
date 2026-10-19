@@ -19574,9 +19574,6 @@ var threadsCommand = {
         const order = str(flags2, "order") ?? "newer";
         if (order !== "newer" && order !== "older")
           throw new Error("--order must be newer or older.");
-        const since = str(flags2, "since");
-        if (since && order === "newer")
-          throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         allPosts.sort((a, b) => {
           const tA = a.created_at ? Date.parse(a.created_at) : 0;
           const tB = b.created_at ? Date.parse(b.created_at) : 0;
@@ -19584,6 +19581,7 @@ var threadsCommand = {
             return order === "newer" ? tB - tA : tA - tB;
           return order === "newer" ? b.path.localeCompare(a.path) : a.path.localeCompare(b.path);
         });
+        const since = str(flags2, "since");
         let posts2 = allPosts;
         if (since) {
           const at = posts2.findIndex((p) => p.id === since);
@@ -19591,7 +19589,7 @@ var threadsCommand = {
             posts2 = posts2.slice(at + 1);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
             const cutoff = Date.parse(since);
-            posts2 = posts2.filter((p) => p.created_at && Date.parse(p.created_at) > cutoff);
+            posts2 = posts2.filter((p) => p.created_at && (order === "newer" ? Date.parse(p.created_at) < cutoff : Date.parse(p.created_at) > cutoff));
           } else {
             throw new Error(`--since needs a post id or valid ISO date: ${since}`);
           }
