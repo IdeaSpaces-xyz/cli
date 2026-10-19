@@ -28165,33 +28165,47 @@ function saveRuns(path, runs) {
 }
 function withLock(path, fn) {
   mkdirSync9(dirname22(path), { recursive: true, mode: 448 });
-  if (existsSync28(path)) {
-    if (!regular(path))
-      throw new Error("Unsafe listener lock; inspect it before continuing.");
-    const pid = Number(readFileSync19(path, "utf8"));
-    if (!Number.isSafeInteger(pid) || pid < 1)
-      throw new Error(`Invalid listener lock ${path}; inspect it before continuing.`);
-    try {
-      process.kill(pid, 0);
-      throw new Error(`Listener already runs in process ${pid} (${path}).`);
-    } catch (error) {
-      if (error.code === "EPERM")
-        throw new Error(`Cannot verify listener lock process ${pid}; inspect before continuing.`);
-      if (error.code !== "ESRCH")
-        throw error;
-    }
-    unlinkSync3(path);
-  }
-  let fd;
+  const gate = `${path}.gate`;
+  let gateFd;
   try {
-    fd = openSync(path, "wx", 384);
+    gateFd = openSync(gate, "wx", 384);
   } catch (error) {
     if (error.code === "EEXIST")
-      throw new Error(`Listener already runs or another runner claimed ${path}; inspect before continuing.`);
+      throw new Error(`Listener lock acquisition in progress (${gate}); inspect before continuing.`);
     throw error;
   }
-  writeFileSync9(fd, String(process.pid));
-  closeSync(fd);
+  try {
+    if (existsSync28(path)) {
+      if (!regular(path))
+        throw new Error(`Unsafe listener lock ${path}; inspect it before continuing.`);
+      const pid = Number(readFileSync19(path, "utf8"));
+      if (!Number.isSafeInteger(pid) || pid < 1)
+        throw new Error(`Invalid listener lock ${path}; inspect it before continuing.`);
+      try {
+        process.kill(pid, 0);
+        throw new Error(`Listener already runs in process ${pid} (${path}).`);
+      } catch (error) {
+        if (error.code === "EPERM")
+          throw new Error(`Cannot verify listener lock process ${pid}; inspect before continuing.`);
+        if (error.code !== "ESRCH")
+          throw error;
+      }
+      unlinkSync3(path);
+    }
+    let fd;
+    try {
+      fd = openSync(path, "wx", 384);
+    } catch (error) {
+      if (error.code === "EEXIST")
+        throw new Error(`Listener already runs or another runner claimed ${path}; inspect before continuing.`);
+      throw error;
+    }
+    writeFileSync9(fd, String(process.pid));
+    closeSync(fd);
+  } finally {
+    closeSync(gateFd);
+    unlinkSync3(gate);
+  }
   return fn().finally(() => {
     if (regular(path) && readFileSync19(path, "utf8") === String(process.pid))
       unlinkSync3(path);

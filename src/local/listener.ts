@@ -106,26 +106,37 @@ function outputs(thread: LocalThread, tags: string[]): string[] {
 function saveRuns(path: string, runs: ListenerRun[]): void { atomic(path, runs); }
 function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  // One watcher/tick per listener. A dead process leaves a stale lock; on restart
-  // reconcile every writing/running record before another model invocation.
-  if (existsSync(path)) {
-    if (!regular(path)) throw new Error("Unsafe listener lock; inspect it before continuing.");
-    const pid = Number(readFileSync(path, "utf8"));
-    if (!Number.isSafeInteger(pid) || pid < 1) throw new Error(`Invalid listener lock ${path}; inspect it before continuing.`);
-    try { process.kill(pid, 0); throw new Error(`Listener already runs in process ${pid} (${path}).`); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EPERM") throw new Error(`Cannot verify listener lock process ${pid}; inspect before continuing.`);
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
-    unlinkSync(path);
-  }
-  let fd: number;
-  try { fd = openSync(path, "wx", 0o600); }
+  // Serialize *acquisition* too: without this gate two starters could both see
+  // a dead PID and one could unlink the other's freshly acquired run lock.
+  const gate = `${path}.gate`;
+  let gateFd: number;
+  try { gateFd = openSync(gate, "wx", 0o600); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Listener already runs or another runner claimed ${path}; inspect before continuing.`);
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Listener lock acquisition in progress (${gate}); inspect before continuing.`);
     throw error;
   }
-  writeFileSync(fd, String(process.pid)); closeSync(fd);
+  try {
+    // A dead process leaves a stale run lock; reconcile its ledger on restart.
+    // A crash *while acquiring* leaves the gate, requiring manual inspection.
+    if (existsSync(path)) {
+      if (!regular(path)) throw new Error(`Unsafe listener lock ${path}; inspect it before continuing.`);
+      const pid = Number(readFileSync(path, "utf8"));
+      if (!Number.isSafeInteger(pid) || pid < 1) throw new Error(`Invalid listener lock ${path}; inspect it before continuing.`);
+      try { process.kill(pid, 0); throw new Error(`Listener already runs in process ${pid} (${path}).`); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EPERM") throw new Error(`Cannot verify listener lock process ${pid}; inspect before continuing.`);
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+      unlinkSync(path);
+    }
+    let fd: number;
+    try { fd = openSync(path, "wx", 0o600); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Listener already runs or another runner claimed ${path}; inspect before continuing.`);
+      throw error;
+    }
+    writeFileSync(fd, String(process.pid)); closeSync(fd);
+  } finally { closeSync(gateFd); unlinkSync(gate); }
   return fn().finally(() => { if (regular(path) && readFileSync(path, "utf8") === String(process.pid)) unlinkSync(path); });
 }
 /** Person-inspected resolution of an ambiguous append, without a blind retry.

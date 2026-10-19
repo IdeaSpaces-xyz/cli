@@ -152,6 +152,9 @@ describe("bounded local listener", () => {
     unlinkSync(lock);
     symlinkSync(join(root, "_agent", "agreement.md"), lock);
     expect(() => reconcileListener(thread, summary)).toThrow(/Unsafe listener lock/);
+    unlinkSync(lock);
+    writeFileSync(`${lock}.gate`, "acquisition interrupted");
+    expect(() => reconcileListener(thread, summary)).toThrow(/lock acquisition in progress/);
   });
 
   it("CLI rejects bad flags and returns an inspectable status/tick JSON shape", async () => {
