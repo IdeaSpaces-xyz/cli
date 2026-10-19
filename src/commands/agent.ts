@@ -71,7 +71,7 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const RUN_ARGS = "<pov> --message <text> [--task <text>] [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
+const RUN_ARGS = "<pov> --message <text> [--task <text>] [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--topic <Pi session name>] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 export const RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
 
 export const RUNS_USAGE =
@@ -259,6 +259,21 @@ async function cmdRun(
     model = defaults.pi_model;
   } else if (runtime === "claude" && defaults.claude_model) {
     model = defaults.claude_model;
+  }
+
+  if (flags.topic !== undefined) {
+    if (runtime !== "pi") {
+      output.error("--topic names a new Pi session only; Claude naming is not supported.");
+      return 1;
+    }
+    if (flags.conversation !== undefined) {
+      output.error("--topic names a new Pi session only; omit it when resuming --conversation.");
+      return 1;
+    }
+    if (typeof flags.topic !== "string" || !flags.topic.trim() || flags.topic.includes("\0") || flags.topic.trim().length > 200) {
+      output.error("--topic requires non-empty text without NUL bytes, at most 200 characters.");
+      return 1;
+    }
   }
 
   const selectedPaths: { ext: string[]; skill: string[] } = { ext: [], skill: [] };
@@ -744,7 +759,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --model sonnet --read-only --claude-effort high",
       "ideaspaces agent run agents/scout --message 'Check findings' --runtime claude --reach /path/to/repo --model sonnet",
       "ideaspaces agent run agents/scout --message 'Continue' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts --pi-trust saved --pi-thinking high",
-      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
+      "ideaspaces agent run agents/scout --message 'Check findings' --runtime pi --topic 'Findings review' --ext /path/pi-is-space/src/index.ts,/path/pi-local-context/src/index.ts",
       "ideaspaces agent run agents/scout --message 'Resume turn' --conversation <existing-id>",
       "ideaspaces agent run agents/scout --thread _threads/decision --thread-map handoff.map.md --thread-member 0 --message 'Continue'",
       "ideaspaces agent run agents/scout --thread x_0123456789abcdef01234567 --message 'Draft a reply'  # private; does not post",

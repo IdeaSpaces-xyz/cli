@@ -61,6 +61,10 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   // user has `pi install`ed the extensions (skills already in `~/.pi/settings`).
   const skillPaths = options?.skillPaths ?? parseCommaList(flags.skill, process.env.IDEASPACES_PI_SKILLS);
 
+  if (flags.topic !== undefined && !options?.agentRun) {
+    output.error("--topic is supported only on agent run for a new Pi session.");
+    return 1;
+  }
   const sessionDir =
     typeof flags["session-dir"] === "string" ? flags["session-dir"] : join(repoPath, ".pi", "sessions");
   // Id via --conversation (a flag), not a bare positional: the arg parser has no
@@ -206,6 +210,8 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       repoPath,
       workingRoot,
       message,
+      // Only agent run accepts --topic; direct conversation send keeps first-message naming.
+      sessionName: options?.agentRun && typeof flags.topic === "string" ? flags.topic.trim() : undefined,
       extensionPaths,
       skillPaths,
       // Agent run always supplies a selected array (including empty); only
