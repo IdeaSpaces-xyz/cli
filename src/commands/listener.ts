@@ -28,7 +28,7 @@ export const makeListenerCommand = (summarizeThreadPost: Summarize): CommandDef 
         const grant = setListenerEnabled(thread, verb === "enable");
         const record = verb === "enable" ? listenerRecord(thread) : undefined;
         output.result({ grant, ...(record ? { record } : {}) }, verb === "enable"
-          ? `Enabled revision ${grant.revision} for ${record!.pov} (${record!.model}): ${record!.task}\nSource/destination: ${record!.sourceThreadId}; capabilities: ${record!.capabilities.join(", ")}. Baseline: ${grant.baseline.length} existing posts.`
+          ? `Enabled revision ${grant.revision} for ${record!.pov} (${record!.model}): ${record!.task}\nSource/destination: ${record!.sourceThreadId}; capabilities: ${record!.capabilities.join(", ")}. Baseline: ${grant.baseline.length} existing posts; posts made while disabled are not backfilled.`
           : "Listener disabled."); return 0;
       }
       if (verb === "status") {

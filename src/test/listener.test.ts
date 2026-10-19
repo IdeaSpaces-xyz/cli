@@ -154,7 +154,7 @@ describe("bounded local listener", () => {
     expect(() => reconcileListener(thread, summary)).toThrow(/Unsafe listener lock/);
     unlinkSync(lock);
     writeFileSync(`${lock}.gate`, "acquisition interrupted");
-    expect(() => reconcileListener(thread, summary)).toThrow(/lock acquisition in progress/);
+    expect(() => reconcileListener(thread, summary)).toThrow(/remove this stale gate manually/);
   });
 
   it("CLI rejects bad flags and returns an inspectable status/tick JSON shape", async () => {

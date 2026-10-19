@@ -28171,7 +28171,7 @@ function withLock(path, fn) {
     gateFd = openSync(gate, "wx", 384);
   } catch (error) {
     if (error.code === "EEXIST")
-      throw new Error(`Listener lock acquisition in progress (${gate}); inspect before continuing.`);
+      throw new Error(`Listener lock acquisition blocked by ${gate}; verify no watcher/tick runs, then remove this stale gate manually.`);
     throw error;
   }
   try {
@@ -28375,7 +28375,7 @@ var makeListenerCommand = (summarizeThreadPost2) => ({
         const grant = setListenerEnabled(thread, verb === "enable");
         const record = verb === "enable" ? listenerRecord(thread) : void 0;
         output.result({ grant, ...record ? { record } : {} }, verb === "enable" ? `Enabled revision ${grant.revision} for ${record.pov} (${record.model}): ${record.task}
-Source/destination: ${record.sourceThreadId}; capabilities: ${record.capabilities.join(", ")}. Baseline: ${grant.baseline.length} existing posts.` : "Listener disabled.");
+Source/destination: ${record.sourceThreadId}; capabilities: ${record.capabilities.join(", ")}. Baseline: ${grant.baseline.length} existing posts; posts made while disabled are not backfilled.` : "Listener disabled.");
         return 0;
       }
       if (verb === "status") {

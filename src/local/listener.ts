@@ -112,7 +112,7 @@ function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   let gateFd: number;
   try { gateFd = openSync(gate, "wx", 0o600); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Listener lock acquisition in progress (${gate}); inspect before continuing.`);
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Listener lock acquisition blocked by ${gate}; verify no watcher/tick runs, then remove this stale gate manually.`);
     throw error;
   }
   try {
