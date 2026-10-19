@@ -223,6 +223,10 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
         case "new":
           return flags.local ? local.createNew(flags, output) : cmdNew(rest, flags, output);
         case "send":
+          if (flags.topic !== undefined) {
+            output.error("--topic names a new Pi agent run only; omit it for conversation send.");
+            return 1;
+          }
           return flags.local ? local.send(flags, output) : cmdSend(rest, flags, output);
         case "get":
           return flags.local ? local.get(flags, output) : cmdGet(rest, output);

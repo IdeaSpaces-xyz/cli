@@ -713,6 +713,7 @@ process.stdin.on("data", (chunk) => {
     if (!line) continue;
     const command = JSON.parse(line);
     if (command.type === "get_state") {
+      if (args.includes('--name') && args[args.indexOf('--name') + 1] === 'Silent state') continue;
       const pattern = args.includes("--model") ? args[args.indexOf("--model") + 1] : "";
       const model = command.id === "__state" ? { provider: "fake", id: pattern ? "resolved-" + pattern.split("/").pop() : "default-model" } : undefined;
       const saved = fs.existsSync(transcript) ? fs.readFileSync(transcript, 'utf8').split('\\n').filter(Boolean).map(JSON.parse).filter((e) => e.type === 'session_info').at(-1)?.name : null;
@@ -1234,6 +1235,27 @@ process.stdin.on("data", (chunk) => {
     expect(await run({ topic: "No resume", conversation: "local-session-123" })).toBe(1);
     expect(stderr()).toContain("omit it when resuming");
   });
+
+  it("refuses --topic on direct Claude conversation send instead of dropping it", async () => {
+    const conversation = makeConversationCommand(composeLocalConversationOps({ pi: piConversationOps, claude: claudeConversationOps }));
+    expect(await conversation.run(["send"], { local: true, runtime: "claude", topic: "No Claude", message: "hello" }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("--topic names a new Pi agent run only");
+  });
+
+  it("fails a silent Pi name handshake without starting a turn or leaving a running record", async () => {
+    const dir = makeAgentDir();
+    const fakeBin = join(dir, "fake-pi");
+    writeFileSync(join(dir, "fake-pi.cjs"), FAKE_PI);
+    writeFileSync(fakeBin, `#!/bin/sh\nexec "${process.execPath}" "${join(dir, "fake-pi.cjs")}" "$@"\n`);
+    chmodSync(fakeBin, 0o755);
+    const runId = "topic-silent-state";
+    expect(await agentCmd.run(["run", dir], { runtime: "pi", message: "topic_probe", topic: "Silent state",
+      ext: fakeBin, "pi-bin": fakeBin, "run-id": runId }, JSON_GLOBAL)).toBe(1);
+    const events = stdout().trim().split("\n").map((line) => JSON.parse(line));
+    expect(events.map((event) => event.type)).toEqual(["error"]);
+    expect(events[0]).toMatchObject({ error_type: "pi_session_name", message: expect.stringContaining("within 10 seconds") });
+    expect(getAgentRun(runId)).toMatchObject({ status: "failed", conversation_id: null });
+  }, 15_000);
 
   it("reports child auth failure as failure (exit code 1) for claude", async () => {
     const dir = makeAgentDir();

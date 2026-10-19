@@ -25228,6 +25228,10 @@ function makeConversationCommand(local) {
         case "new":
           return flags2.local ? local.createNew(flags2, output) : cmdNew2(rest, flags2, output);
         case "send":
+          if (flags2.topic !== void 0) {
+            output.error("--topic names a new Pi agent run only; omit it for conversation send.");
+            return 1;
+          }
           return flags2.local ? local.send(flags2, output) : cmdSend(rest, flags2, output);
         case "get":
           return flags2.local ? local.get(flags2, output) : cmdGet(rest, output);
@@ -29366,6 +29370,18 @@ async function* runLocalTurn(opts) {
     }
   };
   send4({ type: "get_state", id: "__state" });
+  let nameStateTimedOut = false;
+  let nameStateTimer;
+  let nameStateKillTimer;
+  if (opts.sessionName) {
+    nameStateTimer = setTimeout(() => {
+      nameStateTimedOut = true;
+      pi.kill("SIGTERM");
+      nameStateKillTimer = setTimeout(() => pi.kill("SIGKILL"), 2e3);
+      nameStateKillTimer.unref();
+      pi.stdout.destroy();
+    }, 1e4);
+  }
   if (!opts.sessionName)
     send4({ type: "prompt", message: opts.message, id: "p1" });
   try {
@@ -29398,6 +29414,11 @@ async function* runLocalTurn(opts) {
         }
       }
       if (NON_AGENT_TYPES.has(type)) {
+        if (type === "response" && msg.command === "get_state" && opts.sessionName) {
+          if (nameStateTimer)
+            clearTimeout(nameStateTimer);
+          nameStateTimer = void 0;
+        }
         if (type === "response" && msg.command === "get_state" && msg.success === false && opts.sessionName) {
           yield translator.error("pi_session_name", `Pi could not verify the requested session name: ${String(msg.error ?? "get_state failed")}; no turn was started.`);
           return;
@@ -29449,14 +29470,26 @@ async function* runLocalTurn(opts) {
         return;
       }
     }
+    if (nameStateTimedOut) {
+      yield translator.error("pi_session_name", "Pi did not answer get_state within 10 seconds; no turn was started. Check the Pi runtime and retry.");
+      return;
+    }
     const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, retryError);
     if (exit)
       yield exit;
   } catch (err) {
+    if (nameStateTimedOut) {
+      yield translator.error("pi_session_name", "Pi did not answer get_state within 10 seconds; no turn was started. Check the Pi runtime and retry.");
+      return;
+    }
     const exit = terminalExit(translator, aborted, spawnError, stderr, bin, opts.conversationId, retryError, err);
     if (exit)
       yield exit;
   } finally {
+    if (nameStateTimer)
+      clearTimeout(nameStateTimer);
+    if (nameStateKillTimer)
+      clearTimeout(nameStateKillTimer);
     opts.signal?.removeEventListener("abort", onAbort);
     try {
       pi.stdin.end();
