@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { stringify } from "yaml";
 import { appendPost, createThread, initWorktree, loadThread } from "../local/threads.js";
@@ -716,7 +716,8 @@ process.stdin.on("data", (chunk) => {
       const pattern = args.includes("--model") ? args[args.indexOf("--model") + 1] : "";
       const model = command.id === "__state" ? { provider: "fake", id: pattern ? "resolved-" + pattern.split("/").pop() : "default-model" } : undefined;
       const saved = fs.existsSync(transcript) ? fs.readFileSync(transcript, 'utf8').split('\\n').filter(Boolean).map(JSON.parse).filter((e) => e.type === 'session_info').at(-1)?.name : null;
-      console.log(JSON.stringify({ type: "response", command: "get_state", success: true, data: { sessionName: args.includes("--name") ? (args[args.indexOf("--name") + 1] === "Rejected topic" ? null : args[args.indexOf("--name") + 1]) : saved ?? null, model } }));
+      const failedState = args.includes('--name') && args[args.indexOf('--name') + 1] === 'Failed state';
+      console.log(JSON.stringify({ type: "response", command: "get_state", success: !failedState, ...(failedState ? { error: 'State unavailable' } : { data: { sessionName: args.includes("--name") ? (args[args.indexOf("--name") + 1] === "Rejected topic" ? null : args[args.indexOf("--name") + 1]) : saved ?? null, model } }) }));
     }
     if (command.type === 'set_session_name' && fs.existsSync(transcript)) fs.appendFileSync(transcript, JSON.stringify({type:'session_info', name:command.name}) + '\\n');
     if (command.type === "prompt") {
@@ -1216,6 +1217,11 @@ process.stdin.on("data", (chunk) => {
     const refused = stdout().trim().split("\n").map((l) => JSON.parse(l));
     expect(refused.some((e) => e.type === "message_start" || e.type === "turn_complete")).toBe(false);
     expect(refused.find((e) => e.type === "error")?.error_type).toBe("pi_session_name");
+    stdoutChunks = [];
+    expect(await run({ topic: "Failed state" })).toBe(1);
+    const failedState = stdout().trim().split("\n").map((l) => JSON.parse(l));
+    expect(failedState.some((e) => e.type === "message_start" || e.type === "turn_complete")).toBe(false);
+    expect(failedState.find((e) => e.type === "error")).toMatchObject({ error_type: "pi_session_name", message: expect.stringContaining("State unavailable") });
     for (const topic of [true, "  ", "x".repeat(201)]) {
       stderrChunks = [];
       expect(await run({ topic })).toBe(1);
