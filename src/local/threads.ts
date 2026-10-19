@@ -229,7 +229,7 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
   }, null);
 }
 
-export function resolveThreadParent(threadDir: string): ThreadParentInfo | null {
+export function resolveThreadParent(threadDir: string, preloadedThreads?: LocalThread[]): ThreadParentInfo | null {
   const agreement = join(threadDir, "_agent", "agreement.md");
   const content = safeFile(agreement);
   const fm = parseFrontmatter(content);
@@ -244,11 +244,12 @@ export function resolveThreadParent(threadDir: string): ThreadParentInfo | null 
   if (parsedAttachment.attachment.kind === "path") {
     const normPath = join(spaceRoot, parsedAttachment.attachment.value);
     if (existsSync(normPath)) {
+      // safeFile verifies that the target parent post is a regular file, refusing non-regular/symlink files.
       safeFile(normPath);
     }
   }
 
-  const allThreads = listLocal(spaceRoot, () => {});
+  const allThreads = preloadedThreads ?? listLocal(spaceRoot, () => {});
   const roots: ThreadAttachmentRoot[] = [{
     root: spaceRoot,
     pin: "HEAD",
@@ -291,7 +292,7 @@ export function findChildThreads(targetThreadDir: string, postId?: string, onErr
     if (t.path === targetThread.path) continue;
     let parentInfo: ThreadParentInfo | null;
     try {
-      parentInfo = resolveThreadParent(t.path);
+      parentInfo = resolveThreadParent(t.path, allThreads);
     } catch (error) {
       if (!onError) throw error;
       onError(`Thread ${t.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`);

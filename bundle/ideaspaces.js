@@ -13629,7 +13629,7 @@ function latestLocalActivity(posts2) {
     return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
   }, null);
 }
-function resolveThreadParent2(threadDir) {
+function resolveThreadParent2(threadDir, preloadedThreads) {
   const agreement = join21(threadDir, "_agent", "agreement.md");
   const content = safeFile(agreement);
   const fm = parseFrontmatter(content);
@@ -13648,7 +13648,7 @@ function resolveThreadParent2(threadDir) {
       safeFile(normPath);
     }
   }
-  const allThreads = listLocal(spaceRoot, () => {
+  const allThreads = preloadedThreads ?? listLocal(spaceRoot, () => {
   });
   const roots = [{
     root: spaceRoot,
@@ -13686,7 +13686,7 @@ function findChildThreads(targetThreadDir, postId, onError) {
       continue;
     let parentInfo;
     try {
-      parentInfo = resolveThreadParent2(t.path);
+      parentInfo = resolveThreadParent2(t.path, allThreads);
     } catch (error) {
       if (!onError)
         throw error;
@@ -19268,6 +19268,12 @@ function clip(text, bytes, marker = "\u2026 [shortened; read the exact file or u
   }
   return result + marker;
 }
+function findThreadPost(posts2, target) {
+  const norm = target.replace(/\\/g, "/");
+  const file2 = basename10(norm);
+  const bareId = file2.replace(/\.md$/, "");
+  return posts2.find((p) => p.id === target || p.id === bareId || p.path === target || p.path === file2 || basename10(p.path) === file2 || p.path.endsWith(`-${bareId}.md`) || p.path === `${bareId}.md`);
+}
 function threadSection(markdown, heading) {
   const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
   return match?.[1]?.trim() || void 0;
@@ -19452,6 +19458,14 @@ var threadsCommand = {
         return hostedThreadsCommand.run(args2, flags2, global2);
       }
       if (sub === "posts") {
+        if (flags2.space !== void 0 || flags2.scope !== void 0 || flags2.cursor !== void 0 || rest.length === 1 && rest[0].startsWith("x_")) {
+          return hostedThreadsCommand.run(args2, flags2, global2);
+        }
+        if (rest.length === 1) {
+          const explicitDir = resolve20(rest[0]);
+          if (!existsSync13(explicitDir))
+            throw new Error(`Directory not found: ${rest[0]}`);
+        }
         const cwd = rest[0] ? resolve20(rest[0]) : process.cwd();
         let hasLocalThreads = false;
         let spaceRoot = "";
@@ -19461,19 +19475,26 @@ var threadsCommand = {
         } catch {
           hasLocalThreads = false;
         }
-        if (!hasLocalThreads || flags2.space !== void 0 || flags2.scope !== void 0 || flags2.cursor !== void 0 || rest.length === 1 && HOSTED_THREAD_ID.test(rest[0])) {
+        if (!hasLocalThreads) {
           return hostedThreadsCommand.run(args2, flags2, global2);
         }
         if (rest.length > 1)
           throw new Error("Usage: ideaspaces threads posts [<dir>] [--limit <n>] [--since <id|date>] [--depth name|summary] [--order newer|older]");
+        if (flags2.depth !== void 0 && flags2.depth !== "name" && flags2.depth !== "summary") {
+          throw new Error("--depth must be name or summary for post listings.");
+        }
+        const depthVal = flags2.depth === "name" ? "name" : "summary";
         let localWarnings = 0;
         const warn = (message) => {
           output.log(message);
           localWarnings++;
         };
         const threads = listLocal(spaceRoot, warn);
-        for (const t of threads)
+        for (const t of threads) {
           reportDateWarnings(t, output);
+          for (const w of t.warnings)
+            warn(w);
+        }
         const allPosts = [];
         for (const thread of threads) {
           for (const p of thread.posts) {
@@ -19525,7 +19546,6 @@ var threadsCommand = {
         }
         const items = posts2.slice(0, limit);
         const nextCursor = posts2.length > items.length ? items.at(-1)?.id : null;
-        const depthVal = flags2.depth === "name" ? "name" : "summary";
         let text;
         if (!items.length) {
           text = "No local posts found.";
@@ -19545,6 +19565,10 @@ More posts: ideaspaces threads posts --limit ${limit} --order ${order} --since $
           } else {
             text = postLines;
           }
+        }
+        if (localWarnings) {
+          text += `
+Local Thread reading had ${localWarnings} issue(s).`;
         }
         output.result({ items, next_cursor: nextCursor }, text);
         return 0;
@@ -19772,10 +19796,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         const rangeCount = posts2.length;
         let matchedPost;
         if (postId) {
-          const norm = postId.replace(/\\/g, "/");
-          const file2 = basename10(norm);
-          const bareId = file2.replace(/\.md$/, "");
-          matchedPost = thread.posts.find((p) => p.id === postId || p.id === bareId || p.path === postId || p.path === file2 || basename10(p.path) === file2 || p.path.endsWith(`-${bareId}.md`) || p.path === `${bareId}.md`);
+          matchedPost = findThreadPost(thread.posts, postId);
           if (!matchedPost)
             throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
           posts2 = [matchedPost];
@@ -20043,12 +20064,12 @@ import { isAbsolute as isAbsolute10 } from "node:path";
 init_dist();
 init_contract_source();
 init_git2();
-init_threads2();
 import { createHash as createHash6 } from "node:crypto";
 import { spawnSync as spawnSync11 } from "node:child_process";
 import { existsSync as existsSync14, mkdirSync as mkdirSync5, mkdtempSync, readFileSync as readFileSync13, realpathSync as realpathSync11, rmSync as rmSync3, statSync as statSync5, writeFileSync as writeFileSync6 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename as basename11, dirname as dirname10, join as join24 } from "node:path";
+init_threads2();
 var COMMIT_READ_MAX_BYTES = 32 * 1024 * 1024;
 async function lookAtCommit(target, options) {
   const isThread = target.position.startsWith("_threads/") || target.position === "_threads";
@@ -20131,16 +20152,22 @@ async function lookAtCommit(target, options) {
         return { status: "diagnostic", text: `Thread ${target.position} cannot be read: ${err instanceof Error ? err.message : String(err)}` };
       }
       if (options.post) {
-        const norm = options.post.replace(/\\/g, "/");
-        const file2 = basename11(norm);
-        const bareId = file2.replace(/\.md$/, "");
-        const matched = thread.posts.find((p) => p.id === options.post || p.id === bareId || p.path === options.post || p.path === file2 || basename11(p.path) === file2);
+        const matched = findThreadPost(thread.posts, options.post);
         if (!matched)
           return { status: "not_content", reason: `Post ${options.post} not found in Thread ${thread.slug}.` };
         const raw = readFileSync13(join24(position, matched.path), "utf8");
+        const childThreads2 = findChildThreads(position, matched.id);
+        let humanText = raw;
+        if (childThreads2.length > 0) {
+          humanText += `
+
+Child Threads (${childThreads2.length} of ${childThreads2.length} known):
+` + childThreads2.map((c) => `  ${c.slug}  ${c.name}
+    summary: ${c.summary || "(no summary)"}`).join("\n");
+        }
         return {
           status: "ok",
-          text: relabel(raw),
+          text: relabel(humanText),
           result: {
             status: "ok",
             kind: "content-look",
@@ -20162,6 +20189,12 @@ async function lookAtCommit(target, options) {
         };
       }
       const order = options.order ?? "newer";
+      if (options.order !== void 0 && order !== "newer" && order !== "older") {
+        return { status: "diagnostic", text: "--order must be newer or older" };
+      }
+      if (options.since && order === "newer") {
+        return { status: "diagnostic", text: "--since advances forward in time; use --order older to continue a page, or omit --since for the newest page." };
+      }
       let posts2 = [...thread.posts];
       if (options.since) {
         const at = posts2.findIndex((p) => p.id === options.since);
@@ -20170,29 +20203,35 @@ async function lookAtCommit(target, options) {
         else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(options.since) && !Number.isNaN(Date.parse(options.since))) {
           const cutoff = Date.parse(options.since);
           posts2 = posts2.filter((p) => p.date && Date.parse(p.date) > cutoff);
+        } else {
+          return { status: "diagnostic", text: `--since needs a post id in this Thread or a valid ISO date: ${options.since}` };
         }
       }
       if (order === "newer")
         posts2.reverse();
       const limit = options.limit ?? (options.depth === "surface" ? 5 : 10);
-      const boundedPosts = posts2.slice(0, limit);
-      let text = `${thread.slug}  ${thread.name}
-${thread.summary}
-${thread.closed ? "closed" : "open"} \xB7 ${thread.posts.length} posts`;
-      if (options.depth === "name") {
-        text = `${thread.slug}  ${thread.name}`;
-      } else if (options.depth === "summary") {
-        text = `${thread.name} (${target.position})
-${thread.summary}
-${thread.closed ? "closed" : "open"} \xB7 ${thread.posts.length} posts`;
-      } else if (options.depth === "surface" || options.depth === "full") {
-        text = `${thread.name} (${target.position})
-${thread.summary}
-${thread.closed ? "closed" : "open"} \xB7 ${thread.posts.length} posts
-
-` + boundedPosts.map((p) => `${p.id} \xB7 ${p.frontmatter.author ?? "unknown"} \xB7 ${p.kind}
-${p.frontmatter.name ?? ""}
-${p.body}`).join("\n\n");
+      if (limit <= 0)
+        return { status: "diagnostic", text: "--limit must be a positive integer" };
+      const boundedPosts = options.depth === "summary" && !options.since ? [] : posts2.slice(0, limit);
+      const frame = options.depth === "name" ? threadFrame(thread) : void 0;
+      const parent = resolveThreadParent2(position);
+      const snapshot = findNewestSnapshot(thread.posts);
+      const allBranches = options.depth === "children" ? computeBranches(thread.posts) : [];
+      const allChildThreads = options.depth === "children" ? findChildThreads(position) : [];
+      const branches = allBranches.slice(0, limit);
+      const childThreads = allChildThreads.slice(0, limit);
+      let text = localText(thread, boundedPosts, options.depth, {
+        frame,
+        parent,
+        snapshot,
+        branches,
+        childThreads,
+        branchTotal: allBranches.length,
+        childThreadTotal: allChildThreads.length,
+        filtered: Boolean(options.since || options.limit || options.order)
+      });
+      if (thread.warnings.length) {
+        text += "\n" + thread.warnings.join("\n");
       }
       return {
         status: "ok",
@@ -20228,10 +20267,7 @@ ${p.body}`).join("\n\n");
         } catch {
         }
         if (thread) {
-          const norm = postSpec.replace(/\\/g, "/");
-          const file2 = basename11(norm);
-          const bareId = file2.replace(/\.md$/, "");
-          const matched = thread.posts.find((p) => p.id === postSpec || p.id === bareId || p.path === postSpec || p.path === file2 || basename11(p.path) === file2);
+          const matched = findThreadPost(thread.posts, postSpec);
           if (matched) {
             const raw = readFileSync13(join24(threadDir, matched.path), "utf8");
             return {
@@ -20669,6 +20705,14 @@ var lookCommand = {
       const at = parseReadAt(flags2.at);
       if (at === null) {
         output.error("--at must be pin or head");
+        return 1;
+      }
+      if (flags2.order !== void 0 && flags2.order !== "newer" && flags2.order !== "older") {
+        output.error("--order must be newer or older");
+        return 1;
+      }
+      if (flags2.since !== void 0 && flags2.order === "newer") {
+        output.error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         return 1;
       }
       let note;

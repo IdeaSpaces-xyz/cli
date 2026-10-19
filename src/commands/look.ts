@@ -81,7 +81,7 @@ function isRemoteAddress(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 
-function buildFrameMarkdownTarget(path: string, position: string, content: string, depth: MapDepth): ContentLookTarget {
+export function buildFrameMarkdownTarget(path: string, position: string, content: string, depth: MapDepth): ContentLookTarget {
   const fm = parseFrontmatter(content);
   const name = (typeof fm?.name === "string" && fm.name.trim()) || basename(path, ".md");
   const summary = (typeof fm?.summary === "string" && fm.summary.trim()) || summarizeMarkdown(content);
@@ -169,6 +169,14 @@ export const lookCommand: CommandDef = {
       const at = parseReadAt(flags.at);
       if (at === null) {
         output.error("--at must be pin or head");
+        return 1;
+      }
+      if (flags.order !== undefined && flags.order !== "newer" && flags.order !== "older") {
+        output.error("--order must be newer or older");
+        return 1;
+      }
+      if (flags.since !== undefined && flags.order === "newer") {
+        output.error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         return 1;
       }
       let note;

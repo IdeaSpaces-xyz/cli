@@ -21,7 +21,15 @@ import {
 } from "@ideaspaces/protocol";
 import { preferredContractSource } from "../contract-source.js";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
-import { loadThread } from "./threads.js";
+import { buildFrameMarkdownTarget } from "../commands/look.js";
+import { findThreadPost, localText, threadFrame } from "../commands/threads.js";
+import {
+  computeBranches,
+  findChildThreads,
+  findNewestSnapshot,
+  loadThread,
+  resolveThreadParent,
+} from "./threads.js";
 
 /**
  * Reading Content at a commit, not in a working tree.
@@ -162,17 +170,18 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
         return { status: "diagnostic", text: `Thread ${target.position} cannot be read: ${err instanceof Error ? err.message : String(err)}` };
       }
       if (options.post) {
-        const norm = options.post.replace(/\\/g, "/");
-        const file = basename(norm);
-        const bareId = file.replace(/\.md$/, "");
-        const matched = thread.posts.find((p) =>
-          p.id === options.post || p.id === bareId || p.path === options.post || p.path === file || basename(p.path) === file
-        );
+        const matched = findThreadPost(thread.posts, options.post);
         if (!matched) return { status: "not_content", reason: `Post ${options.post} not found in Thread ${thread.slug}.` };
         const raw = readFileSync(join(position, matched.path), "utf8");
+        const childThreads = findChildThreads(position, matched.id);
+        let humanText = raw;
+        if (childThreads.length > 0) {
+          humanText += `\n\nChild Threads (${childThreads.length} of ${childThreads.length} known):\n` +
+            childThreads.map((c) => `  ${c.slug}  ${c.name}\n    summary: ${c.summary || "(no summary)"}`).join("\n");
+        }
         return {
           status: "ok",
-          text: relabel(raw),
+          text: relabel(humanText),
           result: {
             status: "ok",
             kind: "content-look",
@@ -195,6 +204,13 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
       }
 
       const order = options.order ?? "newer";
+      if (options.order !== undefined && order !== "newer" && order !== "older") {
+        return { status: "diagnostic", text: "--order must be newer or older" };
+      }
+      if (options.since && order === "newer") {
+        return { status: "diagnostic", text: "--since advances forward in time; use --order older to continue a page, or omit --since for the newest page." };
+      }
+
       let posts = [...thread.posts];
       if (options.since) {
         const at = posts.findIndex((p) => p.id === options.since);
@@ -202,21 +218,38 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
         else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(options.since) && !Number.isNaN(Date.parse(options.since))) {
           const cutoff = Date.parse(options.since);
           posts = posts.filter((p) => p.date && Date.parse(p.date) > cutoff);
+        } else {
+          return { status: "diagnostic", text: `--since needs a post id in this Thread or a valid ISO date: ${options.since}` };
         }
       }
       if (order === "newer") posts.reverse();
       const limit = options.limit ?? (options.depth === "surface" ? 5 : 10);
-      const boundedPosts = posts.slice(0, limit);
+      if (limit <= 0) return { status: "diagnostic", text: "--limit must be a positive integer" };
+      const boundedPosts = options.depth === "summary" && !options.since ? [] : posts.slice(0, limit);
 
-      let text = `${thread.slug}  ${thread.name}\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
-      if (options.depth === "name") {
-        text = `${thread.slug}  ${thread.name}`;
-      } else if (options.depth === "summary") {
-        text = `${thread.name} (${target.position})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
-      } else if (options.depth === "surface" || options.depth === "full") {
-        text = `${thread.name} (${target.position})\n${thread.summary}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts\n\n` +
-          boundedPosts.map((p) => `${p.id} · ${p.frontmatter.author ?? "unknown"} · ${p.kind}\n${p.frontmatter.name ?? ""}\n${p.body}`).join("\n\n");
+      const frame = options.depth === "name" ? threadFrame(thread) : undefined;
+      const parent = resolveThreadParent(position);
+      const snapshot = findNewestSnapshot(thread.posts);
+      const allBranches = options.depth === "children" ? computeBranches(thread.posts) : [];
+      const allChildThreads = options.depth === "children" ? findChildThreads(position) : [];
+      const branches = allBranches.slice(0, limit);
+      const childThreads = allChildThreads.slice(0, limit);
+
+      let text = localText(thread, boundedPosts, options.depth as any, {
+        frame,
+        parent,
+        snapshot,
+        branches,
+        childThreads,
+        branchTotal: allBranches.length,
+        childThreadTotal: allChildThreads.length,
+        filtered: Boolean(options.since || options.limit || options.order),
+      });
+
+      if (thread.warnings.length) {
+        text += "\n" + thread.warnings.join("\n");
       }
+
       return {
         status: "ok",
         text: relabel(text),
@@ -252,12 +285,7 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
           thread = loadThread(threadDir);
         } catch { /* proceed */ }
         if (thread) {
-          const norm = postSpec.replace(/\\/g, "/");
-          const file = basename(norm);
-          const bareId = file.replace(/\.md$/, "");
-          const matched = thread.posts.find((p) =>
-            p.id === postSpec || p.id === bareId || p.path === postSpec || p.path === file || basename(p.path) === file
-          );
+          const matched = findThreadPost(thread.posts, postSpec);
           if (matched) {
             const raw = readFileSync(join(threadDir, matched.path), "utf8");
             return {

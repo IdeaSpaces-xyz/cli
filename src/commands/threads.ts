@@ -82,11 +82,26 @@ function clip(text: string, bytes: number, marker = "… [shortened; read the ex
   }
   return result + marker;
 }
+export function findThreadPost(posts: ThreadPost[], target: string): ThreadPost | undefined {
+  const norm = target.replace(/\\/g, "/");
+  const file = basename(norm);
+  const bareId = file.replace(/\.md$/, "");
+  return posts.find((p) =>
+    p.id === target ||
+    p.id === bareId ||
+    p.path === target ||
+    p.path === file ||
+    basename(p.path) === file ||
+    p.path.endsWith(`-${bareId}.md`) ||
+    p.path === `${bareId}.md`
+  );
+}
+
 function threadSection(markdown: string, heading: string): string | undefined {
   const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
   return match?.[1]?.trim() || undefined;
 }
-function threadFrame(thread: LocalThread) {
+export function threadFrame(thread: LocalThread) {
   // loadThread validates the Agreement, but it can disappear between the two
   // reads. A missing target frame does not erase the curated README frame.
   let agreement = "";
@@ -101,7 +116,7 @@ function threadFrame(thread: LocalThread) {
     done_when: threadSection(agreement, "Done when"),
   };
 }
-function localText(
+export function localText(
   thread: LocalThread,
   posts: LocalThread["posts"],
   rung: ThreadDepth,
@@ -287,6 +302,13 @@ export const threadsCommand: CommandDef = {
         return hostedThreadsCommand.run(args, flags, global);
       }
       if (sub === "posts") {
+        if (flags.space !== undefined || flags.scope !== undefined || flags.cursor !== undefined || (rest.length === 1 && rest[0].startsWith("x_"))) {
+          return hostedThreadsCommand.run(args, flags, global);
+        }
+        if (rest.length === 1) {
+          const explicitDir = resolve(rest[0]);
+          if (!existsSync(explicitDir)) throw new Error(`Directory not found: ${rest[0]}`);
+        }
         const cwd = rest[0] ? resolve(rest[0]) : process.cwd();
         let hasLocalThreads = false;
         let spaceRoot = "";
@@ -297,14 +319,21 @@ export const threadsCommand: CommandDef = {
           hasLocalThreads = false;
         }
 
-        if (!hasLocalThreads || flags.space !== undefined || flags.scope !== undefined || flags.cursor !== undefined || (rest.length === 1 && HOSTED.test(rest[0]))) {
+        if (!hasLocalThreads) {
           return hostedThreadsCommand.run(args, flags, global);
         }
         if (rest.length > 1) throw new Error("Usage: ideaspaces threads posts [<dir>] [--limit <n>] [--since <id|date>] [--depth name|summary] [--order newer|older]");
+        if (flags.depth !== undefined && flags.depth !== "name" && flags.depth !== "summary") {
+          throw new Error("--depth must be name or summary for post listings.");
+        }
+        const depthVal = flags.depth === "name" ? "name" : "summary";
         let localWarnings = 0;
         const warn = (message: string) => { output.log(message); localWarnings++; };
         const threads = listLocal(spaceRoot, warn);
-        for (const t of threads) reportDateWarnings(t, output);
+        for (const t of threads) {
+          reportDateWarnings(t, output);
+          for (const w of t.warnings) warn(w);
+        }
 
         interface LocalPostRow {
           thread_name: string;
@@ -373,7 +402,6 @@ export const threadsCommand: CommandDef = {
 
         const items = posts.slice(0, limit);
         const nextCursor = posts.length > items.length ? items.at(-1)?.id : null;
-        const depthVal = flags.depth === "name" ? "name" : "summary";
 
         let text: string;
         if (!items.length) {
@@ -389,6 +417,9 @@ export const threadsCommand: CommandDef = {
           } else {
             text = postLines;
           }
+        }
+        if (localWarnings) {
+          text += `\nLocal Thread reading had ${localWarnings} issue(s).`;
         }
 
         output.result({ items, next_cursor: nextCursor }, text);
@@ -568,18 +599,7 @@ export const threadsCommand: CommandDef = {
         const rangeCount = posts.length;
         let matchedPost: ThreadPost | undefined;
         if (postId) {
-          const norm = postId.replace(/\\/g, "/");
-          const file = basename(norm);
-          const bareId = file.replace(/\.md$/, "");
-          matchedPost = thread.posts.find((p) =>
-            p.id === postId ||
-            p.id === bareId ||
-            p.path === postId ||
-            p.path === file ||
-            basename(p.path) === file ||
-            p.path.endsWith(`-${bareId}.md`) ||
-            p.path === `${bareId}.md`
-          );
+          matchedPost = findThreadPost(thread.posts, postId);
           if (!matchedPost) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
           posts = [matchedPost];
         } else if (rung === "surface") {
