@@ -28367,6 +28367,8 @@ var makeListenerCommand = (summarizeThreadPost2) => ({
         const pov = text(flags2, "pov"), task = text(flags2, "task");
         if (!pov || !task)
           throw new Error("Create needs --pov <name> and --task <text>.");
+        if (flags2.model === true)
+          throw new Error("--model needs a Claude model name.");
         const path = createListener(thread, pov, task, text(flags2, "model") ?? "haiku");
         output.result({ path, enabled: false }, `Listener record: ${path}. Review it, then explicitly enable.`);
         return 0;
@@ -28425,7 +28427,7 @@ ${status.runs.map((run2) => `${run2.sourcePostId}: ${run2.status}${run2.outputPo
             if (verb === "tick") {
               output.result({ runs }, `${runs.length} run(s).
 ${runs.map((run2) => `${run2.sourcePostId}: ${run2.status}${run2.outputPostId ? ` \u2192 ${run2.outputPostId}` : run2.reason ? `: ${run2.reason}` : ""}`).join("\n")}`);
-              return 0;
+              return runs.some((run2) => run2.status === "failed" || run2.status === "uncertain") ? 1 : 0;
             }
             if (stopping)
               break;

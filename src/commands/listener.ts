@@ -21,6 +21,7 @@ export const makeListenerCommand = (summarizeThreadPost: Summarize): CommandDef 
       if (verb === "create") {
         const pov = text(flags, "pov"), task = text(flags, "task");
         if (!pov || !task) throw new Error("Create needs --pov <name> and --task <text>.");
+        if (flags.model === true) throw new Error("--model needs a Claude model name.");
         const path = createListener(thread, pov, task, text(flags, "model") ?? "haiku");
         output.result({ path, enabled: false }, `Listener record: ${path}. Review it, then explicitly enable.`); return 0;
       }
@@ -67,7 +68,7 @@ export const makeListenerCommand = (summarizeThreadPost: Summarize): CommandDef 
             for (const run of changed) output.log(`${run.sourcePostId}: ${run.status}${run.outputPostId ? ` → ${run.outputPostId}` : run.reason ? `: ${run.reason}` : ""}`);
             if (verb === "tick") {
               output.result({ runs }, `${runs.length} run(s).\n${runs.map((run) => `${run.sourcePostId}: ${run.status}${run.outputPostId ? ` → ${run.outputPostId}` : run.reason ? `: ${run.reason}` : ""}`).join("\n")}`);
-              return 0;
+              return runs.some((run) => run.status === "failed" || run.status === "uncertain") ? 1 : 0;
             }
             if (stopping) break;
             await new Promise<void>((resolve) => {

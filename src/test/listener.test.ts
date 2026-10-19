@@ -168,6 +168,7 @@ describe("bounded local listener", () => {
       process.chdir(root);
       expect(await command.run(["tick"], {}, flags)).toBe(1);
       expect(await command.run(["create", "_threads/topic"], {}, flags)).toBe(1);
+      expect(await command.run(["create", "_threads/topic"], { pov: "X", task: "Y", model: true }, flags)).toBe(1);
       expect(await command.run(["watch", "_threads/topic"], { interval: "not-a-number" }, flags)).toBe(1);
       expect(await command.run(["status", "_threads/topic"], {}, flags)).toBe(0);
       expect(JSON.parse(output)).toMatchObject({ enabled: true, reviewed: true, runs: [] });
@@ -175,6 +176,21 @@ describe("bounded local listener", () => {
       appendPost(thread, { body: "CLI tick input" });
       expect(await command.run(["tick", "_threads/topic"], {}, flags)).toBe(0);
       expect(JSON.parse(output).runs).toMatchObject([{ status: "posted" }]);
+    } finally { process.chdir(oldCwd); process.stdout.write = oldWrite; }
+  });
+
+  it("tick returns nonzero but still reports a visible failed input", async () => {
+    const { root, thread } = fixture();
+    appendPost(thread, { body: "Unavailable model" });
+    const command = makeListenerCommand(async () => { throw new Error("model unavailable"); });
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const oldCwd = process.cwd(), oldWrite = process.stdout.write;
+    let output = "";
+    process.stdout.write = ((value: string) => { output += value; return true; }) as typeof process.stdout.write;
+    try {
+      process.chdir(root);
+      expect(await command.run(["tick", "_threads/topic"], {}, flags)).toBe(1);
+      expect(JSON.parse(output).runs).toMatchObject([{ status: "failed" }]);
     } finally { process.chdir(oldCwd); process.stdout.write = oldWrite; }
   });
 
