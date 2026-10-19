@@ -42,6 +42,7 @@ import { requestCommand } from "./commands/request.js";
 import { spacesCommand } from "./commands/spaces.js";
 import { inboxCommand } from "./commands/inbox.js";
 import { threadsCommand } from "./commands/threads.js";
+import { makeListenerCommand } from "./commands/listener.js";
 import { followCommand, unfollowCommand } from "./commands/follow.js";
 
 // Power commands
@@ -61,12 +62,14 @@ import {
 // The Claude Code connector (src/claude/) — the second local runtime, picked
 // by `--runtime=claude`. Same wall: only this file wires it in.
 import { claudeConversationOps, claudeStatusCommand, claudeModelsCommand } from "./claude/index.js";
+import { summarizeThreadPost } from "./claude/listener.js";
 import { composeLocalConversationOps } from "./local/runtime.js";
 
 const localConversationOps = composeLocalConversationOps({ pi: piConversationOps, claude: claudeConversationOps });
 const conversationCommand = makeConversationCommand(localConversationOps);
 const conversationsCommand = makeConversationsCommand(localConversationOps);
 const agentCommand = makeAgentCommand(localConversationOps);
+const listenerCommand = makeListenerCommand(summarizeThreadPost);
 
 const topLevel: CommandDef[] = [
   doctorCommand,
@@ -110,6 +113,7 @@ const topLevel: CommandDef[] = [
   requestCommand,
   spacesCommand,
   threadsCommand,
+  listenerCommand,
   inboxCommand,
   followCommand,
   unfollowCommand,

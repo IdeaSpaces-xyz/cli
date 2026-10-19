@@ -335,6 +335,8 @@ export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; supersedes?: string; map?: unknown; tags?: string[];
   verifyTarget?: (thread: LocalThread, parents: string[], supersedes?: string) => void;
+  /** Test barrier after verification, before exclusive create; not exposed by the CLI. */
+  beforeCreate?: () => void;
   onDefaultReplyTo?: (openingPostId: string) => void;
 }): { post: ThreadPost; path: string } {
   const thread = loadThread(dir);
@@ -396,6 +398,7 @@ export function appendPost(dir: string, options: {
   // Local-first exclusive create, not a cross-process lock: check the selected
   // target as late as possible before writing, after all option validation.
   options.verifyTarget?.(thread, parentIds, options.supersedes);
+  options.beforeCreate?.();
   const id = `msg_${randomUUID()}`;
   const date = new Date().toISOString();
   const stamp = date.replace(/[:.]/g, "-");
