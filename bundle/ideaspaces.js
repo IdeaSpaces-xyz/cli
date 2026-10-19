@@ -28170,10 +28170,10 @@ function withLock(path, fn) {
       throw new Error("Unsafe listener lock; inspect it before continuing.");
     const pid = Number(readFileSync19(path, "utf8"));
     if (!Number.isSafeInteger(pid) || pid < 1)
-      throw new Error("Invalid listener lock; inspect it before continuing.");
+      throw new Error(`Invalid listener lock ${path}; inspect it before continuing.`);
     try {
       process.kill(pid, 0);
-      throw new Error(`Listener already runs in process ${pid}.`);
+      throw new Error(`Listener already runs in process ${pid} (${path}).`);
     } catch (error) {
       if (error.code === "EPERM")
         throw new Error(`Cannot verify listener lock process ${pid}; inspect before continuing.`);
@@ -28187,7 +28187,7 @@ function withLock(path, fn) {
     fd = openSync(path, "wx", 384);
   } catch (error) {
     if (error.code === "EEXIST")
-      throw new Error("Listener already runs or another runner claimed its lock; inspect before continuing.");
+      throw new Error(`Listener already runs or another runner claimed ${path}; inspect before continuing.`);
     throw error;
   }
   writeFileSync9(fd, String(process.pid));
@@ -28226,10 +28226,13 @@ function resolveListenerRun(threadPath, sourcePostId, outputPostId) {
     return run2;
   });
 }
-function reconcileListener(threadPath, summarize) {
+function withListenerWatch(threadPath, run2) {
+  return withLock(paths(loadThread(threadPath)).lock, run2);
+}
+function reconcileListener(threadPath, summarize, watchLocked = false) {
   const initial = loadThread(threadPath);
   const state = paths(initial);
-  return withLock(state.lock, async () => {
+  const scan = async () => {
     const runs = existsSync28(state.ledger) ? json(state.ledger) : [];
     for (const run2 of runs) {
       if (run2.status !== "running" && run2.status !== "writing")
@@ -28318,7 +28321,8 @@ function reconcileListener(threadPath, summarize) {
       saveRuns(state.ledger, runs);
     }
     return runs;
-  });
+  };
+  return watchLocked ? scan() : withLock(state.lock, scan);
 }
 
 // dist/commands/listener.js
@@ -28378,21 +28382,24 @@ Source/destination: ${record.sourceThreadId}; capabilities: ${record.capabilitie
       process.on("SIGINT", stop);
       process.on("SIGTERM", stop);
       try {
-        do {
-          const before = new Map(listenerStatus(thread).runs.map((run2) => [run2.key, run2.status]));
-          const runs = await reconcileListener(thread, summarizeThreadPost2);
-          const changed = runs.filter((run2) => before.get(run2.key) !== run2.status);
-          for (const run2 of changed)
-            output.log(`${run2.sourcePostId}: ${run2.status}${run2.outputPostId ? ` \u2192 ${run2.outputPostId}` : run2.reason ? `: ${run2.reason}` : ""}`);
-          if (verb === "tick") {
-            output.result({ runs }, JSON.stringify({ runs }, null, 2));
-            return 0;
-          }
-          await new Promise((resolve41) => {
-            setTimeout(resolve41, interval);
-          });
-        } while (!stopping);
-        return 0;
+        const iterate = async () => {
+          do {
+            const before = new Map(listenerStatus(thread).runs.map((run2) => [run2.key, run2.status]));
+            const runs = await reconcileListener(thread, summarizeThreadPost2, verb === "watch");
+            const changed = runs.filter((run2) => before.get(run2.key) !== run2.status);
+            for (const run2 of changed)
+              output.log(`${run2.sourcePostId}: ${run2.status}${run2.outputPostId ? ` \u2192 ${run2.outputPostId}` : run2.reason ? `: ${run2.reason}` : ""}`);
+            if (verb === "tick") {
+              output.result({ runs }, JSON.stringify({ runs }, null, 2));
+              return 0;
+            }
+            await new Promise((resolve41) => {
+              setTimeout(resolve41, interval);
+            });
+          } while (!stopping);
+          return 0;
+        };
+        return verb === "watch" ? await withListenerWatch(thread, iterate) : await iterate();
       } finally {
         process.off("SIGINT", stop);
         process.off("SIGTERM", stop);

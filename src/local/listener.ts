@@ -111,8 +111,8 @@ function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   if (existsSync(path)) {
     if (!regular(path)) throw new Error("Unsafe listener lock; inspect it before continuing.");
     const pid = Number(readFileSync(path, "utf8"));
-    if (!Number.isSafeInteger(pid) || pid < 1) throw new Error("Invalid listener lock; inspect it before continuing.");
-    try { process.kill(pid, 0); throw new Error(`Listener already runs in process ${pid}.`); }
+    if (!Number.isSafeInteger(pid) || pid < 1) throw new Error(`Invalid listener lock ${path}; inspect it before continuing.`);
+    try { process.kill(pid, 0); throw new Error(`Listener already runs in process ${pid} (${path}).`); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EPERM") throw new Error(`Cannot verify listener lock process ${pid}; inspect before continuing.`);
       if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
@@ -122,13 +122,12 @@ function withLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
   let fd: number;
   try { fd = openSync(path, "wx", 0o600); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Listener already runs or another runner claimed its lock; inspect before continuing.");
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Listener already runs or another runner claimed ${path}; inspect before continuing.`);
     throw error;
   }
   writeFileSync(fd, String(process.pid)); closeSync(fd);
   return fn().finally(() => { if (regular(path) && readFileSync(path, "utf8") === String(process.pid)) unlinkSync(path); });
 }
-/** One scan. The outer watch process calls this repeatedly; startup always scans all posts. */
 /** Person-inspected resolution of an ambiguous append, without a blind retry.
  * Stop the watcher first. `none` records a checked absence; only a proven
  * provenance/reply-linked post can be acknowledged as written. */
@@ -157,10 +156,16 @@ export function resolveListenerRun(threadPath: string, sourcePostId: string, out
   });
 }
 
-export function reconcileListener(threadPath: string, summarize: Summarize): Promise<ListenerRun[]> {
+/** Hold the exclusive run lock for a watcher's entire lifetime, not just each poll. */
+export function withListenerWatch<T>(threadPath: string, run: () => Promise<T>): Promise<T> {
+  return withLock(paths(loadThread(threadPath)).lock, run);
+}
+
+/** One scan. The watcher holds the lock across polls; tick acquires it per scan. */
+export function reconcileListener(threadPath: string, summarize: Summarize, watchLocked = false): Promise<ListenerRun[]> {
   const initial = loadThread(threadPath);
   const state = paths(initial);
-  return withLock(state.lock, async () => {
+  const scan = async () => {
     const runs = existsSync(state.ledger) ? json<ListenerRun[]>(state.ledger) : [];
     // Any interrupted run is not retried. A proven post is recovered by provenance;
     // an absent post after an interrupted append cannot prove the write failed.
@@ -221,5 +226,6 @@ export function reconcileListener(threadPath: string, summarize: Summarize): Pro
       saveRuns(state.ledger, runs);
     }
     return runs;
-  });
+  };
+  return watchLocked ? scan() : withLock(state.lock, scan);
 }

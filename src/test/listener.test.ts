@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendPost, createThread, loadThread } from "../local/threads.js";
-import { createListener, listenerRecord, listenerStatus, reconcileListener, resolveListenerRun, setListenerEnabled, type ListenerRun } from "../local/listener.js";
+import { createListener, listenerRecord, listenerStatus, reconcileListener, resolveListenerRun, setListenerEnabled, withListenerWatch, type ListenerRun } from "../local/listener.js";
 import { buildClaudeArgs } from "../claude/local-agent.js";
 import { makeListenerCommand } from "../commands/listener.js";
 
@@ -106,6 +106,25 @@ describe("bounded local listener", () => {
     expect(resolved.reason).toContain("Person inspected");
   });
 
+  it("resolves only a unique provenance-linked output and pauses on duplicates", async () => {
+    const { root, thread } = fixture();
+    const source = appendPost(thread, { body: "Source" }).post;
+    const run = (await reconcileListener(thread, summary))[0];
+    const cache = join(root, ".ideaspaces", "listeners", readdirSync(join(root, ".ideaspaces", "listeners"))[0], "ledger.json");
+    const pending: ListenerRun[] = JSON.parse(readFileSync(cache, "utf8"));
+    pending[0].status = "uncertain"; delete pending[0].outputPostId;
+    writeFileSync(cache, JSON.stringify(pending));
+    expect((await resolveListenerRun(thread, source.id, run.outputPostId!)).status).toBe("posted");
+    const tags = [`listener:${loadThread(thread).thread_id}`, `source:${source.id}`, `run:${run.runId}`];
+    appendPost(thread, { body: "Second output with same provenance", replyTo: [source.id], kind: "snapshot", tags });
+    pending[0].status = "writing";
+    writeFileSync(cache, JSON.stringify(pending));
+    const recovered = await reconcileListener(thread, summary);
+    expect(recovered[0].status).toBe("uncertain");
+    expect(recovered[0].reason).toContain("Multiple outputs");
+    await expect(resolveListenerRun(thread, source.id, run.outputPostId!)).rejects.toThrow(/unique reply/);
+  });
+
   it("records a model failure without acknowledging the input or retrying it; an ordinary tagged post still runs", async () => {
     const { thread } = fixture();
     const source = appendPost(thread, { body: "Untrusted failure", tags: [`listener:${loadThread(thread).thread_id}`] }).post;
@@ -116,6 +135,23 @@ describe("bounded local listener", () => {
     expect(runs[0].reason).toContain("provider unavailable");
     expect(await reconcileListener(thread, async () => { throw new Error("must not retry"); })).toHaveLength(1);
     expect(loadThread(thread).posts).toHaveLength(2);
+  });
+
+  it("holds the watch lock across scans, recovers dead locks and refuses unsafe/live locks", async () => {
+    const { root, thread } = fixture();
+    const lock = join(root, ".ideaspaces", "listeners", readdirSync(join(root, ".ideaspaces", "listeners"))[0], "run.lock");
+    await withListenerWatch(thread, async () => {
+      expect(() => reconcileListener(thread, summary)).toThrow(/already runs/);
+      expect(() => resolveListenerRun(thread, "missing", "none")).toThrow(/already runs/);
+      expect(await reconcileListener(thread, summary, true)).toEqual([]);
+    });
+    writeFileSync(lock, "999999999");
+    expect(await reconcileListener(thread, summary)).toEqual([]);
+    writeFileSync(lock, String(process.pid));
+    expect(() => reconcileListener(thread, summary)).toThrow(/already runs/);
+    unlinkSync(lock);
+    symlinkSync(join(root, "_agent", "agreement.md"), lock);
+    expect(() => reconcileListener(thread, summary)).toThrow(/Unsafe listener lock/);
   });
 
   it("CLI rejects bad flags and returns an inspectable status/tick JSON shape", async () => {

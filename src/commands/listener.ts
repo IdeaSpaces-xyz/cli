@@ -1,5 +1,5 @@
 import { resolveLocalThread } from "../local/threads.js";
-import { createListener, listenerRecord, listenerStatus, reconcileListener, resolveListenerRun, setListenerEnabled, type Summarize } from "../local/listener.js";
+import { createListener, listenerRecord, listenerStatus, reconcileListener, resolveListenerRun, setListenerEnabled, withListenerWatch, type Summarize } from "../local/listener.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 
@@ -45,15 +45,18 @@ export const makeListenerCommand = (summarizeThreadPost: Summarize): CommandDef 
       const stop = () => { stopping = true; };
       process.on("SIGINT", stop); process.on("SIGTERM", stop);
       try {
+        const iterate = async () => {
         do {
           const before = new Map(listenerStatus(thread).runs.map((run) => [run.key, run.status]));
-          const runs = await reconcileListener(thread, summarizeThreadPost);
+          const runs = await reconcileListener(thread, summarizeThreadPost, verb === "watch");
           const changed = runs.filter((run) => before.get(run.key) !== run.status);
           for (const run of changed) output.log(`${run.sourcePostId}: ${run.status}${run.outputPostId ? ` → ${run.outputPostId}` : run.reason ? `: ${run.reason}` : ""}`);
           if (verb === "tick") { output.result({ runs }, JSON.stringify({ runs }, null, 2)); return 0; }
           await new Promise<void>((resolve) => { setTimeout(resolve, interval); });
         } while (!stopping);
         return 0;
+        };
+        return verb === "watch" ? await withListenerWatch(thread, iterate) : await iterate();
       } finally { process.off("SIGINT", stop); process.off("SIGTERM", stop); }
     } catch (error) {
       output.error(error instanceof Error ? error.message : String(error)); return 1;
