@@ -32,7 +32,6 @@ import {
   type LocalProjectionRoot,
 } from "../local-map-root.js";
 import { createOutput, type Output } from "../output.js";
-import { threadsCommand } from "./threads.js";
 import { repoRoot } from "../git.js";
 import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap } from "../local/address-read.js";
 import { lookAtCommit } from "../local/map-look.js";
@@ -42,8 +41,7 @@ import type { CommandDef } from "../types.js";
 const DEPTHS = "<name|summary|surface|children|full>";
 const USAGE =
   `ideaspaces look <path> [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--limit <n>] [--pin <sha>] [--json]\n` +
-  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--json]\n` +
-  `       ideaspaces look _threads/<slug> [--depth ${DEPTHS}] [--new|--since <ISO date|post id>] [--post <id>] [--json]`;
+  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--json]`;
 
 interface PortableProjection {
   root: LocalProjectionRoot;
@@ -84,8 +82,7 @@ export const lookCommand: CommandDef = {
     "ideaspaces look notes/decision.md --pin 0123456789abcdef0123456789abcdef01234567",
     "ideaspaces look notes/decision.md --depth children",
     "ideaspaces look research --depth full --json",
-    "ideaspaces look _threads/decision --depth summary --new",
-    "ideaspaces look _threads/decision --depth surface --post msg_01234567-89ab-4cde-8f01-23456789abcd",
+    "ideaspaces look _threads/decision --depth children   # protocol content-look; use threads open for posts",
     "ideaspaces look . --contract foundation --depth summary",
   ],
   async run(args, flags, global) {
@@ -96,6 +93,10 @@ export const lookCommand: CommandDef = {
     }
 
     const raw = args[0].trim();
+    if (flags.new !== undefined || flags.since !== undefined || flags.post !== undefined) {
+      output.error("--new, --since and --post belong to threads open; look reads one canonical content target. Use ideaspaces threads open for paged posts.");
+      return 1;
+    }
     if (isRemoteAddress(raw)) {
       output.error("Remote look is not available yet; use a local path.");
       return 1;

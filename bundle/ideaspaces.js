@@ -17547,8 +17547,7 @@ function renderHeader(note, resolved, name) {
 init_map_resolve();
 var DEPTHS2 = "<name|summary|surface|children|full>";
 var USAGE2 = `ideaspaces look <path> [--depth ${DEPTHS2}] [--contract <foundation|agreement>] [--limit <n>] [--pin <sha>] [--json]
-       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS2}] [--json]
-       ideaspaces look _threads/<slug> [--depth ${DEPTHS2}] [--new|--since <ISO date|post id>] [--post <id>] [--json]`;
+       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS2}] [--json]`;
 function parseDepth(value2) {
   if (value2 === void 0)
     return "summary";
@@ -17576,8 +17575,7 @@ var lookCommand = {
     "ideaspaces look notes/decision.md --pin 0123456789abcdef0123456789abcdef01234567",
     "ideaspaces look notes/decision.md --depth children",
     "ideaspaces look research --depth full --json",
-    "ideaspaces look _threads/decision --depth summary --new",
-    "ideaspaces look _threads/decision --depth surface --post msg_01234567-89ab-4cde-8f01-23456789abcd",
+    "ideaspaces look _threads/decision --depth children   # protocol content-look; use threads open for posts",
     "ideaspaces look . --contract foundation --depth summary"
   ],
   async run(args2, flags2, global2) {
@@ -17587,6 +17585,10 @@ var lookCommand = {
       return 1;
     }
     const raw = args2[0].trim();
+    if (flags2.new !== void 0 || flags2.since !== void 0 || flags2.post !== void 0) {
+      output.error("--new, --since and --post belong to threads open; look reads one canonical content target. Use ideaspaces threads open for paged posts.");
+      return 1;
+    }
     if (isRemoteAddress(raw)) {
       output.error("Remote look is not available yet; use a local path.");
       return 1;

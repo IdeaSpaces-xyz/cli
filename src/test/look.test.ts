@@ -113,6 +113,9 @@ describe("ideaspaces look", () => {
     const named = await runLook(["_threads/decision"], { depth: "name" });
     expect(named.exit, named.stderr).toBe(0);
     expect(named.data.target.name).toBe("Current decision");
+    expect(named.data.target.children).toBeUndefined();
+    expect(named.stdout).not.toContain("Private body");
+    expect(named.data.schema).not.toBe("ideaspaces.local-thread.open.v2");
 
     const withSlash = await runLook(["_threads/decision/"], { depth: "name" });
     expect(withSlash.exit, withSlash.stderr).toBe(0);
@@ -129,6 +132,11 @@ describe("ideaspaces look", () => {
     const full = await runLook(["_threads/decision"], { depth: "full" });
     expect(full.exit, full.stderr).toBe(0);
     expect(full.data.target.children).toHaveLength(2);
+    for (const flag of [{ new: true }, { since: second.post.id }, { post: first.post.id }]) {
+      const rejected = await runLook(["_threads/decision"], flag);
+      expect(rejected.exit).toBe(1);
+      expect(rejected.stderr).toContain("threads open");
+    }
   });
 
   it("defaults to Agreement summary and emits one valid portable Map", async () => {
