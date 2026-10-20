@@ -93,6 +93,7 @@ export const lookCommand: CommandDef = {
     }
 
     const raw = args[0].trim();
+    // Keep removed flags here so they reach the actionable threads-open hint below.
     const allowed = new Set(["depth", "contract", "limit", "pin", "map", "at", "new", "since", "post"]);
     const unknown = Object.keys(flags).find((flag) => !allowed.has(flag));
     if (unknown) {
