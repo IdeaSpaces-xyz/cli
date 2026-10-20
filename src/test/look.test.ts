@@ -105,37 +105,64 @@ afterEach(async () => {
 });
 
 describe("ideaspaces look", () => {
-  it("routes a Thread folder through five bounded Thread rungs without treating it as Content", async () => {
+  it("reads a Thread folder through five canonical look rungs", async () => {
     const thread = createThread("decision", "Current decision", root);
     const first = appendPost(thread.path, { body: "Private body", author: "Integrator", name: "First", summary: "One finding" });
     const second = appendPost(thread.path, { body: "Second body", author: "Scout", name: "Second", summary: "Next finding", replyTo: [first.post.id] });
+
     const named = await runLook(["_threads/decision"], { depth: "name" });
     expect(named.exit, named.stderr).toBe(0);
-    expect(named.data.posts).toEqual([]);
+    expect(named.data.target.name).toBe("Current decision");
+    expect(named.data.target.children).toBeUndefined();
+    expect(named.stdout).not.toContain("Private body");
+    expect(named.data.kind).toBe("content-look");
+    expect(named.data.schema).not.toBe("ideaspaces.local-thread.open.v2");
+
     const withSlash = await runLook(["_threads/decision/"], { depth: "name" });
-    expect(withSlash.exit, withSlash.stderr).toBe(0); // resolve() normalizes the trailing slash.
-    expect(withSlash.data.posts).toEqual([]);
+    expect(withSlash.exit, withSlash.stderr).toBe(0);
+    expect(withSlash.data.target.name).toBe("Current decision");
+
     const summary = await runLook(["_threads/decision"], { depth: "summary" });
     expect(summary.exit, summary.stderr).toBe(0);
-    expect(summary.data.posts).toEqual([]); // unfiltered summary is the parent/snapshot coordinate, not a timeline
-    expect(summary.stdout).not.toContain("Private body");
+    expect(summary.data.target.name).toBe("Current decision");
+
     const children = await runLook(["_threads/decision"], { depth: "children" });
-    expect(children.data.branches[0].tip_id).toBe(second.post.id);
-    expect(children.stdout).not.toContain("Second body");
-    const selected = await runLook(["_threads/decision"], { depth: "surface", post: second.post.id });
-    expect(selected.exit, selected.stderr).toBe(0);
-    expect(selected.data.raw_post).toContain("Second body");
-    expect(selected.stdout).not.toContain("Private body");
-    const exact = await runLook(["_threads/decision"], { depth: "name", post: second.post.id });
-    expect(exact.data.raw_post).toContain("Second body"); // --post explicitly requests one full post.
-    const unknown = await runLook(["_threads/decision"], { depth: "summary", typo: "value" });
-    expect(unknown.exit).toBe(1);
-    expect(unknown.stderr).toContain("Unknown flag for a Thread folder: --typo");
+    expect(children.exit, children.stderr).toBe(0);
+    expect(children.data.target.children).toHaveLength(2);
+
     const full = await runLook(["_threads/decision"], { depth: "full" });
-    expect(full.data.posts).toHaveLength(2);
-    const wrong = await runLook(["_threads/decision"], { depth: "summary", contract: "agreement" });
-    expect(wrong.exit).toBe(1);
-    expect(wrong.stderr).toContain("Thread folder");
+    expect(full.exit, full.stderr).toBe(0);
+    expect(full.data.target.children).toHaveLength(2);
+    const asText = await runLook(["_threads/decision"], { depth: "children" }, { ...JSON_FLAGS, json: false });
+    expect(asText.exit, asText.stderr).toBe(0);
+    expect(asText.stdout).toContain("Current decision");
+    expect(asText.stderr).toBe("");
+    const contracted = await runLook(["_threads/decision"], { contract: "agreement" });
+    expect(contracted.exit, contracted.stderr).toBe(0);
+    expect(contracted.data.kind).toBe("content-look");
+    git(["add", "."]);
+    git(["commit", "-q", "-m", "thread"]);
+    const pinned = await runLook(["_threads/decision"], { pin: git(["rev-parse", "HEAD"]), depth: "children" });
+    expect(pinned.exit, pinned.stderr).toBe(0);
+    expect(pinned.data.target.children).toHaveLength(2);
+    const unknown = await runLook(["_threads/decision"], { typo: "value" });
+    expect(unknown.exit).toBe(1);
+    expect(unknown.stderr).toContain("Unknown flag for look: --typo");
+    for (const flag of [{ new: true }, { since: second.post.id }, { post: first.post.id }]) {
+      const rejected = await runLook(["_threads/decision"], flag);
+      expect(rejected.exit).toBe(1);
+      expect(rejected.stderr).toContain("threads open");
+    }
+  }, 30_000); // Pinned Thread look and fixture Git startup can exceed 5s on Windows.
+
+  it("reads the Agreement by path as reference content", async () => {
+    const read = await runLook(["_agent/agreement.md"], { depth: "full" });
+    expect(read.exit, read.stderr).toBe(0);
+    expect(read.data.target.position).toBe("_agent/agreement.md");
+    expect(read.stdout).toContain("AGREEMENT SENTINEL");
+    const rejected = await runLook(["notes/decision.md"], { post: "msg_example" });
+    expect(rejected.exit).toBe(1);
+    expect(rejected.stderr).toContain("no longer accepted by look");
   });
 
   it("defaults to Agreement summary and emits one valid portable Map", async () => {
@@ -309,7 +336,6 @@ describe("ideaspaces look", () => {
     expect((await runLook(["https://ideaspaces.xyz/repos/n_example"])).stderr)
       .toContain("Remote look is not available yet");
     expect((await runLook(["missing.md"])).stderr).toContain("No such path");
-    expect((await runLook(["_agent/agreement.md"])).stderr).toContain("Not a Content target");
     await fs.writeFile(join(root, "data.txt"), "plain data");
     expect((await runLook(["data.txt"])).stderr).toContain("Not a Content target");
   });
