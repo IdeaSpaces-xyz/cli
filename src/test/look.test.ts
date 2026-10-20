@@ -139,6 +139,13 @@ describe("ideaspaces look", () => {
     }
   });
 
+  it("reads the Agreement by path as reference content", async () => {
+    const read = await runLook(["_agent/agreement.md"], { depth: "full" });
+    expect(read.exit, read.stderr).toBe(0);
+    expect(read.data.target.position).toBe("_agent/agreement.md");
+    expect(read.stdout).toContain("AGREEMENT SENTINEL");
+  });
+
   it("defaults to Agreement summary and emits one valid portable Map", async () => {
     const cwd = process.cwd();
     const result = await runLook(["notes/decision.md"]);

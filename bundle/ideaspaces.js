@@ -17586,7 +17586,7 @@ var lookCommand = {
     }
     const raw = args2[0].trim();
     if (flags2.new !== void 0 || flags2.since !== void 0 || flags2.post !== void 0) {
-      output.error("--new, --since and --post belong to threads open; look reads one canonical content target. Use ideaspaces threads open for paged posts.");
+      output.error("--new, --since and --post are no longer accepted by look; use ideaspaces threads open for paged posts.");
       return 1;
     }
     if (isRemoteAddress(raw)) {
