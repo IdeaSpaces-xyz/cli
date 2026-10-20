@@ -93,6 +93,12 @@ export const lookCommand: CommandDef = {
     }
 
     const raw = args[0].trim();
+    const allowed = new Set(["depth", "contract", "limit", "pin", "map", "at", "new", "since", "post"]);
+    const unknown = Object.keys(flags).find((flag) => !allowed.has(flag));
+    if (unknown) {
+      output.error(`Unknown flag for look: --${unknown}`);
+      return 1;
+    }
     if (flags.new !== undefined || flags.since !== undefined || flags.post !== undefined) {
       output.error("--new, --since and --post are no longer accepted by look; use ideaspaces threads open for paged posts.");
       return 1;

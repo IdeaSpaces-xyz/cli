@@ -115,6 +115,7 @@ describe("ideaspaces look", () => {
     expect(named.data.target.name).toBe("Current decision");
     expect(named.data.target.children).toBeUndefined();
     expect(named.stdout).not.toContain("Private body");
+    expect(named.data.kind).toBe("content-look");
     expect(named.data.schema).not.toBe("ideaspaces.local-thread.open.v2");
 
     const withSlash = await runLook(["_threads/decision/"], { depth: "name" });
@@ -132,6 +133,21 @@ describe("ideaspaces look", () => {
     const full = await runLook(["_threads/decision"], { depth: "full" });
     expect(full.exit, full.stderr).toBe(0);
     expect(full.data.target.children).toHaveLength(2);
+    const asText = await runLook(["_threads/decision"], { depth: "children" }, { ...JSON_FLAGS, json: false });
+    expect(asText.exit, asText.stderr).toBe(0);
+    expect(asText.stdout).toContain("Current decision");
+    expect(asText.stderr).toBe("");
+    const contracted = await runLook(["_threads/decision"], { contract: "agreement" });
+    expect(contracted.exit, contracted.stderr).toBe(0);
+    expect(contracted.data.kind).toBe("content-look");
+    git(["add", "."]);
+    git(["commit", "-q", "-m", "thread"]);
+    const pinned = await runLook(["_threads/decision"], { pin: git(["rev-parse", "HEAD"]), depth: "children" });
+    expect(pinned.exit, pinned.stderr).toBe(0);
+    expect(pinned.data.target.children).toHaveLength(2);
+    const unknown = await runLook(["_threads/decision"], { typo: "value" });
+    expect(unknown.exit).toBe(1);
+    expect(unknown.stderr).toContain("Unknown flag for look: --typo");
     for (const flag of [{ new: true }, { since: second.post.id }, { post: first.post.id }]) {
       const rejected = await runLook(["_threads/decision"], flag);
       expect(rejected.exit).toBe(1);
@@ -144,6 +160,9 @@ describe("ideaspaces look", () => {
     expect(read.exit, read.stderr).toBe(0);
     expect(read.data.target.position).toBe("_agent/agreement.md");
     expect(read.stdout).toContain("AGREEMENT SENTINEL");
+    const rejected = await runLook(["notes/decision.md"], { post: "msg_example" });
+    expect(rejected.exit).toBe(1);
+    expect(rejected.stderr).toContain("no longer accepted by look");
   });
 
   it("defaults to Agreement summary and emits one valid portable Map", async () => {

@@ -17585,6 +17585,12 @@ var lookCommand = {
       return 1;
     }
     const raw = args2[0].trim();
+    const allowed = /* @__PURE__ */ new Set(["depth", "contract", "limit", "pin", "map", "at", "new", "since", "post"]);
+    const unknown = Object.keys(flags2).find((flag) => !allowed.has(flag));
+    if (unknown) {
+      output.error(`Unknown flag for look: --${unknown}`);
+      return 1;
+    }
     if (flags2.new !== void 0 || flags2.since !== void 0 || flags2.post !== void 0) {
       output.error("--new, --since and --post are no longer accepted by look; use ideaspaces threads open for paged posts.");
       return 1;
