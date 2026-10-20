@@ -153,7 +153,7 @@ describe("ideaspaces look", () => {
       expect(rejected.exit).toBe(1);
       expect(rejected.stderr).toContain("threads open");
     }
-  });
+  }, 30_000); // Pinned Thread look and fixture Git startup can exceed 5s on Windows.
 
   it("reads the Agreement by path as reference content", async () => {
     const read = await runLook(["_agent/agreement.md"], { depth: "full" });
