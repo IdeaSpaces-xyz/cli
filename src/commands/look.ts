@@ -380,7 +380,7 @@ export async function projectPortableMap(
       ? { limit: looked.target.page.shown,
           ...(dependencies.page?.since ? { since: dependencies.page.since } : {}),
           ...(dependencies.page?.order ? { order: dependencies.page.order } : {}) }
-      : looked.target.children ? { maxChildren: looked.target.children.length } : {}),
+      : {}),
   });
   const stateAfter = await readGitState(repoRoot);
   if (

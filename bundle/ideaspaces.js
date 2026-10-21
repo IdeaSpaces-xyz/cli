@@ -17653,7 +17653,6 @@ async function lookAtCommit(target, options) {
       position,
       depth: options.depth,
       ...options.contractSource ? { contractSource: options.contractSource } : {},
-      ...options.maxChildren !== void 0 ? { maxChildren: options.maxChildren } : {},
       ...options.limit !== void 0 ? { limit: options.limit } : {},
       ...options.since !== void 0 ? { since: options.since } : {},
       ...options.order !== void 0 ? { order: options.order } : {},
@@ -17825,7 +17824,10 @@ function threadPostIdAddress(address) {
   if (parsed2.status !== "valid")
     return null;
   const match = /^_threads\/[^/]+\/(msg_[A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(parsed2.address.position);
-  return match ? { threadAddress: address.slice(0, -match[1].length - 1), postId: match[1] } : null;
+  return match ? { threadAddress: formatMapPositionAddress({
+    root: parsed2.address.root,
+    position: parsed2.address.position.slice(0, -match[1].length - 1)
+  }), postId: match[1] } : null;
 }
 function selectReadMap(flag, cwd = process.cwd()) {
   if (flag === true || typeof flag === "string" && !flag.trim()) {
@@ -18273,7 +18275,7 @@ async function projectPortableMap(looked, dependencies = {}) {
       limit: looked.target.page.shown,
       ...dependencies.page?.since ? { since: dependencies.page.since } : {},
       ...dependencies.page?.order ? { order: dependencies.page.order } : {}
-    } : looked.target.children ? { maxChildren: looked.target.children.length } : {}
+    } : {}
   });
   const stateAfter = await readGitState(repoRoot2);
   if (!rechecked || rechecked.status !== "ok" || rechecked.target.revision !== looked.target.revision || stateAfter.headSha !== state.headSha) {
@@ -23800,8 +23802,9 @@ function loadLocalThreadMap(input) {
     const fm = parseFrontmatter(content);
     value2 = fm?.map ?? (0, import_yaml8.parse)(content);
   } else {
-    if (!input.includes("\n") && !input.includes(":"))
+    if (!input.includes("\n") && (!input.includes(":") || /\.(?:map\.md|md|json|ya?ml)$/i.test(input.trim()))) {
       throw new Error(`--map file not found: ${path}. Provide a regular pinned Map note or inline YAML.`);
+    }
     value2 = (0, import_yaml8.parse)(input);
   }
   if (value2 && typeof value2 === "object" && "map" in value2)

@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import { parseMapPositionAddress, type ContractSource, type MapDepth } from "@ideaspaces/protocol";
+import { formatMapPositionAddress, parseMapPositionAddress, type ContractSource, type MapDepth } from "@ideaspaces/protocol";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 import { focusAtCommit, lookAtCommit, type CommitFocus, type CommitLook } from "./map-look.js";
 import { defaultRootNames, resolveMapAddress, type MapReadAt, type MapReadResult } from "./map-resolve.js";
@@ -29,7 +29,8 @@ export function threadPostIdAddress(address: string): { threadAddress: string; p
   const parsed = parseMapPositionAddress(address);
   if (parsed.status !== "valid") return null;
   const match = /^_threads\/[^/]+\/(msg_[A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(parsed.address.position);
-  return match ? { threadAddress: address.slice(0, -match[1].length - 1), postId: match[1] } : null;
+  return match ? { threadAddress: formatMapPositionAddress({ root: parsed.address.root,
+    position: parsed.address.position.slice(0, -match[1].length - 1) }), postId: match[1] } : null;
 }
 
 /** The Map an address is read against: the one named, else the launch Map. */

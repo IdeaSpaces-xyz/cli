@@ -215,6 +215,9 @@ describe("ideaspaces look", () => {
       const both = await runLook([virtual], { map, at: "pin", post: fixId });
       expect(both.exit).toBe(1);
       expect(both.stderr).toContain("not both");
+      const wrongPinForm = await runLook([virtual], { map, pin, depth: "full" });
+      expect(wrongPinForm.exit).toBe(1);
+      expect(wrongPinForm.stderr).toContain("--pin reads a path");
     } finally { process.chdir(root); await rm(outside, { recursive: true, force: true }); }
     for (const flags of [{ post: fixId, limit: "1" }, { post: fixId, since: "49-post.md" }, { post: fixId, order: "newer" }]) {
       const conflict = await runLook(["_threads/engine"], flags);

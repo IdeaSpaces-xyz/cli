@@ -65,8 +65,6 @@ export interface CommitLookOptions {
   since?: string;
   order?: "older" | "newer";
   postId?: string;
-  /** Legacy cap retained for callers predating limit. */
-  maxChildren?: number;
 }
 
 /** Look at one Note or directory as it is in a commit, at one rung. */
@@ -78,7 +76,6 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
       position,
       depth: options.depth,
       ...(options.contractSource ? { contractSource: options.contractSource } : {}),
-      ...(options.maxChildren !== undefined ? { maxChildren: options.maxChildren } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
       ...(options.since !== undefined ? { since: options.since } : {}),
       ...(options.order !== undefined ? { order: options.order } : {}),

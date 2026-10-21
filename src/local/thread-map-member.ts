@@ -13,7 +13,9 @@ export function loadLocalThreadMap(input: string): unknown {
     const fm = parseFrontmatter(content);
     value = fm?.map ?? parseYaml(content);
   } else {
-    if (!input.includes("\n") && !input.includes(":")) throw new Error(`--map file not found: ${path}. Provide a regular pinned Map note or inline YAML.`);
+    if (!input.includes("\n") && (!input.includes(":") || /\.(?:map\.md|md|json|ya?ml)$/i.test(input.trim()))) {
+      throw new Error(`--map file not found: ${path}. Provide a regular pinned Map note or inline YAML.`);
+    }
     value = parseYaml(input);
   }
   if (value && typeof value === "object" && "map" in value) value = (value as { map: unknown }).map;
