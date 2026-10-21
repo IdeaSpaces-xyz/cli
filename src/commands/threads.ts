@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { parseFrontmatter, parseThreadAttachment, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
@@ -13,7 +13,7 @@ import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
-  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity,
+  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions,
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./thread-flags.js";
@@ -390,10 +390,8 @@ export const threadsCommand: CommandDef = {
       if (sub === "new") {
         if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title> [--attached-to <type>:<id>]");
         const attachedTo = str(flags, "attached-to");
-        if (flags["attached-to"] !== undefined && (!attachedTo?.includes(":") || !parseThreadAttachment(attachedTo))) {
-          throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
-        }
-        const thread = createThread(rest[0], str(flags, "about")!);
+        if (flags["attached-to"] === true) throw new Error("--attached-to requires a <type>:<id> value. No Thread created.");
+        const thread = createThread(rest[0], str(flags, "about")!, process.cwd(), attachedTo);
         let opening: ReturnType<typeof appendPost>;
         try {
           opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary, attachedTo });
@@ -598,10 +596,7 @@ export const threadsCommand: CommandDef = {
         if (selected && kind === "closure") throw new Error("Selected cross-Space closure is not supported; use the local Space's close verb.");
         const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
         if (parents?.some((id) => !id)) throw new Error("--reply-to must name non-empty post ids, separated by commas.");
-        if (kind === "mark" && (!str(flags, "mark")?.trim() || parents?.length !== 1 || parents[0] === "latest")) {
-          throw new Error("--kind mark requires --mark <value> and --reply-to <one explicit target post id>.");
-        }
-        if (flags.mark !== undefined && kind !== "mark") throw new Error("--mark requires --kind mark.");
+        validateMarkOptions(kind, str(flags, "mark"), parents);
         if (selected && !parents?.length) throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
         const tags = typeof flags.tags === "string" ? flags.tags.split(",").map((t) => t.trim()) : undefined;

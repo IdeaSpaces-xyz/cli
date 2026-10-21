@@ -186,9 +186,12 @@ export function listLocal(cwd = process.cwd(), onError?: (message: string) => vo
   return rows.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
-export function createThread(slug: string, about: string, cwd = process.cwd()): LocalThread {
+export function createThread(slug: string, about: string, cwd = process.cwd(), attachedTo?: string): LocalThread {
   if (!SLUG.test(slug)) throw new Error("Thread slug must be lowercase letters, numbers and hyphens (1–101 characters).");
   if (!about.trim() || /[\r\n]/.test(about) || about.length > 200) throw new Error("--about must be a single-line title of at most 200 characters.");
+  if (attachedTo !== undefined && (!attachedTo.includes(":") || !parseThreadAttachment(attachedTo))) {
+    throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
+  }
   const base = threadsDirectory(cwd);
   if (existsSync(base)) safeDirectory(base);
   else mkdirSync(base);
@@ -354,6 +357,17 @@ export function computeBranches(posts: ThreadPost[]): BranchInfo[] {
   return branches;
 }
 
+/** One rule shared by command preflight and the direct local writer. */
+export function validateMarkOptions(kind?: string, mark?: string, replyTo?: string[]): void {
+  if (kind === "mark" && (!mark?.trim() || /[\r\n]/.test(mark))) {
+    throw new Error("--kind mark requires --mark <non-empty single-line value>.");
+  }
+  if (mark !== undefined && kind !== "mark") throw new Error("--mark requires --kind mark.");
+  if (kind === "mark" && (replyTo?.length !== 1 || replyTo[0] === "latest")) {
+    throw new Error("--kind mark requires --reply-to <one explicit target post id>.");
+  }
+}
+
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
@@ -380,13 +394,7 @@ export function appendPost(dir: string, options: {
       }
     }
   }
-  if (options.kind === "mark" && (!options.mark?.trim() || /[\r\n]/.test(options.mark))) {
-    throw new Error("--mark requires a non-empty single-line string for --kind mark.");
-  }
-  if (options.mark !== undefined && options.kind !== "mark") throw new Error("--mark requires --kind mark.");
-  if (options.attachedTo !== undefined && (!options.attachedTo.includes(":") || !parseThreadAttachment(options.attachedTo))) {
-    throw new Error("--attached-to requires a valid <type>:<id> link; invalid attached_to field.");
-  }
+  validateMarkOptions(options.kind, options.mark, options.replyTo);
   if (options.attachedTo !== undefined && thread.allPosts.length) throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
   const byId = new Map(thread.allPosts.map((post) => [post.id, post]));
   const referenced = new Set(thread.posts.flatMap((post) => post.inReplyTo));
@@ -413,15 +421,12 @@ export function appendPost(dir: string, options: {
   }
 
   if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error("--reply-to must name distinct existing post ids in this Thread.");
-  if (options.kind === "mark" && (options.replyTo?.length !== 1 || options.replyTo[0] === "latest" || parentIds.length !== 1)) {
-    throw new Error("--kind mark requires --reply-to <one explicit target post id>.");
-  }
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
   if (options.supersedes && options.kind !== "correction") throw new Error("--supersedes requires --kind correction.");
   if (options.map !== undefined) {
     const map = parseMap(options.map);
-    if (map.status !== "valid") throw new Error("--map must contain a valid protocol Map block; no implicit HEAD pin is substituted.");
+    if (map.status !== "valid") throw new Error(`--map must contain a valid protocol Map block: ${map.status === "invalid" ? map.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ") : "map is absent"}. Fix the named field; no implicit HEAD pin is substituted.`);
     if (!isPinnedMomentMap(map.map)) {
       for (const [index, root] of map.map.roots.entries()) {
         if (!root.sha) throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);

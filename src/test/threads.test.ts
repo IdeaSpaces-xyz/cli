@@ -42,6 +42,7 @@ describe("local Threads", () => {
     const end = appendPost(t.path, { body: "Closed", kind: "closure" });
     expect(loadThread(t.path).closed).toBe(true);
     expect(() => appendPost(t.path, { body: "Too late" })).toThrow(/closed/);
+    expect(() => appendPost(t.path, { body: "Late mark", kind: "mark", mark: "claimed", replyTo: [first.post.id] })).toThrow(/closed/);
     expect(readFileSync(first.path, "utf8")).toContain("Starting");
     expect(end.post.inReplyTo).toEqual([merge.post.id]);
     expect(listLocal(root)).toHaveLength(1);
@@ -827,6 +828,7 @@ describe("local Threads", () => {
       expect(after.posts[0].marks).toHaveLength(1);
       expect(after.posts[0].marks[0].id).not.toBe(first.id);
       expect(loadThread(join(root, "_threads", "work")).allPosts.some((p) => p.id === first.id)).toBe(true);
+      expect((await run(["open", "work"], { post: first.id })).posts[0]).toMatchObject({ id: first.id, kind: "mark", mark: "claimed" });
       out = ""; err = "";
       expect(await threadsCommand.run(["post", "work"], { kind: "snapshto", message: "Open kind", author: "Integrator" }, { ...flags, quiet: false })).toBe(0);
       expect(JSON.parse(out).kind).toBe("snapshto");
@@ -841,6 +843,9 @@ describe("local Threads", () => {
       out = ""; err = "";
       expect(await threadsCommand.run(["post", "work"], { kind: "mark", mark: "done", message: "No latest", "reply-to": "latest", author: "Integrator" }, flags)).toBe(1);
       expect(err).toContain("explicit target");
+      out = ""; err = "";
+      expect(await threadsCommand.run(["post", "work"], { message: "Bad Map", author: "Integrator", map: JSON.stringify({ roots: [], members: [{ root: 0, position: "_assets/nope.md" }] }) }, flags)).toBe(1);
+      expect(err).toContain("map.members[0]");
       expect(() => appendPost(join(root, "_threads", "work"), { body: "First\\n\\nSecond", rejectEscapedNewlines: true })).toThrow(/literal/);
       expect(readdirSync(join(root, "_threads", "work"))).toHaveLength(count);
       // Stdin/programmatic bodies can intentionally describe literal escape syntax.
