@@ -44,6 +44,13 @@ describe("ideaspaces write", () => {
     expect(written).toContain("# Foo\nBody.");
   });
 
+  it("refuses Note writes into immutable Thread post positions before creating a file", async () => {
+    const path = "_threads/work/01-post.md";
+    const exit = await writeCommand.run([path], { content: "# Missing id", name: "Post" }, baseGlobal);
+    expect(exit).toBe(1);
+    expect(existsSync(join(tmp, path))).toBe(false);
+  });
+
   it("quotes leading-backtick names", async () => {
     // Scalar quoting belongs to the protocol; this keeps the CLI write path covered.
     const exit = await writeCommand.run(

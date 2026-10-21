@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { isPinnedMomentMap, parseFrontmatter, parseMap, parseThreadPost, reconstructThreadTimeline, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -16,6 +16,7 @@ export class NoAgreementError extends Error {}
 
 export interface ThreadParentInfo {
   attached_to: string;
+  status?: "none" | "unknown" | "unresolved" | "ambiguous";
   id?: string;
   slug?: string;
   path?: string;
@@ -34,7 +35,7 @@ export interface ChildThreadInfo {
   attached_to_post_id: string | null;
   latest_activity_at: string | null;
   count: number;
-  closed: boolean;
+  closed: boolean | "unknown";
 }
 
 export interface BranchInfo {
@@ -54,10 +55,17 @@ export interface LocalThread {
   thread_id: string | null;
   name: string;
   summary: string;
+  /** Timeline posts; valid marks fold onto their targets rather than appearing here. */
   posts: ThreadPost[];
-  /** Non-fatal date diagnostics; callers decide whether to print them. */
+  /** All readable posts, including marks, for exact-id reads and corrections. */
+  allPosts: ThreadPost[];
+  /** Non-fatal post-and-field diagnostics; callers decide whether to print them. */
   warnings: string[];
-  closed: boolean;
+  unreadablePosts: string[];
+  closed: boolean | "unknown";
+  /** Only an unreadable opening post refuses writes. */
+  writeRefusal?: string;
+  attachment: ThreadAttachment | "unknown" | null;
   readme: string;
 }
 
@@ -128,31 +136,37 @@ export function loadThread(dir: string): LocalThread {
   const readmePath = join(path, "README.md");
   if (!existsSync(agreement) || !existsSync(readmePath)) throw new Error(`Thread ${path} needs _agent/agreement.md and README.md.`);
   safeDirectory(join(path, "_agent"));
-  safeFile(agreement);
+  const agreementContent = safeFile(agreement);
   const readme = safeFile(readmePath);
   const fm = parseFrontmatter(readme);
   if (!fm) throw new Error(`Malformed README frontmatter: ${readmePath}`);
-  const posts: ThreadPost[] = [];
-  const warnings: string[] = [];
-  const seen = new Set<string>();
+  const slug = basename(path);
+  const sources: Array<{ path: string; content: string }> = [];
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent") continue;
     if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
-    const parsed = parseThreadPost(safeFile(join(path, entry.name)), entry.name);
-    if (parsed.status !== "valid") throw new Error(`Invalid post ${entry.name}: ${parsed.issues.join(", ")}`);
-    if (parsed.post.dateWarning) warnings.push(`Post ${entry.name}: malformed date; time omitted.`);
-    if (seen.has(parsed.post.id)) throw new Error(`Duplicate post id: ${parsed.post.id}`);
-    seen.add(parsed.post.id);
-    posts.push(parsed.post);
+    sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join(path, entry.name)) });
   }
-  const ordered = reconstructThreadTimeline(posts).posts;
+  const legacy = parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
+  const inspection = inspectThreadPosts(sources, legacy);
+  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename(post.path) }));
+  const seen = new Set<string>();
+  for (const post of allPosts) {
+    if (seen.has(post.id)) throw new Error(`Duplicate post id: ${post.id}`);
+    seen.add(post.id);
+  }
+  const timeline = reconstructThreadTimeline(allPosts);
+  const openingPath = [...sources].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.path;
+  const opening = inspection.posts.find((post) => post.path === openingPath);
+  const warnings = inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`);
   return {
-    // Canonical opening-post identity: immutable dated filenames sort by creation stamp.
-    // Use code-unit order so a machine's locale cannot change the chosen id.
-    path, slug: basename(path), thread_id: [...posts].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.id ?? null,
-    name: typeof fm.name === "string" ? fm.name : basename(path),
-    summary: typeof fm.summary === "string" ? fm.summary : "", posts: ordered, warnings,
-    closed: ordered.some((p) => p.kind === "closure"), readme,
+    path, slug, thread_id: opening?.id ?? null,
+    name: typeof fm.name === "string" ? fm.name : slug,
+    summary: typeof fm.summary === "string" ? fm.summary : "",
+    posts: timeline.posts, allPosts, warnings, unreadablePosts: inspection.unreadable.map((post) => post.path),
+    closed: inspection.closed,
+    ...(inspection.writeRefusal ? { writeRefusal: inspection.writeRefusal } : {}),
+    attachment: inspection.parent, readme,
   };
 }
 
@@ -205,32 +219,34 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
   }, null);
 }
 
-export function resolveThreadParent(threadDir: string): ThreadParentInfo | null {
-  const agreement = join(threadDir, "_agent", "agreement.md");
-  const fm = parseFrontmatter(safeFile(agreement));
-  if (!fm) throw new Error(`Malformed Thread Agreement frontmatter: ${agreement}`);
-  if (typeof fm.attached_to !== "string" || !fm.attached_to.trim()) return null;
-  const attachedTo = fm.attached_to.trim();
+export function resolveThreadParent(threadDir: string, knownThreads?: LocalThread[]): ThreadParentInfo | null {
+  const agreementPath = join(threadDir, "_agent", "agreement.md");
+  const parsedAgreement = parseThreadAgreementAttachment(safeFile(agreementPath), `_threads/${basename(threadDir)}/_agent/agreement.md`);
+  const thread = knownThreads?.find((candidate) => candidate.path === realpathSync(threadDir)) ?? loadThread(threadDir);
+  if (parsedAgreement.status === "invalid" && !thread.attachment) {
+    throw new Error(`Malformed Thread Agreement frontmatter: ${agreementPath} (${parsedAgreement.issue}).`);
+  }
+  if (thread.attachment === "unknown") return { attached_to: "unknown", status: "unknown" };
+  if (!thread.attachment) return null;
+  const attachment = thread.attachment;
+  const attachedTo = attachment.raw ?? attachment.value;
+  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
+    return { attached_to: attachedTo, status: "none" };
+  }
   const spaceRoot = spaceForThread(threadDir);
-
-  // Only the existing repository-root-relative post path is a local parent.
-  // TODO(protocol): Move attachment resolution into schema/types/vectors only
-  // after a separate protocol decision; msg_ ids are not a CLI grammar here.
-  if (!/^_threads\/[a-z0-9-]+\/[^/]+\.md$/.test(attachedTo)) return { attached_to: attachedTo };
-  const normPath = join(spaceRoot, attachedTo);
-  const threadsRoot = join(spaceRoot, "_threads");
-  if (!existsSync(normPath)) return { attached_to: attachedTo }; // Missing authored target, never substitute a different post.
-  if (dirname(dirname(normPath)) !== threadsRoot) return { attached_to: attachedTo };
-  if (lstatSync(dirname(normPath)).isSymbolicLink()) throw new Error(`Refusing symlink parent Thread: ${dirname(normPath)}`);
-  const parsed = parseThreadPost(safeFile(normPath), basename(normPath));
-  if (parsed.status !== "valid") throw new Error(`Invalid attached parent post ${attachedTo}: ${parsed.issues.join(", ")}`);
+  // This root snapshot is explicitly selected by the local Space, never a hosted lookup.
+  const siblings = knownThreads ?? listLocal(spaceRoot);
+  const posts = siblings.flatMap((sibling) => sibling.allPosts.map((post) => ({
+    path: `_threads/${sibling.slug}/${post.path}`, id: post.id,
+  })));
+  const resolved = resolveProtocolParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts }]);
+  if (resolved.status !== "resolved") return { attached_to: attachedTo, status: resolved.status };
+  const parent = siblings.find((sibling) => sibling.slug === resolved.parent.path.split("/")[1]);
+  const post = parent?.allPosts.find((candidate) => candidate.id === resolved.parent.id);
   return {
-    attached_to: attachedTo,
-    id: parsed.post.id,
-    slug: basename(dirname(normPath)),
-    path: attachedTo,
-    name: parsed.post.frontmatter.name ?? parsed.post.id,
-    summary: parsed.post.frontmatter.summary ?? "",
+    attached_to: attachedTo, id: resolved.parent.id, slug: parent?.slug,
+    path: resolved.parent.path, name: post?.frontmatter.name ?? resolved.parent.id,
+    summary: post?.frontmatter.summary ?? "",
   };
 }
 
@@ -249,13 +265,19 @@ export function findChildThreads(targetThreadDir: string, postId?: string, onErr
     if (t.path === targetThread.path) continue;
     let parentInfo: ThreadParentInfo | null;
     try {
-      parentInfo = resolveThreadParent(t.path);
+      parentInfo = resolveThreadParent(t.path, allThreads);
     } catch (error) {
       if (!onError) throw error;
       onError(`Thread ${t.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
     if (!parentInfo) continue;
+    if (parentInfo.status === "unknown") {
+      const warning = `Thread ${t.slug} parent unknown: opening post unreadable; cannot prove child links.`;
+      if (!onError) throw new Error(warning);
+      onError(warning);
+      continue;
+    }
 
     const matchedPostId = parentInfo.slug === targetSlug && parentInfo.id &&
       targetPostIds.has(parentInfo.id) ? parentInfo.id : null;
@@ -333,13 +355,17 @@ export function computeBranches(posts: ThreadPost[]): BranchInfo[] {
 
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
-  kind?: ThreadKind; supersedes?: string; map?: unknown; tags?: string[];
+  kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
   verifyTarget?: (thread: LocalThread, parents: string[], supersedes?: string) => void;
   onDefaultReplyTo?: (openingPostId: string) => void;
 }): { post: ThreadPost; path: string } {
   const thread = loadThread(dir);
-  if (thread.closed) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
+  if (thread.writeRefusal) throw new Error(thread.writeRefusal);
+  if (thread.closed === true) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
   if (!options.body.trim()) throw new Error("Post body is required through --message or stdin.");
+  if (!options.body.includes("\n") && (options.body.match(/\\n/g) ?? []).length >= 2) {
+    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond') instead of escaped text.");
+  }
   if (Buffer.byteLength(options.body) > MAX_POST) throw new Error(`Post body exceeds ${MAX_POST} bytes.`);
   for (const value of [options.name, options.summary, options.author]) {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
@@ -352,7 +378,15 @@ export function appendPost(dir: string, options: {
       }
     }
   }
-  const byId = new Map(thread.posts.map((post) => [post.id, post]));
+  if (options.kind === "mark" && (!options.mark?.trim() || /[\r\n]/.test(options.mark))) {
+    throw new Error("--mark requires a non-empty single-line string for --kind mark.");
+  }
+  if (options.mark !== undefined && options.kind !== "mark") throw new Error("--mark requires --kind mark.");
+  if (options.attachedTo !== undefined && (!options.attachedTo.includes(":") || !parseThreadAttachment(options.attachedTo))) {
+    throw new Error("--attached-to requires a valid <type>:<id> link; invalid attached_to field.");
+  }
+  if (options.attachedTo !== undefined && thread.allPosts.length) throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
+  const byId = new Map(thread.allPosts.map((post) => [post.id, post]));
   const referenced = new Set(thread.posts.flatMap((post) => post.inReplyTo));
   const tips = thread.posts.filter((post) => !referenced.has(post.id)).map((post) => post.id);
 
@@ -377,6 +411,9 @@ export function appendPost(dir: string, options: {
   }
 
   if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error("--reply-to must name distinct existing post ids in this Thread.");
+  if (options.kind === "mark" && (options.replyTo?.length !== 1 || options.replyTo[0] === "latest" || parentIds.length !== 1)) {
+    throw new Error("--kind mark requires --reply-to <one explicit target post id>.");
+  }
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
   if (options.supersedes && options.kind !== "correction") throw new Error("--supersedes requires --kind correction.");
@@ -401,7 +438,9 @@ export function appendPost(dir: string, options: {
   const stamp = date.replace(/[:.]/g, "-");
   const path = join(thread.path, `${stamp}-${id}.md`);
   const fields = {
-    id, date, kind: options.kind ?? "post", ...(parentIds.length ? { in_reply_to: parentIds.length === 1 ? parentIds[0] : parentIds } : {}),
+    id, date, kind: options.kind ?? "post", ...(options.mark ? { mark: options.mark } : {}),
+    ...(options.attachedTo ? { attached_to: options.attachedTo } : {}),
+    ...(parentIds.length ? { in_reply_to: parentIds.length === 1 ? parentIds[0] : parentIds } : {}),
     ...(parents.length ? { references: references(parents) } : {}),
     ...(options.supersedes ? { supersedes: options.supersedes } : {}),
     ...(options.name ? { name: options.name } : {}), ...(options.summary ? { summary: options.summary } : {}),
@@ -409,9 +448,10 @@ export function appendPost(dir: string, options: {
     ...(options.author ? { author: options.author } : {}), ...(options.map !== undefined ? { map: options.map } : {}),
   };
   const content = `---\n${stringify(fields)}---\n\n${options.body.trim()}\n`;
-  writeFileSync(path, content, { flag: "wx", mode: 0o600 });
   const parsed = parseThreadPost(content, basename(path));
-  if (parsed.status !== "valid") throw new Error(`Generated post failed validation: ${parsed.issues.join(", ")}`);
+  if (parsed.status !== "valid") throw new Error(`Generated post failed validation before write: ${parsed.issues.join(", ")}`);
+  if (parsed.post.warnings?.length) throw new Error(`Generated post failed validation before write: ${parsed.post.warnings.map((w) => `${w.field}: ${w.warning}`).join(", ")}`);
+  writeFileSync(path, content, { flag: "wx", mode: 0o600 });
   if (defaultParentId) options.onDefaultReplyTo?.(defaultParentId);
   return { post: parsed.post, path };
 }

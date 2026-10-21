@@ -31,6 +31,7 @@ const JSON_FLAGS: GlobalFlags = {
 
 let root: string;
 let originalCwd: string;
+const originalHome = process.env.HOME;
 const ROOT_NODE_ID = "n_0123456789abcdef01234567";
 
 function git(args: string[]): string {
@@ -74,6 +75,8 @@ async function runMap(
 
 beforeEach(async () => {
   root = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-derived-map-")));
+  // Fake root ids must never bind to the person's local registry under real HOME.
+  process.env.HOME = root;
   originalCwd = process.cwd();
   process.chdir(root);
   git(["init", "-q", "-b", "main"]);
@@ -86,6 +89,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   process.chdir(originalCwd);
+  process.env.HOME = originalHome;
   await rm(root, { recursive: true, force: true });
 });
 

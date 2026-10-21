@@ -62,14 +62,16 @@ describe("local Threads", () => {
     const parent = createThread("parent", "Parent", root);
     const post = appendPost(parent.path, { body: "Parent" });
     const child = createThread("child", "Child", root);
+    appendPost(child.path, { body: "Child opening" });
     const agreement = join(child.path, "_agent", "agreement.md");
     writeFileSync(agreement, `---\nname: Child\nattached_to: _threads/parent/${post.post.path}\n---\n`);
     expect(resolveThreadParent(child.path)?.id).toBe(post.post.id);
     symlinkSync(post.path, join(parent.path, "alias.md"));
     writeFileSync(agreement, "---\nname: Child\nattached_to: _threads/parent/alias.md\n---\n");
-    expect(() => resolveThreadParent(child.path)).toThrow(/non-regular thread file/);
+    expect(() => resolveThreadParent(child.path)).toThrow(/Unexpected thread entry|non-regular thread file/);
+    rmSync(join(parent.path, "alias.md"));
     writeFileSync(agreement, "---\nname: Child\nattached_to: msg_unknown\n---\n");
-    expect(resolveThreadParent(child.path)).toEqual({ attached_to: "msg_unknown" });
+    expect(resolveThreadParent(child.path)).toEqual({ attached_to: "msg_unknown", status: "unresolved" });
   });
 
   it("closure joins all unmerged branch tips unless explicit parents are supplied", () => {
@@ -113,7 +115,8 @@ describe("local Threads", () => {
     expect(() => appendPost(t.path, { body: "No", map: { roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }], members: [{ root: 0, position: "." }] } })).toThrow(/depth ceiling/);
     expect(readdirSync(t.path).filter((p) => p.startsWith("20"))).toEqual([]);
     writeFileSync(join(t.path, "bad.md"), "---\nkind: post\n---\nMissing id");
-    expect(() => loadThread(t.path)).toThrow(/Invalid post/);
+    expect(loadThread(t.path).unreadablePosts).toContain("_threads/decision/bad.md");
+    expect(() => appendPost(t.path, { body: "Cannot branch without opening" })).toThrow(/Opening post .*bad\.md.*repair it/);
     rmSync(join(t.path, "bad.md"));
     const first = appendPost(t.path, { body: "First" });
     writeFileSync(join(t.path, "duplicate.md"), readFileSync(first.path));
@@ -193,7 +196,7 @@ describe("local Threads", () => {
       text = "";
       expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
       expect(JSON.parse(text).local_complete).toBe(false);
-      expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(1);
+      expect(await searchCommand.run(["Cold"], { threads: true }, flags)).toBe(0);
     } finally { process.chdir(previous); process.stdout.write = old; }
   });
 
@@ -366,8 +369,8 @@ describe("local Threads", () => {
       const posts = JSON.parse(out).posts;
       expect(posts.find((p: { id: string }) => p.id === "msg_day").date).toBe("2026-09-27");
       expect(posts.find((p: { id: string }) => p.id === "msg_bad").date).toBeNull();
-      expect(err).toContain("malformed date; time omitted");
-      expect(out).not.toContain("malformed date;");
+      expect(err).toContain("date: invalid_date");
+      expect(JSON.parse(out).thread.warnings).toEqual(expect.arrayContaining([expect.stringContaining("date: invalid_date")]));
       err = ""; out = "";
       expect(await threadsCommand.run(["read", "legacy"], {}, { ...flags, quiet: true })).toBe(0);
       expect(err).toBe("");
@@ -428,20 +431,21 @@ describe("local Threads", () => {
     try {
       expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
       expect(JSON.parse(out).local_complete).toBe(false);
-      expect(JSON.parse(out).threads).toHaveLength(1);
-      expect(err).toContain("Thread bad cannot be read");
+      expect(JSON.parse(out).threads).toHaveLength(2);
+      expect(JSON.parse(out).threads.find((t: { slug: string }) => t.slug === "bad").parent.status).toBe("unknown");
+      expect(err).toContain("_threads/bad/invalid.md: frontmatter: invalid_id");
       out = ""; err = "";
       expect(await threadsCommand.run(["open", "healthy"], { post: opening.post.id }, flags)).toBe(0);
       expect(JSON.parse(out).child_threads_complete).toBe(false);
       expect(JSON.parse(out).child_threads_total).toBe(0); // known lower bound, not proof of no children
-      expect(err).toContain("Thread bad cannot be read");
+      expect(err).toContain("Thread bad parent unknown");
       writeFileSync(join(healthy.path, "_agent", "agreement.md"), "Malformed Agreement without frontmatter\n");
       out = ""; err = "";
       expect(await threadsCommand.run(["open", "healthy"], { post: opening.post.id }, flags)).toBe(0);
       expect(JSON.parse(out).raw_post).toContain("Good");
       expect(JSON.parse(out).thread.parent).toBeNull();
-      expect(JSON.parse(out).thread.parent_warning).toContain("Malformed Thread Agreement");
-      expect(err).toContain("parent cannot be read");
+      expect(JSON.parse(out).thread.parent_warning).toBeUndefined();
+      expect(err).not.toContain("parent cannot be read");
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
@@ -718,7 +722,100 @@ describe("local Threads", () => {
     } finally { process.stdout.write = writer; process.chdir(old); }
   });
 
-  it("does not resolve the deferred msg_ attachment form", async () => {
+  it("keeps bad-Map and unknown-kind posts when the opening needs repair", () => {
+    const root = fixture(); const t = createThread("fixture", "Fixture", root);
+    const openingPath = join(t.path, "00-opening.md");
+    writeFileSync(openingPath, "---\nid: [\n---\nBroken opening");
+    writeFileSync(join(t.path, "01-map.md"), "---\nid: msg_map\nmap: [broken]\n---\nReadable map sibling");
+    writeFileSync(join(t.path, "02-kind.md"), "---\nid: msg_future\nkind: x_future\n---\nReadable unknown kind");
+    const blocked = loadThread(t.path);
+    expect(blocked.thread_id).toBeNull();
+    expect(blocked.closed).toBe("unknown");
+    expect(blocked.attachment).toBe("unknown");
+    expect(blocked.posts.map((post) => post.id)).toEqual(["msg_map", "msg_future"]);
+    expect(blocked.warnings.join("\n")).toContain("_threads/fixture/01-map.md: map: invalid_map_type");
+    expect(() => appendPost(t.path, { body: "Refused" })).toThrow(/Opening post .*00-opening\.md.*Any Thread writer may repair/);
+    // Repair a never-valid post; a committed repair must explain why.
+    writeFileSync(openingPath, "---\nid: msg_open\n---\nRepaired opening");
+    const restored = loadThread(t.path);
+    expect(restored.thread_id).toBe("msg_open");
+    expect(restored.closed).toBe(false);
+    writeFileSync(join(t.path, "03-unreadable.md"), "---\nid: [\nkind: closure\n---\nCannot parse closure");
+    expect(loadThread(t.path).closed).toBe("unknown");
+    expect(appendPost(t.path, { body: "Still writable", kind: "future_kind" }).post.kind).toBe("future_kind");
+    appendPost(t.path, { body: "Closed", kind: "closure" });
+    expect(loadThread(t.path).closed).toBe(true);
+  });
+
+  it("writes optional opening attachments and resolves only post links as child edges", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const old = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean>) => {
+      out = ""; err = "";
+      expect(await threadsCommand.run(args, options, flags)).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      const parent = await run(["new", "parent"], { about: "Parent" });
+      const child = await run(["new", "child"], { about: "Child", "attached-to": `post:${parent.opening_post_id}` });
+      expect(child.attached_to).toBe(`post:${parent.opening_post_id}`);
+      expect(loadThread(join(root, "_threads", "child")).allPosts[0].attachedTo?.kind).toBe("post");
+      const linked = await run(["new", "linked"], { about: "Linked", "attached-to": "note:@home//notes/topic.md" });
+      expect(linked.attached_to).toBe("note:@home//notes/topic.md");
+      writeFileSync(join(root, "_threads", "linked", "zz-bad.md"), "---\nid: msg_bad_map\nmap: [broken]\n---\nReadable sibling");
+      const linkedOpen = await run(["open", "linked"], { depth: "name" });
+      expect(linkedOpen.thread.parent.status).toBe("none");
+      expect(linkedOpen.thread.warnings).toContain("_threads/linked/zz-bad.md: map: invalid_map_type");
+      const parentPost = await run(["open", "parent"], { post: parent.opening_post_id });
+      expect(parentPost.child_threads.map((row: { slug: string }) => row.slug)).toEqual(["child"]);
+      out = ""; err = "";
+      expect(await threadsCommand.run(["new", "bad"], { about: "Bad", "attached-to": "post:missing" }, flags)).toBe(1);
+      expect(err).toContain("invalid attached_to field");
+      expect(readdirSync(join(root, "_threads"))).not.toContain("bad");
+    } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
+  });
+
+  it("writes and folds mark posts; validates before writing or accepting literal escapes", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const old = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean>) => {
+      out = ""; err = "";
+      const code = await threadsCommand.run(args, options, flags);
+      expect(code, err).toBe(0);
+      return JSON.parse(out);
+    };
+    try {
+      const t = await run(["new", "work"], { about: "Work" });
+      const first = await run(["post", "work"], { kind: "mark", mark: "claimed", "reply-to": t.opening_post_id, message: "Claimed", author: "Integrator" });
+      await run(["post", "work"], { kind: "mark", mark: "claimed", "reply-to": t.opening_post_id, message: "Repeat", author: "Integrator" });
+      const before = await run(["open", "work"], { post: t.opening_post_id });
+      expect(before.posts[0].marks).toHaveLength(1);
+      expect(before.posts[0].marks[0]).toMatchObject({ mark: "claimed", author: "Integrator" });
+      await run(["post", "work"], { kind: "correction", supersedes: first.id, "reply-to": t.opening_post_id, message: "Retract", author: "Integrator" });
+      const after = await run(["open", "work"], { post: t.opening_post_id });
+      expect(after.posts[0].marks).toHaveLength(1);
+      expect(after.posts[0].marks[0].id).not.toBe(first.id);
+      expect(loadThread(join(root, "_threads", "work")).allPosts.some((p) => p.id === first.id)).toBe(true);
+      const count = readdirSync(join(root, "_threads", "work")).length;
+      out = ""; err = "";
+      expect(await threadsCommand.run(["post", "work"], { kind: "mark", message: "No mark", "reply-to": t.opening_post_id, author: "Integrator" }, flags)).toBe(1);
+      expect(err).toContain("--mark");
+      expect(() => appendPost(join(root, "_threads", "work"), { body: "First\\n\\nSecond" })).toThrow(/literal/);
+      expect(readdirSync(join(root, "_threads", "work"))).toHaveLength(count);
+    } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
+  });
+
+  it("resolves a legacy msg_ parent and reverse child link", async () => {
     const root = fixture(); process.env.HOME = root;
     git(root, "init", "-b", "main");
     git(root, "config", "user.name", "Writer"); git(root, "config", "user.email", "writer@example.test");
@@ -737,16 +834,17 @@ describe("local Threads", () => {
       const mainThread = await run(["new", "main-room"], { about: "Main room" });
       const priorityPost = await run(["post", "main-room"], { message: "Priority 1 item", name: "Priority 1", "reply-to": mainThread.opening_post_id });
 
-      // The Agreement retains the authored value; the id grammar is not shipped.
+      // Legacy Agreement aliases remain readable; the opening post wins on new Threads.
       await run(["new", "sub-work"], { about: "Sub work" });
       writeFileSync(join(root, "_threads", "sub-work", "_agent", "agreement.md"),
         `---\nname: Agreement — Sub Work\nsummary: Sub work summary\nattached_to: ${priorityPost.id}\n---\n# Sub Work\n`);
 
       const openSub = await run(["open", "sub-work"], { depth: "name" });
-      expect(openSub.thread.parent).toEqual({ attached_to: priorityPost.id });
+      expect(openSub.thread.parent).toMatchObject({ attached_to: priorityPost.id, id: priorityPost.id, slug: "main-room" });
 
       const openPostInMain = await run(["open", "main-room"], { post: priorityPost.id });
-      expect(openPostInMain.child_threads).toEqual([]);
+      expect(openPostInMain.child_threads).toHaveLength(1);
+      expect(openPostInMain.child_threads[0].slug).toBe("sub-work");
     } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
   });
 });

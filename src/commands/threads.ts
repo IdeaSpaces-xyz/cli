@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { parseFrontmatter, parseThreadAttachment, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
@@ -20,7 +20,6 @@ import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./threa
 
 export { threadFlagError } from "./thread-flags.js";
 
-const KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure"]);
 const SURFACE_BODY_BYTES = 800;
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
@@ -56,17 +55,18 @@ function localRows(threads: LocalThread[], newOnly: boolean, onError: (message: 
   }).map((thread) => {
     let parent: ThreadParentInfo | null = null;
     let parent_warning: string | undefined;
-    try { parent = resolveThreadParent(thread.path); }
+    try { parent = resolveThreadParent(thread.path, threads); }
     catch (error) {
       parent_warning = `Thread ${thread.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`;
       onError(parent_warning);
     }
     return { source: "local" as const, id: thread.path, thread_id: thread.thread_id, slug: thread.slug, name: thread.name,
-      summary: thread.summary, count: thread.posts.length, closed: thread.closed,
+      summary: thread.summary, count: thread.allPosts.length, closed: thread.closed,
+      warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
       latest_activity_at: latestLocalActivity(thread.posts), parent, ...(parent_warning ? { parent_warning } : {}) };
   });
 }
-function reportDateWarnings(thread: LocalThread, output: Output): void {
+function reportThreadWarnings(thread: LocalThread, output: Output): void {
   for (const warning of new Set(thread.warnings)) output.log(`Thread ${thread.slug}: ${warning}`);
 }
 
@@ -120,7 +120,7 @@ function localText(
   const header = `${thread.slug}  ${thread.name}`;
   if (rung === "name") {
     const lens = options?.frame ?? threadFrame(thread);
-    const parentLine = options?.parent ? `Attached to: ${clip(options.parent.attached_to, 400)}` : undefined;
+    const parentLine = options?.parent ? options.parent.status === "unknown" ? "Parent: unknown (opening post unreadable)" : `Attached to: ${clip(options.parent.attached_to, 400)}` : undefined;
     return [
       header,
       parentLine,
@@ -132,7 +132,7 @@ function localText(
       .join("\n\n");
   }
 
-  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})\n${rung === "full" ? thread.summary : clip(thread.summary, 400)}\n${thread.closed ? "closed" : "open"} · ${thread.posts.length} posts`;
+  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})\n${rung === "full" ? thread.summary : clip(thread.summary, 400)}\n${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} · ${thread.allPosts.length} posts`;
 
   if (rung === "summary") {
     const parts = [context];
@@ -149,7 +149,7 @@ function localText(
         posts
           .map(
             (p) =>
-              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${clip(p.frontmatter.name ?? p.id, 200)} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}\n  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`,
+              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${clip(p.frontmatter.name ?? p.id, 200)} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}${p.marks?.length ? ` · marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}\n  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`,
           )
           .join("\n\n"),
       );
@@ -168,7 +168,7 @@ function localText(
     }
     if (options?.childThreads && options.childThreads.length > 0) {
       const childLines = options.childThreads.map(
-        (c) => `  ${c.slug}  ${clip(c.name, 200)}\n    attached to ${c.attached_to_post_id ?? c.attached_to} · ${c.count} posts · ${c.closed ? "closed" : "open"}${c.latest_activity_at ? ` · latest: ${c.latest_activity_at}` : ""}\n    summary: ${clip(c.summary || "(no summary)", 200)}`,
+        (c) => `  ${c.slug}  ${clip(c.name, 200)}\n    attached to ${c.attached_to_post_id ?? c.attached_to} · ${c.count} posts · ${c.closed === "unknown" ? "closed: unknown" : c.closed ? "closed" : "open"}${c.latest_activity_at ? ` · latest: ${c.latest_activity_at}` : ""}\n    summary: ${clip(c.summary || "(no summary)", 200)}`,
       );
       parts.push(`Child Threads (${options.childThreads.length} of ${options.childThreadTotal ?? options.childThreads.length} known):\n${childLines.join("\n")}`);
     }
@@ -180,7 +180,7 @@ function localText(
     context,
     ...posts.map(
       (p) =>
-        `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}`,
+        `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}`,
     ),
   ].join("\n");
 }
@@ -247,9 +247,10 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older]  # local cold default: surface",
-    "ideaspaces threads new <slug> --about 'What we are deciding'  # writes opening post; counts as unread until ack",
+    "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent]  # opening post; optional open typed link",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
+    "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
@@ -321,7 +322,10 @@ export const threadsCommand: CommandDef = {
         if (!space) {
           try {
             localThreads = listLocal(cwd, warn);
-            for (const thread of localThreads) reportDateWarnings(thread, output);
+            for (const thread of localThreads) {
+              reportThreadWarnings(thread, output);
+              localWarnings += thread.unreadablePosts.length;
+            }
             local = localRows(localThreads, newOnly, warn);
           } catch (error) {
             // Outside a Space, hosted listing still works. A malformed Thread or
@@ -368,28 +372,33 @@ export const threadsCommand: CommandDef = {
           return row;
         });
         const text = rows.map((row) => {
-          if (rung === "name") return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row ? row.closed : undefined)}`;
+          if (rung === "name") return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row && typeof row.closed === "boolean" ? row.closed : undefined)}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}`;
           if (rung === "full" && "posts" in row && Array.isArray(row.posts)) {
             const thread = localThreads.find((candidate) => candidate.path === row.id)!;
             return localText(thread, row.posts, "full");
           }
           if (rung === "full" && "text" in row && typeof row.text === "string") return row.text;
-          return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row ? row.closed : undefined)}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
+          return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row && typeof row.closed === "boolean" ? row.closed : undefined)}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
         output.result({ threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
       if (sub === "new") {
-        if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title>");
+        if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title> [--attached-to <type>:<id>]");
+        const attachedTo = str(flags, "attached-to");
+        if (flags["attached-to"] !== undefined && (!attachedTo?.includes(":") || !parseThreadAttachment(attachedTo))) {
+          throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
+        }
         const thread = createThread(rest[0], str(flags, "about")!);
         let opening: ReturnType<typeof appendPost>;
         try {
-          opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary });
+          opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary, attachedTo });
         } catch (err) {
           throw new Error(`Thread created at ${thread.path}, but opening post was not written: ${err instanceof Error ? err.message : String(err)}. Use threads post ${thread.slug} --message <opening-text> to complete it; do not rerun threads new.`);
         }
-        output.result({ path: thread.path, slug: thread.slug, thread_id: opening.post.id, opening_post_id: opening.post.id, date: opening.post.date },
+        output.result({ path: thread.path, slug: thread.slug, thread_id: opening.post.id, opening_post_id: opening.post.id, date: opening.post.date,
+          ...(attachedTo ? { attached_to: attachedTo } : {}) },
           `Created local Thread: ${thread.path}`); return 0;
       }
       if (sub === "open") {
@@ -410,14 +419,16 @@ export const threadsCommand: CommandDef = {
           const postSummary = post.frontmatter.summary ?? "";
           const posts = rung === "name" ? [] : rung === "summary" || rung === "children" ? [{ id: post.id, path: post.path, kind: post.kind,
             date: post.date ?? null, name: postName, ...(rung === "summary" ? { summary: post.frontmatter.summary ?? null } : {}), in_reply_to: post.inReplyTo }] : [post];
+          if (post.warnings?.length) for (const warning of post.warnings) output.log(`Post ${target.position}: ${warning.field}: ${warning.warning}`);
           output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
-            posts, ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
+            posts, ...(post.warnings?.length ? { warnings: post.warnings.map((warning) => ({ post: target.position, ...warning })) } : {}),
+            ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
             rung === "full" || rung === "surface" ? target.pinned : rung === "name" ? target.name : rung === "children" ? `${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"}` : `${target.name}\n${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"} — ${postSummary || "(no summary)"}`);
           return 0;
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         const thread = loadThread(resolveLocalThread(rest[0]));
-        reportDateWarnings(thread, output);
+        reportThreadWarnings(thread, output);
         const rung = depth(flags, "surface");
         const postId = str(flags, "post");
         if (flags.post !== undefined && !postId) throw new Error("--post requires a post id.");
@@ -456,8 +467,9 @@ export const threadsCommand: CommandDef = {
         // Unseen posts before a snapshot must not be silently acknowledged.
         const rangeCount = posts.length;
         if (postId) {
-          if (!thread.posts.some((p) => p.id === postId)) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
-          posts = thread.posts.filter((p) => p.id === postId);
+          const exact = thread.allPosts.find((p) => p.id === postId);
+          if (!exact) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
+          posts = [thread.posts.find((p) => p.id === postId) ?? exact];
         } else if (rung === "surface") {
           const snapshot = findNewestSnapshot(posts);
           if (snapshot) {
@@ -526,7 +538,8 @@ export const threadsCommand: CommandDef = {
             ? clip(p.body, SURFACE_BODY_BYTES, `… [body truncated; use --post ${p.id} for the complete post]`) : p.body })) : posts;
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
-            summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null, ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
+            summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null,
+            ...(p.marks?.length ? { marks: p.marks } : {}), ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
           : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;
@@ -535,7 +548,8 @@ export const threadsCommand: CommandDef = {
         if (pinned && effectiveRung === "full") {
           humanText = pinned;
         } else if (rawPost) {
-          humanText = rawPost;
+          const marks = posts[0]?.marks;
+          humanText = rawPost + (marks?.length ? `\nMarks: ${marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : "");
           if (childThreads.length > 0) {
             humanText += `\n\nChild Threads (${childThreads.length} of ${allChildThreads.length} known):\n` + childThreads.map((c) => `  ${c.slug}  ${clip(c.name, 200)}\n    summary: ${clip(c.summary || "(no summary)", 200)}`).join("\n");
           }
@@ -552,7 +566,8 @@ export const threadsCommand: CommandDef = {
           humanText += `\n\nShowing ${posts.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
         }
         output.result({ schema: "ideaspaces.local-thread.open.v2", thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
-          closed: thread.closed, parent, ...(parentWarning ? { parent_warning: parentWarning } : {}),
+          closed: thread.closed, parent, warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
+          ...(parentWarning ? { parent_warning: parentWarning } : {}),
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
           ...(frame ? { frame } : {}) }, posts: projected,
           ...(effectiveRung === "children" || postId ? { child_threads: childThreads, child_threads_total: allChildThreads.length, child_threads_complete: childWarnings === 0 } : {}),
@@ -563,13 +578,13 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || HOSTED.test(rest[0])) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
-        for (const flag of ["map", "reply-to", "kind", "author", "name", "summary", "supersedes", "message", "tags"]) {
+        for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags"]) {
           if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
         }
         if (sub === "close" && flags.kind !== undefined && flags.kind !== "closure") throw new Error("threads close always appends a closure post; omit --kind.");
         selectionFlags(flags);
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
-        if (!KINDS.has(kind)) throw new Error("--kind must be post, snapshot, reframe, correction or closure.");
+        if (!kind.trim() || /[\r\n]/.test(kind)) throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");
         if (sub === "close" && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         const selected = flags.member !== undefined
@@ -579,6 +594,10 @@ export const threadsCommand: CommandDef = {
         if (selected && kind === "closure") throw new Error("Selected cross-Space closure is not supported; use the local Space's close verb.");
         const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
         if (parents?.some((id) => !id)) throw new Error("--reply-to must name non-empty post ids, separated by commas.");
+        if (kind === "mark" && (!str(flags, "mark")?.trim() || parents?.length !== 1 || parents[0] === "latest")) {
+          throw new Error("--kind mark requires --mark <value> and --reply-to <one explicit target post id>.");
+        }
+        if (flags.mark !== undefined && kind !== "mark") throw new Error("--mark requires --kind mark.");
         if (selected && !parents?.length) throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
         const tags = typeof flags.tags === "string" ? flags.tags.split(",").map((t) => t.trim()) : undefined;
@@ -586,7 +605,7 @@ export const threadsCommand: CommandDef = {
         const body = str(flags, "message") ?? await stdin();
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
           summary: str(flags, "summary"), author: target ? selectedWriterName() : writerName(str(flags, "author")), replyTo: parents,
-          kind: kind as ThreadKind, supersedes: str(flags, "supersedes"), map, tags,
+          kind: kind as ThreadKind, mark: str(flags, "mark"), supersedes: str(flags, "supersedes"), map, tags,
           verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
         output.result({ id: post.id, path, kind: post.kind, in_reply_to: post.inReplyTo }, `Appended ${post.kind}: ${path}`); return 0;
@@ -594,7 +613,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");
         const thread = loadThread(resolveLocalThread(rest[0]));
-        reportDateWarnings(thread, output);
+        reportThreadWarnings(thread, output);
         const timeline = thread.posts.map((post) => ({ id: post.id, name: post.frontmatter.name ?? post.id, kind: post.kind,
           date: post.date ?? null, in_reply_to: post.inReplyTo, path: post.path }));
         output.result({ path: thread.path, readme: thread.readme, timeline },

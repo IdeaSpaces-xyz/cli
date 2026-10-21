@@ -141,7 +141,19 @@ export const writeCommand: CommandDef = {
       emitEffectFailure(output, global, failure);
       return 1;
     }
-    const absPath = join(root, ...portablePath.split("/"));
+    const segments = portablePath.split("/");
+    const threadsAt = segments.indexOf("_threads");
+    if (threadsAt !== -1 && segments.length === threadsAt + 3 &&
+        segments.at(-1)?.endsWith(".md") && segments.at(-1) !== "README.md") {
+      const failure = localEffectError(
+        "write_markdown", "invalid_request", "preflight",
+        "Thread post validation requires an id and immutable post semantics. Use `ideaspaces threads post` to append; repair a never-valid post deliberately with a commit explaining why, not `ideaspaces write`.",
+        portablePath,
+      );
+      emitEffectFailure(output, global, failure);
+      return 1;
+    }
+    const absPath = join(root, ...segments);
 
     const reviewed = await pathRevision(
       root,
