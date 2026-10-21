@@ -253,7 +253,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
-    "ideaspaces threads post <slug> --kind snapshot --message 'State'  # known: post, snapshot, reframe, correction, closure, mark; custom kinds warn but remain valid",
+    "ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard: post, snapshot, reframe, correction, closure, mark; custom kinds require --yes",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
@@ -586,7 +586,10 @@ export const threadsCommand: CommandDef = {
         selectionFlags(flags);
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
         if (!kind.trim() || /[\r\n]/.test(kind)) throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");
-        if (!KNOWN_POST_KINDS.has(kind)) output.log(`Unrecognised post kind ${kind}; open kinds are valid, but check spelling before writing an immutable post.`);
+        if (!KNOWN_POST_KINDS.has(kind)) {
+          if (!global.yes) throw new Error(`Unrecognised --kind ${kind}. Posts are immutable; check spelling, or pass --yes to author this custom kind deliberately.`);
+          output.log(`Authoring custom post kind ${kind} with --yes; this immutable kind is not one of the standard values.`);
+        }
         if (sub === "close" && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         const selected = flags.member !== undefined

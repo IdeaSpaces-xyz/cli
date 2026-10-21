@@ -89,7 +89,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   process.chdir(originalCwd);
-  process.env.HOME = originalHome;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
   await rm(root, { recursive: true, force: true });
 });
 

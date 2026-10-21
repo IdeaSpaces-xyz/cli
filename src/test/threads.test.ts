@@ -830,9 +830,14 @@ describe("local Threads", () => {
       expect(loadThread(join(root, "_threads", "work")).allPosts.some((p) => p.id === first.id)).toBe(true);
       expect((await run(["open", "work"], { post: first.id })).posts[0]).toMatchObject({ id: first.id, kind: "mark", mark: "claimed" });
       out = ""; err = "";
-      expect(await threadsCommand.run(["post", "work"], { kind: "snapshto", message: "Open kind", author: "Integrator" }, { ...flags, quiet: false })).toBe(0);
-      expect(JSON.parse(out).kind).toBe("snapshto");
-      expect(err).toContain("check spelling");
+      const beforeCustom = readdirSync(join(root, "_threads", "work")).length;
+      expect(await threadsCommand.run(["post", "work"], { kind: "snapshto", message: "Typo", author: "Integrator" }, { ...flags, quiet: false })).toBe(1);
+      expect(err).toContain("pass --yes");
+      expect(readdirSync(join(root, "_threads", "work"))).toHaveLength(beforeCustom);
+      out = ""; err = "";
+      expect(await threadsCommand.run(["post", "work"], { kind: "custom_signal", message: "Open kind", author: "Integrator" }, { ...flags, yes: true, quiet: false })).toBe(0);
+      expect(JSON.parse(out).kind).toBe("custom_signal");
+      expect(err).toContain("Authoring custom post kind");
       const count = readdirSync(join(root, "_threads", "work")).length;
       out = ""; err = "";
       expect(await threadsCommand.run(["post", "work"], { kind: "mark", message: "No mark", "reply-to": t.opening_post_id, author: "Integrator" }, flags)).toBe(1);
