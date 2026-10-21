@@ -368,6 +368,21 @@ export function validateMarkOptions(kind?: string, mark?: string, replyTo?: stri
   }
 }
 
+/** Shared opening/post preflight: validate the whole authored moment before any file is created. */
+export function validateThreadMomentMap(input: unknown): void {
+  const map = parseMap(input);
+  if (map.status !== "valid") throw new Error(`--map must contain a valid protocol Map block: ${map.status === "invalid" ? map.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ") : "map is absent"}. Fix the named field; no implicit HEAD pin is substituted.`);
+  if (!isPinnedMomentMap(map.map)) {
+    for (const [index, root] of map.map.roots.entries()) {
+      if (!root.sha) throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);
+    }
+    for (const [index, member] of map.map.members.entries()) {
+      if ("position" in member && !member.depth) throw new Error(`Thread post Map position member ${index} has no depth ceiling. Choose one before citing a moment.`);
+    }
+    throw new Error("Thread post Map must pin every root and choose a depth for each position.");
+  }
+}
+
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
@@ -424,19 +439,7 @@ export function appendPost(dir: string, options: {
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
   if (options.supersedes && options.kind !== "correction") throw new Error("--supersedes requires --kind correction.");
-  if (options.map !== undefined) {
-    const map = parseMap(options.map);
-    if (map.status !== "valid") throw new Error(`--map must contain a valid protocol Map block: ${map.status === "invalid" ? map.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ") : "map is absent"}. Fix the named field; no implicit HEAD pin is substituted.`);
-    if (!isPinnedMomentMap(map.map)) {
-      for (const [index, root] of map.map.roots.entries()) {
-        if (!root.sha) throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);
-      }
-      for (const [index, member] of map.map.members.entries()) {
-        if ("position" in member && !member.depth) throw new Error(`Thread post Map position member ${index} has no depth ceiling. Choose one before citing a moment.`);
-      }
-      throw new Error("Thread post Map must pin every root and choose a depth for each position.");
-    }
-  }
+  if (options.map !== undefined) validateThreadMomentMap(options.map);
   // Local-first exclusive create, not a cross-process lock: check the selected
   // target as late as possible before writing, after all option validation.
   options.verifyTarget?.(thread, parentIds, options.supersedes);

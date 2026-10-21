@@ -148,12 +148,79 @@ describe("ideaspaces look", () => {
     const unknown = await runLook(["_threads/decision"], { typo: "value" });
     expect(unknown.exit).toBe(1);
     expect(unknown.stderr).toContain("Unknown flag for look: --typo");
-    for (const flag of [{ new: true }, { since: second.post.id }, { post: first.post.id }]) {
-      const rejected = await runLook(["_threads/decision"], flag);
-      expect(rejected.exit).toBe(1);
-      expect(rejected.stderr).toContain("threads open");
-    }
+    const cursorMisuse = await runLook(["_threads/decision"], { since: second.post.id });
+    expect(cursorMisuse.exit).toBe(1);
+    expect(cursorMisuse.stderr).toContain("children or full depth");
+    const unread = await runLook(["_threads/decision"], { new: true });
+    expect(unread.exit).toBe(1);
+    expect(unread.stderr).toContain("threads open --new");
+    const byId = await runLook(["_threads/decision"], { post: first.post.id, depth: "full" });
+    expect(byId.exit, byId.stderr).toBe(0);
+    expect(byId.data.target.position).toBe(`_threads/decision/${first.post.path}`);
+    expect(byId.data.target.surface).toContain("Private body");
+    const shorthand = await runLook(["_threads/decision"], { post: first.post.id.slice(0, 12), depth: "summary" });
+    expect(shorthand.exit, shorthand.stderr).toBe(0);
+    expect(shorthand.data.target.position).toBe(`_threads/decision/${first.post.path}`);
+    const byRoot = await runLook([], { post: first.post.id, depth: "summary" });
+    expect(byRoot.exit, byRoot.stderr).toBe(0);
+    expect(byRoot.data.target.position).toBe(`_threads/decision/${first.post.path}`);
   }, 30_000); // Pinned Thread look and fixture Git startup can exceed 5s on Windows.
+
+  it("pages 58 Thread posts and opens the Engine fix id at an authored Map pin from outside the checkout", async () => {
+    const dir = join(root, "_threads", "engine");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, "README.md"), "# Engine\n");
+    const fixId = "msg_75cc2f37-e925-48e0-a801-c0ac7920c8be";
+    for (let i = 0; i < 58; i++) {
+      const id = i === 55 ? fixId : `msg_${String(i).padStart(8, "0")}-fixture`;
+      await fs.writeFile(join(dir, `${String(i).padStart(2, "0")}-post.md`),
+        `---\nid: ${id}\nname: ${i === 55 ? "Dev-run fix" : `Post ${i}`}\n---\n${i === 55 ? "The panic was fixed." : `Body ${i}`}\n`);
+    }
+    git(["add", "."]); git(["commit", "-q", "-m", "Thread posts"]);
+    const pin = git(["rev-parse", "HEAD"]);
+    const first = await runLook(["_threads/engine"], { depth: "children", limit: "50", order: "older" });
+    expect(first.exit, first.stderr).toBe(0);
+    expect(first.data.portable).toBe(true); // Recheck must use this same page, not a different first-page cap.
+    expect(first.data.target.page).toEqual({ total: 58, shown: 50, order: "older", nextCursor: "49-post.md" });
+    const next = await runLook(["_threads/engine"], { depth: "children", limit: "10", since: first.data.target.page.nextCursor });
+    expect(next.exit, next.stderr).toBe(0);
+    expect(next.data.target.page).toEqual({ total: 58, shown: 8, order: "older" });
+    expect(next.data.target.children.map((child: { name: string }) => child.name)).toContain("Dev-run fix");
+    const pinned = await runLook(["_threads/engine"], { depth: "children", limit: "3", order: "newer", pin });
+    expect(pinned.exit, pinned.stderr).toBe(0);
+    expect(pinned.data.target.page).toEqual({ total: 58, shown: 3, order: "newer", nextCursor: "55-post.md" });
+    const pinnedId = await runLook(["_threads/engine"], { pin, post: "msg_75cc2f37", depth: "full" });
+    expect(pinnedId.exit, pinnedId.stderr).toBe(0);
+    expect(pinnedId.data.target.position).toBe("_threads/engine/55-post.md");
+    const byId = await runLook(["_threads/engine"], { post: "msg_75cc2f37", depth: "full" });
+    expect(byId.exit, byId.stderr).toBe(0);
+    expect(byId.data.target.position).toBe("_threads/engine/55-post.md");
+    expect(byId.data.target.surface).toContain("panic was fixed");
+    const byRoot = await runLook([], { post: fixId, depth: "summary" });
+    expect(byRoot.exit, byRoot.stderr).toBe(0);
+    expect(byRoot.data.target.position).toBe("_threads/engine/55-post.md");
+    const map = join(root, "engine.map.md");
+    await fs.writeFile(map, `---\nname: Engine\nmap:\n  roots:\n    - root_node_id: ${ROOT_NODE_ID}\n      sha: ${pin}\n  members:\n    - root: 0\n      position: _threads/engine/msg_75cc2f37\n      depth: full\n---\nPinned selection\n`);
+    const outside = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-look-outside-")));
+    try {
+      process.chdir(outside);
+      const address = await runLook([`@${ROOT_NODE_ID}//_threads/engine/msg_75cc2f37`], { map, at: "pin", depth: "full" });
+      expect(address.exit, address.stderr).toBe(0);
+      expect(address.data.target.position).toBe("_threads/engine/55-post.md");
+      expect(address.data.text).toContain("panic was fixed");
+    } finally { process.chdir(root); await rm(outside, { recursive: true, force: true }); }
+    const stale = await runLook(["_threads/engine"], { depth: "children", since: "gone.md", pin });
+    expect(stale.exit).toBe(1);
+    expect(stale.stderr).toContain("cursor");
+    const missing = await runLook(["_threads/engine"], { post: "msg_absent" });
+    expect(missing.exit).toBe(1);
+    expect(missing.data.status).toBe("unresolved");
+    await fs.mkdir(join(root, "_threads", "copy"));
+    await fs.writeFile(join(root, "_threads", "copy", "copy.md"), `---\nid: ${fixId}\n---\nCopy\n`);
+    const ambiguous = await runLook([], { post: fixId });
+    expect(ambiguous.exit).toBe(1);
+    expect(ambiguous.data.status).toBe("ambiguous");
+  }, 30_000);
 
   it("reads the Agreement by path as reference content", async () => {
     const read = await runLook(["_agent/agreement.md"], { depth: "full" });
@@ -162,7 +229,7 @@ describe("ideaspaces look", () => {
     expect(read.stdout).toContain("AGREEMENT SENTINEL");
     const rejected = await runLook(["notes/decision.md"], { post: "msg_example" });
     expect(rejected.exit).toBe(1);
-    expect(rejected.stderr).toContain("no longer accepted by look");
+    expect(rejected.stderr).toContain("invalid_post_scope");
   });
 
   it("defaults to Agreement summary and emits one valid portable Map", async () => {

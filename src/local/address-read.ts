@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import type { ContractSource, MapDepth } from "@ideaspaces/protocol";
+import { parseMapPositionAddress, type ContractSource, type MapDepth } from "@ideaspaces/protocol";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 import { focusAtCommit, lookAtCommit, type CommitFocus, type CommitLook } from "./map-look.js";
 import { defaultRootNames, resolveMapAddress, type MapReadAt, type MapReadResult } from "./map-resolve.js";
@@ -62,14 +62,24 @@ interface AddressReadOptions {
 export async function lookAtAddress(
   note: LoadedMapNote,
   address: string,
-  options: AddressReadOptions & { depth: MapDepth; maxChildren?: number },
+  options: AddressReadOptions & { depth: MapDepth; limit?: number; since?: string; order?: "older" | "newer"; postId?: string },
 ): Promise<AddressRead> {
+  const parsed = parseMapPositionAddress(address);
+  const virtual = parsed.status === "valid" ? /^_threads\/[^/]+\/(msg_[A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(parsed.address.position) : null;
+  if (virtual && options.postId !== undefined) {
+    return { ok: false, text: "Name a post id in the address or with --post, not both.", data: { status: "invalid_address" } };
+  }
+  const selectedAddress = virtual ? address.slice(0, -virtual[1].length - 1) : address;
   return readAddress(note, address, options, (target) =>
     lookAtCommit(target, {
       depth: options.depth,
       ...(options.contractSource ? { contractSource: options.contractSource } : {}),
-      ...(options.maxChildren !== undefined ? { maxChildren: options.maxChildren } : {}),
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options.since !== undefined ? { since: options.since } : {}),
+      ...(options.order !== undefined ? { order: options.order } : {}),
+      ...((options.postId ?? virtual?.[1]) ? { postId: options.postId ?? virtual![1] } : {}),
     }),
+    selectedAddress,
   );
 }
 
@@ -83,8 +93,10 @@ async function readAddress(
   address: string,
   options: AddressReadOptions,
   read: (target: Parameters<typeof lookAtCommit>[0]) => Promise<CommitLook | CommitFocus>,
+  selectedAddress: string = address,
 ): Promise<AddressRead> {
-  const resolved = resolveMapAddress(note, address, options.at ? { at: options.at } : {});
+  const selected = resolveMapAddress(note, selectedAddress, options.at ? { at: options.at } : {});
+  const resolved = { ...selected, address };
   const name = rootName(resolved);
   const base = describe(note, resolved, name);
   const header = renderHeader(note, resolved, name);

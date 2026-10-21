@@ -34,7 +34,7 @@ export type CommitReadFailure = { status: "too_large" | "git_error"; reason: str
 
 export type CommitLook =
   | { status: "ok"; text: string; result: ContentLookResult & { status: "ok" } }
-  | { status: "not_content"; reason: string }
+  | { status: "not_content" | "unresolved" | "ambiguous" | "invalid_post_scope"; reason: string }
   | { status: "diagnostic"; text: string }
   | CommitReadFailure;
 
@@ -61,12 +61,17 @@ export interface CommitReadTarget {
 export interface CommitLookOptions {
   depth: MapDepth;
   contractSource?: ContractSource;
+  limit?: number;
+  since?: string;
+  order?: "older" | "newer";
+  postId?: string;
+  /** Legacy cap retained for callers predating limit. */
   maxChildren?: number;
 }
 
 /** Look at one Note or directory as it is in a commit, at one rung. */
 export async function lookAtCommit(target: CommitReadTarget, options: CommitLookOptions): Promise<CommitLook> {
-  const wholeTree = target.kind === "directory" && (options.depth === "children" || options.depth === "full");
+  const wholeTree = target.kind === "directory" && (options.depth === "children" || options.depth === "full" || options.postId !== undefined);
   return withSnapshot(target, wholeTree, async (dir) => {
     const position = join(dir, target.position);
     const request = {
@@ -74,6 +79,10 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
       depth: options.depth,
       ...(options.contractSource ? { contractSource: options.contractSource } : {}),
       ...(options.maxChildren !== undefined ? { maxChildren: options.maxChildren } : {}),
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options.since !== undefined ? { since: options.since } : {}),
+      ...(options.order !== undefined ? { order: options.order } : {}),
+      ...(options.postId !== undefined ? { postId: options.postId } : {}),
     };
     let looked = await assembleContentLook(request);
     if (looked?.status === "contract_choice_required" && !options.contractSource) {
@@ -82,6 +91,7 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
     }
     if (!looked) return { status: "not_content", reason: `${target.position} is not a Markdown Note or Content directory.` };
     const relabel = relabeller(dir, target.label);
+    if ("postId" in looked) return { status: looked.status, reason: relabel(renderContentLook(looked)) };
     if (looked.status !== "ok") return { status: "diagnostic", text: relabel(renderContentLook(looked)) };
     return { status: "ok", text: relabel(renderContentLook(looked)), result: relabelDeep(looked, relabelValue(dir, target.label, relabel)) };
   });
