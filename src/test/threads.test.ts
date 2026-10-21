@@ -782,6 +782,8 @@ describe("local Threads", () => {
       expect(opening.frontmatter.map).toEqual(moment);
       const inline = await run(["new", "inline"], { about: "Inline", map: JSON.stringify({ map: moment }) });
       expect(loadThread(join(root, "_threads", inline.slug)).allPosts[0].frontmatter.map).toEqual(moment);
+      const emptyInline = await run(["new", "empty-inline"], { about: "Empty inline", map: "{}" });
+      expect(loadThread(join(root, "_threads", emptyInline.slug)).allPosts[0].mapResult?.status).toBe("valid");
       const linked = await run(["new", "linked"], { about: "Linked", "attached-to": "note:@home//notes/topic.md" });
       expect(linked.attached_to).toBe("note:@home//notes/topic.md");
       writeFileSync(join(root, "_threads", "linked", "zz-bad.md"), "---\nid: msg_bad_map\nmap: [broken]\n---\nReadable sibling");
@@ -814,6 +816,9 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["new", "missing-map"], { about: "Missing", map: "missing.map.md" }, flags)).toBe(1);
       expect(err).toContain("--map file not found");
       expect(readdirSync(join(root, "_threads"))).not.toContain("missing-map");
+      err = "";
+      expect(await threadsCommand.run(["post", "parent"], { message: "Missing Map", author: "Integrator", map: "missing.map.md" }, flags)).toBe(1);
+      expect(err).toContain("--map file not found");
       err = "";
       expect(await threadsCommand.run(["new", "windows-missing"], { about: "Missing", map: String.raw`C:\\missing\\moment.map.md` }, flags)).toBe(1);
       expect(err).toContain("--map file not found");

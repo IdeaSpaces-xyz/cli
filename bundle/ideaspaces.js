@@ -17823,11 +17823,13 @@ function threadPostIdAddress(address) {
   const parsed2 = parseMapPositionAddress(address);
   if (parsed2.status !== "valid")
     return null;
-  const match = /^_threads\/[^/]+\/(msg_[A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(parsed2.address.position);
-  return match ? { threadAddress: formatMapPositionAddress({
+  const parts = parsed2.address.position.split("/");
+  if (parts.length !== 3 || parts[0] !== "_threads" || parseThreadAttachment(parts[2])?.kind !== "id" || parseThreadAttachment(`_threads/${parts[1]}/post.md`)?.kind !== "path")
+    return null;
+  return { threadAddress: formatMapPositionAddress({
     root: parsed2.address.root,
-    position: parsed2.address.position.slice(0, -match[1].length - 1)
-  }), postId: match[1] } : null;
+    position: `_threads/${parts[1]}`
+  }), postId: parts[2] };
 }
 function selectReadMap(flag, cwd = process.cwd()) {
   if (flag === true || typeof flag === "string" && !flag.trim()) {
@@ -18004,6 +18006,7 @@ var lookCommand = {
     "ideaspaces look research --depth full --json",
     "ideaspaces look _threads/decision --depth children --limit 50 --order older  # continue with --since <nextCursor>",
     "ideaspaces look _threads/decision --post msg_75cc2f37 --depth full  # unique id, not guessed",
+    "ideaspaces look --post msg_75cc2f37 --depth summary  # searches only the current Space root (cwd)",
     "ideaspaces look @home//_threads/decision/msg_75cc2f37 --map thread.map.md --at pin --depth full",
     "ideaspaces look . --contract foundation --depth summary"
   ],
@@ -18027,7 +18030,7 @@ var lookCommand = {
     const since = typeof flags2.since === "string" && flags2.since.trim() ? flags2.since.trim() : void 0;
     const postId = typeof flags2.post === "string" && flags2.post.trim() ? flags2.post.trim() : void 0;
     if (flags2.since !== void 0 && !since) {
-      output.error("--since needs the prior nextCursor filename.");
+      output.error("--since needs the nextCursor value from the previous directory page.");
       return 1;
     }
     if (flags2.post !== void 0 && !postId) {
@@ -18095,8 +18098,8 @@ var lookCommand = {
         });
         return emit(output, global2.json, read2.ok, read2.data, read2.text);
       } catch (error) {
-        output.error(`Cannot read Map address ${raw}: ${error instanceof Error ? error.message : String(error)}`);
-        return 1;
+        const reason = error instanceof Error ? error.message : String(error);
+        return emit(output, global2.json, false, { source: "map", address: raw, status: "read_error", reason }, `Cannot read Map address ${raw}: ${reason}`);
       }
     }
     if (flags2.map !== void 0 || flags2.at !== void 0) {
@@ -23802,7 +23805,9 @@ function loadLocalThreadMap(input) {
     const fm = parseFrontmatter(content);
     value2 = fm?.map ?? (0, import_yaml8.parse)(content);
   } else {
-    if (!input.includes("\n") && (!input.includes(":") || /\.(?:map\.md|md|json|ya?ml)$/i.test(input.trim()))) {
+    const raw = input.trim();
+    const pathLike = /^[A-Za-z]:[\\/]/.test(raw) || !raw.includes(":") && (/^[./~]/.test(raw) || /\.(?:md|json|ya?ml)$/i.test(raw) || /[\\/]/.test(raw));
+    if (!input.includes("\n") && pathLike) {
       throw new Error(`--map file not found: ${path}. Provide a regular pinned Map note or inline YAML.`);
     }
     value2 = (0, import_yaml8.parse)(input);

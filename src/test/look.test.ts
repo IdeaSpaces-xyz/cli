@@ -158,7 +158,7 @@ describe("ideaspaces look", () => {
     expect(byId.exit, byId.stderr).toBe(0);
     expect(byId.data.target.position).toBe(`_threads/decision/${first.post.path}`);
     expect(byId.data.target.surface).toContain("Private body");
-    const shorthand = await runLook(["_threads/decision"], { post: first.post.id.slice(0, 12), depth: "summary" });
+    const shorthand = await runLook(["_threads/decision"], { post: first.post.id.slice(0, 12), depth: "summary" }); // msg_ + exactly eight hex characters
     expect(shorthand.exit, shorthand.stderr).toBe(0);
     expect(shorthand.data.target.position).toBe(`_threads/decision/${first.post.path}`);
     const byRoot = await runLook([], { post: first.post.id, depth: "summary" });
@@ -218,6 +218,10 @@ describe("ideaspaces look", () => {
       const wrongPinForm = await runLook([virtual], { map, pin, depth: "full" });
       expect(wrongPinForm.exit).toBe(1);
       expect(wrongPinForm.stderr).toContain("--pin reads a path");
+      const staleAddress = await runLook([`@${ROOT_NODE_ID}//_threads/engine`], { map, at: "pin", depth: "children", since: "gone.md" });
+      expect(staleAddress.exit).toBe(1);
+      expect(staleAddress.data.status).toBe("read_error");
+      expect(staleAddress.data.reason).toContain("cursor");
     } finally { process.chdir(root); await rm(outside, { recursive: true, force: true }); }
     for (const flags of [{ post: fixId, limit: "1" }, { post: fixId, since: "49-post.md" }, { post: fixId, order: "newer" }]) {
       const conflict = await runLook(["_threads/engine"], flags);
@@ -241,6 +245,10 @@ describe("ideaspaces look", () => {
     const ambiguous = await runLook([], { post: fixId });
     expect(ambiguous.exit).toBe(1);
     expect(ambiguous.data.status).toBe("ambiguous");
+    await fs.writeFile(join(dir, "58-collision.md"), "---\nid: msg_75cc2f37-aaaaaaaa-bbbb-cccc-dddddddddddd\n---\nCollision\n");
+    const sharedPrefix = await runLook(["_threads/engine"], { post: "msg_75cc2f37" });
+    expect(sharedPrefix.exit).toBe(1);
+    expect(sharedPrefix.data.status).toBe("ambiguous");
   }, 30_000);
 
   it("reads the Agreement by path as reference content", async () => {

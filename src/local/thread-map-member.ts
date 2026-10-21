@@ -13,7 +13,12 @@ export function loadLocalThreadMap(input: string): unknown {
     const fm = parseFrontmatter(content);
     value = fm?.map ?? parseYaml(content);
   } else {
-    if (!input.includes("\n") && (!input.includes(":") || /\.(?:map\.md|md|json|ya?ml)$/i.test(input.trim()))) {
+    // Only a path-shaped value warrants a missing-file diagnostic; `{}` and
+    // other inline YAML must be parsed as YAML, then validated by the protocol.
+    const raw = input.trim();
+    const pathLike = /^[A-Za-z]:[\\/]/.test(raw) ||
+      (!raw.includes(":") && (/^[./~]/.test(raw) || /\.(?:md|json|ya?ml)$/i.test(raw) || /[\\/]/.test(raw)));
+    if (!input.includes("\n") && pathLike) {
       throw new Error(`--map file not found: ${path}. Provide a regular pinned Map note or inline YAML.`);
     }
     value = parseYaml(input);

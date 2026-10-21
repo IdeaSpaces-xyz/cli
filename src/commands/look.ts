@@ -84,6 +84,7 @@ export const lookCommand: CommandDef = {
     "ideaspaces look research --depth full --json",
     "ideaspaces look _threads/decision --depth children --limit 50 --order older  # continue with --since <nextCursor>",
     "ideaspaces look _threads/decision --post msg_75cc2f37 --depth full  # unique id, not guessed",
+    "ideaspaces look --post msg_75cc2f37 --depth summary  # searches only the current Space root (cwd)",
     "ideaspaces look @home//_threads/decision/msg_75cc2f37 --map thread.map.md --at pin --depth full",
     "ideaspaces look . --contract foundation --depth summary",
   ],
@@ -107,11 +108,20 @@ export const lookCommand: CommandDef = {
     }
     const since = typeof flags.since === "string" && flags.since.trim() ? flags.since.trim() : undefined;
     const postId = typeof flags.post === "string" && flags.post.trim() ? flags.post.trim() : undefined;
-    if (flags.since !== undefined && !since) { output.error("--since needs the prior nextCursor filename."); return 1; }
-    if (flags.post !== undefined && !postId) { output.error("--post needs a msg_ post id."); return 1; }
+    if (flags.since !== undefined && !since) {
+      output.error("--since needs the nextCursor value from the previous directory page.");
+      return 1;
+    }
+    if (flags.post !== undefined && !postId) {
+      output.error("--post needs a msg_ post id.");
+      return 1;
+    }
     const order: "older" | "newer" | null | undefined = flags.order === undefined ? undefined
       : flags.order === "older" || flags.order === "newer" ? flags.order : null;
-    if (order === null) { output.error("--order must be older or newer."); return 1; }
+    if (order === null) {
+      output.error("--order must be older or newer.");
+      return 1;
+    }
     if (postId && (flags.limit !== undefined || since || order)) {
       output.error("--post selects one id; omit limit, since and order, which page a directory."); return 1;
     }
@@ -167,8 +177,10 @@ export const lookCommand: CommandDef = {
         });
         return emit(output, global.json, read.ok, read.data, read.text);
       } catch (error) {
-        output.error(`Cannot read Map address ${raw}: ${error instanceof Error ? error.message : String(error)}`);
-        return 1;
+        const reason = error instanceof Error ? error.message : String(error);
+        return emit(output, global.json, false,
+          { source: "map", address: raw, status: "read_error", reason },
+          `Cannot read Map address ${raw}: ${reason}`);
       }
     }
     if (flags.map !== undefined || flags.at !== undefined) {
