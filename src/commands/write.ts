@@ -144,10 +144,12 @@ export const writeCommand: CommandDef = {
     }
     const segments = portablePath.split("/");
     const threadsAt = segments.indexOf("_threads");
+    // Reuse the protocol's canonical post-path grammar, including README exclusion;
+    // the first _threads segment owns its subtree (later nested names are opaque).
     if (threadsAt !== -1 && parseThreadAttachment(segments.slice(threadsAt).join("/"))?.kind === "path") {
       const failure = localEffectError(
         "write_markdown", "invalid_request", "preflight",
-        "Thread post validation requires an id and immutable post semantics. Use `ideaspaces threads post` to append; repair a never-valid post deliberately with a commit explaining why, not `ideaspaces write`.",
+        "Thread posts are immutable and require an id. Use `ideaspaces threads post` to append. To repair a never-valid post, edit that file deliberately and commit with a message explaining why; `ideaspaces write` does not repair Thread posts.",
         portablePath,
       );
       emitEffectFailure(output, global, failure);

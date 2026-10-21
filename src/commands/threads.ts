@@ -253,6 +253,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
+    "ideaspaces threads post <slug> --kind snapshot --message 'State'  # known: post, snapshot, reframe, correction, closure, mark; custom kinds warn but remain valid",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
@@ -383,7 +384,7 @@ export const threadsCommand: CommandDef = {
           return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row && typeof row.closed === "boolean" ? row.closed : undefined)}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
+        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
       if (sub === "new") {

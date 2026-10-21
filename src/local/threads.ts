@@ -294,7 +294,7 @@ export function findChildThreads(targetThreadDir: string, postId?: string, onErr
           attached_to: parentInfo.attached_to,
           attached_to_post_id: matchedPostId,
           latest_activity_at: latestLocalActivity(t.posts),
-          count: t.posts.length,
+          count: t.allPosts.length,
           closed: t.closed,
         });
       }

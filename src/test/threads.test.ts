@@ -430,8 +430,10 @@ describe("local Threads", () => {
     const flags = { json: true, quiet: false, yes: false, help: false };
     try {
       expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+      expect(JSON.parse(out).schema).toBe("ideaspaces.threads.list.v2");
       expect(JSON.parse(out).local_complete).toBe(false);
       expect(JSON.parse(out).threads).toHaveLength(2);
+      expect(JSON.parse(out).threads.find((t: { slug: string }) => t.slug === "bad").closed).toBe("unknown");
       expect(JSON.parse(out).threads.find((t: { slug: string }) => t.slug === "bad").parent.status).toBe("unknown");
       expect(err).toContain("_threads/bad/invalid.md: frontmatter: invalid_id");
       out = ""; err = "";
@@ -776,7 +778,9 @@ describe("local Threads", () => {
       writeFileSync(join(root, "_threads", "linked", "zz-bad.md"), "---\nid: msg_bad_map\nmap: [broken]\n---\nReadable sibling");
       const linkedOpen = await run(["open", "linked"], { depth: "name" });
       expect(linkedOpen.thread.parent.status).toBe("none");
-      expect((await run(["list"], { depth: "summary" })).threads.find((row: { slug: string }) => row.slug === "linked").parent.status).toBe("none");
+      const rows = await run(["list"], { depth: "summary" });
+      expect(rows.local_complete).toBe(true); // Field warning, but the post remains readable.
+      expect(rows.threads.find((row: { slug: string }) => row.slug === "linked").parent.status).toBe("none");
       expect(linkedOpen.thread.warnings).toContain("_threads/linked/zz-bad.md: map: invalid_map_type");
       const parentPost = await run(["open", "parent"], { post: parent.opening_post_id });
       expect(parentPost.child_threads.map((row: { slug: string }) => row.slug)).toEqual(["child"]);
@@ -784,6 +788,10 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["new", "bad"], { about: "Bad", "attached-to": "post:missing" }, flags)).toBe(1);
       expect(err).toContain("invalid attached_to field");
       expect(readdirSync(join(root, "_threads"))).not.toContain("bad");
+      err = "";
+      expect(await threadsCommand.run(["new", "no-type"], { about: "No type", "attached-to": "msg_parent" }, flags)).toBe(1);
+      expect(err).toContain("<type>:<id>");
+      expect(readdirSync(join(root, "_threads"))).not.toContain("no-type");
     } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
   });
 
@@ -809,6 +817,8 @@ describe("local Threads", () => {
       const before = await run(["open", "work"], { post: t.opening_post_id });
       expect(before.posts[0].marks).toHaveLength(1);
       expect(before.posts[0].marks[0]).toMatchObject({ mark: "claimed", author: "Integrator" });
+      expect(before.thread.closed).toBe(false);
+      expect((await run(["list"], { depth: "summary" })).threads.find((row: { slug: string }) => row.slug === "work").count).toBe(3); // Opening + 2 folded marks.
       out = "";
       expect(await threadsCommand.run(["open", "work"], { post: t.opening_post_id }, { ...flags, json: false })).toBe(0);
       expect(out).toContain("Marks: claimed (Integrator)");

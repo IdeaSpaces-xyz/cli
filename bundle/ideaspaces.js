@@ -14078,7 +14078,7 @@ function findChildThreads(targetThreadDir, postId, onError) {
           attached_to: parentInfo.attached_to,
           attached_to_post_id: matchedPostId,
           latest_activity_at: latestLocalActivity(t.posts),
-          count: t.posts.length,
+          count: t.allPosts.length,
           closed: t.closed
         });
       }
@@ -17035,7 +17035,7 @@ var writeCommand = {
     const segments = portablePath.split("/");
     const threadsAt = segments.indexOf("_threads");
     if (threadsAt !== -1 && parseThreadAttachment(segments.slice(threadsAt).join("/"))?.kind === "path") {
-      const failure = localEffectError("write_markdown", "invalid_request", "preflight", "Thread post validation requires an id and immutable post semantics. Use `ideaspaces threads post` to append; repair a never-valid post deliberately with a commit explaining why, not `ideaspaces write`.", portablePath);
+      const failure = localEffectError("write_markdown", "invalid_request", "preflight", "Thread posts are immutable and require an id. Use `ideaspaces threads post` to append. To repair a never-valid post, edit that file deliberately and commit with a message explaining why; `ideaspaces write` does not repair Thread posts.", portablePath);
       emitEffectFailure(output, global2, failure);
       return 1;
     }
@@ -28035,6 +28035,7 @@ var threadsCommand = {
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
+    "ideaspaces threads post <slug> --kind snapshot --message 'State'  # known: post, snapshot, reframe, correction, closure, mark; custom kinds warn but remain valid",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
@@ -28186,7 +28187,7 @@ ${matches.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the supp
   ${"summary" in row ? row.summary : ""} \xB7 ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `
+        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `
 Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
