@@ -804,6 +804,14 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["new", "no-pin"], { about: "No pin", map: "unpinned.map.json" }, flags)).toBe(1);
       expect(err).toContain("root 0");
       expect(readdirSync(join(root, "_threads"))).not.toContain("no-pin");
+      err = "";
+      expect(await threadsCommand.run(["new", "empty-map"], { about: "Empty", map: "" }, flags)).toBe(1);
+      expect(err).toContain("--map requires");
+      expect(readdirSync(join(root, "_threads"))).not.toContain("empty-map");
+      err = "";
+      expect(await threadsCommand.run(["new", "missing-map"], { about: "Missing", map: "missing.map.md" }, flags)).toBe(1);
+      expect(err).toContain("--map file not found");
+      expect(readdirSync(join(root, "_threads"))).not.toContain("missing-map");
     } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
   });
 

@@ -17820,6 +17820,13 @@ function launchMapEnv(base, mapPath) {
 function looksLikeMapAddress(value2) {
   return value2.startsWith("//") || /^@[^/\s]+\/\//.test(value2);
 }
+function threadPostIdAddress(address) {
+  const parsed2 = parseMapPositionAddress(address);
+  if (parsed2.status !== "valid")
+    return null;
+  const match = /^_threads\/[^/]+\/(msg_[A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(parsed2.address.position);
+  return match ? { threadAddress: address.slice(0, -match[1].length - 1), postId: match[1] } : null;
+}
 function selectReadMap(flag, cwd = process.cwd()) {
   if (flag === true || typeof flag === "string" && !flag.trim()) {
     throw new Error("A map-note path is required: --map <file.md>");
@@ -17840,19 +17847,19 @@ function parseReadAt(value2) {
   return value2 === "pin" || value2 === "head" ? value2 : null;
 }
 async function lookAtAddress(note, address, options) {
-  const parsed2 = parseMapPositionAddress(address);
-  const virtual = parsed2.status === "valid" ? /^_threads\/[^/]+\/(msg_[A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(parsed2.address.position) : null;
+  const virtual = threadPostIdAddress(address);
   if (virtual && options.postId !== void 0) {
     return { ok: false, text: "Name a post id in the address or with --post, not both.", data: { status: "invalid_address" } };
   }
-  const selectedAddress = virtual ? address.slice(0, -virtual[1].length - 1) : address;
+  const selectedAddress = virtual?.threadAddress ?? address;
+  const postId = options.postId ?? virtual?.postId;
   return readAddress(note, address, options, (target) => lookAtCommit(target, {
     depth: options.depth,
     ...options.contractSource ? { contractSource: options.contractSource } : {},
     ...options.limit !== void 0 ? { limit: options.limit } : {},
     ...options.since !== void 0 ? { since: options.since } : {},
     ...options.order !== void 0 ? { order: options.order } : {},
-    ...options.postId ?? virtual?.[1] ? { postId: options.postId ?? virtual[1] } : {}
+    ...postId ? { postId } : {}
   }), selectedAddress);
 }
 async function focusAtAddress(note, address, options) {
@@ -18054,7 +18061,7 @@ var lookCommand = {
       return 1;
     }
     if (looksLikeMapAddress(raw)) {
-      if (/_threads\/[^/]+\/msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(raw) && (limit !== void 0 || since || order)) {
+      if (threadPostIdAddress(raw) && (limit !== void 0 || since || order)) {
         output.error("A post-id address selects one post; omit limit, since and order.");
         return 1;
       }
@@ -18134,7 +18141,7 @@ var lookCommand = {
     }
     if (looked.status !== "ok") {
       if ("postId" in looked) {
-        return emit(output, global2.json, false, { status: looked.status, post_id: looked.postId, position: looked.position, reason: looked.reason }, renderContentLook(looked));
+        return emit(output, global2.json, false, { status: looked.status, post_id: looked.postId, position: looked.position, reason: looked.reason }, `Cannot select post ${looked.postId}: ${looked.reason}`);
       }
       output.error(renderContentLook(looked));
       return 1;
@@ -23793,6 +23800,8 @@ function loadLocalThreadMap(input) {
     const fm = parseFrontmatter(content);
     value2 = fm?.map ?? (0, import_yaml8.parse)(content);
   } else {
+    if (!input.includes("\n") && !input.includes(":"))
+      throw new Error(`--map file not found: ${path}. Provide a regular pinned Map note or inline YAML.`);
     value2 = (0, import_yaml8.parse)(input);
   }
   if (value2 && typeof value2 === "object" && "map" in value2)

@@ -24,6 +24,14 @@ export function looksLikeMapAddress(value: string): boolean {
   return value.startsWith("//") || /^@[^/\s]+\/\//.test(value);
 }
 
+/** One read-time Thread post-id selector in a Map address, not a Git file path. */
+export function threadPostIdAddress(address: string): { threadAddress: string; postId: string } | null {
+  const parsed = parseMapPositionAddress(address);
+  if (parsed.status !== "valid") return null;
+  const match = /^_threads\/[^/]+\/(msg_[A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(parsed.address.position);
+  return match ? { threadAddress: address.slice(0, -match[1].length - 1), postId: match[1] } : null;
+}
+
 /** The Map an address is read against: the one named, else the launch Map. */
 export function selectReadMap(flag: string | boolean | undefined, cwd = process.cwd()): LoadedMapNote {
   if (flag === true || (typeof flag === "string" && !flag.trim())) {
@@ -64,12 +72,12 @@ export async function lookAtAddress(
   address: string,
   options: AddressReadOptions & { depth: MapDepth; limit?: number; since?: string; order?: "older" | "newer"; postId?: string },
 ): Promise<AddressRead> {
-  const parsed = parseMapPositionAddress(address);
-  const virtual = parsed.status === "valid" ? /^_threads\/[^/]+\/(msg_[A-Za-z0-9][A-Za-z0-9_-]*)$/.exec(parsed.address.position) : null;
+  const virtual = threadPostIdAddress(address);
   if (virtual && options.postId !== undefined) {
     return { ok: false, text: "Name a post id in the address or with --post, not both.", data: { status: "invalid_address" } };
   }
-  const selectedAddress = virtual ? address.slice(0, -virtual[1].length - 1) : address;
+  const selectedAddress = virtual?.threadAddress ?? address;
+  const postId = options.postId ?? virtual?.postId;
   return readAddress(note, address, options, (target) =>
     lookAtCommit(target, {
       depth: options.depth,
@@ -77,7 +85,7 @@ export async function lookAtAddress(
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
       ...(options.since !== undefined ? { since: options.since } : {}),
       ...(options.order !== undefined ? { order: options.order } : {}),
-      ...((options.postId ?? virtual?.[1]) ? { postId: options.postId ?? virtual![1] } : {}),
+      ...(postId ? { postId } : {}),
     }),
     selectedAddress,
   );

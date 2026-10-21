@@ -33,7 +33,7 @@ import {
 } from "../local-map-root.js";
 import { createOutput, type Output } from "../output.js";
 import { repoRoot } from "../git.js";
-import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap } from "../local/address-read.js";
+import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap, threadPostIdAddress } from "../local/address-read.js";
 import { lookAtCommit } from "../local/map-look.js";
 import { readCheckoutAt } from "../local/map-resolve.js";
 import type { CommandDef } from "../types.js";
@@ -136,7 +136,7 @@ export const lookCommand: CommandDef = {
     }
 
     if (looksLikeMapAddress(raw)) {
-      if (/_threads\/[^/]+\/msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(raw) && (limit !== undefined || since || order)) {
+      if (threadPostIdAddress(raw) && (limit !== undefined || since || order)) {
         output.error("A post-id address selects one post; omit limit, since and order."); return 1;
       }
       if (flags.pin !== undefined) {
@@ -224,7 +224,7 @@ export const lookCommand: CommandDef = {
       if ("postId" in looked) {
         return emit(output, global.json, false,
           { status: looked.status, post_id: looked.postId, position: looked.position, reason: looked.reason },
-          renderContentLook(looked));
+          `Cannot select post ${looked.postId}: ${looked.reason}`);
       }
       output.error(renderContentLook(looked));
       return 1;

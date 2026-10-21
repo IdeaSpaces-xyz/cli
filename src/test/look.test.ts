@@ -208,9 +208,27 @@ describe("ideaspaces look", () => {
       expect(address.exit, address.stderr).toBe(0);
       expect(address.data.target.position).toBe("_threads/engine/55-post.md");
       expect(address.data.text).toContain("panic was fixed");
+      const virtual = `@${ROOT_NODE_ID}//_threads/engine/msg_75cc2f37`;
+      const pagedId = await runLook([virtual], { map, at: "pin", depth: "children", limit: "1" });
+      expect(pagedId.exit).toBe(1);
+      expect(pagedId.stderr).toContain("post-id address selects one post");
+      const both = await runLook([virtual], { map, at: "pin", post: fixId });
+      expect(both.exit).toBe(1);
+      expect(both.stderr).toContain("not both");
     } finally { process.chdir(root); await rm(outside, { recursive: true, force: true }); }
+    for (const flags of [{ post: fixId, limit: "1" }, { post: fixId, since: "49-post.md" }, { post: fixId, order: "newer" }]) {
+      const conflict = await runLook(["_threads/engine"], flags);
+      expect(conflict.exit).toBe(1);
+      expect(conflict.stderr).toContain("omit limit, since and order");
+    }
+    for (const flags of [{ order: "random", depth: "children" }, { since: "", depth: "children" }, { post: "" }]) {
+      const invalid = await runLook(["_threads/engine"], flags);
+      expect(invalid.exit).toBe(1);
+      expect(invalid.stderr).toContain("--");
+    }
     const stale = await runLook(["_threads/engine"], { depth: "children", since: "gone.md", pin });
     expect(stale.exit).toBe(1);
+    expect(stale.data.status).toBe("read_error");
     expect(stale.stderr).toContain("cursor");
     const missing = await runLook(["_threads/engine"], { post: "msg_absent" });
     expect(missing.exit).toBe(1);
@@ -229,7 +247,8 @@ describe("ideaspaces look", () => {
     expect(read.stdout).toContain("AGREEMENT SENTINEL");
     const rejected = await runLook(["notes/decision.md"], { post: "msg_example" });
     expect(rejected.exit).toBe(1);
-    expect(rejected.stderr).toContain("invalid_post_scope");
+    expect(rejected.stderr).toContain("Select a Thread folder");
+    expect(rejected.data.status).toBe("invalid_post_scope");
   });
 
   it("defaults to Agreement summary and emits one valid portable Map", async () => {
