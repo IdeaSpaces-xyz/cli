@@ -16,7 +16,8 @@ export function loadLocalThreadMap(input: string): unknown {
     value = parseYaml(input);
   }
   if (value && typeof value === "object" && "map" in value) value = (value as { map: unknown }).map;
-  if (parseMap(value).status !== "valid") throw new Error("--map must supply valid roots and members with authored pins.");
+  const parsed = parseMap(value);
+  if (parsed.status !== "valid") throw new Error(`--map must supply valid roots and members: ${parsed.status === "invalid" ? parsed.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ") : "map is absent"}. Fix the named field before writing.`);
   return value;
 }
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
@@ -6,13 +6,20 @@ import { tmpdir } from "node:os";
 import { discoverAgentReach } from "../local/agent-reach.js";
 
 const roots: string[] = [];
+const originalHome = process.env.HOME;
 function tempDir(prefix = "agent-reach-test-"): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   roots.push(dir);
   return dir;
 }
 
+beforeEach(() => {
+  // These vector ids are synthetic: do not resolve them against a person's registry.
+  process.env.HOME = tempDir("reach-home-");
+});
 afterEach(() => {
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 

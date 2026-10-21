@@ -27,6 +27,7 @@ import {
   extractSummary,
   parseFrontmatter,
   parseMap,
+  parseThreadAttachment,
   type MapBlock,
   type LocalEffectValue,
 } from "@ideaspaces/protocol";
@@ -141,7 +142,20 @@ export const writeCommand: CommandDef = {
       emitEffectFailure(output, global, failure);
       return 1;
     }
-    const absPath = join(root, ...portablePath.split("/"));
+    const segments = portablePath.split("/");
+    const threadsAt = segments.indexOf("_threads");
+    // Reuse the protocol's canonical post-path grammar, including README exclusion;
+    // the first _threads segment owns its subtree (later nested names are opaque).
+    if (threadsAt !== -1 && parseThreadAttachment(segments.slice(threadsAt).join("/"))?.kind === "path") {
+      const failure = localEffectError(
+        "write_markdown", "invalid_request", "preflight",
+        "Thread posts are immutable and require an id. Use `ideaspaces threads post` to append. To repair a never-valid post, edit that file deliberately and commit with a message explaining why; `ideaspaces write` does not repair Thread posts.",
+        portablePath,
+      );
+      emitEffectFailure(output, global, failure);
+      return 1;
+    }
+    const absPath = join(root, ...segments);
 
     const reviewed = await pathRevision(
       root,
