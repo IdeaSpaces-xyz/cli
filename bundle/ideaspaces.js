@@ -31173,6 +31173,20 @@ function compareSemver(a, b) {
 }
 function getClaudeRoster(version) {
   const semver = parseSemver(version);
+  if (semver && compareSemver(semver, [2, 1, 305]) >= 0) {
+    return {
+      models: [
+        { ref: "", id: "claude-opus-5-5", name: "Claude Code default", contextWindow: 1e6, maxTokens: 128e3, isDefault: true },
+        { ref: "opus", id: "claude-opus-5-5", name: "Opus 5.5", contextWindow: 1e6, maxTokens: 128e3 },
+        { ref: "sonnet", id: "claude-sonnet-5-5", name: "Sonnet 5.5", contextWindow: 1e6, maxTokens: 128e3 },
+        { ref: "fable", id: "claude-fable-5-1", name: "Fable 5.1", contextWindow: 1e6, maxTokens: 128e3 },
+        { ref: "haiku", id: "claude-haiku-5-5", name: "Haiku 5.5", contextWindow: 1e6, maxTokens: 128e3 },
+        { ref: "opusplan", id: "claude-sonnet-5-5", name: "Opus plans, Sonnet executes", contextWindow: 1e6, maxTokens: 128e3 }
+      ],
+      capabilities: { compact: { supported: true, autocompact: { supported: true, minTokens: 1e5, maxTokens: 1e6 } } },
+      verifiedVersion: "2.1.305"
+    };
+  }
   if (semver && compareSemver(semver, [2, 1, 0]) >= 0) {
     return {
       models: [

@@ -73,6 +73,24 @@ export function compareSemver(a: [number, number, number], b: [number, number, n
 export function getClaudeRoster(version: string | null): ClaudeRoster {
   const semver = parseSemver(version);
 
+  // Claude Code 2.1.305: the current 5.5 family. The binary advertises the model aliases
+  // in --help; ids and windows follow the Anthropic catalogue (pi-ai 1.3.0). Do not
+  // retroactively change the roster for earlier binaries whose aliases may target older models.
+  if (semver && compareSemver(semver, [2, 1, 305]) >= 0) {
+    return {
+      models: [
+        { ref: "", id: "claude-opus-5-5", name: "Claude Code default", contextWindow: 1_000_000, maxTokens: 128_000, isDefault: true },
+        { ref: "opus", id: "claude-opus-5-5", name: "Opus 5.5", contextWindow: 1_000_000, maxTokens: 128_000 },
+        { ref: "sonnet", id: "claude-sonnet-5-5", name: "Sonnet 5.5", contextWindow: 1_000_000, maxTokens: 128_000 },
+        { ref: "fable", id: "claude-fable-5-1", name: "Fable 5.1", contextWindow: 1_000_000, maxTokens: 128_000 },
+        { ref: "haiku", id: "claude-haiku-5-5", name: "Haiku 5.5", contextWindow: 1_000_000, maxTokens: 128_000 },
+        { ref: "opusplan", id: "claude-sonnet-5-5", name: "Opus plans, Sonnet executes", contextWindow: 1_000_000, maxTokens: 128_000 },
+      ],
+      capabilities: { compact: { supported: true, autocompact: { supported: true, minTokens: 100_000, maxTokens: 1_000_000 } } },
+      verifiedVersion: "2.1.305",
+    };
+  }
+
   // Claude Code >= 2.1.0 (verified 2.1.278)
   if (semver && compareSemver(semver, [2, 1, 0]) >= 0) {
     return {
