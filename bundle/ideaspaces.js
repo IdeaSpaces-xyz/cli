@@ -14003,7 +14003,8 @@ function latestLocalActivity(posts2) {
 function resolveThreadParent2(threadDir, knownThreads) {
   const agreementPath = join28(threadDir, "_agent", "agreement.md");
   const parsedAgreement = parseThreadAgreementAttachment(safeFile(agreementPath), `_threads/${basename14(threadDir)}/_agent/agreement.md`);
-  const thread = knownThreads?.find((candidate) => candidate.path === realpathSync14(threadDir)) ?? loadThread(threadDir);
+  const canonicalThreadDir = realpathSync14(threadDir);
+  const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
   if (parsedAgreement.status === "invalid" && !thread.attachment) {
     throw new Error(`Malformed Thread Agreement frontmatter: ${agreementPath} (${parsedAgreement.issue}).`);
   }
@@ -14141,8 +14142,8 @@ function appendPost(dir, options) {
     throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
   if (!options.body.trim())
     throw new Error("Post body is required through --message or stdin.");
-  if (!options.body.includes("\n") && (options.body.match(/\\n/g) ?? []).length >= 2) {
-    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond') instead of escaped text.");
+  if (options.rejectEscapedNewlines && !options.body.includes("\n") && (options.body.match(/\\n/g) ?? []).length >= 2) {
+    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'); to post literal escapes intentionally, pipe the body on stdin instead.");
   }
   if (Buffer.byteLength(options.body) > MAX_POST)
     throw new Error(`Post body exceeds ${MAX_POST} bytes.`);
@@ -27804,6 +27805,7 @@ init_credentials();
 init_git2();
 init_threads2();
 var SURFACE_BODY_BYTES = 800;
+var KNOWN_POST_KINDS = /* @__PURE__ */ new Set(["post", "snapshot", "reframe", "correction", "closure", "mark"]);
 function str(flags2, key2) {
   return typeof flags2[key2] === "string" ? flags2[key2] : void 0;
 }
@@ -28028,7 +28030,8 @@ var threadsCommand = {
     "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0",
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older]  # local cold default: surface",
-    "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent]  # opening post; optional open typed link",
+    "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent]  # optional child edge",
+    "ideaspaces threads new <slug> --about 'About this Note' --attached-to note:@home//notes/topic.md  # link, no child edge",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
@@ -28440,7 +28443,7 @@ Parent lookup incomplete: ${parentWarning}`;
 Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
         }
         output.result({
-          schema: "ideaspaces.local-thread.open.v2",
+          schema: "ideaspaces.local-thread.open.v3",
           thread: {
             path: thread.path,
             thread_id: thread.thread_id,
@@ -28478,6 +28481,8 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         const kind = sub === "close" ? "closure" : str(flags2, "kind") ?? "post";
         if (!kind.trim() || /[\r\n]/.test(kind))
           throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");
+        if (!KNOWN_POST_KINDS.has(kind))
+          output.log(`Unrecognised post kind ${kind}; open kinds are valid, but check spelling before writing an immutable post.`);
         if (sub === "close" && (flags2.member !== void 0 || flags2.checkout !== void 0))
           throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags2, "map") ? loadLocalThreadMap(str(flags2, "map")) : void 0;
@@ -28512,10 +28517,11 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
           supersedes: str(flags2, "supersedes"),
           map,
           tags,
+          rejectEscapedNewlines: typeof flags2.message === "string",
           verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`)
         });
-        output.result({ id: post.id, path, kind: post.kind, in_reply_to: post.inReplyTo }, `Appended ${post.kind}: ${path}`);
+        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo }, `Appended ${post.kind}: ${path}`);
         return 0;
       }
       if (sub === "render") {

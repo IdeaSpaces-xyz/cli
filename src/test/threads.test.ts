@@ -68,7 +68,7 @@ describe("local Threads", () => {
     expect(resolveThreadParent(child.path)?.id).toBe(post.post.id);
     symlinkSync(post.path, join(parent.path, "alias.md"));
     writeFileSync(agreement, "---\nname: Child\nattached_to: _threads/parent/alias.md\n---\n");
-    expect(() => resolveThreadParent(child.path)).toThrow(/Unexpected thread entry|non-regular thread file/);
+    expect(() => resolveThreadParent(child.path)).toThrow(/Unexpected thread entry/);
     rmSync(join(parent.path, "alias.md"));
     writeFileSync(agreement, "---\nname: Child\nattached_to: msg_unknown\n---\n");
     expect(resolveThreadParent(child.path)).toEqual({ attached_to: "msg_unknown", status: "unresolved" });
@@ -439,13 +439,19 @@ describe("local Threads", () => {
       expect(JSON.parse(out).child_threads_complete).toBe(false);
       expect(JSON.parse(out).child_threads_total).toBe(0); // known lower bound, not proof of no children
       expect(err).toContain("Thread bad parent unknown");
-      writeFileSync(join(healthy.path, "_agent", "agreement.md"), "Malformed Agreement without frontmatter\n");
+      // Plain Markdown is a valid Agreement with no declared legacy parent.
+      writeFileSync(join(healthy.path, "_agent", "agreement.md"), "Plain Markdown Agreement without frontmatter\n");
       out = ""; err = "";
       expect(await threadsCommand.run(["open", "healthy"], { post: opening.post.id }, flags)).toBe(0);
       expect(JSON.parse(out).raw_post).toContain("Good");
       expect(JSON.parse(out).thread.parent).toBeNull();
       expect(JSON.parse(out).thread.parent_warning).toBeUndefined();
       expect(err).not.toContain("parent cannot be read");
+      // Broken YAML, unlike plain Markdown, is an invalid Agreement frame.
+      writeFileSync(join(healthy.path, "_agent", "agreement.md"), "---\nattached_to: [\n---\nBroken Agreement\n");
+      out = ""; err = "";
+      expect(await threadsCommand.run(["open", "healthy"], { post: opening.post.id }, flags)).toBe(0);
+      expect(JSON.parse(out).thread.parent_warning).toContain("Malformed Thread Agreement");
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
   });
 
@@ -770,6 +776,7 @@ describe("local Threads", () => {
       writeFileSync(join(root, "_threads", "linked", "zz-bad.md"), "---\nid: msg_bad_map\nmap: [broken]\n---\nReadable sibling");
       const linkedOpen = await run(["open", "linked"], { depth: "name" });
       expect(linkedOpen.thread.parent.status).toBe("none");
+      expect((await run(["list"], { depth: "summary" })).threads.find((row: { slug: string }) => row.slug === "linked").parent.status).toBe("none");
       expect(linkedOpen.thread.warnings).toContain("_threads/linked/zz-bad.md: map: invalid_map_type");
       const parentPost = await run(["open", "parent"], { post: parent.opening_post_id });
       expect(parentPost.child_threads.map((row: { slug: string }) => row.slug)).toEqual(["child"]);
@@ -797,21 +804,37 @@ describe("local Threads", () => {
     try {
       const t = await run(["new", "work"], { about: "Work" });
       const first = await run(["post", "work"], { kind: "mark", mark: "claimed", "reply-to": t.opening_post_id, message: "Claimed", author: "Integrator" });
+      expect(first.mark).toBe("claimed");
       await run(["post", "work"], { kind: "mark", mark: "claimed", "reply-to": t.opening_post_id, message: "Repeat", author: "Integrator" });
       const before = await run(["open", "work"], { post: t.opening_post_id });
       expect(before.posts[0].marks).toHaveLength(1);
       expect(before.posts[0].marks[0]).toMatchObject({ mark: "claimed", author: "Integrator" });
+      out = "";
+      expect(await threadsCommand.run(["open", "work"], { post: t.opening_post_id }, { ...flags, json: false })).toBe(0);
+      expect(out).toContain("Marks: claimed (Integrator)");
       await run(["post", "work"], { kind: "correction", supersedes: first.id, "reply-to": t.opening_post_id, message: "Retract", author: "Integrator" });
       const after = await run(["open", "work"], { post: t.opening_post_id });
       expect(after.posts[0].marks).toHaveLength(1);
       expect(after.posts[0].marks[0].id).not.toBe(first.id);
       expect(loadThread(join(root, "_threads", "work")).allPosts.some((p) => p.id === first.id)).toBe(true);
+      out = ""; err = "";
+      expect(await threadsCommand.run(["post", "work"], { kind: "snapshto", message: "Open kind", author: "Integrator" }, { ...flags, quiet: false })).toBe(0);
+      expect(JSON.parse(out).kind).toBe("snapshto");
+      expect(err).toContain("check spelling");
       const count = readdirSync(join(root, "_threads", "work")).length;
       out = ""; err = "";
       expect(await threadsCommand.run(["post", "work"], { kind: "mark", message: "No mark", "reply-to": t.opening_post_id, author: "Integrator" }, flags)).toBe(1);
       expect(err).toContain("--mark");
-      expect(() => appendPost(join(root, "_threads", "work"), { body: "First\\n\\nSecond" })).toThrow(/literal/);
+      out = ""; err = "";
+      expect(await threadsCommand.run(["post", "work"], { mark: "done", message: "No kind", "reply-to": t.opening_post_id, author: "Integrator" }, flags)).toBe(1);
+      expect(err).toContain("--mark requires --kind mark");
+      out = ""; err = "";
+      expect(await threadsCommand.run(["post", "work"], { kind: "mark", mark: "done", message: "No latest", "reply-to": "latest", author: "Integrator" }, flags)).toBe(1);
+      expect(err).toContain("explicit target");
+      expect(() => appendPost(join(root, "_threads", "work"), { body: "First\\n\\nSecond", rejectEscapedNewlines: true })).toThrow(/literal/);
       expect(readdirSync(join(root, "_threads", "work"))).toHaveLength(count);
+      // Stdin/programmatic bodies can intentionally describe literal escape syntax.
+      expect(appendPost(join(root, "_threads", "work"), { body: "First\\n\\nSecond" }).post.body).toContain("\\n");
     } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
   });
 

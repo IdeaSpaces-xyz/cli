@@ -222,7 +222,8 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
 export function resolveThreadParent(threadDir: string, knownThreads?: LocalThread[]): ThreadParentInfo | null {
   const agreementPath = join(threadDir, "_agent", "agreement.md");
   const parsedAgreement = parseThreadAgreementAttachment(safeFile(agreementPath), `_threads/${basename(threadDir)}/_agent/agreement.md`);
-  const thread = knownThreads?.find((candidate) => candidate.path === realpathSync(threadDir)) ?? loadThread(threadDir);
+  const canonicalThreadDir = realpathSync(threadDir);
+  const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
   if (parsedAgreement.status === "invalid" && !thread.attachment) {
     throw new Error(`Malformed Thread Agreement frontmatter: ${agreementPath} (${parsedAgreement.issue}).`);
   }
@@ -356,6 +357,7 @@ export function computeBranches(posts: ThreadPost[]): BranchInfo[] {
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
+  rejectEscapedNewlines?: boolean;
   verifyTarget?: (thread: LocalThread, parents: string[], supersedes?: string) => void;
   onDefaultReplyTo?: (openingPostId: string) => void;
 }): { post: ThreadPost; path: string } {
@@ -363,8 +365,8 @@ export function appendPost(dir: string, options: {
   if (thread.writeRefusal) throw new Error(thread.writeRefusal);
   if (thread.closed === true) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
   if (!options.body.trim()) throw new Error("Post body is required through --message or stdin.");
-  if (!options.body.includes("\n") && (options.body.match(/\\n/g) ?? []).length >= 2) {
-    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond') instead of escaped text.");
+  if (options.rejectEscapedNewlines && !options.body.includes("\n") && (options.body.match(/\\n/g) ?? []).length >= 2) {
+    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'); to post literal escapes intentionally, pipe the body on stdin instead.");
   }
   if (Buffer.byteLength(options.body) > MAX_POST) throw new Error(`Post body exceeds ${MAX_POST} bytes.`);
   for (const value of [options.name, options.summary, options.author]) {

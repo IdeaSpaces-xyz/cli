@@ -21,6 +21,7 @@ import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./threa
 export { threadFlagError } from "./thread-flags.js";
 
 const SURFACE_BODY_BYTES = 800;
+const KNOWN_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure", "mark"]);
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
 }
@@ -247,7 +248,8 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older]  # local cold default: surface",
-    "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent]  # opening post; optional open typed link",
+    "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent]  # optional child edge",
+    "ideaspaces threads new <slug> --about 'About this Note' --attached-to note:@home//notes/topic.md  # link, no child edge",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
@@ -565,7 +567,7 @@ export const threadsCommand: CommandDef = {
           const cursor = posts.at(-1)?.id;
           humanText += `\n\nShowing ${posts.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
         }
-        output.result({ schema: "ideaspaces.local-thread.open.v2", thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
+        output.result({ schema: "ideaspaces.local-thread.open.v3", thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
           closed: thread.closed, parent, warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
           ...(parentWarning ? { parent_warning: parentWarning } : {}),
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
@@ -585,6 +587,7 @@ export const threadsCommand: CommandDef = {
         selectionFlags(flags);
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
         if (!kind.trim() || /[\r\n]/.test(kind)) throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");
+        if (!KNOWN_POST_KINDS.has(kind)) output.log(`Unrecognised post kind ${kind}; open kinds are valid, but check spelling before writing an immutable post.`);
         if (sub === "close" && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         const selected = flags.member !== undefined
@@ -606,9 +609,9 @@ export const threadsCommand: CommandDef = {
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
           summary: str(flags, "summary"), author: target ? selectedWriterName() : writerName(str(flags, "author")), replyTo: parents,
           kind: kind as ThreadKind, mark: str(flags, "mark"), supersedes: str(flags, "supersedes"), map, tags,
-          verifyTarget: target?.verifyWrite,
+          rejectEscapedNewlines: typeof flags.message === "string", verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
-        output.result({ id: post.id, path, kind: post.kind, in_reply_to: post.inReplyTo }, `Appended ${post.kind}: ${path}`); return 0;
+        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo }, `Appended ${post.kind}: ${path}`); return 0;
       }
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");
