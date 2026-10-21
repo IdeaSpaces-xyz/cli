@@ -118,7 +118,7 @@ Both stream the same transcript; they differ in whose agent runs and how it is p
 | Reasoning in the transcript | shown | not shown — Claude Code redacts it when run headless |
 | Needs a Claude account | no | yes |
 | Is it ready? | `pi-status` | `claude-status` — asks the binary (`claude --version`, `claude auth status`); never reads `~/.claude` |
-| Models | `pi-models` — any provider pi supports | `claude-models` — Anthropic (1M context for Opus/Sonnet/Fable, 200k for Haiku) |
+| Models | `pi-models` — any provider pi supports | `claude-models` — Anthropic (on Claude Code ≥ 2.1.305: Opus/Sonnet/Haiku 5.5 and Fable 5.1, 1M context; older binaries retain their versioned roster) |
 | Compaction | context skills (`context_cleanup`) | `conversation compact --local` and `--autocompact` (100k–1M tokens) |
 
 Pick `claude` to continue a session you started in Claude Code; the same session id resumes it. Close it there first — one session should have one writer at a time. Pick `pi` for another provider, an API-key setup, or a machine without Claude Code.
