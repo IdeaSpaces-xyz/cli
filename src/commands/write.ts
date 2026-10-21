@@ -27,6 +27,7 @@ import {
   extractSummary,
   parseFrontmatter,
   parseMap,
+  parseThreadAttachment,
   type MapBlock,
   type LocalEffectValue,
 } from "@ideaspaces/protocol";
@@ -143,8 +144,7 @@ export const writeCommand: CommandDef = {
     }
     const segments = portablePath.split("/");
     const threadsAt = segments.indexOf("_threads");
-    if (threadsAt !== -1 && segments.length === threadsAt + 3 &&
-        segments.at(-1)?.endsWith(".md") && segments.at(-1) !== "README.md") {
+    if (threadsAt !== -1 && parseThreadAttachment(segments.slice(threadsAt).join("/"))?.kind === "path") {
       const failure = localEffectError(
         "write_markdown", "invalid_request", "preflight",
         "Thread post validation requires an id and immutable post semantics. Use `ideaspaces threads post` to append; repair a never-valid post deliberately with a commit explaining why, not `ideaspaces write`.",
