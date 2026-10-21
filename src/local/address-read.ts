@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import type { ContractSource, MapDepth } from "@ideaspaces/protocol";
+import { formatMapPositionAddress, parseMapPositionAddress, parseThreadAttachment, type ContractSource, type MapDepth } from "@ideaspaces/protocol";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 import { focusAtCommit, lookAtCommit, type CommitFocus, type CommitLook } from "./map-look.js";
 import { defaultRootNames, resolveMapAddress, type MapReadAt, type MapReadResult } from "./map-resolve.js";
@@ -22,6 +22,19 @@ export function launchMapEnv(base: NodeJS.ProcessEnv, mapPath: string | undefine
 /** `@<root>//<position>` or `//<position>`: a Map address, never a filesystem path. */
 export function looksLikeMapAddress(value: string): boolean {
   return value.startsWith("//") || /^@[^/\s]+\/\//.test(value);
+}
+
+/** One read-time Thread post-id selector in a Map address, not a Git file path. */
+export function threadPostIdAddress(address: string): { threadAddress: string; postId: string } | null {
+  const parsed = parseMapPositionAddress(address);
+  if (parsed.status !== "valid") return null;
+  const parts = parsed.address.position.split("/");
+  if (parts.length !== 3 || parts[0] !== "_threads" ||
+      parseThreadAttachment(parts[2])?.kind !== "id" ||
+      parseThreadAttachment(`_threads/${parts[1]}/post.md`)?.kind !== "path") return null;
+  // post.md is a lexical grammar probe, never a file read or guessed target.
+  return { threadAddress: formatMapPositionAddress({ root: parsed.address.root,
+    position: `_threads/${parts[1]}` }), postId: parts[2] };
 }
 
 /** The Map an address is read against: the one named, else the launch Map. */
@@ -62,14 +75,24 @@ interface AddressReadOptions {
 export async function lookAtAddress(
   note: LoadedMapNote,
   address: string,
-  options: AddressReadOptions & { depth: MapDepth; maxChildren?: number },
+  options: AddressReadOptions & { depth: MapDepth; limit?: number; since?: string; order?: "older" | "newer"; postId?: string },
 ): Promise<AddressRead> {
+  const virtual = threadPostIdAddress(address);
+  if (virtual && options.postId !== undefined) {
+    return { ok: false, text: "Name a post id in the address or with --post, not both.", data: { status: "invalid_address" } };
+  }
+  const selectedAddress = virtual?.threadAddress ?? address;
+  const postId = options.postId ?? virtual?.postId;
   return readAddress(note, address, options, (target) =>
     lookAtCommit(target, {
       depth: options.depth,
       ...(options.contractSource ? { contractSource: options.contractSource } : {}),
-      ...(options.maxChildren !== undefined ? { maxChildren: options.maxChildren } : {}),
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options.since !== undefined ? { since: options.since } : {}),
+      ...(options.order !== undefined ? { order: options.order } : {}),
+      ...(postId ? { postId } : {}),
     }),
+    selectedAddress,
   );
 }
 
@@ -83,8 +106,10 @@ async function readAddress(
   address: string,
   options: AddressReadOptions,
   read: (target: Parameters<typeof lookAtCommit>[0]) => Promise<CommitLook | CommitFocus>,
+  selectedAddress: string = address,
 ): Promise<AddressRead> {
-  const resolved = resolveMapAddress(note, address, options.at ? { at: options.at } : {});
+  const selected = resolveMapAddress(note, selectedAddress, options.at ? { at: options.at } : {});
+  const resolved = { ...selected, address };
   const name = rootName(resolved);
   const base = describe(note, resolved, name);
   const header = renderHeader(note, resolved, name);

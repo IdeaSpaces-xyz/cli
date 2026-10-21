@@ -33,15 +33,15 @@ import {
 } from "../local-map-root.js";
 import { createOutput, type Output } from "../output.js";
 import { repoRoot } from "../git.js";
-import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap } from "../local/address-read.js";
+import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap, threadPostIdAddress } from "../local/address-read.js";
 import { lookAtCommit } from "../local/map-look.js";
 import { readCheckoutAt } from "../local/map-resolve.js";
 import type { CommandDef } from "../types.js";
 
 const DEPTHS = "<name|summary|surface|children|full>";
 const USAGE =
-  `ideaspaces look <path> [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--limit <n>] [--pin <sha>] [--json]\n` +
-  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--json]`;
+  `ideaspaces look [<path>] [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_…] [--pin <sha>] [--json]\n` +
+  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_…] [--json]`;
 
 interface PortableProjection {
   root: LocalProjectionRoot;
@@ -82,27 +82,48 @@ export const lookCommand: CommandDef = {
     "ideaspaces look notes/decision.md --pin 0123456789abcdef0123456789abcdef01234567",
     "ideaspaces look notes/decision.md --depth children",
     "ideaspaces look research --depth full --json",
-    "ideaspaces look _threads/decision --depth children   # protocol content-look; use threads open for posts",
+    "ideaspaces look _threads/decision --depth children --limit 50 --order older  # continue with --since <nextCursor>",
+    "ideaspaces look _threads/decision --post msg_75cc2f37 --depth full  # unique id, not guessed",
+    "ideaspaces look --post msg_75cc2f37 --depth summary  # searches only the current Space root (cwd)",
+    "ideaspaces look @home//_threads/decision/msg_75cc2f37 --map thread.map.md --at pin --depth full",
     "ideaspaces look . --contract foundation --depth summary",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
-    if (args.length !== 1 || !args[0]?.trim()) {
+    if ((args.length !== 1 || !args[0]?.trim()) && !(args.length === 0 && typeof flags.post === "string" && flags.post.trim())) {
       output.error(`Usage: ${USAGE}`);
       return 1;
     }
 
-    const raw = args[0].trim();
-    // Keep removed flags here so they reach the actionable threads-open hint below.
-    const allowed = new Set(["depth", "contract", "limit", "pin", "map", "at", "new", "since", "post"]);
+    const raw = args[0]?.trim() ?? ".";
+    const allowed = new Set(["depth", "contract", "limit", "pin", "map", "at", "new", "since", "order", "post"]);
     const unknown = Object.keys(flags).find((flag) => !allowed.has(flag));
     if (unknown) {
       output.error(`Unknown flag for look: --${unknown}`);
       return 1;
     }
-    if (flags.new !== undefined || flags.since !== undefined || flags.post !== undefined) {
-      output.error("--new, --since and --post are no longer accepted by look; use ideaspaces threads open for paged posts.");
+    if (flags.new !== undefined) {
+      output.error("--new is a cursor action, not a look rung; use ideaspaces threads open --new.");
       return 1;
+    }
+    const since = typeof flags.since === "string" && flags.since.trim() ? flags.since.trim() : undefined;
+    const postId = typeof flags.post === "string" && flags.post.trim() ? flags.post.trim() : undefined;
+    if (flags.since !== undefined && !since) {
+      output.error("--since needs the nextCursor value from the previous directory page.");
+      return 1;
+    }
+    if (flags.post !== undefined && !postId) {
+      output.error("--post needs a msg_ post id.");
+      return 1;
+    }
+    const order: "older" | "newer" | null | undefined = flags.order === undefined ? undefined
+      : flags.order === "older" || flags.order === "newer" ? flags.order : null;
+    if (order === null) {
+      output.error("--order must be older or newer.");
+      return 1;
+    }
+    if (postId && (flags.limit !== undefined || since || order)) {
+      output.error("--post selects one id; omit limit, since and order, which page a directory."); return 1;
     }
     if (isRemoteAddress(raw)) {
       output.error("Remote look is not available yet; use a local path.");
@@ -125,6 +146,9 @@ export const lookCommand: CommandDef = {
     }
 
     if (looksLikeMapAddress(raw)) {
+      if (threadPostIdAddress(raw) && (limit !== undefined || since || order)) {
+        output.error("A post-id address selects one post; omit limit, since and order."); return 1;
+      }
       if (flags.pin !== undefined) {
         output.error("--pin reads a path in this checkout; an address takes its pin from the Map. Use --at pin.");
         return 1;
@@ -141,13 +165,23 @@ export const lookCommand: CommandDef = {
         output.error(error instanceof Error ? error.message : String(error));
         return 1;
       }
-      const read = await lookAtAddress(note, raw, {
-        depth,
-        ...(at ? { at } : {}),
-        ...(selected.source ? { contractSource: selected.source } : {}),
-        ...(limit !== undefined ? { maxChildren: limit } : {}),
-      });
-      return emit(output, global.json, read.ok, read.data, read.text);
+      try {
+        const read = await lookAtAddress(note, raw, {
+          depth,
+          ...(at ? { at } : {}),
+          ...(selected.source ? { contractSource: selected.source } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+          ...(since ? { since } : {}),
+          ...(order ? { order } : {}),
+          ...(postId ? { postId } : {}),
+        });
+        return emit(output, global.json, read.ok, read.data, read.text);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return emit(output, global.json, false,
+          { source: "map", address: raw, status: "read_error", reason },
+          `Cannot read Map address ${raw}: ${reason}`);
+      }
     }
     if (flags.map !== undefined || flags.at !== undefined) {
       output.error(`--map and --at read a Map address (@<root>//<position> or //<position>); ${JSON.stringify(raw)} is a path.`);
@@ -158,7 +192,10 @@ export const lookCommand: CommandDef = {
       return lookAtPin(output, global.json, raw, flags.pin, {
         depth,
         ...(selected.source ? { contractSource: selected.source } : {}),
-        ...(limit !== undefined ? { maxChildren: limit } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+        ...(since ? { since } : {}),
+        ...(order ? { order } : {}),
+        ...(postId ? { postId } : {}),
       });
     }
 
@@ -168,7 +205,10 @@ export const lookCommand: CommandDef = {
         position: path,
         depth,
         ...(selected.source ? { contractSource: selected.source } : {}),
-        ...(limit !== undefined ? { maxChildren: limit } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+        ...(since ? { since } : {}),
+        ...(order ? { order } : {}),
+        ...(postId ? { postId } : {}),
       };
       looked = await assembleContentLook(options);
       // The protocol remains neutral. Agreement-first is explicit CLI policy.
@@ -193,13 +233,18 @@ export const lookCommand: CommandDef = {
       return 1;
     }
     if (looked.status !== "ok") {
+      if ("postId" in looked) {
+        return emit(output, global.json, false,
+          { status: looked.status, post_id: looked.postId, position: looked.position, reason: looked.reason },
+          `Cannot select post ${looked.postId}: ${looked.reason}`);
+      }
       output.error(renderContentLook(looked));
       return 1;
     }
 
     let projection: PortableProjection;
     try {
-      projection = await projectPortableMap(looked);
+      projection = await projectPortableMap(looked, { page: { ...(since ? { since } : {}), ...(order ? { order } : {}) } });
     } catch (error) {
       // Portability is stricter than local readability. If Git or identity
       // verification races or fails, retain the useful read and omit the Map.
@@ -284,11 +329,17 @@ async function lookAtPin(
     output.error(`${header}\n  status: ${found.status} — ${"reason" in found ? found.reason : ""}`);
     return 1;
   }
-  const looked = await lookAtCommit(
-    { checkoutPath: checkout, commit: pin, position, kind, label: { root: checkout, prefix: `${checkout}${sep}` } },
-    options,
-  );
   const base = { source: "pin", checkout, position, at: "pin", commit: pin, kind };
+  let looked: Awaited<ReturnType<typeof lookAtCommit>>;
+  try {
+    looked = await lookAtCommit(
+      { checkoutPath: checkout, commit: pin, position, kind, label: { root: checkout, prefix: `${checkout}${sep}` } },
+      options,
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return emit(output, json, false, { ...base, status: "read_error", reason }, `${header}\n  status: read_error — ${reason}`);
+  }
   if (looked.status === "ok") {
     const { reference, target } = looked.result;
     return emit(output, json, true, { ...base, text: looked.text, reference, target }, `${header}\n\n${looked.text}`);
@@ -300,6 +351,8 @@ async function lookAtPin(
 export interface PortableProjectionDependencies {
   readGitState?: (repoRoot: string) => Promise<GitState>;
   reread?: typeof assembleContentLook;
+  /** Recheck the same directory page, not the default first page. */
+  page?: { since?: string; order?: "older" | "newer" };
 }
 
 export async function projectPortableMap(
@@ -335,8 +388,10 @@ export async function projectPortableMap(
     ...(looked.reference.contractSource
       ? { contractSource: looked.reference.contractSource }
       : {}),
-    ...(looked.target.children
-      ? { maxChildren: looked.target.children.length }
+    ...(looked.target.page
+      ? { limit: looked.target.page.shown,
+          ...(dependencies.page?.since ? { since: dependencies.page.since } : {}),
+          ...(dependencies.page?.order ? { order: dependencies.page.order } : {}) }
       : {}),
   });
   const stateAfter = await readGitState(repoRoot);

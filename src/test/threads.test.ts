@@ -771,9 +771,19 @@ describe("local Threads", () => {
     };
     try {
       const parent = await run(["new", "parent"], { about: "Parent" });
-      const child = await run(["new", "child"], { about: "Child", "attached-to": `post:${parent.opening_post_id}` });
+      const moment = { roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }],
+        members: [{ root: 0, position: "_threads/parent/README.md", depth: "summary" }] };
+      writeFileSync(join(root, "moment.map.json"), JSON.stringify({ map: moment }));
+      const child = await run(["new", "child"], { about: "Child", "attached-to": `post:${parent.opening_post_id}`, map: "moment.map.json" });
       expect(child.attached_to).toBe(`post:${parent.opening_post_id}`);
-      expect(loadThread(join(root, "_threads", "child")).allPosts[0].attachedTo?.kind).toBe("post");
+      const opening = loadThread(join(root, "_threads", "child")).allPosts[0];
+      expect(opening.attachedTo?.kind).toBe("post");
+      expect(opening.mapResult?.status).toBe("valid");
+      expect(opening.frontmatter.map).toEqual(moment);
+      const inline = await run(["new", "inline"], { about: "Inline", map: JSON.stringify({ map: moment }) });
+      expect(loadThread(join(root, "_threads", inline.slug)).allPosts[0].frontmatter.map).toEqual(moment);
+      const emptyInline = await run(["new", "empty-inline"], { about: "Empty inline", map: "{}" });
+      expect(loadThread(join(root, "_threads", emptyInline.slug)).allPosts[0].mapResult?.status).toBe("valid");
       const linked = await run(["new", "linked"], { about: "Linked", "attached-to": "note:@home//notes/topic.md" });
       expect(linked.attached_to).toBe("note:@home//notes/topic.md");
       writeFileSync(join(root, "_threads", "linked", "zz-bad.md"), "---\nid: msg_bad_map\nmap: [broken]\n---\nReadable sibling");
@@ -793,6 +803,26 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["new", "no-type"], { about: "No type", "attached-to": "msg_parent" }, flags)).toBe(1);
       expect(err).toContain("<type>:<id>");
       expect(readdirSync(join(root, "_threads"))).not.toContain("no-type");
+      writeFileSync(join(root, "unpinned.map.json"), JSON.stringify({ map: { roots: [{ root_node_id: "n_0123456789abcdef01234567" }], members: [] } }));
+      err = "";
+      expect(await threadsCommand.run(["new", "no-pin"], { about: "No pin", map: "unpinned.map.json" }, flags)).toBe(1);
+      expect(err).toContain("root 0");
+      expect(readdirSync(join(root, "_threads"))).not.toContain("no-pin");
+      err = "";
+      expect(await threadsCommand.run(["new", "empty-map"], { about: "Empty", map: "" }, flags)).toBe(1);
+      expect(err).toContain("--map requires");
+      expect(readdirSync(join(root, "_threads"))).not.toContain("empty-map");
+      err = "";
+      expect(await threadsCommand.run(["new", "missing-map"], { about: "Missing", map: "missing.map.md" }, flags)).toBe(1);
+      expect(err).toContain("--map file not found");
+      expect(readdirSync(join(root, "_threads"))).not.toContain("missing-map");
+      err = "";
+      expect(await threadsCommand.run(["post", "parent"], { message: "Missing Map", author: "Integrator", map: "missing.map.md" }, flags)).toBe(1);
+      expect(err).toContain("--map file not found");
+      err = "";
+      expect(await threadsCommand.run(["new", "windows-missing"], { about: "Missing", map: String.raw`C:\\missing\\moment.map.md` }, flags)).toBe(1);
+      expect(err).toContain("--map file not found");
+      expect(readdirSync(join(root, "_threads"))).not.toContain("windows-missing");
     } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
   });
 

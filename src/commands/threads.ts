@@ -13,7 +13,7 @@ import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
-  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions,
+  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./thread-flags.js";
@@ -248,7 +248,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
     "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older]  # local cold default: surface",
-    "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent]  # optional child edge",
+    "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent] [--map moment.map.md]  # opening post captures origin + pinned Map",
     "ideaspaces threads new <slug> --about 'About this Note' --attached-to note:@home//notes/topic.md  # link, no child edge",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
@@ -388,13 +388,16 @@ export const threadsCommand: CommandDef = {
         return 0;
       }
       if (sub === "new") {
-        if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title> [--attached-to <type>:<id>]");
+        if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title> [--attached-to <type>:<id>] [--map <pinned-note>]");
         const attachedTo = str(flags, "attached-to");
         if (flags["attached-to"] === true) throw new Error("--attached-to requires a <type>:<id> value. No Thread created.");
+        if (flags.map !== undefined && !str(flags, "map")?.trim()) throw new Error("--map requires a pinned moment Map note; no Thread created.");
+        const openingMap = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
+        if (openingMap !== undefined) validateThreadMomentMap(openingMap); // Before createThread mutates the folder.
         const thread = createThread(rest[0], str(flags, "about")!, process.cwd(), attachedTo);
         let opening: ReturnType<typeof appendPost>;
         try {
-          opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary, attachedTo });
+          opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary, attachedTo, map: openingMap });
         } catch (err) {
           throw new Error(`Thread created at ${thread.path}, but opening post was not written: ${err instanceof Error ? err.message : String(err)}. Use threads post ${thread.slug} --message <opening-text> to complete it; do not rerun threads new.`);
         }
