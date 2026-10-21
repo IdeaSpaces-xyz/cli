@@ -37,7 +37,14 @@ describe("getClaudeRoster — version lookup and fallbacks", () => {
       ["fable", "claude-fable-5-1"], ["haiku", "claude-haiku-5-5"],
     ]);
     expect(roster.models.find((m) => m.ref === "haiku")?.contextWindow).toBe(1_000_000);
+    expect(roster.models.find((m) => m.ref === "")?.id).toBe("claude-opus-5-5");
+    expect(roster.models.find((m) => m.ref === "")?.isDefault).toBe(true);
+    expect(roster.models.find((m) => m.ref === "opusplan")?.id).toBe("claude-sonnet-5-5");
+    expect(roster.capabilities.compact.autocompact).toMatchObject({ supported: true, minTokens: 100_000, maxTokens: 1_000_000 });
     expect(getClaudeRoster("2.1.304").models.find((m) => m.ref === "haiku")?.id).toBe("claude-haiku-4-5-20251001");
+    for (const version of ["2.1.306", "2.2.0"]) {
+      expect(getClaudeRoster(version).models.find((m) => m.ref === "haiku")?.id).toBe("claude-haiku-5-5");
+    }
   });
   it("known version >= 2.1.0 returns 1M-window models and compaction support", () => {
     const roster = getClaudeRoster("2.1.278");

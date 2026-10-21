@@ -14,10 +14,10 @@ import type { CommandDef } from "../types.js";
 export interface ClaudeModel {
   /** The ref to pass to `--claude-model` ("" for default, "opus", "sonnet", "fable", "haiku", "opusplan"). */
   ref: string;
-  /** The canonical underlying model id (e.g. "claude-opus-5", "claude-sonnet-5"). */
+  /** The versioned model id associated with the alias (e.g. "claude-opus-5-5"). */
   id: string;
   name: string;
-  /** Context window in tokens (e.g. 1_000_000 for Opus 5, 200_000 for Haiku). */
+  /** Estimated context window in tokens; depends on the model and binary version. */
   contextWindow: number;
   /** Maximum output tokens. */
   maxTokens: number;
@@ -68,14 +68,15 @@ export function compareSemver(a: [number, number, number], b: [number, number, n
 
 /**
  * Verified model roster and runtime capabilities for a given Claude Code version.
- * Tested live against Claude Code 2.1.278 (`claude --help` and stream-json fixtures).
+ * Older capabilities tested against Claude Code 2.1.278; 2.1.305 sign-in and advertised
+ * aliases checked on the person's installed binary. Model ids/windows are catalogue estimates.
  */
 export function getClaudeRoster(version: string | null): ClaudeRoster {
   const semver = parseSemver(version);
 
-  // Claude Code 2.1.305: the current 5.5 family. The binary advertises the model aliases
-  // in --help; ids and windows follow the Anthropic catalogue (pi-ai 1.3.0). Do not
-  // retroactively change the roster for earlier binaries whose aliases may target older models.
+  // Claude Code 2.1.305: aliases in --help; canonical ids/windows inferred from the Anthropic
+  // catalogue (pi-ai 1.3.0), not reported by Claude Code. 2.1.305 is the first version we
+  // target with the 5.5 roster; earlier binaries may map these aliases to older models.
   if (semver && compareSemver(semver, [2, 1, 305]) >= 0) {
     return {
       models: [
