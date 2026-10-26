@@ -67,19 +67,26 @@ web's **Desktop sign-ins** list. Sign-in needs HTTPS; explicit loopback HTTP is 
 for local testing. No legacy sign-in fallback is attempted.
 
 The CLI stores the short access token and rotating refresh in its existing credentials
-file (atomic replacement; mode 0600 on POSIX, profile ACLs on Windows), not the model
+file (atomic replacement; mode 0600 on POSIX, the directory's existing ACL on Windows), not the model
 provider's auth file. HTTP, streaming and Git credential-helper calls refresh within
 one minute of access expiry, under a cross-process lock. The refresh is spent once;
 a persisted in-flight marker prevents replay after a crash or lost response. If that
-happens, sign in again rather than retrying a consumed refresh. Reusing a rotated
+happens, sign in again rather than retrying a consumed refresh. Only OS DNS/connect
+refusal that proves the request was never sent clears that marker for a later retry.
+An access-token 401 gets one conditional refresh: reads may retry once; writes/streams
+are never replayed and ask you to retry the command after renewal. If configured sign-in
+resolution fails, the Git helper reports it and stops the helper/prompt chain rather than
+silently choosing another identity. Reusing a rotated
 refresh revokes the whole session family on the server.
 
 `status account` verifies a saved session online so server revocation is visible. An
 offline failure is not reported as signed out. `power logout` revokes the session on
-the server before removing local credentials; if sign-out cannot complete, it keeps
+the server before removing local credentials (also after web revocation); if sign-out cannot complete, it keeps
 them so you can retry. Existing API keys remain supported until revoked: logout only
 forgets those keys, and does not revoke them. `IS_API_KEY` still explicitly overrides
-stored auth; unset it to use a new session. A stored session never follows an
+stored auth; unset it to use a new session. Login replaces the saved credential; when
+switching accounts/services, use `power logout` first to revoke the old session rather
+than merely forget it. A stored session never follows an
 `IS_API_URL` override to a different service.
 
 **Bundled clients:** update their CLI before using this sign-in; older bundles cannot

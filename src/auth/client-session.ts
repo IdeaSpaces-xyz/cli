@@ -9,6 +9,18 @@ export interface SessionConfig { apiUrl: string; apiKey?: string; sessionId?: st
 export class SessionAuthError extends Error {
   constructor(message = "Your IdeaSpaces sign-in ended. Run `ideaspaces login` again.") { super(message); this.name = "SessionAuthError"; }
 }
+class RequestNotSent extends Error {}
+/** Only OS DNS/connect refusal proves that no HTTP request could reach this origin.
+ * Resets, TLS errors, timeouts and mixed/unknown aggregate causes remain ambiguous. */
+function definitelyNotSent(error: unknown): boolean {
+  if (!(error instanceof TypeError) || !/fetch failed/i.test(error.message)) return false;
+  const inspect = (cause: any): boolean => {
+    if (Array.isArray(cause?.errors) && cause.errors.length) return cause.errors.every(inspect);
+    return !!cause && ((["ENOTFOUND", "EAI_AGAIN"].includes(cause.code) && cause.syscall === "getaddrinfo") ||
+      (cause.code === "ECONNREFUSED" && cause.syscall === "connect"));
+  };
+  return inspect((error as TypeError & { cause?: unknown }).cause);
+}
 export function serviceOrigin(service: string): string {
   const u = new URL(service);
   if (u.username || u.password || u.pathname !== "/" || u.search || u.hash ||
@@ -25,8 +37,10 @@ export function cliInstallId(apiUrl: string): string {
   try {
     const id = JSON.parse(readFileSync(file, "utf8")).install_id;
     if (typeof id === "string" && /^[A-Za-z0-9._-]{8,128}$/.test(id)) return id;
-    throw new Error("Invalid CLI install identity. Restore the install file before signing in.");
-  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    throw new Error("invalid install identity");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error(`Could not read the CLI install identity at ${file}. Restore its file before signing in; it was not replaced.`);
+  }
   const install_id = randomUUID();
   writeFileSync(file, JSON.stringify({ install_id }) + "\n", { mode: 0o600, flag: "wx" });
   return install_id;
@@ -47,6 +61,7 @@ async function sessionRequest(apiUrl: string, action: "token" | "revoke", params
     return await response.json();
   } catch (error) {
     if (error instanceof SessionAuthError) throw error;
+    if (definitelyNotSent(error)) throw new RequestNotSent("Could not connect to IdeaSpaces (request was not sent). Check the API origin/network, then retry.");
     // Never print provider bodies, fetch causes, submitted codes/verifiers or tokens.
     throw new Error(`Could not complete IdeaSpaces ${action === "token" ? "token exchange" : "server sign-out"}. Check your connection. A rotating refresh is never retried automatically.`);
   }
@@ -63,6 +78,8 @@ function credentials(apiUrl: string, installId: string, raw: any, expectedId?: s
 export async function exchangeSignIn(apiUrl: string, installId: string, code: string, verifier: string, redirectUri: string): Promise<StoredCredentials> {
   const raw = await sessionRequest(apiUrl, "token", { grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: redirectUri, install_id: installId });
   const next = credentials(apiUrl, installId, raw);
+  // The server replaces a prior live session for this same person/install. Other
+  // accounts/services and legacy keys require explicit logout/revocation, not a hidden write.
   await withCredentialsLock(async () => saveCredentials(next));
   return next;
 }
@@ -72,7 +89,7 @@ function currentSession(config: SessionConfig): StoredCredentials {
   return stored;
 }
 /** Every HTTP/git consumer resolves afresh; the cross-process lock includes refresh and durable rotation. */
-export async function resolveSessionConfig<T extends SessionConfig>(config: T): Promise<T> {
+export async function resolveSessionConfig<T extends SessionConfig>(config: T, rejectedKey?: string): Promise<T> {
   if (!config.sessionId) return config; // Env keys and existing legacy keys are unchanged.
   return withCredentialsLock(async () => {
     const stored = currentSession(config);
@@ -80,7 +97,7 @@ export async function resolveSessionConfig<T extends SessionConfig>(config: T): 
     if (!secret(stored.api_key) || !secret(s.refresh_token) || typeof s.install_id !== "string" || !Number.isFinite(s.expires_at) || !Number.isFinite(s.refresh_expires_at)) throw new SessionAuthError();
     if (s.refreshing) throw new SessionAuthError("A rotating sign-in refresh was interrupted or its response was lost. Run `ideaspaces login` again; reusing that refresh could revoke this install.");
     if (s.refresh_expires_at <= Date.now()) { deleteCredentials(); throw new SessionAuthError(); }
-    if (s.expires_at > Date.now() + 60_000) return { ...config, apiKey: stored.api_key };
+    if (s.expires_at > Date.now() + 60_000 && stored.api_key !== rejectedKey) return { ...config, apiKey: stored.api_key };
     // A lost response may have consumed the refresh. Persist this before spending it, not after.
     saveCredentials({ ...stored, session: { ...s, refreshing: true } });
     try {
@@ -92,7 +109,10 @@ export async function resolveSessionConfig<T extends SessionConfig>(config: T): 
       return { ...config, apiKey: next.api_key };
     } catch (error) {
       const current = loadStoredCredentials();
-      if (error instanceof SessionAuthError && current?.session?.id === s.id && current.session.refresh_token === s.refresh_token && current.api_url === stored.api_url) deleteCredentials();
+      if (current?.session?.id === s.id && current.session.refresh_token === s.refresh_token && current.api_url === stored.api_url) {
+        if (error instanceof SessionAuthError) deleteCredentials();
+        else if (error instanceof RequestNotSent) saveCredentials({ ...current, session: { ...current.session, refreshing: undefined } });
+      }
       // On ambiguous network/disk failure retain the marker; never silently replay a rotation.
       throw error;
     }

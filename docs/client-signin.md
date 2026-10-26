@@ -30,13 +30,24 @@ and `power logout`, one process at a time. It proves:
 - replay of the consumed refresh returns invalid_grant and revokes the entire family;
 - revoking the entry through the web-session route signs the CLI out on its next status call;
 - a later login reuses this install identity; CLI logout revokes on the server and deletes
-  local credentials, with no live entry left in web settings.
+  local credentials, with no live entry left in web settings;
+- logout after web revocation also succeeds: the real revoke route returns RFC 7009's
+  idempotent 200 for an already-gone session;
+- a controlled interrupted-refresh fixture stops the real Git credential-fill chain before
+  a fallback helper/prompt can choose a different identity;
+- stopping the local server produces real TCP connection refusal, leaves the unspent refresh
+  available and clears only its in-flight marker, permitting a later retry.
 
 The proof asserts only public projections/booleans in stdout; it never prints tokens. It
 checks the account settings API, not a rendered web settings screen. Unit tests additionally
 cover callback tampering/early arrival/timeout/refusal, explicit legacy/env keys, service
 binding, rotation serialization, crash/lost-response markers, malformed token responses,
-streaming, late 401s, preserving a newer login and offline sign-out retention.
+streaming, late 401s, preserving a newer login, known-not-sent versus ambiguous refreshes,
+reactive 401 renewal without write replay, helper failure/prompt-chain refusal, corrupt
+install identities, expired refreshes, revoke errors and offline sign-out retention. A late
+browser rejection after the callback wins is explicitly tested; Promise.race handles it.
+Windows inherits the directory's existing ACL; this proof does not assert a new Windows
+ACL-hardening policy or claim a live Windows ACL test.
 
 ## Consumer parity and publication gate
 
@@ -49,6 +60,10 @@ Desktop keychain work. No new person-key minting or legacy-start fallback is int
 | Skills | Command names stay valid, but a credentials-file presence check is not an online sign-in check. Before consumer rollout, replace such guidance with `status account --json`; explain that logout revokes a session and that offline failure keeps local state. |
 | Pi integration | Existing is_auth also shells `login` / `power logout`. Keep its current pin unchanged until the approved CLI publication, then update its pin/version and affected auth guidance with that integration's next change. |
 | Claude Code plugin | Requires reproducible CLI re-vendoring and its own version bump when the human opens the batch. No hand-edited bundle or silent update under an existing plugin version. Update presence-only auth guidance in that batch. |
+
+**Publication is blocked pending the human's explicit go and an agreed consumer rollout.**
+The coordinator must name the CLI version cut, bundled-CLI/pin owners and the presence-check
+skill updates before requesting publication. Merged auth code alone is not rollout approval.
 
 This PR deliberately does **not** publish a CLI version, change consumer pins, or open a plugin
 batch. The bundled consumers must update before they can renew a new session or perform its

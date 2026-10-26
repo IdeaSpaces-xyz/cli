@@ -61,22 +61,20 @@ async function handleGet(): Promise<number> {
   }
 
   // Git may run several helpers concurrently; resolve under the same refresh lock as HTTP.
-  const config = await resolveSessionConfig(loaded);
-  // Any non-empty username works. Use git's provided one if any,
-  // else a placeholder (server ignores username — password is the access token or existing API key).
-  const username = params.username && params.username.length > 0
-    ? params.username
-    : "token";
-
-  const reply = [
-    `username=${username}`,
-    `password=${config.apiKey}`,
-    "",
-    "",
-  ].join("\n");
-
-  process.stdout.write(reply);
-  return 0;
+  try {
+    const config = await resolveSessionConfig(loaded);
+    // Any non-empty username works. The password is the access token or existing API key.
+    const username = params.username && params.username.length > 0 ? params.username : "token";
+    const reply = [`username=${username}`, `password=${config.apiKey}`, "", ""].join("\n");
+    process.stdout.write(reply);
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sign-in could not be resolved.";
+    process.stderr.write(`IdeaSpaces credential helper: ${message}\n`);
+    // Stop Git's helper/prompt chain rather than silently using a different identity.
+    process.stdout.write("quit=true\n\n");
+    return 1;
+  }
 }
 
 function isIdeaspacesHost(host: string | undefined): boolean {

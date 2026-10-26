@@ -1638,12 +1638,19 @@ function credentialsFile() {
 }
 async function withCredentialsLock(work) {
   mkdirSync(configDir(), { recursive: true, mode: 448 });
-  const release = await import_proper_lockfile.default.lock(credentialsFile(), {
-    realpath: false,
-    stale: 3e4,
-    update: 1e4,
-    retries: { retries: 150, minTimeout: 100, maxTimeout: 200 }
-  });
+  let release;
+  try {
+    release = await import_proper_lockfile.default.lock(credentialsFile(), {
+      realpath: false,
+      stale: 3e4,
+      update: 1e4,
+      retries: { retries: 25, minTimeout: 100, maxTimeout: 200 }
+    });
+  } catch (error) {
+    if (error.code === "ELOCKED")
+      throw new Error("Sign-in storage is locked by another CLI operation or a recently interrupted one. Wait briefly and retry.");
+    throw error;
+  }
   try {
     return await work();
   } finally {
@@ -13998,6 +14005,16 @@ var init_git2 = __esm({
 import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
 import { mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { join as join12 } from "node:path";
+function definitelyNotSent(error) {
+  if (!(error instanceof TypeError) || !/fetch failed/i.test(error.message))
+    return false;
+  const inspect2 = (cause) => {
+    if (Array.isArray(cause?.errors) && cause.errors.length)
+      return cause.errors.every(inspect2);
+    return !!cause && (["ENOTFOUND", "EAI_AGAIN"].includes(cause.code) && cause.syscall === "getaddrinfo" || cause.code === "ECONNREFUSED" && cause.syscall === "connect");
+  };
+  return inspect2(error.cause);
+}
 function serviceOrigin(service) {
   const u = new URL(service);
   if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || !(u.protocol === "https:" || u.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname))) {
@@ -14013,10 +14030,10 @@ function cliInstallId(apiUrl) {
     const id = JSON.parse(readFileSync2(file2, "utf8")).install_id;
     if (typeof id === "string" && /^[A-Za-z0-9._-]{8,128}$/.test(id))
       return id;
-    throw new Error("Invalid CLI install identity. Restore the install file before signing in.");
+    throw new Error("invalid install identity");
   } catch (error) {
     if (error.code !== "ENOENT")
-      throw error;
+      throw new Error(`Could not read the CLI install identity at ${file2}. Restore its file before signing in; it was not replaced.`);
   }
   const install_id = randomUUID2();
   writeFileSync3(file2, JSON.stringify({ install_id }) + "\n", { mode: 384, flag: "wx" });
@@ -14046,6 +14063,8 @@ async function sessionRequest(apiUrl, action, params) {
   } catch (error) {
     if (error instanceof SessionAuthError)
       throw error;
+    if (definitelyNotSent(error))
+      throw new RequestNotSent("Could not connect to IdeaSpaces (request was not sent). Check the API origin/network, then retry.");
     throw new Error(`Could not complete IdeaSpaces ${action === "token" ? "token exchange" : "server sign-out"}. Check your connection. A rotating refresh is never retried automatically.`);
   }
 }
@@ -14072,7 +14091,7 @@ function currentSession(config) {
     throw new SessionAuthError();
   return stored;
 }
-async function resolveSessionConfig(config) {
+async function resolveSessionConfig(config, rejectedKey) {
   if (!config.sessionId)
     return config;
   return withCredentialsLock(async () => {
@@ -14086,7 +14105,7 @@ async function resolveSessionConfig(config) {
       deleteCredentials();
       throw new SessionAuthError();
     }
-    if (s.expires_at > Date.now() + 6e4)
+    if (s.expires_at > Date.now() + 6e4 && stored.api_key !== rejectedKey)
       return { ...config, apiKey: stored.api_key };
     saveCredentials({ ...stored, session: { ...s, refreshing: true } });
     try {
@@ -14099,8 +14118,12 @@ async function resolveSessionConfig(config) {
       return { ...config, apiKey: next.api_key };
     } catch (error) {
       const current = loadStoredCredentials();
-      if (error instanceof SessionAuthError && current?.session?.id === s.id && current.session.refresh_token === s.refresh_token && current.api_url === stored.api_url)
-        deleteCredentials();
+      if (current?.session?.id === s.id && current.session.refresh_token === s.refresh_token && current.api_url === stored.api_url) {
+        if (error instanceof SessionAuthError)
+          deleteCredentials();
+        else if (error instanceof RequestNotSent)
+          saveCredentials({ ...current, session: { ...current.session, refreshing: void 0 } });
+      }
       throw error;
     }
   });
@@ -14128,7 +14151,7 @@ async function signOut() {
     deleteCredentials();
   });
 }
-var SessionAuthError, secret;
+var SessionAuthError, RequestNotSent, secret;
 var init_client_session = __esm({
   "dist/auth/client-session.js"() {
     "use strict";
@@ -14139,6 +14162,8 @@ var init_client_session = __esm({
         super(message);
         this.name = "SessionAuthError";
       }
+    };
+    RequestNotSent = class extends Error {
     };
     secret = (v) => typeof v === "string" && v.length > 0 && v.length <= 4096 && /^[A-Za-z0-9._~+\/-]+=*$/.test(v);
   }
@@ -14226,9 +14251,19 @@ async function authHeaders(config, extra) {
     ...extra
   };
 }
+async function renewRefusedAccess(config, key2) {
+  try {
+    await resolveSessionConfig(config, key2);
+  } catch (error) {
+    if (error instanceof SessionAuthError)
+      throw new UnauthorizedError(error.message);
+    throw error;
+  }
+}
 async function request(config, method, path, body, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const maxAttempts = method === "GET" && opts.retry !== false ? 2 : 1;
+  let authRetried = false;
   for (let attempt = 1; ; attempt++) {
     const headers = await authHeaders(config);
     const ctrl = new AbortController();
@@ -14244,6 +14279,13 @@ async function request(config, method, path, body, opts = {}) {
       if (!r.ok) {
         const text = await r.text();
         if (r.status === 401) {
+          if (config.sessionId && !authRetried) {
+            authRetried = true;
+            await renewRefusedAccess(config, headers.Authorization?.slice(7));
+            if (method === "GET" && opts.retry !== false)
+              continue;
+            throw new UnauthorizedError("Your sign-in was renewed. Retry this command; its write was not replayed.");
+          }
           await refuseSession(config, headers.Authorization?.slice(7));
           throw new UnauthorizedError(`${method} ${path} \u2192 401: ${text || r.statusText}`);
         }
@@ -14572,6 +14614,10 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
   if (!r.ok) {
     const text = await r.text().catch(() => "");
     if (r.status === 401) {
+      if (config.sessionId) {
+        await renewRefusedAccess(config, headers.Authorization?.slice(7));
+        throw new UnauthorizedError("Your sign-in was renewed. Retry this command; the streamed write was not replayed.");
+      }
       await refuseSession(config, headers.Authorization?.slice(7));
       throw new UnauthorizedError(`POST ${path} \u2192 401: ${text || r.statusText}`);
     }
@@ -17683,6 +17729,9 @@ var loginCommand = {
     const output = createOutput(global3);
     const apiUrl = getDefaultApiUrl();
     try {
+      const replacing = !!loadStoredCredentials();
+      if (replacing)
+        output.progress("Signing in replaces the saved CLI credential. Existing API keys are not revoked. Use `ideaspaces power logout` first when switching accounts/services if you need the old session revoked.");
       const stored = await cliSignIn(apiUrl, `IdeaSpaces CLI on ${hostname()}`.slice(0, 128), async (url) => {
         output.progress(`Opening browser for sign-in...
 ${url}`);
@@ -17706,7 +17755,7 @@ ${url}`);
       if (explicit)
         output.progress("IS_API_KEY is set and still overrides the saved session. Unset it to use this sign-in.");
       const webUrl = deriveWebBase(apiUrl);
-      output.result({ logged_in: true, web_url: webUrl, ...explicit ? { env_override_active: true } : {} }, `Logged in for this CLI install.
+      output.result({ logged_in: true, web_url: webUrl, ...replacing ? { replaced_stored_credential: true } : {}, ...explicit ? { env_override_active: true } : {} }, `Logged in for this CLI install.
 View your account: ${webUrl}
 Git push/pull uses the session automatically. Manage or revoke this install in web Desktop sign-ins.`);
       return 0;
@@ -23342,16 +23391,19 @@ async function handleGet() {
   if (!loaded) {
     return 0;
   }
-  const config = await resolveSessionConfig(loaded);
-  const username = params.username && params.username.length > 0 ? params.username : "token";
-  const reply2 = [
-    `username=${username}`,
-    `password=${config.apiKey}`,
-    "",
-    ""
-  ].join("\n");
-  process.stdout.write(reply2);
-  return 0;
+  try {
+    const config = await resolveSessionConfig(loaded);
+    const username = params.username && params.username.length > 0 ? params.username : "token";
+    const reply2 = [`username=${username}`, `password=${config.apiKey}`, "", ""].join("\n");
+    process.stdout.write(reply2);
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sign-in could not be resolved.";
+    process.stderr.write(`IdeaSpaces credential helper: ${message}
+`);
+    process.stdout.write("quit=true\n\n");
+    return 1;
+  }
 }
 function isIdeaspacesHost(host) {
   if (!host)

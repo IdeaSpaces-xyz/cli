@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, statSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { cliSignIn } from "../commands/login.js";
 import { join } from "node:path";
 import { loadConfig, loadStoredCredentials, saveCredentials, withCredentialsLock } from "../auth/credentials.js";
 import { cliInstallId, exchangeSignIn, resolveSessionConfig, refuseSession, signOut } from "../auth/client-session.js";
-import { fetchAuthMe, streamConversationMessage, optionalAuthRead, getSpaceCopySnapshot } from "../auth/api.js";
+import { fetchAuthMe, streamConversationMessage, optionalAuthRead, getSpaceCopySnapshot, createRepo } from "../auth/api.js";
 const apiUrl = "https://api.test.invalid", config = { apiUrl, apiKey: "old-access", sessionId: "session-one" };
 let home: string;
 function stored(expires = Date.now() - 1) {
@@ -59,7 +59,7 @@ it("refreshes HTTP and streaming consumers, and clears only this session on serv
   for await (const event of streamConversationMessage(config, "repo", "chat", { content: "test" } as never)) expect(event.type).toBe("done");
   expect(tokens).toBe(1);
   fetcher.mockImplementation(async () => new Response("revoked", { status: 401 }));
-  await expect(fetchAuthMe(config)).rejects.toThrow("401"); expect(loadStoredCredentials()).toBeNull();
+  await expect(fetchAuthMe(config)).rejects.toThrow("sign-in ended"); expect(loadStoredCredentials()).toBeNull();
 });
 it("keeps the existing opt-in anonymous public-read fallback when a saved refresh is refused", async () => {
   saveCredentials(stored());
@@ -71,10 +71,67 @@ it("keeps the existing opt-in anonymous public-read fallback when a saved refres
   const read = await optionalAuthRead(config, (c) => getSpaceCopySnapshot(c, "n_test"));
   expect(read.value).toMatchObject({ public: true }); expect(loadStoredCredentials()).toBeNull();
 });
+it("handles a late browser-opener rejection after the callback/code exchange wins", async () => {
+  const realFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
+    const installId = new URLSearchParams(String(options.body)).get("install_id");
+    return Response.json({ ...tokenResponse(), session: { ...tokenResponse().session, install_id: installId } });
+  }));
+  let rejectBrowser!: (error: Error) => void;
+  const unhandled = vi.fn(); process.on("unhandledRejection", unhandled);
+  try {
+    const next = await cliSignIn(apiUrl, "Test device", url => {
+      const pending = new Promise<void>((_resolve, reject) => { rejectBrowser = reject; });
+      const u = new URL(url);
+      void realFetch(`${u.searchParams.get("redirect_uri")}?state=${u.searchParams.get("state")}&code=one-time-code`).then(r => r.text()).catch(() => undefined);
+      return pending;
+    });
+    expect(next.session?.id).toBe("session-one");
+    rejectBrowser(new Error("late opener failure"));
+    await new Promise(resolve => setTimeout(resolve, 10)); expect(unhandled).not.toHaveBeenCalled();
+  } finally { process.off("unhandledRejection", unhandled); }
+});
 it("bounds sign-in even if the browser opener never settles", async () => {
   const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
   await expect(cliSignIn(apiUrl, "Test device", () => new Promise(() => {}), 5)).rejects.toThrow("timed out");
   expect(fetcher).not.toHaveBeenCalled(); expect(loadStoredCredentials()).toBeNull();
+});
+it.each([["ECONNREFUSED", "connect"], ["ENOTFOUND", "getaddrinfo"], ["EAI_AGAIN", "getaddrinfo"]])("permits a later retry only when %s proves the refresh was not sent", async (code, syscall) => {
+  saveCredentials(stored());
+  const fetcher = vi.fn().mockRejectedValue(new TypeError("fetch failed", { cause: Object.assign(new Error("not sent"), { code, syscall }) }));
+  vi.stubGlobal("fetch", fetcher);
+  await expect(resolveSessionConfig(config)).rejects.toThrow("request was not sent");
+  expect(loadStoredCredentials()?.session?.refreshing).toBeUndefined();
+  expect(loadStoredCredentials()?.session?.refresh_token).toBe("refresh-one");
+  fetcher.mockResolvedValue(Response.json(tokenResponse()));
+  expect((await resolveSessionConfig(config)).apiKey).toBe("new-access");
+});
+it("recovers an expired access token with one refresh and read retry, even before client expiry", async () => {
+  saveCredentials(stored(Date.now() + 3600_000)); let reads = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.endsWith("/token")) return Response.json(tokenResponse());
+    return ++reads === 1 ? new Response("expired access", { status: 401 }) : Response.json({ username: "one" });
+  }));
+  expect(await fetchAuthMe(config)).toMatchObject({ username: "one" }); expect(reads).toBe(2);
+});
+it("renews after a streamed write refusal without replaying the write", async () => {
+  saveCredentials(stored(Date.now() + 3600_000)); let writes = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.endsWith("/token")) return Response.json(tokenResponse());
+    writes++; return new Response("expired access", { status: 401 });
+  }));
+  const stream = streamConversationMessage(config, "repo", "chat", {} as never);
+  await expect(stream.next()).rejects.toThrow("not replayed");
+  expect(writes).toBe(1); expect(loadStoredCredentials()?.api_key).toBe("new-access");
+});
+it("does not replay a POST after renewing its refused access", async () => {
+  saveCredentials(stored(Date.now() + 3600_000)); let posts = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.endsWith("/token")) return Response.json(tokenResponse());
+    posts++; return new Response("expired access", { status: 401 });
+  }));
+  await expect(createRepo(config, {} as never)).rejects.toThrow("not replayed");
+  expect(posts).toBe(1); expect(loadStoredCredentials()?.api_key).toBe("new-access");
 });
 it("does not replay a refresh after network ambiguity, crashes or malformed token responses", async () => {
   saveCredentials(stored());
@@ -100,6 +157,16 @@ it("preserves explicit env/legacy credentials and refuses a session service over
   expect(explicit).toEqual({ apiUrl: "https://other.invalid", apiKey: "explicit-key" });
   expect(await resolveSessionConfig(explicit)).toEqual(explicit); expect(fetcher).not.toHaveBeenCalled();
 });
+it("expires the refresh without a network call and refuses corrupt install identity without replacement", async () => {
+  const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+  const expired = stored(); expired.session.refresh_expires_at = Date.now() - 1; saveCredentials(expired);
+  await expect(resolveSessionConfig(config)).rejects.toThrow("sign-in ended"); expect(loadStoredCredentials()).toBeNull();
+  await withCredentialsLock(async () => cliInstallId(apiUrl));
+  const file = join(home, ".ideaspaces/installs", readdirSync(join(home, ".ideaspaces/installs"))[0]);
+  writeFileSync(file, "broken JSON");
+  await expect(withCredentialsLock(async () => cliInstallId(apiUrl))).rejects.toThrow("Restore its file");
+  expect(readFileSync(file, "utf8")).toBe("broken JSON"); expect(fetcher).not.toHaveBeenCalled();
+});
 it("does not erase a newer sign-in when an older request is refused", async () => {
   saveCredentials({ ...stored(), session: { ...stored().session, id: "session-two" } });
   await refuseSession(config); expect(loadStoredCredentials()?.session?.id).toBe("session-two");
@@ -116,6 +183,10 @@ it("does not roll back a newer sign-in after an interrupted lock owner resumes",
   }));
   await expect(resolveSessionConfig(config)).rejects.toThrow("changed during refresh");
   expect(loadStoredCredentials()?.api_key).toBe("new-login-access");
+});
+it.each([400, 401, 404, 503])("keeps local state on unexpected revoke HTTP %s (the server contract is idempotent 200)", async status => {
+  saveCredentials(stored()); vi.stubGlobal("fetch", vi.fn(async () => new Response("unexpected", { status })));
+  await expect(signOut()).rejects.toThrow("server sign-out"); expect(loadStoredCredentials()).not.toBeNull();
 });
 it("revokes the stored refresh on sign-out, retaining local state on offline failure", async () => {
   saveCredentials(stored());

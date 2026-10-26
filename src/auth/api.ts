@@ -271,6 +271,12 @@ async function authHeaders(config: PublicApiConfig, extra?: Record<string, strin
   };
 }
 
+/** One conditional rotation on access refusal; never spend a refresh already marked ambiguous. */
+async function renewRefusedAccess(config: PublicApiConfig, key?: string): Promise<void> {
+  try { await resolveSessionConfig(config, key); }
+  catch (error) { if (error instanceof SessionAuthError) throw new UnauthorizedError(error.message); throw error; }
+}
+
 async function request<T>(
   config: PublicApiConfig,
   method: string,
@@ -285,6 +291,7 @@ async function request<T>(
   // timeout. GET only — repeating it is safe; POST/PUT/etc. could double-apply,
   // so they fail fast. Non-timeout errors (401, 5xx, network) never retry.
   const maxAttempts = method === "GET" && opts.retry !== false ? 2 : 1;
+  let authRetried = false;
   for (let attempt = 1; ; attempt++) {
     const headers = await authHeaders(config);
     const ctrl = new AbortController();
@@ -300,6 +307,12 @@ async function request<T>(
       if (!r.ok) {
         const text = await r.text();
         if (r.status === 401) {
+          if (config.sessionId && !authRetried) {
+            authRetried = true;
+            await renewRefusedAccess(config, headers.Authorization?.slice(7));
+            if (method === "GET" && opts.retry !== false) continue;
+            throw new UnauthorizedError("Your sign-in was renewed. Retry this command; its write was not replayed.");
+          }
           await refuseSession(config, headers.Authorization?.slice(7));
           throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
         }
@@ -1926,6 +1939,10 @@ export async function* streamConversationMessage(
   if (!r.ok) {
     const text = await r.text().catch(() => "");
     if (r.status === 401) {
+      if (config.sessionId) {
+        await renewRefusedAccess(config, headers.Authorization?.slice(7));
+        throw new UnauthorizedError("Your sign-in was renewed. Retry this command; the streamed write was not replayed.");
+      }
       await refuseSession(config, headers.Authorization?.slice(7));
       throw new UnauthorizedError(`POST ${path} → 401: ${text || r.statusText}`);
     }

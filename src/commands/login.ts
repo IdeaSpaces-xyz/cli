@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { hostname, platform } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
-import { getDefaultApiUrl, withCredentialsLock } from "../auth/credentials.js";
+import { getDefaultApiUrl, withCredentialsLock, loadStoredCredentials } from "../auth/credentials.js";
 import { cliInstallId, exchangeSignIn, cacheSessionUsername, serviceOrigin, SessionAuthError } from "../auth/client-session.js";
 import { startCallbackServer } from "../auth/callback-server.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
@@ -49,6 +49,8 @@ export const loginCommand: CommandDef = {
     const output = createOutput(global);
     const apiUrl = getDefaultApiUrl();
     try {
+      const replacing = !!loadStoredCredentials();
+      if (replacing) output.progress("Signing in replaces the saved CLI credential. Existing API keys are not revoked. Use `ideaspaces power logout` first when switching accounts/services if you need the old session revoked.");
       const stored = await cliSignIn(apiUrl, `IdeaSpaces CLI on ${hostname()}`.slice(0, 128), async (url) => {
         output.progress(`Opening browser for sign-in...\n${url}`);
         try { await openBrowser(url); } catch { output.progress("Could not open the browser. Open the URL above manually; this terminal is still waiting."); }
@@ -62,7 +64,7 @@ export const loginCommand: CommandDef = {
       const explicit = !!process.env.IS_API_KEY;
       if (explicit) output.progress("IS_API_KEY is set and still overrides the saved session. Unset it to use this sign-in.");
       const webUrl = deriveWebBase(apiUrl);
-      output.result({ logged_in: true, web_url: webUrl, ...(explicit ? { env_override_active: true } : {}) }, `Logged in for this CLI install.\nView your account: ${webUrl}\nGit push/pull uses the session automatically. Manage or revoke this install in web Desktop sign-ins.`);
+      output.result({ logged_in: true, web_url: webUrl, ...(replacing ? { replaced_stored_credential: true } : {}), ...(explicit ? { env_override_active: true } : {}) }, `Logged in for this CLI install.\nView your account: ${webUrl}\nGit push/pull uses the session automatically. Manage or revoke this install in web Desktop sign-ins.`);
       return 0;
     } catch (error) {
       output.error(error instanceof Error ? error.message : "Sign-in failed. Run `ideaspaces login` again.");

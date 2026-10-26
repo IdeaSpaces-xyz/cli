@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { loadConfig, loadStoredCredentials, saveCredentials } from '../dist/auth/credentials.js';
 import { fetchAuthMe } from '../dist/auth/api.js';
@@ -71,11 +72,11 @@ try {
     assert.equal(code, 0, `Bundled CLI login must finish: ${err.replace(/https?:\/\/\S+/g, '<URL>')}`);
     assert(out.includes('Logged in for this CLI install.'));
   }
-  async function cliStatus(args = ['status', 'account', '--json']) {
+  async function cliStatus(args = ['status', 'account', '--json'], expectedCode = 0) {
     const cli = spawn(process.execPath, [fileURLToPath(new URL('../bundle/ideaspaces.js', import.meta.url)), ...args], { env: { HOME: process.env.HOME, PATH: '/usr/bin:/bin' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '', err = ''; cli.stdout.on('data', b => { out += b; }); cli.stderr.on('data', b => { err += b; });
-    const [code] = await once(cli, 'exit'); assert.equal(code, 0, 'Bundled CLI command must exit successfully');
-    return JSON.parse(out);
+    const [code] = await once(cli, 'exit'); assert.equal(code, expectedCode, 'Bundled CLI command exit status');
+    return JSON.parse(out || '{}');
   }
   await cliLogin();
   let config = loadConfig();
@@ -108,12 +109,34 @@ try {
   await web(`/api/v1/account/desktop-sessions/${list.sessions[0].id}`, 'DELETE');
   assert.equal((await cliStatus()).logged_in, false); assert.equal(loadStoredCredentials(), null);
   await cliLogin();
+  list = await web('/api/v1/account/desktop-sessions');
+  await web(`/api/v1/account/desktop-sessions/${list.sessions[0].id}`, 'DELETE');
+  assert.equal((await cliStatus(['power', 'logout', '--json'])).logged_out, true); // already revoked: RFC 7009 still returns 200
+  assert.equal(loadStoredCredentials(), null);
+  await cliLogin();
   const beforeLogout = loadConfig();
   assert.equal((await cliStatus(['power', 'logout', '--json'])).logged_out, true); assert.equal(loadStoredCredentials(), null);
   const refused = await fetch(`${service}/auth/me`, { headers: { Authorization: `Bearer ${beforeLogout.apiKey}` } });
   assert.equal(refused.status, 401);
   assert.equal((await web('/api/v1/account/desktop-sessions')).sessions.length, 0);
-  console.log(JSON.stringify({ result: 'pass', localOnly: true, realRoutesAndAuth: true, externalProviderOnly: 'fake Google', client: 'cli', webSessionEntry: true, stableInstall: true, bundledCliRefreshRotates: true, gitHelperRefresh: true, replayRevokesFamily: true, webRevocationSignsCliOut: true, serverSignOut: true }));
+  await cliLogin();
+  const offline = loadStoredCredentials();
+  saveCredentials({ ...offline, session: { ...offline.session, refreshing: true } }); // controlled interruption fixture; no refresh was sent
+  const sentinel = join(scratch, 'fallback-ran');
+  const fallback = join(scratch, 'bin/fallback');
+  await writeFile(fallback, `#!/bin/sh\ntouch ${JSON.stringify(sentinel)}\n`, { mode: 0o700 });
+  const git = spawn('/usr/bin/git', ['-c', `credential.https://git.ideaspaces.localhost.helper=${fallback}`, 'credential', 'fill'], { env: { HOME: process.env.HOME, PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' }, stdio: ['pipe', 'pipe', 'pipe'] });
+  let gitOutput = ''; git.stdout.on('data', b => { gitOutput += b; }); git.stderr.resume();
+  git.stdin.end('protocol=https\nhost=git.ideaspaces.localhost\n\n');
+  assert.notEqual((await once(git, 'exit'))[0], 0);
+  assert(!existsSync(sentinel), 'Git must stop before another helper or identity');
+  assert(!gitOutput.includes('password='), 'No credential on failed helper resolution');
+  saveCredentials({ ...offline, session: { ...offline.session, expires_at: Date.now() } });
+  child.kill('SIGTERM'); await once(child, 'exit');
+  await cliStatus(['status', 'account', '--json'], 1);
+  assert.equal(loadStoredCredentials().session.refreshing, undefined, 'Real connection refusal must not strand the refresh');
+  assert(loadStoredCredentials().session.refresh_token === offline.session.refresh_token, 'An undelivered refresh stays available for retry');
+  console.log(JSON.stringify({ result: 'pass', localOnly: true, realRoutesAndAuth: true, externalProviderOnly: 'fake Google', client: 'cli', webSessionEntry: true, stableInstall: true, bundledCliRefreshRotates: true, gitHelperRefresh: true, replayRevokesFamily: true, webRevocationSignsCliOut: true, alreadyRevokedLogout: true, serverSignOut: true, connectionRefusalAllowsRetry: true, gitHelperFailsClosed: true }));
 } finally {
   child.kill('SIGTERM');
   if (child.exitCode === null && child.signalCode === null) await once(child, 'exit');

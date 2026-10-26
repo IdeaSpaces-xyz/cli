@@ -36,8 +36,14 @@ export interface StoredSession {
 
 export async function withCredentialsLock<T>(work: () => Promise<T>): Promise<T> {
   mkdirSync(configDir(), { recursive: true, mode: 0o700 });
-  const release = await lockfile.lock(credentialsFile(), { realpath: false, stale: 30_000, update: 10_000,
-    retries: { retries: 150, minTimeout: 100, maxTimeout: 200 } });
+  let release: () => Promise<void>;
+  try {
+    release = await lockfile.lock(credentialsFile(), { realpath: false, stale: 30_000, update: 10_000,
+      retries: { retries: 25, minTimeout: 100, maxTimeout: 200 } });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ELOCKED") throw new Error("Sign-in storage is locked by another CLI operation or a recently interrupted one. Wait briefly and retry.");
+    throw error;
+  }
   try { return await work(); } finally { await release(); }
 }
 
