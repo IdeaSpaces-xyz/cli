@@ -1,95 +1,63 @@
-/**
- * Local callback server for OAuth CLI login flow.
- *
- * Starts an HTTP server on a random port, waits for the OAuth callback
- * with the API token, then shuts down.
- */
-
-import { createServer, type Server } from "node:http";
-import { URL } from "node:url";
+/** One-use IPv4 loopback callback for a state-bound PKCE authorization code, never a token. */
+import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 
 export interface CallbackResult {
   port: number;
   waitForCallback: (timeoutMs?: number) => Promise<string>;
   close: () => void;
 }
-
-const SUCCESS_HTML = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>IdeaSpaces — Logged In</title></head>
-<body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0a0a0a; color: #fafafa;">
-<div style="text-align: center;">
-<h2>Logged in to IdeaSpaces</h2>
-<p style="color: #888;">You can close this tab and return to your terminal.</p>
-</div>
-</body></html>`;
-
-const ERROR_HTML = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>IdeaSpaces — Error</title></head>
-<body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0a0a0a; color: #fafafa;">
-<div style="text-align: center;">
-<h2>Login failed</h2>
-<p style="color: #888;">No token received. Please try again.</p>
-</div>
-</body></html>`;
-
-export function startCallbackServer(): Promise<CallbackResult> {
+const HTML = '<!doctype html><meta charset="utf-8"><title>IdeaSpaces sign-in</title><h2>Sign-in code received</h2><p>Return to your terminal to finish signing in. You can close this tab.</p>';
+function matches(actual: string | null, expected: string): boolean {
+  if (!actual || actual.length > 1024) return false;
+  const a = Buffer.from(actual), b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+export function startCallbackServer(expectedState: string): Promise<CallbackResult> {
   return new Promise((resolve, reject) => {
-    let tokenResolve: ((token: string) => void) | null = null;
-    let tokenReject: ((err: Error) => void) | null = null;
-
-    const server: Server = createServer((req, res) => {
-      const url = new URL(req.url || "/", `http://127.0.0.1`);
-
-      if (url.pathname === "/callback") {
-        const token = url.searchParams.get("token");
-
-        if (token) {
-          res.writeHead(200, { "Content-Type": "text/html" });
-          res.end(SUCCESS_HTML);
-          tokenResolve?.(token);
-        } else {
-          res.writeHead(400, { "Content-Type": "text/html" });
-          res.end(ERROR_HTML);
-          tokenReject?.(new Error("No token in callback"));
-        }
-      } else {
-        res.writeHead(404);
-        res.end();
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let accept!: (code: string) => void;
+    let refuse!: (error: Error) => void;
+    const result = new Promise<string>((res, rej) => { accept = res; refuse = rej; });
+    // A callback can arrive before waitForCallback is installed (browser fast path).
+    void result.catch(() => undefined);
+    const fail = (message: string) => { if (!settled) { settled = true; clearTimeout(timer); refuse(new Error(message)); } };
+    const server = createServer((req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Referrer-Policy", "no-referrer");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+      const address = server.address();
+      const host = address && typeof address !== "string" ? `127.0.0.1:${address.port}` : "";
+      if (req.method !== "GET" || req.headers.host !== host || (req.url?.length ?? 0) > 8192) { res.writeHead(400).end("Invalid callback"); return; }
+      const url = new URL(req.url || "/", `http://${host}`);
+      if (url.pathname !== "/callback") { res.writeHead(404).end(); return; }
+      if (settled || url.searchParams.getAll("state").length !== 1 || !matches(url.searchParams.get("state"), expectedState)) {
+        res.writeHead(400).end("Invalid or expired sign-in state. Return to your terminal."); return;
       }
+      if (url.searchParams.has("error")) {
+        res.writeHead(400).end("Sign-in was not approved. Return to your terminal.");
+        fail("Sign-in was not approved. Run `ideaspaces login` to try again."); return;
+      }
+      const code = url.searchParams.get("code");
+      if (!code || code.length > 2048 || url.searchParams.getAll("code").length !== 1 || url.searchParams.has("token")) {
+        res.writeHead(400).end("No valid authorization code received."); return;
+      }
+      settled = true; clearTimeout(timer);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(HTML);
+      accept(code);
     });
-
+    server.on("error", (error) => { fail("The local sign-in callback failed. Run `ideaspaces login` again."); reject(error); });
     server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      if (!addr || typeof addr === "string") {
-        reject(new Error("Failed to get server address"));
-        return;
-      }
-
-      resolve({
-        port: addr.port,
+      const address = server.address();
+      if (!address || typeof address === "string") { server.close(); reject(new Error("Could not open the local sign-in callback.")); return; }
+      resolve({ port: address.port,
         waitForCallback(timeoutMs = 120_000) {
-          return new Promise<string>((res, rej) => {
-            tokenResolve = res;
-            tokenReject = rej;
-
-            const timer = setTimeout(() => {
-              rej(new Error("Login timed out — no callback received within 2 minutes"));
-              server.close();
-            }, timeoutMs);
-
-            const origResolve = tokenResolve;
-            tokenResolve = (token: string) => {
-              clearTimeout(timer);
-              origResolve(token);
-            };
-          });
+          if (!settled && !timer) timer = setTimeout(() => { fail("Sign-in timed out. Run `ideaspaces login` to try again."); server.close(); }, timeoutMs);
+          return result;
         },
-        close() {
-          server.close();
-        },
+        close() { fail("The sign-in callback closed before completion."); server.close(); server.closeAllConnections(); },
       });
     });
-
-    server.on("error", reject);
   });
 }

@@ -57,6 +57,35 @@ Anything that leaves your machine prints its plan and runs only with `--yes`.
 
 Neither inspection command changes access.
 
+## Sign in to this CLI install
+
+`ideaspaces login` opens `/auth/desktop/authorize` on the API with `client=cli`, a
+127.0.0.1 loopback callback, random state and S256 PKCE. It exchanges a one-time code,
+not a long-lived “CLI Login” key. Each service has a stable CLI `install_id`; its
+`device_name` is “IdeaSpaces CLI on <hostname>”. Manage or revoke this install in the
+web's **Desktop sign-ins** list. Sign-in needs HTTPS; explicit loopback HTTP is allowed
+for local testing. No legacy sign-in fallback is attempted.
+
+The CLI stores the short access token and rotating refresh in its existing credentials
+file (atomic replacement; mode 0600 on POSIX, profile ACLs on Windows), not the model
+provider's auth file. HTTP, streaming and Git credential-helper calls refresh within
+one minute of access expiry, under a cross-process lock. The refresh is spent once;
+a persisted in-flight marker prevents replay after a crash or lost response. If that
+happens, sign in again rather than retrying a consumed refresh. Reusing a rotated
+refresh revokes the whole session family on the server.
+
+`status account` verifies a saved session online so server revocation is visible. An
+offline failure is not reported as signed out. `power logout` revokes the session on
+the server before removing local credentials; if sign-out cannot complete, it keeps
+them so you can retry. Existing API keys remain supported until revoked: logout only
+forgets those keys, and does not revoke them. `IS_API_KEY` still explicitly overrides
+stored auth; unset it to use a new session. A stored session never follows an
+`IS_API_URL` override to a different service.
+
+**Bundled clients:** update their CLI before using this sign-in; older bundles cannot
+renew these sessions or perform server sign-out. Publication and consumer updates must
+be coordinated; merging this source does not update installed plugins.
+
 ## Commands
 
 `ideaspaces <command> --help` for usage. `--json` on reads and local writes.
@@ -127,12 +156,13 @@ Pick `claude` to continue a session you started in Claude Code; the same session
 
 | Path | What |
 |---|---|
-| `~/.ideaspaces/credentials.json` | API credentials |
+| `~/.ideaspaces/credentials.json` | CLI access/rotating-refresh session, or an existing API key |
+| `~/.ideaspaces/installs/` | Stable non-secret per-service CLI install identities (kept on logout) |
 | `~/.ideaspaces/spaces.json` | Known spaces and remotes |
 | `~/.ideaspaces/cursors/` | Private per-reader local Thread acknowledgements |
 | `~/.pi/agent/auth.json` | Local-agent model credentials |
 
-`IS_API_KEY` overrides stored credentials. `IS_API_URL` points at another host. `IDEASPACES_GIT_BIN` (or `--git-bin <path>`) names an explicit Git executable for environments with no Git on PATH. `IDEASPACES_PI_EXTENSIONS` lists extension paths for direct `conversation send --local` (not `agent run` child authority). `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.
+`IS_API_KEY` overrides stored credentials. `IS_API_URL` selects an API origin; stored sessions are bound to their original service. `IDEASPACES_GIT_BIN` (or `--git-bin <path>`) names an explicit Git executable for environments with no Git on PATH. `IDEASPACES_PI_EXTENSIONS` lists extension paths for direct `conversation send --local` (not `agent run` child authority). `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.
 
 ## Contributing
 

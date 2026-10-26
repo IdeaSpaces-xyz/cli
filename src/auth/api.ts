@@ -1,4 +1,5 @@
 import type { MapBlock, MapMember } from "@ideaspaces/protocol";
+import { resolveSessionConfig, refuseSession, SessionAuthError } from "./client-session.js";
 
 /**
  * Thin fetch helpers for the IdeaSpaces server API.
@@ -18,6 +19,8 @@ export interface PublicApiConfig {
   apiUrl: string;
   /** Present only when the caller has ambient credentials worth sending. */
   apiKey?: string;
+  /** Host-store session binding. Explicit env/API keys omit it. */
+  sessionId?: string;
 }
 
 export interface ApiConfig extends PublicApiConfig {
@@ -254,8 +257,13 @@ function unreachableMessage(apiUrl: string, timedOut: boolean, call: string): st
 }
 
 /** Optional auth + JSON headers, shared so streaming and public reads cannot drift. */
-function authHeaders(config: PublicApiConfig, extra?: Record<string, string>): Record<string, string> {
-  const apiKey = config.apiKey?.trim();
+async function authHeaders(config: PublicApiConfig, extra?: Record<string, string>): Promise<Record<string, string>> {
+  let apiKey: string | undefined;
+  try { apiKey = (await resolveSessionConfig(config)).apiKey?.trim(); }
+  catch (error) {
+    if (error instanceof SessionAuthError) throw new UnauthorizedError(error.message);
+    throw error;
+  }
   return {
     "Content-Type": "application/json",
     ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
@@ -278,18 +286,21 @@ async function request<T>(
   // so they fail fast. Non-timeout errors (401, 5xx, network) never retry.
   const maxAttempts = method === "GET" && opts.retry !== false ? 2 : 1;
   for (let attempt = 1; ; attempt++) {
+    const headers = await authHeaders(config);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const r = await fetch(`${config.apiUrl}${path}`, {
         method,
-        headers: authHeaders(config),
+        headers,
+        redirect: "error",
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: ctrl.signal,
       });
       if (!r.ok) {
         const text = await r.text();
         if (r.status === 401) {
+          await refuseSession(config, headers.Authorization?.slice(7));
           throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
         }
         if (r.status === 410) {
@@ -1904,15 +1915,18 @@ export async function* streamConversationMessage(
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
   const path = `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}/messages/stream`;
   // Same auth as request(), but streaming needs getReader(), not r.json().
+  const headers = await authHeaders(config, { Accept: "text/event-stream" });
   const r = await fetch(`${config.apiUrl}${path}`, {
     method: "POST",
-    headers: authHeaders(config, { Accept: "text/event-stream" }),
+    headers,
+    redirect: "error",
     body: JSON.stringify(body),
     signal,
   });
   if (!r.ok) {
     const text = await r.text().catch(() => "");
     if (r.status === 401) {
+      await refuseSession(config, headers.Authorization?.slice(7));
       throw new UnauthorizedError(`POST ${path} → 401: ${text || r.statusText}`);
     }
     if (r.status === 410) throw new RetiredEndpointError("POST", path, text);

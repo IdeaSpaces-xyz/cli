@@ -615,11 +615,10 @@ async function maybeSetIdentity(targetDir: string): Promise<void> {
   const stored = loadStoredCredentials();
   if (!stored) return;
   try {
-    // Tighter timeout than the default + no cold-start retry — this is a
-    // fire-and-forget best-effort identity wiring; we shouldn't block scaffold
-    // for even a couple seconds if the server is slow.
+    // Best-effort identity wiring: the identity read itself has a short timeout and
+    // no cold-start retry. A saved session may first renew under its own bounded deadline.
     const me = await fetchAuthMe(
-      { apiUrl: stored.api_url, apiKey: stored.api_key },
+      { apiUrl: stored.api_url, apiKey: stored.api_key, sessionId: stored.session?.id },
       { timeoutMs: 2000, retry: false },
     );
     if (!me.username) return;

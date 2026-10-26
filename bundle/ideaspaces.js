@@ -40,6 +40,1583 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// node_modules/graceful-fs/polyfills.js
+var require_polyfills = __commonJS({
+  "node_modules/graceful-fs/polyfills.js"(exports, module) {
+    var constants = __require("constants");
+    var origCwd = process.cwd;
+    var cwd = null;
+    var platform2 = process.env.GRACEFUL_FS_PLATFORM || process.platform;
+    process.cwd = function() {
+      if (!cwd)
+        cwd = origCwd.call(process);
+      return cwd;
+    };
+    try {
+      process.cwd();
+    } catch (er) {
+    }
+    if (typeof process.chdir === "function") {
+      chdir = process.chdir;
+      process.chdir = function(d) {
+        cwd = null;
+        chdir.call(process, d);
+      };
+      if (Object.setPrototypeOf) Object.setPrototypeOf(process.chdir, chdir);
+    }
+    var chdir;
+    module.exports = patch;
+    function patch(fs13) {
+      if (constants.hasOwnProperty("O_SYMLINK") && process.version.match(/^v0\.6\.[0-2]|^v0\.5\./)) {
+        patchLchmod(fs13);
+      }
+      if (!fs13.lutimes) {
+        patchLutimes(fs13);
+      }
+      fs13.chown = chownFix(fs13.chown);
+      fs13.fchown = chownFix(fs13.fchown);
+      fs13.lchown = chownFix(fs13.lchown);
+      fs13.chmod = chmodFix(fs13.chmod);
+      fs13.fchmod = chmodFix(fs13.fchmod);
+      fs13.lchmod = chmodFix(fs13.lchmod);
+      fs13.chownSync = chownFixSync(fs13.chownSync);
+      fs13.fchownSync = chownFixSync(fs13.fchownSync);
+      fs13.lchownSync = chownFixSync(fs13.lchownSync);
+      fs13.chmodSync = chmodFixSync(fs13.chmodSync);
+      fs13.fchmodSync = chmodFixSync(fs13.fchmodSync);
+      fs13.lchmodSync = chmodFixSync(fs13.lchmodSync);
+      fs13.stat = statFix(fs13.stat);
+      fs13.fstat = statFix(fs13.fstat);
+      fs13.lstat = statFix(fs13.lstat);
+      fs13.statSync = statFixSync(fs13.statSync);
+      fs13.fstatSync = statFixSync(fs13.fstatSync);
+      fs13.lstatSync = statFixSync(fs13.lstatSync);
+      if (fs13.chmod && !fs13.lchmod) {
+        fs13.lchmod = function(path, mode, cb) {
+          if (cb) process.nextTick(cb);
+        };
+        fs13.lchmodSync = function() {
+        };
+      }
+      if (fs13.chown && !fs13.lchown) {
+        fs13.lchown = function(path, uid, gid, cb) {
+          if (cb) process.nextTick(cb);
+        };
+        fs13.lchownSync = function() {
+        };
+      }
+      if (platform2 === "win32") {
+        fs13.rename = typeof fs13.rename !== "function" ? fs13.rename : (function(fs$rename) {
+          function rename2(from, to, cb) {
+            var start = Date.now();
+            var backoff = 0;
+            fs$rename(from, to, function CB(er) {
+              if (er && (er.code === "EACCES" || er.code === "EPERM" || er.code === "EBUSY") && Date.now() - start < 6e4) {
+                setTimeout(function() {
+                  fs13.stat(to, function(stater, st) {
+                    if (stater && stater.code === "ENOENT")
+                      fs$rename(from, to, CB);
+                    else
+                      cb(er);
+                  });
+                }, backoff);
+                if (backoff < 100)
+                  backoff += 10;
+                return;
+              }
+              if (cb) cb(er);
+            });
+          }
+          if (Object.setPrototypeOf) Object.setPrototypeOf(rename2, fs$rename);
+          return rename2;
+        })(fs13.rename);
+      }
+      fs13.read = typeof fs13.read !== "function" ? fs13.read : (function(fs$read) {
+        function read2(fd, buffer, offset, length, position, callback_) {
+          var callback;
+          if (callback_ && typeof callback_ === "function") {
+            var eagCounter = 0;
+            callback = function(er, _, __) {
+              if (er && er.code === "EAGAIN" && eagCounter < 10) {
+                eagCounter++;
+                return fs$read.call(fs13, fd, buffer, offset, length, position, callback);
+              }
+              callback_.apply(this, arguments);
+            };
+          }
+          return fs$read.call(fs13, fd, buffer, offset, length, position, callback);
+        }
+        if (Object.setPrototypeOf) Object.setPrototypeOf(read2, fs$read);
+        return read2;
+      })(fs13.read);
+      fs13.readSync = typeof fs13.readSync !== "function" ? fs13.readSync : /* @__PURE__ */ (function(fs$readSync) {
+        return function(fd, buffer, offset, length, position) {
+          var eagCounter = 0;
+          while (true) {
+            try {
+              return fs$readSync.call(fs13, fd, buffer, offset, length, position);
+            } catch (er) {
+              if (er.code === "EAGAIN" && eagCounter < 10) {
+                eagCounter++;
+                continue;
+              }
+              throw er;
+            }
+          }
+        };
+      })(fs13.readSync);
+      function patchLchmod(fs14) {
+        fs14.lchmod = function(path, mode, callback) {
+          fs14.open(
+            path,
+            constants.O_WRONLY | constants.O_SYMLINK,
+            mode,
+            function(err, fd) {
+              if (err) {
+                if (callback) callback(err);
+                return;
+              }
+              fs14.fchmod(fd, mode, function(err2) {
+                fs14.close(fd, function(err22) {
+                  if (callback) callback(err2 || err22);
+                });
+              });
+            }
+          );
+        };
+        fs14.lchmodSync = function(path, mode) {
+          var fd = fs14.openSync(path, constants.O_WRONLY | constants.O_SYMLINK, mode);
+          var threw = true;
+          var ret;
+          try {
+            ret = fs14.fchmodSync(fd, mode);
+            threw = false;
+          } finally {
+            if (threw) {
+              try {
+                fs14.closeSync(fd);
+              } catch (er) {
+              }
+            } else {
+              fs14.closeSync(fd);
+            }
+          }
+          return ret;
+        };
+      }
+      function patchLutimes(fs14) {
+        if (constants.hasOwnProperty("O_SYMLINK") && fs14.futimes) {
+          fs14.lutimes = function(path, at, mt, cb) {
+            fs14.open(path, constants.O_SYMLINK, function(er, fd) {
+              if (er) {
+                if (cb) cb(er);
+                return;
+              }
+              fs14.futimes(fd, at, mt, function(er2) {
+                fs14.close(fd, function(er22) {
+                  if (cb) cb(er2 || er22);
+                });
+              });
+            });
+          };
+          fs14.lutimesSync = function(path, at, mt) {
+            var fd = fs14.openSync(path, constants.O_SYMLINK);
+            var ret;
+            var threw = true;
+            try {
+              ret = fs14.futimesSync(fd, at, mt);
+              threw = false;
+            } finally {
+              if (threw) {
+                try {
+                  fs14.closeSync(fd);
+                } catch (er) {
+                }
+              } else {
+                fs14.closeSync(fd);
+              }
+            }
+            return ret;
+          };
+        } else if (fs14.futimes) {
+          fs14.lutimes = function(_a, _b, _c, cb) {
+            if (cb) process.nextTick(cb);
+          };
+          fs14.lutimesSync = function() {
+          };
+        }
+      }
+      function chmodFix(orig) {
+        if (!orig) return orig;
+        return function(target, mode, cb) {
+          return orig.call(fs13, target, mode, function(er) {
+            if (chownErOk(er)) er = null;
+            if (cb) cb.apply(this, arguments);
+          });
+        };
+      }
+      function chmodFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, mode) {
+          try {
+            return orig.call(fs13, target, mode);
+          } catch (er) {
+            if (!chownErOk(er)) throw er;
+          }
+        };
+      }
+      function chownFix(orig) {
+        if (!orig) return orig;
+        return function(target, uid, gid, cb) {
+          return orig.call(fs13, target, uid, gid, function(er) {
+            if (chownErOk(er)) er = null;
+            if (cb) cb.apply(this, arguments);
+          });
+        };
+      }
+      function chownFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, uid, gid) {
+          try {
+            return orig.call(fs13, target, uid, gid);
+          } catch (er) {
+            if (!chownErOk(er)) throw er;
+          }
+        };
+      }
+      function statFix(orig) {
+        if (!orig) return orig;
+        return function(target, options, cb) {
+          if (typeof options === "function") {
+            cb = options;
+            options = null;
+          }
+          function callback(er, stats) {
+            if (stats) {
+              if (stats.uid < 0) stats.uid += 4294967296;
+              if (stats.gid < 0) stats.gid += 4294967296;
+            }
+            if (cb) cb.apply(this, arguments);
+          }
+          return options ? orig.call(fs13, target, options, callback) : orig.call(fs13, target, callback);
+        };
+      }
+      function statFixSync(orig) {
+        if (!orig) return orig;
+        return function(target, options) {
+          var stats = options ? orig.call(fs13, target, options) : orig.call(fs13, target);
+          if (stats) {
+            if (stats.uid < 0) stats.uid += 4294967296;
+            if (stats.gid < 0) stats.gid += 4294967296;
+          }
+          return stats;
+        };
+      }
+      function chownErOk(er) {
+        if (!er)
+          return true;
+        if (er.code === "ENOSYS")
+          return true;
+        var nonroot = !process.getuid || process.getuid() !== 0;
+        if (nonroot) {
+          if (er.code === "EINVAL" || er.code === "EPERM")
+            return true;
+        }
+        return false;
+      }
+    }
+  }
+});
+
+// node_modules/graceful-fs/legacy-streams.js
+var require_legacy_streams = __commonJS({
+  "node_modules/graceful-fs/legacy-streams.js"(exports, module) {
+    var Stream = __require("stream").Stream;
+    module.exports = legacy;
+    function legacy(fs13) {
+      return {
+        ReadStream,
+        WriteStream
+      };
+      function ReadStream(path, options) {
+        if (!(this instanceof ReadStream)) return new ReadStream(path, options);
+        Stream.call(this);
+        var self = this;
+        this.path = path;
+        this.fd = null;
+        this.readable = true;
+        this.paused = false;
+        this.flags = "r";
+        this.mode = 438;
+        this.bufferSize = 64 * 1024;
+        options = options || {};
+        var keys = Object.keys(options);
+        for (var index = 0, length = keys.length; index < length; index++) {
+          var key2 = keys[index];
+          this[key2] = options[key2];
+        }
+        if (this.encoding) this.setEncoding(this.encoding);
+        if (this.start !== void 0) {
+          if ("number" !== typeof this.start) {
+            throw TypeError("start must be a Number");
+          }
+          if (this.end === void 0) {
+            this.end = Infinity;
+          } else if ("number" !== typeof this.end) {
+            throw TypeError("end must be a Number");
+          }
+          if (this.start > this.end) {
+            throw new Error("start must be <= end");
+          }
+          this.pos = this.start;
+        }
+        if (this.fd !== null) {
+          process.nextTick(function() {
+            self._read();
+          });
+          return;
+        }
+        fs13.open(this.path, this.flags, this.mode, function(err, fd) {
+          if (err) {
+            self.emit("error", err);
+            self.readable = false;
+            return;
+          }
+          self.fd = fd;
+          self.emit("open", fd);
+          self._read();
+        });
+      }
+      function WriteStream(path, options) {
+        if (!(this instanceof WriteStream)) return new WriteStream(path, options);
+        Stream.call(this);
+        this.path = path;
+        this.fd = null;
+        this.writable = true;
+        this.flags = "w";
+        this.encoding = "binary";
+        this.mode = 438;
+        this.bytesWritten = 0;
+        options = options || {};
+        var keys = Object.keys(options);
+        for (var index = 0, length = keys.length; index < length; index++) {
+          var key2 = keys[index];
+          this[key2] = options[key2];
+        }
+        if (this.start !== void 0) {
+          if ("number" !== typeof this.start) {
+            throw TypeError("start must be a Number");
+          }
+          if (this.start < 0) {
+            throw new Error("start must be >= zero");
+          }
+          this.pos = this.start;
+        }
+        this.busy = false;
+        this._queue = [];
+        if (this.fd === null) {
+          this._open = fs13.open;
+          this._queue.push([this._open, this.path, this.flags, this.mode, void 0]);
+          this.flush();
+        }
+      }
+    }
+  }
+});
+
+// node_modules/graceful-fs/clone.js
+var require_clone = __commonJS({
+  "node_modules/graceful-fs/clone.js"(exports, module) {
+    "use strict";
+    module.exports = clone;
+    var getPrototypeOf = Object.getPrototypeOf || function(obj) {
+      return obj.__proto__;
+    };
+    function clone(obj) {
+      if (obj === null || typeof obj !== "object")
+        return obj;
+      if (obj instanceof Object)
+        var copy = { __proto__: getPrototypeOf(obj) };
+      else
+        var copy = /* @__PURE__ */ Object.create(null);
+      Object.getOwnPropertyNames(obj).forEach(function(key2) {
+        Object.defineProperty(copy, key2, Object.getOwnPropertyDescriptor(obj, key2));
+      });
+      return copy;
+    }
+  }
+});
+
+// node_modules/graceful-fs/graceful-fs.js
+var require_graceful_fs = __commonJS({
+  "node_modules/graceful-fs/graceful-fs.js"(exports, module) {
+    var fs13 = __require("fs");
+    var polyfills = require_polyfills();
+    var legacy = require_legacy_streams();
+    var clone = require_clone();
+    var util = __require("util");
+    var gracefulQueue;
+    var previousSymbol;
+    if (typeof Symbol === "function" && typeof Symbol.for === "function") {
+      gracefulQueue = /* @__PURE__ */ Symbol.for("graceful-fs.queue");
+      previousSymbol = /* @__PURE__ */ Symbol.for("graceful-fs.previous");
+    } else {
+      gracefulQueue = "___graceful-fs.queue";
+      previousSymbol = "___graceful-fs.previous";
+    }
+    function noop() {
+    }
+    function publishQueue(context, queue2) {
+      Object.defineProperty(context, gracefulQueue, {
+        get: function() {
+          return queue2;
+        }
+      });
+    }
+    var debug = noop;
+    if (util.debuglog)
+      debug = util.debuglog("gfs4");
+    else if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || ""))
+      debug = function() {
+        var m = util.format.apply(util, arguments);
+        m = "GFS4: " + m.split(/\n/).join("\nGFS4: ");
+        console.error(m);
+      };
+    if (!fs13[gracefulQueue]) {
+      queue = global[gracefulQueue] || [];
+      publishQueue(fs13, queue);
+      fs13.close = (function(fs$close) {
+        function close(fd, cb) {
+          return fs$close.call(fs13, fd, function(err) {
+            if (!err) {
+              resetQueue();
+            }
+            if (typeof cb === "function")
+              cb.apply(this, arguments);
+          });
+        }
+        Object.defineProperty(close, previousSymbol, {
+          value: fs$close
+        });
+        return close;
+      })(fs13.close);
+      fs13.closeSync = (function(fs$closeSync) {
+        function closeSync(fd) {
+          fs$closeSync.apply(fs13, arguments);
+          resetQueue();
+        }
+        Object.defineProperty(closeSync, previousSymbol, {
+          value: fs$closeSync
+        });
+        return closeSync;
+      })(fs13.closeSync);
+      if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || "")) {
+        process.on("exit", function() {
+          debug(fs13[gracefulQueue]);
+          __require("assert").equal(fs13[gracefulQueue].length, 0);
+        });
+      }
+    }
+    var queue;
+    if (!global[gracefulQueue]) {
+      publishQueue(global, fs13[gracefulQueue]);
+    }
+    module.exports = patch(clone(fs13));
+    if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs13.__patched) {
+      module.exports = patch(fs13);
+      fs13.__patched = true;
+    }
+    function patch(fs14) {
+      polyfills(fs14);
+      fs14.gracefulify = patch;
+      fs14.createReadStream = createReadStream;
+      fs14.createWriteStream = createWriteStream;
+      var fs$readFile = fs14.readFile;
+      fs14.readFile = readFile3;
+      function readFile3(path, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$readFile(path, options, cb);
+        function go$readFile(path2, options2, cb2, startTime) {
+          return fs$readFile(path2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$readFile, [path2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$writeFile = fs14.writeFile;
+      fs14.writeFile = writeFile;
+      function writeFile(path, data, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$writeFile(path, data, options, cb);
+        function go$writeFile(path2, data2, options2, cb2, startTime) {
+          return fs$writeFile(path2, data2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$writeFile, [path2, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$appendFile = fs14.appendFile;
+      if (fs$appendFile)
+        fs14.appendFile = appendFile;
+      function appendFile(path, data, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        return go$appendFile(path, data, options, cb);
+        function go$appendFile(path2, data2, options2, cb2, startTime) {
+          return fs$appendFile(path2, data2, options2, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$appendFile, [path2, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$copyFile = fs14.copyFile;
+      if (fs$copyFile)
+        fs14.copyFile = copyFile;
+      function copyFile(src, dest, flags2, cb) {
+        if (typeof flags2 === "function") {
+          cb = flags2;
+          flags2 = 0;
+        }
+        return go$copyFile(src, dest, flags2, cb);
+        function go$copyFile(src2, dest2, flags3, cb2, startTime) {
+          return fs$copyFile(src2, dest2, flags3, function(err) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$copyFile, [src2, dest2, flags3, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      var fs$readdir = fs14.readdir;
+      fs14.readdir = readdir2;
+      var noReaddirOptionVersions = /^v[0-5]\./;
+      function readdir2(path, options, cb) {
+        if (typeof options === "function")
+          cb = options, options = null;
+        var go$readdir = noReaddirOptionVersions.test(process.version) ? function go$readdir2(path2, options2, cb2, startTime) {
+          return fs$readdir(path2, fs$readdirCallback(
+            path2,
+            options2,
+            cb2,
+            startTime
+          ));
+        } : function go$readdir2(path2, options2, cb2, startTime) {
+          return fs$readdir(path2, options2, fs$readdirCallback(
+            path2,
+            options2,
+            cb2,
+            startTime
+          ));
+        };
+        return go$readdir(path, options, cb);
+        function fs$readdirCallback(path2, options2, cb2, startTime) {
+          return function(err, files) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([
+                go$readdir,
+                [path2, options2, cb2],
+                err,
+                startTime || Date.now(),
+                Date.now()
+              ]);
+            else {
+              if (files && files.sort)
+                files.sort();
+              if (typeof cb2 === "function")
+                cb2.call(this, err, files);
+            }
+          };
+        }
+      }
+      if (process.version.substr(0, 4) === "v0.8") {
+        var legStreams = legacy(fs14);
+        ReadStream = legStreams.ReadStream;
+        WriteStream = legStreams.WriteStream;
+      }
+      var fs$ReadStream = fs14.ReadStream;
+      if (fs$ReadStream) {
+        ReadStream.prototype = Object.create(fs$ReadStream.prototype);
+        ReadStream.prototype.open = ReadStream$open;
+      }
+      var fs$WriteStream = fs14.WriteStream;
+      if (fs$WriteStream) {
+        WriteStream.prototype = Object.create(fs$WriteStream.prototype);
+        WriteStream.prototype.open = WriteStream$open;
+      }
+      Object.defineProperty(fs14, "ReadStream", {
+        get: function() {
+          return ReadStream;
+        },
+        set: function(val) {
+          ReadStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      Object.defineProperty(fs14, "WriteStream", {
+        get: function() {
+          return WriteStream;
+        },
+        set: function(val) {
+          WriteStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      var FileReadStream = ReadStream;
+      Object.defineProperty(fs14, "FileReadStream", {
+        get: function() {
+          return FileReadStream;
+        },
+        set: function(val) {
+          FileReadStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      var FileWriteStream = WriteStream;
+      Object.defineProperty(fs14, "FileWriteStream", {
+        get: function() {
+          return FileWriteStream;
+        },
+        set: function(val) {
+          FileWriteStream = val;
+        },
+        enumerable: true,
+        configurable: true
+      });
+      function ReadStream(path, options) {
+        if (this instanceof ReadStream)
+          return fs$ReadStream.apply(this, arguments), this;
+        else
+          return ReadStream.apply(Object.create(ReadStream.prototype), arguments);
+      }
+      function ReadStream$open() {
+        var that = this;
+        open2(that.path, that.flags, that.mode, function(err, fd) {
+          if (err) {
+            if (that.autoClose)
+              that.destroy();
+            that.emit("error", err);
+          } else {
+            that.fd = fd;
+            that.emit("open", fd);
+            that.read();
+          }
+        });
+      }
+      function WriteStream(path, options) {
+        if (this instanceof WriteStream)
+          return fs$WriteStream.apply(this, arguments), this;
+        else
+          return WriteStream.apply(Object.create(WriteStream.prototype), arguments);
+      }
+      function WriteStream$open() {
+        var that = this;
+        open2(that.path, that.flags, that.mode, function(err, fd) {
+          if (err) {
+            that.destroy();
+            that.emit("error", err);
+          } else {
+            that.fd = fd;
+            that.emit("open", fd);
+          }
+        });
+      }
+      function createReadStream(path, options) {
+        return new fs14.ReadStream(path, options);
+      }
+      function createWriteStream(path, options) {
+        return new fs14.WriteStream(path, options);
+      }
+      var fs$open = fs14.open;
+      fs14.open = open2;
+      function open2(path, flags2, mode, cb) {
+        if (typeof mode === "function")
+          cb = mode, mode = null;
+        return go$open(path, flags2, mode, cb);
+        function go$open(path2, flags3, mode2, cb2, startTime) {
+          return fs$open(path2, flags3, mode2, function(err, fd) {
+            if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
+              enqueue([go$open, [path2, flags3, mode2, cb2], err, startTime || Date.now(), Date.now()]);
+            else {
+              if (typeof cb2 === "function")
+                cb2.apply(this, arguments);
+            }
+          });
+        }
+      }
+      return fs14;
+    }
+    function enqueue(elem) {
+      debug("ENQUEUE", elem[0].name, elem[1]);
+      fs13[gracefulQueue].push(elem);
+      retry();
+    }
+    var retryTimer;
+    function resetQueue() {
+      var now = Date.now();
+      for (var i = 0; i < fs13[gracefulQueue].length; ++i) {
+        if (fs13[gracefulQueue][i].length > 2) {
+          fs13[gracefulQueue][i][3] = now;
+          fs13[gracefulQueue][i][4] = now;
+        }
+      }
+      retry();
+    }
+    function retry() {
+      clearTimeout(retryTimer);
+      retryTimer = void 0;
+      if (fs13[gracefulQueue].length === 0)
+        return;
+      var elem = fs13[gracefulQueue].shift();
+      var fn = elem[0];
+      var args2 = elem[1];
+      var err = elem[2];
+      var startTime = elem[3];
+      var lastTime = elem[4];
+      if (startTime === void 0) {
+        debug("RETRY", fn.name, args2);
+        fn.apply(null, args2);
+      } else if (Date.now() - startTime >= 6e4) {
+        debug("TIMEOUT", fn.name, args2);
+        var cb = args2.pop();
+        if (typeof cb === "function")
+          cb.call(null, err);
+      } else {
+        var sinceAttempt = Date.now() - lastTime;
+        var sinceStart = Math.max(lastTime - startTime, 1);
+        var desiredDelay = Math.min(sinceStart * 1.2, 100);
+        if (sinceAttempt >= desiredDelay) {
+          debug("RETRY", fn.name, args2);
+          fn.apply(null, args2.concat([startTime]));
+        } else {
+          fs13[gracefulQueue].push(elem);
+        }
+      }
+      if (retryTimer === void 0) {
+        retryTimer = setTimeout(retry, 0);
+      }
+    }
+  }
+});
+
+// node_modules/retry/lib/retry_operation.js
+var require_retry_operation = __commonJS({
+  "node_modules/retry/lib/retry_operation.js"(exports, module) {
+    function RetryOperation(timeouts, options) {
+      if (typeof options === "boolean") {
+        options = { forever: options };
+      }
+      this._originalTimeouts = JSON.parse(JSON.stringify(timeouts));
+      this._timeouts = timeouts;
+      this._options = options || {};
+      this._maxRetryTime = options && options.maxRetryTime || Infinity;
+      this._fn = null;
+      this._errors = [];
+      this._attempts = 1;
+      this._operationTimeout = null;
+      this._operationTimeoutCb = null;
+      this._timeout = null;
+      this._operationStart = null;
+      if (this._options.forever) {
+        this._cachedTimeouts = this._timeouts.slice(0);
+      }
+    }
+    module.exports = RetryOperation;
+    RetryOperation.prototype.reset = function() {
+      this._attempts = 1;
+      this._timeouts = this._originalTimeouts;
+    };
+    RetryOperation.prototype.stop = function() {
+      if (this._timeout) {
+        clearTimeout(this._timeout);
+      }
+      this._timeouts = [];
+      this._cachedTimeouts = null;
+    };
+    RetryOperation.prototype.retry = function(err) {
+      if (this._timeout) {
+        clearTimeout(this._timeout);
+      }
+      if (!err) {
+        return false;
+      }
+      var currentTime = (/* @__PURE__ */ new Date()).getTime();
+      if (err && currentTime - this._operationStart >= this._maxRetryTime) {
+        this._errors.unshift(new Error("RetryOperation timeout occurred"));
+        return false;
+      }
+      this._errors.push(err);
+      var timeout = this._timeouts.shift();
+      if (timeout === void 0) {
+        if (this._cachedTimeouts) {
+          this._errors.splice(this._errors.length - 1, this._errors.length);
+          this._timeouts = this._cachedTimeouts.slice(0);
+          timeout = this._timeouts.shift();
+        } else {
+          return false;
+        }
+      }
+      var self = this;
+      var timer = setTimeout(function() {
+        self._attempts++;
+        if (self._operationTimeoutCb) {
+          self._timeout = setTimeout(function() {
+            self._operationTimeoutCb(self._attempts);
+          }, self._operationTimeout);
+          if (self._options.unref) {
+            self._timeout.unref();
+          }
+        }
+        self._fn(self._attempts);
+      }, timeout);
+      if (this._options.unref) {
+        timer.unref();
+      }
+      return true;
+    };
+    RetryOperation.prototype.attempt = function(fn, timeoutOps) {
+      this._fn = fn;
+      if (timeoutOps) {
+        if (timeoutOps.timeout) {
+          this._operationTimeout = timeoutOps.timeout;
+        }
+        if (timeoutOps.cb) {
+          this._operationTimeoutCb = timeoutOps.cb;
+        }
+      }
+      var self = this;
+      if (this._operationTimeoutCb) {
+        this._timeout = setTimeout(function() {
+          self._operationTimeoutCb();
+        }, self._operationTimeout);
+      }
+      this._operationStart = (/* @__PURE__ */ new Date()).getTime();
+      this._fn(this._attempts);
+    };
+    RetryOperation.prototype.try = function(fn) {
+      console.log("Using RetryOperation.try() is deprecated");
+      this.attempt(fn);
+    };
+    RetryOperation.prototype.start = function(fn) {
+      console.log("Using RetryOperation.start() is deprecated");
+      this.attempt(fn);
+    };
+    RetryOperation.prototype.start = RetryOperation.prototype.try;
+    RetryOperation.prototype.errors = function() {
+      return this._errors;
+    };
+    RetryOperation.prototype.attempts = function() {
+      return this._attempts;
+    };
+    RetryOperation.prototype.mainError = function() {
+      if (this._errors.length === 0) {
+        return null;
+      }
+      var counts = {};
+      var mainError = null;
+      var mainErrorCount = 0;
+      for (var i = 0; i < this._errors.length; i++) {
+        var error = this._errors[i];
+        var message = error.message;
+        var count = (counts[message] || 0) + 1;
+        counts[message] = count;
+        if (count >= mainErrorCount) {
+          mainError = error;
+          mainErrorCount = count;
+        }
+      }
+      return mainError;
+    };
+  }
+});
+
+// node_modules/retry/lib/retry.js
+var require_retry = __commonJS({
+  "node_modules/retry/lib/retry.js"(exports) {
+    var RetryOperation = require_retry_operation();
+    exports.operation = function(options) {
+      var timeouts = exports.timeouts(options);
+      return new RetryOperation(timeouts, {
+        forever: options && options.forever,
+        unref: options && options.unref,
+        maxRetryTime: options && options.maxRetryTime
+      });
+    };
+    exports.timeouts = function(options) {
+      if (options instanceof Array) {
+        return [].concat(options);
+      }
+      var opts = {
+        retries: 10,
+        factor: 2,
+        minTimeout: 1 * 1e3,
+        maxTimeout: Infinity,
+        randomize: false
+      };
+      for (var key2 in options) {
+        opts[key2] = options[key2];
+      }
+      if (opts.minTimeout > opts.maxTimeout) {
+        throw new Error("minTimeout is greater than maxTimeout");
+      }
+      var timeouts = [];
+      for (var i = 0; i < opts.retries; i++) {
+        timeouts.push(this.createTimeout(i, opts));
+      }
+      if (options && options.forever && !timeouts.length) {
+        timeouts.push(this.createTimeout(i, opts));
+      }
+      timeouts.sort(function(a, b) {
+        return a - b;
+      });
+      return timeouts;
+    };
+    exports.createTimeout = function(attempt, opts) {
+      var random = opts.randomize ? Math.random() + 1 : 1;
+      var timeout = Math.round(random * opts.minTimeout * Math.pow(opts.factor, attempt));
+      timeout = Math.min(timeout, opts.maxTimeout);
+      return timeout;
+    };
+    exports.wrap = function(obj, options, methods) {
+      if (options instanceof Array) {
+        methods = options;
+        options = null;
+      }
+      if (!methods) {
+        methods = [];
+        for (var key2 in obj) {
+          if (typeof obj[key2] === "function") {
+            methods.push(key2);
+          }
+        }
+      }
+      for (var i = 0; i < methods.length; i++) {
+        var method = methods[i];
+        var original = obj[method];
+        obj[method] = function retryWrapper(original2) {
+          var op = exports.operation(options);
+          var args2 = Array.prototype.slice.call(arguments, 1);
+          var callback = args2.pop();
+          args2.push(function(err) {
+            if (op.retry(err)) {
+              return;
+            }
+            if (err) {
+              arguments[0] = op.mainError();
+            }
+            callback.apply(this, arguments);
+          });
+          op.attempt(function() {
+            original2.apply(obj, args2);
+          });
+        }.bind(obj, original);
+        obj[method].options = options;
+      }
+    };
+  }
+});
+
+// node_modules/retry/index.js
+var require_retry2 = __commonJS({
+  "node_modules/retry/index.js"(exports, module) {
+    module.exports = require_retry();
+  }
+});
+
+// node_modules/signal-exit/signals.js
+var require_signals = __commonJS({
+  "node_modules/signal-exit/signals.js"(exports, module) {
+    module.exports = [
+      "SIGABRT",
+      "SIGALRM",
+      "SIGHUP",
+      "SIGINT",
+      "SIGTERM"
+    ];
+    if (process.platform !== "win32") {
+      module.exports.push(
+        "SIGVTALRM",
+        "SIGXCPU",
+        "SIGXFSZ",
+        "SIGUSR2",
+        "SIGTRAP",
+        "SIGSYS",
+        "SIGQUIT",
+        "SIGIOT"
+        // should detect profiler and enable/disable accordingly.
+        // see #21
+        // 'SIGPROF'
+      );
+    }
+    if (process.platform === "linux") {
+      module.exports.push(
+        "SIGIO",
+        "SIGPOLL",
+        "SIGPWR",
+        "SIGSTKFLT",
+        "SIGUNUSED"
+      );
+    }
+  }
+});
+
+// node_modules/signal-exit/index.js
+var require_signal_exit = __commonJS({
+  "node_modules/signal-exit/index.js"(exports, module) {
+    var process2 = global.process;
+    var processOk = function(process3) {
+      return process3 && typeof process3 === "object" && typeof process3.removeListener === "function" && typeof process3.emit === "function" && typeof process3.reallyExit === "function" && typeof process3.listeners === "function" && typeof process3.kill === "function" && typeof process3.pid === "number" && typeof process3.on === "function";
+    };
+    if (!processOk(process2)) {
+      module.exports = function() {
+        return function() {
+        };
+      };
+    } else {
+      assert = __require("assert");
+      signals = require_signals();
+      isWin = /^win/i.test(process2.platform);
+      EE = __require("events");
+      if (typeof EE !== "function") {
+        EE = EE.EventEmitter;
+      }
+      if (process2.__signal_exit_emitter__) {
+        emitter = process2.__signal_exit_emitter__;
+      } else {
+        emitter = process2.__signal_exit_emitter__ = new EE();
+        emitter.count = 0;
+        emitter.emitted = {};
+      }
+      if (!emitter.infinite) {
+        emitter.setMaxListeners(Infinity);
+        emitter.infinite = true;
+      }
+      module.exports = function(cb, opts) {
+        if (!processOk(global.process)) {
+          return function() {
+          };
+        }
+        assert.equal(typeof cb, "function", "a callback must be provided for exit handler");
+        if (loaded === false) {
+          load();
+        }
+        var ev = "exit";
+        if (opts && opts.alwaysLast) {
+          ev = "afterexit";
+        }
+        var remove = function() {
+          emitter.removeListener(ev, cb);
+          if (emitter.listeners("exit").length === 0 && emitter.listeners("afterexit").length === 0) {
+            unload();
+          }
+        };
+        emitter.on(ev, cb);
+        return remove;
+      };
+      unload = function unload2() {
+        if (!loaded || !processOk(global.process)) {
+          return;
+        }
+        loaded = false;
+        signals.forEach(function(sig) {
+          try {
+            process2.removeListener(sig, sigListeners[sig]);
+          } catch (er) {
+          }
+        });
+        process2.emit = originalProcessEmit;
+        process2.reallyExit = originalProcessReallyExit;
+        emitter.count -= 1;
+      };
+      module.exports.unload = unload;
+      emit2 = function emit3(event, code, signal) {
+        if (emitter.emitted[event]) {
+          return;
+        }
+        emitter.emitted[event] = true;
+        emitter.emit(event, code, signal);
+      };
+      sigListeners = {};
+      signals.forEach(function(sig) {
+        sigListeners[sig] = function listener() {
+          if (!processOk(global.process)) {
+            return;
+          }
+          var listeners = process2.listeners(sig);
+          if (listeners.length === emitter.count) {
+            unload();
+            emit2("exit", null, sig);
+            emit2("afterexit", null, sig);
+            if (isWin && sig === "SIGHUP") {
+              sig = "SIGINT";
+            }
+            process2.kill(process2.pid, sig);
+          }
+        };
+      });
+      module.exports.signals = function() {
+        return signals;
+      };
+      loaded = false;
+      load = function load2() {
+        if (loaded || !processOk(global.process)) {
+          return;
+        }
+        loaded = true;
+        emitter.count += 1;
+        signals = signals.filter(function(sig) {
+          try {
+            process2.on(sig, sigListeners[sig]);
+            return true;
+          } catch (er) {
+            return false;
+          }
+        });
+        process2.emit = processEmit;
+        process2.reallyExit = processReallyExit;
+      };
+      module.exports.load = load;
+      originalProcessReallyExit = process2.reallyExit;
+      processReallyExit = function processReallyExit2(code) {
+        if (!processOk(global.process)) {
+          return;
+        }
+        process2.exitCode = code || /* istanbul ignore next */
+        0;
+        emit2("exit", process2.exitCode, null);
+        emit2("afterexit", process2.exitCode, null);
+        originalProcessReallyExit.call(process2, process2.exitCode);
+      };
+      originalProcessEmit = process2.emit;
+      processEmit = function processEmit2(ev, arg) {
+        if (ev === "exit" && processOk(global.process)) {
+          if (arg !== void 0) {
+            process2.exitCode = arg;
+          }
+          var ret = originalProcessEmit.apply(this, arguments);
+          emit2("exit", process2.exitCode, null);
+          emit2("afterexit", process2.exitCode, null);
+          return ret;
+        } else {
+          return originalProcessEmit.apply(this, arguments);
+        }
+      };
+    }
+    var assert;
+    var signals;
+    var isWin;
+    var EE;
+    var emitter;
+    var unload;
+    var emit2;
+    var sigListeners;
+    var loaded;
+    var load;
+    var originalProcessReallyExit;
+    var processReallyExit;
+    var originalProcessEmit;
+    var processEmit;
+  }
+});
+
+// node_modules/proper-lockfile/lib/mtime-precision.js
+var require_mtime_precision = __commonJS({
+  "node_modules/proper-lockfile/lib/mtime-precision.js"(exports, module) {
+    "use strict";
+    var cacheSymbol = /* @__PURE__ */ Symbol();
+    function probe(file2, fs13, callback) {
+      const cachedPrecision = fs13[cacheSymbol];
+      if (cachedPrecision) {
+        return fs13.stat(file2, (err, stat2) => {
+          if (err) {
+            return callback(err);
+          }
+          callback(null, stat2.mtime, cachedPrecision);
+        });
+      }
+      const mtime = new Date(Math.ceil(Date.now() / 1e3) * 1e3 + 5);
+      fs13.utimes(file2, mtime, mtime, (err) => {
+        if (err) {
+          return callback(err);
+        }
+        fs13.stat(file2, (err2, stat2) => {
+          if (err2) {
+            return callback(err2);
+          }
+          const precision = stat2.mtime.getTime() % 1e3 === 0 ? "s" : "ms";
+          Object.defineProperty(fs13, cacheSymbol, { value: precision });
+          callback(null, stat2.mtime, precision);
+        });
+      });
+    }
+    function getMtime(precision) {
+      let now = Date.now();
+      if (precision === "s") {
+        now = Math.ceil(now / 1e3) * 1e3;
+      }
+      return new Date(now);
+    }
+    module.exports.probe = probe;
+    module.exports.getMtime = getMtime;
+  }
+});
+
+// node_modules/proper-lockfile/lib/lockfile.js
+var require_lockfile = __commonJS({
+  "node_modules/proper-lockfile/lib/lockfile.js"(exports, module) {
+    "use strict";
+    var path = __require("path");
+    var fs13 = require_graceful_fs();
+    var retry = require_retry2();
+    var onExit = require_signal_exit();
+    var mtimePrecision = require_mtime_precision();
+    var locks = {};
+    function getLockFile(file2, options) {
+      return options.lockfilePath || `${file2}.lock`;
+    }
+    function resolveCanonicalPath(file2, options, callback) {
+      if (!options.realpath) {
+        return callback(null, path.resolve(file2));
+      }
+      options.fs.realpath(file2, callback);
+    }
+    function acquireLock(file2, options, callback) {
+      const lockfilePath = getLockFile(file2, options);
+      options.fs.mkdir(lockfilePath, (err) => {
+        if (!err) {
+          return mtimePrecision.probe(lockfilePath, options.fs, (err2, mtime, mtimePrecision2) => {
+            if (err2) {
+              options.fs.rmdir(lockfilePath, () => {
+              });
+              return callback(err2);
+            }
+            callback(null, mtime, mtimePrecision2);
+          });
+        }
+        if (err.code !== "EEXIST") {
+          return callback(err);
+        }
+        if (options.stale <= 0) {
+          return callback(Object.assign(new Error("Lock file is already being held"), { code: "ELOCKED", file: file2 }));
+        }
+        options.fs.stat(lockfilePath, (err2, stat2) => {
+          if (err2) {
+            if (err2.code === "ENOENT") {
+              return acquireLock(file2, { ...options, stale: 0 }, callback);
+            }
+            return callback(err2);
+          }
+          if (!isLockStale(stat2, options)) {
+            return callback(Object.assign(new Error("Lock file is already being held"), { code: "ELOCKED", file: file2 }));
+          }
+          removeLock(file2, options, (err3) => {
+            if (err3) {
+              return callback(err3);
+            }
+            acquireLock(file2, { ...options, stale: 0 }, callback);
+          });
+        });
+      });
+    }
+    function isLockStale(stat2, options) {
+      return stat2.mtime.getTime() < Date.now() - options.stale;
+    }
+    function removeLock(file2, options, callback) {
+      options.fs.rmdir(getLockFile(file2, options), (err) => {
+        if (err && err.code !== "ENOENT") {
+          return callback(err);
+        }
+        callback();
+      });
+    }
+    function updateLock(file2, options) {
+      const lock2 = locks[file2];
+      if (lock2.updateTimeout) {
+        return;
+      }
+      lock2.updateDelay = lock2.updateDelay || options.update;
+      lock2.updateTimeout = setTimeout(() => {
+        lock2.updateTimeout = null;
+        options.fs.stat(lock2.lockfilePath, (err, stat2) => {
+          const isOverThreshold = lock2.lastUpdate + options.stale < Date.now();
+          if (err) {
+            if (err.code === "ENOENT" || isOverThreshold) {
+              return setLockAsCompromised(file2, lock2, Object.assign(err, { code: "ECOMPROMISED" }));
+            }
+            lock2.updateDelay = 1e3;
+            return updateLock(file2, options);
+          }
+          const isMtimeOurs = lock2.mtime.getTime() === stat2.mtime.getTime();
+          if (!isMtimeOurs) {
+            return setLockAsCompromised(
+              file2,
+              lock2,
+              Object.assign(
+                new Error("Unable to update lock within the stale threshold"),
+                { code: "ECOMPROMISED" }
+              )
+            );
+          }
+          const mtime = mtimePrecision.getMtime(lock2.mtimePrecision);
+          options.fs.utimes(lock2.lockfilePath, mtime, mtime, (err2) => {
+            const isOverThreshold2 = lock2.lastUpdate + options.stale < Date.now();
+            if (lock2.released) {
+              return;
+            }
+            if (err2) {
+              if (err2.code === "ENOENT" || isOverThreshold2) {
+                return setLockAsCompromised(file2, lock2, Object.assign(err2, { code: "ECOMPROMISED" }));
+              }
+              lock2.updateDelay = 1e3;
+              return updateLock(file2, options);
+            }
+            lock2.mtime = mtime;
+            lock2.lastUpdate = Date.now();
+            lock2.updateDelay = null;
+            updateLock(file2, options);
+          });
+        });
+      }, lock2.updateDelay);
+      if (lock2.updateTimeout.unref) {
+        lock2.updateTimeout.unref();
+      }
+    }
+    function setLockAsCompromised(file2, lock2, err) {
+      lock2.released = true;
+      if (lock2.updateTimeout) {
+        clearTimeout(lock2.updateTimeout);
+      }
+      if (locks[file2] === lock2) {
+        delete locks[file2];
+      }
+      lock2.options.onCompromised(err);
+    }
+    function lock(file2, options, callback) {
+      options = {
+        stale: 1e4,
+        update: null,
+        realpath: true,
+        retries: 0,
+        fs: fs13,
+        onCompromised: (err) => {
+          throw err;
+        },
+        ...options
+      };
+      options.retries = options.retries || 0;
+      options.retries = typeof options.retries === "number" ? { retries: options.retries } : options.retries;
+      options.stale = Math.max(options.stale || 0, 2e3);
+      options.update = options.update == null ? options.stale / 2 : options.update || 0;
+      options.update = Math.max(Math.min(options.update, options.stale / 2), 1e3);
+      resolveCanonicalPath(file2, options, (err, file3) => {
+        if (err) {
+          return callback(err);
+        }
+        const operation = retry.operation(options.retries);
+        operation.attempt(() => {
+          acquireLock(file3, options, (err2, mtime, mtimePrecision2) => {
+            if (operation.retry(err2)) {
+              return;
+            }
+            if (err2) {
+              return callback(operation.mainError());
+            }
+            const lock2 = locks[file3] = {
+              lockfilePath: getLockFile(file3, options),
+              mtime,
+              mtimePrecision: mtimePrecision2,
+              options,
+              lastUpdate: Date.now()
+            };
+            updateLock(file3, options);
+            callback(null, (releasedCallback) => {
+              if (lock2.released) {
+                return releasedCallback && releasedCallback(Object.assign(new Error("Lock is already released"), { code: "ERELEASED" }));
+              }
+              unlock(file3, { ...options, realpath: false }, releasedCallback);
+            });
+          });
+        });
+      });
+    }
+    function unlock(file2, options, callback) {
+      options = {
+        fs: fs13,
+        realpath: true,
+        ...options
+      };
+      resolveCanonicalPath(file2, options, (err, file3) => {
+        if (err) {
+          return callback(err);
+        }
+        const lock2 = locks[file3];
+        if (!lock2) {
+          return callback(Object.assign(new Error("Lock is not acquired/owned by you"), { code: "ENOTACQUIRED" }));
+        }
+        lock2.updateTimeout && clearTimeout(lock2.updateTimeout);
+        lock2.released = true;
+        delete locks[file3];
+        removeLock(file3, options, callback);
+      });
+    }
+    function check(file2, options, callback) {
+      options = {
+        stale: 1e4,
+        realpath: true,
+        fs: fs13,
+        ...options
+      };
+      options.stale = Math.max(options.stale || 0, 2e3);
+      resolveCanonicalPath(file2, options, (err, file3) => {
+        if (err) {
+          return callback(err);
+        }
+        options.fs.stat(getLockFile(file3, options), (err2, stat2) => {
+          if (err2) {
+            return err2.code === "ENOENT" ? callback(null, false) : callback(err2);
+          }
+          return callback(null, !isLockStale(stat2, options));
+        });
+      });
+    }
+    function getLocks() {
+      return locks;
+    }
+    onExit(() => {
+      for (const file2 in locks) {
+        const options = locks[file2].options;
+        try {
+          options.fs.rmdirSync(getLockFile(file2, options));
+        } catch (e) {
+        }
+      }
+    });
+    module.exports.lock = lock;
+    module.exports.unlock = unlock;
+    module.exports.check = check;
+    module.exports.getLocks = getLocks;
+  }
+});
+
+// node_modules/proper-lockfile/lib/adapter.js
+var require_adapter = __commonJS({
+  "node_modules/proper-lockfile/lib/adapter.js"(exports, module) {
+    "use strict";
+    var fs13 = require_graceful_fs();
+    function createSyncFs(fs14) {
+      const methods = ["mkdir", "realpath", "stat", "rmdir", "utimes"];
+      const newFs = { ...fs14 };
+      methods.forEach((method) => {
+        newFs[method] = (...args2) => {
+          const callback = args2.pop();
+          let ret;
+          try {
+            ret = fs14[`${method}Sync`](...args2);
+          } catch (err) {
+            return callback(err);
+          }
+          callback(null, ret);
+        };
+      });
+      return newFs;
+    }
+    function toPromise(method) {
+      return (...args2) => new Promise((resolve41, reject) => {
+        args2.push((err, result) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve41(result);
+          }
+        });
+        method(...args2);
+      });
+    }
+    function toSync(method) {
+      return (...args2) => {
+        let err;
+        let result;
+        args2.push((_err, _result) => {
+          err = _err;
+          result = _result;
+        });
+        method(...args2);
+        if (err) {
+          throw err;
+        }
+        return result;
+      };
+    }
+    function toSyncOptions(options) {
+      options = { ...options };
+      options.fs = createSyncFs(options.fs || fs13);
+      if (typeof options.retries === "number" && options.retries > 0 || options.retries && typeof options.retries.retries === "number" && options.retries.retries > 0) {
+        throw Object.assign(new Error("Cannot use retries with the sync api"), { code: "ESYNC" });
+      }
+      return options;
+    }
+    module.exports = {
+      toPromise,
+      toSync,
+      toSyncOptions
+    };
+  }
+});
+
+// node_modules/proper-lockfile/index.js
+var require_proper_lockfile = __commonJS({
+  "node_modules/proper-lockfile/index.js"(exports, module) {
+    "use strict";
+    var lockfile2 = require_lockfile();
+    var { toPromise, toSync, toSyncOptions } = require_adapter();
+    async function lock(file2, options) {
+      const release = await toPromise(lockfile2.lock)(file2, options);
+      return toPromise(release);
+    }
+    function lockSync(file2, options) {
+      const release = toSync(lockfile2.lock)(file2, toSyncOptions(options));
+      return toSync(release);
+    }
+    function unlock(file2, options) {
+      return toPromise(lockfile2.unlock)(file2, options);
+    }
+    function unlockSync(file2, options) {
+      return toSync(lockfile2.unlock)(file2, toSyncOptions(options));
+    }
+    function check(file2, options) {
+      return toPromise(lockfile2.check)(file2, options);
+    }
+    function checkSync(file2, options) {
+      return toSync(lockfile2.check)(file2, toSyncOptions(options));
+    }
+    module.exports = lock;
+    module.exports.lock = lock;
+    module.exports.unlock = unlock;
+    module.exports.lockSync = lockSync;
+    module.exports.unlockSync = unlockSync;
+    module.exports.check = check;
+    module.exports.checkSync = checkSync;
+  }
+});
+
 // dist/auth/config-dir.js
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -53,10 +1630,25 @@ var init_config_dir = __esm({
 });
 
 // dist/auth/credentials.js
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join as join2 } from "node:path";
+import { randomUUID } from "node:crypto";
 function credentialsFile() {
   return join2(configDir(), "credentials.json");
+}
+async function withCredentialsLock(work) {
+  mkdirSync(configDir(), { recursive: true, mode: 448 });
+  const release = await import_proper_lockfile.default.lock(credentialsFile(), {
+    realpath: false,
+    stale: 3e4,
+    update: 1e4,
+    retries: { retries: 150, minTimeout: 100, maxTimeout: 200 }
+  });
+  try {
+    return await work();
+  } finally {
+    await release();
+  }
 }
 function loadStoredCredentials() {
   const file2 = credentialsFile();
@@ -65,9 +1657,14 @@ function loadStoredCredentials() {
       return null;
     const raw = readFileSync(file2, "utf-8");
     const data = JSON.parse(raw);
-    if (!data.api_key)
+    if (typeof data.api_key !== "string" || !data.api_key || data.api_url !== void 0 && typeof data.api_url !== "string")
       return null;
-    return data;
+    if (data.session !== void 0) {
+      const s = data.session;
+      if (!data.api_url || !s || typeof s.id !== "string" || !s.id || typeof s.install_id !== "string" || !s.install_id || typeof s.refresh_token !== "string" || !s.refresh_token || !Number.isFinite(s.expires_at) || !Number.isFinite(s.refresh_expires_at) || s.refreshing !== void 0 && typeof s.refreshing !== "boolean")
+        return null;
+    }
+    return { ...data, api_url: data.api_url || DEFAULT_API_URL };
   } catch {
     return null;
   }
@@ -77,9 +1674,16 @@ function saveCredentials(creds) {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 448 });
   }
-  writeFileSync(credentialsFile(), JSON.stringify(creds, null, 2) + "\n", {
-    mode: 384
-  });
+  const temp = `${credentialsFile()}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(creds, null, 2) + "\n", { mode: 384, flag: "wx" });
+    renameSync(temp, credentialsFile());
+  } finally {
+    try {
+      unlinkSync(temp);
+    } catch {
+    }
+  }
 }
 function deleteCredentials() {
   const file2 = credentialsFile();
@@ -87,7 +1691,9 @@ function deleteCredentials() {
     if (existsSync(file2)) {
       unlinkSync(file2);
     }
-  } catch {
+  } catch (error) {
+    if (error.code !== "ENOENT")
+      throw error;
   }
 }
 function loadConfig() {
@@ -100,10 +1706,14 @@ function loadConfig() {
   }
   const stored = loadStoredCredentials();
   if (stored) {
+    const apiUrl = (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, "");
+    if (stored.session && apiUrl !== stored.api_url.replace(/\/$/, ""))
+      return null;
     return {
-      apiUrl: (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, ""),
+      apiUrl,
       apiKey: stored.api_key,
-      username: stored.username ?? null
+      username: stored.username ?? null,
+      ...stored.session ? { sessionId: stored.session.id } : {}
     };
   }
   return null;
@@ -114,10 +1724,11 @@ function getDefaultApiUrl() {
 function loadOptionalAuthConfig() {
   return loadConfig() ?? { apiUrl: getDefaultApiUrl() };
 }
-var DEFAULT_API_URL;
+var import_proper_lockfile, DEFAULT_API_URL;
 var init_credentials = __esm({
   "dist/auth/credentials.js"() {
     "use strict";
+    import_proper_lockfile = __toESM(require_proper_lockfile(), 1);
     init_config_dir();
     DEFAULT_API_URL = "https://api.ideaspaces.xyz";
   }
@@ -8017,22 +9628,22 @@ function inspectMarkdown(content, request2) {
     throw new RangeError("section occurrence must be a positive integer");
   }
   const query = request2.occurrence === void 0 ? { heading } : { heading, occurrence: request2.occurrence };
-  const matches = parsed2.filter((entry) => entry.text === heading);
-  if (request2.occurrence === void 0 && matches.length > 1) {
+  const matches2 = parsed2.filter((entry) => entry.text === heading);
+  if (request2.occurrence === void 0 && matches2.length > 1) {
     return {
       mode: "section",
       status: "ambiguous",
       query,
-      matches: matches.map(publicHeading)
+      matches: matches2.map(publicHeading)
     };
   }
-  const selected = request2.occurrence === void 0 ? matches[0] : matches.find((entry) => entry.occurrence === request2.occurrence);
+  const selected = request2.occurrence === void 0 ? matches2[0] : matches2.find((entry) => entry.occurrence === request2.occurrence);
   if (!selected) {
     return {
       mode: "section",
       status: "not-found",
       query,
-      matches: matches.map(publicHeading)
+      matches: matches2.map(publicHeading)
     };
   }
   const selectedIndex = parsed2.indexOf(selected);
@@ -10331,10 +11942,10 @@ function resolveMapPositionAddress(map, address, context = {}) {
   } else {
     rootNodeId = parsed2.root.rootNodeId;
   }
-  const matches = indicesWhere(roots, (root) => rootIdentity(root) === rootNodeId);
-  if (matches.length === 1)
-    return resolved(matches[0]);
-  return { status: "unresolved", code: matches.length > 1 ? "ambiguous_root" : "root_not_in_map" };
+  const matches2 = indicesWhere(roots, (root) => rootIdentity(root) === rootNodeId);
+  if (matches2.length === 1)
+    return resolved(matches2[0]);
+  return { status: "unresolved", code: matches2.length > 1 ? "ambiguous_root" : "root_not_in_map" };
 }
 function rootIdentity(root) {
   if (typeof root.root_node_id === "string")
@@ -10608,7 +12219,7 @@ function resolveThreadParent(attachment, roots, authoredPin) {
   const matchPath = attachment.kind === "path" || attachment.kind === "post" && !matchId && isPostAttachmentTarget(targetVal);
   if (!matchId && !matchPath)
     return { status: "unresolved" };
-  const matches = [];
+  const matches2 = [];
   for (const root of roots) {
     if (authoredPin !== void 0 && root.pin !== authoredPin)
       continue;
@@ -10616,19 +12227,19 @@ function resolveThreadParent(attachment, roots, authoredPin) {
       if (parseThreadAttachment(post.path)?.kind !== "path")
         continue;
       if (matchId && post.id === targetVal || matchPath && post.path === targetVal) {
-        matches.push({ root: root.root, pin: root.pin, path: post.path, id: post.id });
+        matches2.push({ root: root.root, pin: root.pin, path: post.path, id: post.id });
       }
     }
   }
-  return matches.length === 1 ? { status: "resolved", parent: matches[0] } : { status: matches.length ? "ambiguous" : "unresolved" };
+  return matches2.length === 1 ? { status: "resolved", parent: matches2[0] } : { status: matches2.length ? "ambiguous" : "unresolved" };
 }
 function resolveThreadPostById(id, posts2) {
   if (!/^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id))
     return { status: "unresolved" };
   const candidates = posts2.filter((post) => parseThreadAttachment(post.path)?.kind === "path");
   const exact = candidates.filter((post) => post.id === id);
-  const matches = exact.length || !/^msg_[0-9a-f]{8}$/.test(id) ? exact : candidates.filter((post) => post.id.startsWith(`${id}-`));
-  return matches.length === 1 ? { status: "resolved", post: { ...matches[0] } } : { status: matches.length ? "ambiguous" : "unresolved" };
+  const matches2 = exact.length || !/^msg_[0-9a-f]{8}$/.test(id) ? exact : candidates.filter((post) => post.id.startsWith(`${id}-`));
+  return matches2.length === 1 ? { status: "resolved", post: { ...matches2[0] } } : { status: matches2.length ? "ambiguous" : "unresolved" };
 }
 function validDay(day) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day))
@@ -12383,6 +13994,156 @@ var init_git2 = __esm({
   }
 });
 
+// dist/auth/client-session.js
+import { createHash as createHash3, randomUUID as randomUUID2 } from "node:crypto";
+import { mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join12 } from "node:path";
+function serviceOrigin(service) {
+  const u = new URL(service);
+  if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || !(u.protocol === "https:" || u.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname))) {
+    throw new Error("Sign-in needs an HTTPS API origin (loopback HTTP is allowed for local testing).");
+  }
+  return u.origin;
+}
+function cliInstallId(apiUrl) {
+  const directory = join12(configDir(), "installs");
+  mkdirSync2(directory, { recursive: true, mode: 448 });
+  const file2 = join12(directory, `${createHash3("sha256").update(serviceOrigin(apiUrl)).digest("hex")}.json`);
+  try {
+    const id = JSON.parse(readFileSync2(file2, "utf8")).install_id;
+    if (typeof id === "string" && /^[A-Za-z0-9._-]{8,128}$/.test(id))
+      return id;
+    throw new Error("Invalid CLI install identity. Restore the install file before signing in.");
+  } catch (error) {
+    if (error.code !== "ENOENT")
+      throw error;
+  }
+  const install_id = randomUUID2();
+  writeFileSync3(file2, JSON.stringify({ install_id }) + "\n", { mode: 384, flag: "wx" });
+  return install_id;
+}
+async function sessionRequest(apiUrl, action, params) {
+  let response;
+  try {
+    response = await fetch(`${serviceOrigin(apiUrl)}/auth/desktop/${action}`, {
+      method: "POST",
+      redirect: "error",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+      body: new URLSearchParams(params),
+      signal: AbortSignal.timeout(15e3)
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      if (action === "token" && [400, 401, 403].includes(response.status))
+        throw new SessionAuthError();
+      throw new Error(`IdeaSpaces ${action === "token" ? "token exchange" : "sign-out"} failed (HTTP ${response.status}). Try again later.`);
+    }
+    if (action === "revoke") {
+      await response.body?.cancel();
+      return;
+    }
+    return await response.json();
+  } catch (error) {
+    if (error instanceof SessionAuthError)
+      throw error;
+    throw new Error(`Could not complete IdeaSpaces ${action === "token" ? "token exchange" : "server sign-out"}. Check your connection. A rotating refresh is never retried automatically.`);
+  }
+}
+function credentials(apiUrl, installId, raw, expectedId) {
+  if (!raw || !secret(raw.access_token) || !secret(raw.refresh_token) || raw.token_type !== "Bearer" || !Number.isFinite(raw.expires_in) || raw.expires_in <= 0 || !Number.isFinite(raw.refresh_expires_in) || raw.refresh_expires_in <= 0 || !raw.session || typeof raw.session.id !== "string" || !raw.session.id || raw.session.install_id !== installId || raw.session.client !== "cli" || expectedId !== void 0 && raw.session.id !== expectedId)
+    throw new SessionAuthError("The sign-in response was invalid. Run `ideaspaces login` again.");
+  return { api_url: serviceOrigin(apiUrl), api_key: raw.access_token, session: {
+    id: raw.session.id,
+    install_id: installId,
+    refresh_token: raw.refresh_token,
+    expires_at: Date.now() + raw.expires_in * 1e3,
+    refresh_expires_at: Date.now() + raw.refresh_expires_in * 1e3
+  } };
+}
+async function exchangeSignIn(apiUrl, installId, code, verifier, redirectUri) {
+  const raw = await sessionRequest(apiUrl, "token", { grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: redirectUri, install_id: installId });
+  const next = credentials(apiUrl, installId, raw);
+  await withCredentialsLock(async () => saveCredentials(next));
+  return next;
+}
+function currentSession(config) {
+  const stored = loadStoredCredentials();
+  if (!stored?.session || stored.session.id !== config.sessionId || stored.api_url !== config.apiUrl.replace(/\/$/, ""))
+    throw new SessionAuthError();
+  return stored;
+}
+async function resolveSessionConfig(config) {
+  if (!config.sessionId)
+    return config;
+  return withCredentialsLock(async () => {
+    const stored = currentSession(config);
+    const s = stored.session;
+    if (!secret(stored.api_key) || !secret(s.refresh_token) || typeof s.install_id !== "string" || !Number.isFinite(s.expires_at) || !Number.isFinite(s.refresh_expires_at))
+      throw new SessionAuthError();
+    if (s.refreshing)
+      throw new SessionAuthError("A rotating sign-in refresh was interrupted or its response was lost. Run `ideaspaces login` again; reusing that refresh could revoke this install.");
+    if (s.refresh_expires_at <= Date.now()) {
+      deleteCredentials();
+      throw new SessionAuthError();
+    }
+    if (s.expires_at > Date.now() + 6e4)
+      return { ...config, apiKey: stored.api_key };
+    saveCredentials({ ...stored, session: { ...s, refreshing: true } });
+    try {
+      const raw = await sessionRequest(stored.api_url, "token", { grant_type: "refresh_token", refresh_token: s.refresh_token, install_id: s.install_id });
+      const next = { ...credentials(stored.api_url, s.install_id, raw, s.id), username: stored.username };
+      const current = loadStoredCredentials();
+      if (current?.session?.id !== s.id || current.session.refresh_token !== s.refresh_token || !current.session.refreshing || current.api_url !== stored.api_url)
+        throw new SessionAuthError("This sign-in changed during refresh. Run the command again.");
+      saveCredentials(next);
+      return { ...config, apiKey: next.api_key };
+    } catch (error) {
+      const current = loadStoredCredentials();
+      if (error instanceof SessionAuthError && current?.session?.id === s.id && current.session.refresh_token === s.refresh_token && current.api_url === stored.api_url)
+        deleteCredentials();
+      throw error;
+    }
+  });
+}
+async function refuseSession(config, rejectedKey = config.apiKey) {
+  if (!config.sessionId)
+    return;
+  await withCredentialsLock(async () => {
+    const stored = loadStoredCredentials();
+    if (stored && stored.session?.id === config.sessionId && stored.api_key === rejectedKey && stored.api_url === config.apiUrl.replace(/\/$/, ""))
+      deleteCredentials();
+  });
+}
+async function cacheSessionUsername(config, username) {
+  await withCredentialsLock(async () => {
+    const stored = currentSession(config);
+    saveCredentials({ ...stored, username });
+  });
+}
+async function signOut() {
+  await withCredentialsLock(async () => {
+    const stored = loadStoredCredentials();
+    if (stored?.session)
+      await sessionRequest(stored.api_url, "revoke", { token: stored.session.refresh_token });
+    deleteCredentials();
+  });
+}
+var SessionAuthError, secret;
+var init_client_session = __esm({
+  "dist/auth/client-session.js"() {
+    "use strict";
+    init_config_dir();
+    init_credentials();
+    SessionAuthError = class extends Error {
+      constructor(message = "Your IdeaSpaces sign-in ended. Run `ideaspaces login` again.") {
+        super(message);
+        this.name = "SessionAuthError";
+      }
+    };
+    secret = (v) => typeof v === "string" && v.length > 0 && v.length <= 4096 && /^[A-Za-z0-9._~+\/-]+=*$/.test(v);
+  }
+});
+
 // dist/auth/api.js
 function deriveGitBase(apiUrl) {
   const override = process.env.IS_GIT_URL;
@@ -12450,8 +14211,15 @@ function unreachableMessage(apiUrl, timedOut, call) {
   const lead = timedOut ? `Could not reach ${host}: ${call} timed out \u2014 the server may be slow, or the network unreachable.` : `Could not reach ${host}: ${call} failed \u2014 the network looks unreachable.`;
   return process.env.CLAUDE_PLUGIN_ROOT?.trim() ? `${lead} If you're in Cowork, its sandbox blocks remote access \u2014 switch to Claude Code view to browse and sync (local capture still works).` : lead;
 }
-function authHeaders(config, extra) {
-  const apiKey = config.apiKey?.trim();
+async function authHeaders(config, extra) {
+  let apiKey;
+  try {
+    apiKey = (await resolveSessionConfig(config)).apiKey?.trim();
+  } catch (error) {
+    if (error instanceof SessionAuthError)
+      throw new UnauthorizedError(error.message);
+    throw error;
+  }
   return {
     "Content-Type": "application/json",
     ...apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
@@ -12462,18 +14230,21 @@ async function request(config, method, path, body, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const maxAttempts = method === "GET" && opts.retry !== false ? 2 : 1;
   for (let attempt = 1; ; attempt++) {
+    const headers = await authHeaders(config);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const r = await fetch(`${config.apiUrl}${path}`, {
         method,
-        headers: authHeaders(config),
+        headers,
+        redirect: "error",
         body: body !== void 0 ? JSON.stringify(body) : void 0,
         signal: ctrl.signal
       });
       if (!r.ok) {
         const text = await r.text();
         if (r.status === 401) {
+          await refuseSession(config, headers.Authorization?.slice(7));
           throw new UnauthorizedError(`${method} ${path} \u2192 401: ${text || r.statusText}`);
         }
         if (r.status === 410) {
@@ -12790,15 +14561,18 @@ function parseSseBlock(block) {
 }
 async function* streamConversationMessage(config, repoId, conversationId, body, signal) {
   const path = `${API_V1}/repos/${encodeURIComponent(repoId)}/conversations/${encodeURIComponent(conversationId)}/messages/stream`;
+  const headers = await authHeaders(config, { Accept: "text/event-stream" });
   const r = await fetch(`${config.apiUrl}${path}`, {
     method: "POST",
-    headers: authHeaders(config, { Accept: "text/event-stream" }),
+    headers,
+    redirect: "error",
     body: JSON.stringify(body),
     signal
   });
   if (!r.ok) {
     const text = await r.text().catch(() => "");
     if (r.status === 401) {
+      await refuseSession(config, headers.Authorization?.slice(7));
       throw new UnauthorizedError(`POST ${path} \u2192 401: ${text || r.statusText}`);
     }
     if (r.status === 410)
@@ -12841,6 +14615,7 @@ var API_V1, DEFAULT_REQUEST_TIMEOUT_MS, UnauthorizedError, RetiredEndpointError,
 var init_api = __esm({
   "dist/auth/api.js"() {
     "use strict";
+    init_client_session();
     API_V1 = "/api/v1";
     DEFAULT_REQUEST_TIMEOUT_MS = 5e3;
     UnauthorizedError = class extends Error {
@@ -12899,11 +14674,11 @@ var init_contract_source = __esm({
 });
 
 // dist/auth/spaces.js
-import { randomUUID } from "node:crypto";
-import { existsSync as existsSync3, mkdirSync as mkdirSync2, readFileSync as readFileSync2, realpathSync as realpathSync2, renameSync, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
-import { join as join12, resolve as resolve10 } from "node:path";
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync3, realpathSync as realpathSync2, renameSync as renameSync2, rmSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { join as join13, resolve as resolve10 } from "node:path";
 function spacesFile() {
-  return join12(configDir(), "spaces.json");
+  return join13(configDir(), "spaces.json");
 }
 function folderKey(path) {
   const absolute = resolve10(path);
@@ -12960,7 +14735,7 @@ function loadSpaces() {
   try {
     if (!existsSync3(file2))
       return {};
-    const raw = readFileSync2(file2, "utf-8");
+    const raw = readFileSync3(file2, "utf-8");
     const data = JSON.parse(raw);
     if (typeof data !== "object" || data === null || Array.isArray(data))
       return {};
@@ -12978,12 +14753,12 @@ function loadSpaces() {
 function writeSpaces(map) {
   const dir = configDir();
   if (!existsSync3(dir))
-    mkdirSync2(dir, { recursive: true, mode: 448 });
+    mkdirSync3(dir, { recursive: true, mode: 448 });
   const destination = spacesFile();
-  const temp = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+  const temp = `${destination}.${process.pid}.${randomUUID3()}.tmp`;
   try {
-    writeFileSync3(temp, JSON.stringify(map, null, 2) + "\n", { mode: 384 });
-    renameSync(temp, destination);
+    writeFileSync4(temp, JSON.stringify(map, null, 2) + "\n", { mode: 384 });
+    renameSync2(temp, destination);
   } finally {
     rmSync(temp, { force: true });
   }
@@ -13161,8 +14936,8 @@ var init_repo_locator = __esm({
 
 // dist/root-identity.js
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync4, readFileSync as readFileSync3 } from "node:fs";
-import { join as join13 } from "node:path";
+import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
+import { join as join14 } from "node:path";
 function runGit2(cwd, args2) {
   const result = spawnSync3(gitBinary(), ["-C", cwd, ...args2], { encoding: "utf-8" });
   if (result.error)
@@ -13188,10 +14963,10 @@ function indexContract(cwd, path) {
   return optionalGitBlob(cwd, `:${path}`);
 }
 function worktreeContract(cwd, path) {
-  const absolute = join13(cwd, path);
+  const absolute = join14(cwd, path);
   if (!existsSync4(absolute))
     return null;
-  return readFileSync3(absolute, "utf-8");
+  return readFileSync4(absolute, "utf-8");
 }
 function pathPresentInAnyRevision(cwd, path, worktree) {
   if (worktree !== null)
@@ -13301,8 +15076,8 @@ var init_root_identity2 = __esm({
 });
 
 // dist/local/map-note.js
-import { createHash as createHash3 } from "node:crypto";
-import { readFileSync as readFileSync5 } from "node:fs";
+import { createHash as createHash5 } from "node:crypto";
+import { readFileSync as readFileSync6 } from "node:fs";
 import { isAbsolute as isAbsolute5, relative as relative10, resolve as resolve14, sep as sep7 } from "node:path";
 function scalar(value2) {
   return typeof value2 === "string" && value2.trim() ? value2.replace(/\s+/g, " ").trim() : void 0;
@@ -13319,7 +15094,7 @@ function loadMapNote(reference, contextRoot) {
   const absolutePath = resolve14(contextRoot, reference);
   let content;
   try {
-    content = readFileSync5(absolutePath, "utf8");
+    content = readFileSync6(absolutePath, "utf8");
   } catch (error) {
     const detail3 = error instanceof Error ? error.message : String(error);
     throw new Error(`Could not read map note ${quoted(reference)}: ${detail3}`);
@@ -13349,7 +15124,7 @@ function loadMapNote(reference, contextRoot) {
   return {
     path: displayPath(absolutePath, resolve14(contextRoot), reference),
     absolutePath,
-    fileSha: createHash3("sha256").update(content).digest("hex"),
+    fileSha: createHash5("sha256").update(content).digest("hex"),
     ...name ? { name } : {},
     ...summary ? { summary } : {},
     legend: stripFrontmatter(content).trim(),
@@ -13364,15 +15139,15 @@ var init_map_note = __esm({
 });
 
 // dist/local/map-checkouts.js
-import { randomUUID as randomUUID3 } from "node:crypto";
-import { existsSync as existsSync8, mkdirSync as mkdirSync4, readFileSync as readFileSync6, realpathSync as realpathSync6, renameSync as renameSync2, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
-import { resolve as resolve15, join as join20, isAbsolute as isAbsolute6 } from "node:path";
+import { randomUUID as randomUUID5 } from "node:crypto";
+import { existsSync as existsSync8, mkdirSync as mkdirSync5, readFileSync as readFileSync7, realpathSync as realpathSync6, renameSync as renameSync3, rmSync as rmSync3, writeFileSync as writeFileSync6 } from "node:fs";
+import { resolve as resolve15, join as join21, isAbsolute as isAbsolute6 } from "node:path";
 function loadMapCheckouts() {
   if (!existsSync8(file()))
     return {};
   let data;
   try {
-    data = JSON.parse(readFileSync6(file(), "utf8"));
+    data = JSON.parse(readFileSync7(file(), "utf8"));
   } catch (error) {
     throw new Error(`Cannot read Map checkout hints at ${file()}: ${error instanceof Error ? error.message : String(error)}. Repair or move that file, then retry.`);
   }
@@ -13391,11 +15166,11 @@ function saveMapCheckout(path, id) {
   }
   entries[canonical] = id;
   const dir = configDir();
-  mkdirSync4(dir, { recursive: true, mode: 448 });
-  const temp = `${file()}.${process.pid}.${randomUUID3()}.tmp`;
+  mkdirSync5(dir, { recursive: true, mode: 448 });
+  const temp = `${file()}.${process.pid}.${randomUUID5()}.tmp`;
   try {
-    writeFileSync5(temp, JSON.stringify(entries, null, 2) + "\n", { mode: 384 });
-    renameSync2(temp, file());
+    writeFileSync6(temp, JSON.stringify(entries, null, 2) + "\n", { mode: 384 });
+    renameSync3(temp, file());
   } finally {
     if (existsSync8(temp))
       rmSync3(temp, { force: true });
@@ -13407,14 +15182,14 @@ var init_map_checkouts = __esm({
     "use strict";
     init_dist();
     init_config_dir();
-    file = () => join20(configDir(), "map-checkouts.json");
+    file = () => join21(configDir(), "map-checkouts.json");
     key = (path) => realpathSync6.native(resolve15(path));
   }
 });
 
 // dist/local/space-map.js
-import { existsSync as existsSync9, readFileSync as readFileSync7, readdirSync, realpathSync as realpathSync7, statSync as statSync3 } from "node:fs";
-import { dirname as dirname7, join as join21, resolve as resolve16 } from "node:path";
+import { existsSync as existsSync9, readFileSync as readFileSync8, readdirSync, realpathSync as realpathSync7, statSync as statSync3 } from "node:fs";
+import { dirname as dirname7, join as join22, resolve as resolve16 } from "node:path";
 function rootNodeIdFromRepoUrl(url, apiUrl) {
   if (!url)
     return null;
@@ -13441,7 +15216,7 @@ function parseNamespaceAndSlugFromRepoUrl(url, apiUrl) {
   return null;
 }
 function getRepoRootNodeId(dir, apiUrl, spaces) {
-  if (!existsSync9(join21(dir, ".git")))
+  if (!existsSync9(join22(dir, ".git")))
     return null;
   try {
     const report = inspectLocalRootIdentity(dir, apiUrl);
@@ -13480,9 +15255,9 @@ function discoverSpaceMapFiles(dir) {
       return null;
     const entries = readdirSync(dir, { withFileTypes: true });
     const mapFiles = entries.filter((e) => e.isFile() && e.name.endsWith(".map.md") && !e.name.startsWith(".")).map((e) => e.name).sort();
-    const readme = join21(dir, "README.md");
+    const readme = join22(dir, "README.md");
     if (existsSync9(readme) && statSync3(readme).isFile()) {
-      const content = readFileSync7(readme, "utf8");
+      const content = readFileSync8(readme, "utf8");
       const fm = parseFrontmatter(content);
       const front = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/.exec(content);
       if (fm && Object.hasOwn(fm, "map") || front && /^map\s*:/m.test(front[1]))
@@ -13557,8 +15332,8 @@ function inspectSpaceMapRoots(roots, context) {
               capped = true;
               continue;
             }
-            const candidate = join21(parent, dirent.name);
-            if (existsSync9(join21(candidate, ".git"))) {
+            const candidate = join22(parent, dirent.name);
+            if (existsSync9(join22(candidate, ".git"))) {
               const id = getRepoRootNodeId(candidate, apiUrl, spaces);
               if (id && !found.has(id))
                 found.set(id, candidate);
@@ -13943,11 +15718,11 @@ __export(threads_exports, {
   validateMarkOptions: () => validateMarkOptions,
   validateThreadMomentMap: () => validateThreadMomentMap
 });
-import { randomUUID as randomUUID6, createHash as createHash6 } from "node:crypto";
+import { randomUUID as randomUUID8, createHash as createHash8 } from "node:crypto";
 import { spawnSync as spawnSync14 } from "node:child_process";
-import { existsSync as existsSync19, lstatSync as lstatSync3, mkdirSync as mkdirSync7, readFileSync as readFileSync10, readdirSync as readdirSync2, realpathSync as realpathSync14, renameSync as renameSync5, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync19, lstatSync as lstatSync3, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync2, realpathSync as realpathSync14, renameSync as renameSync6, writeFileSync as writeFileSync9 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { basename as basename14, dirname as dirname18, isAbsolute as isAbsolute12, join as join28, resolve as resolve31 } from "node:path";
+import { basename as basename14, dirname as dirname18, isAbsolute as isAbsolute12, join as join29, resolve as resolve31 } from "node:path";
 function git3(cwd, args2) {
   const availability = gitAvailability();
   if (availability.state !== "usable")
@@ -13970,12 +15745,12 @@ function safeFile(path) {
     throw new Error(`Refusing non-regular thread file: ${path}`);
   if (lstatSync3(path).size > MAX_POST)
     throw new Error(`Thread file exceeds ${MAX_POST} bytes: ${path}`);
-  return readFileSync10(path, "utf8");
+  return readFileSync11(path, "utf8");
 }
 function threadBase(cwd = process.cwd()) {
   let at = safeDirectory(cwd);
   while (true) {
-    if (existsSync19(join28(at, "_agent", "agreement.md")))
+    if (existsSync19(join29(at, "_agent", "agreement.md")))
       return at;
     const parent = dirname18(at);
     if (parent === at)
@@ -13989,17 +15764,17 @@ function spaceForThread(threadDir) {
   if (basename14(threads) !== "_threads")
     throw new Error("Thread must be an immediate child of _threads/.");
   const space = dirname18(threads);
-  if (!existsSync19(join28(space, "_agent", "agreement.md")))
+  if (!existsSync19(join29(space, "_agent", "agreement.md")))
     throw new NoAgreementError("No Space Agreement above this Thread.");
   return space;
 }
 function threadsDirectory(cwd = process.cwd()) {
-  return join28(threadBase(cwd), "_threads");
+  return join29(threadBase(cwd), "_threads");
 }
 function resolveLocalThread(input, cwd = process.cwd()) {
   const base = threadsDirectory(cwd);
   safeDirectory(base);
-  const path = input.includes("/") || input.startsWith(".") || isAbsolute12(input) ? resolve31(cwd, input) : join28(base, input);
+  const path = input.includes("/") || input.startsWith(".") || isAbsolute12(input) ? resolve31(cwd, input) : join29(base, input);
   const dir = safeDirectory(path);
   if (dirname18(dir) !== base)
     throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
@@ -14007,11 +15782,11 @@ function resolveLocalThread(input, cwd = process.cwd()) {
 }
 function loadThread(dir) {
   const path = safeDirectory(dir);
-  const agreement = join28(path, "_agent", "agreement.md");
-  const readmePath = join28(path, "README.md");
+  const agreement = join29(path, "_agent", "agreement.md");
+  const readmePath = join29(path, "README.md");
   if (!existsSync19(agreement) || !existsSync19(readmePath))
     throw new Error(`Thread ${path} needs _agent/agreement.md and README.md.`);
-  safeDirectory(join28(path, "_agent"));
+  safeDirectory(join29(path, "_agent"));
   const agreementContent = safeFile(agreement);
   const readme = safeFile(readmePath);
   const fm = parseFrontmatter(readme);
@@ -14024,7 +15799,7 @@ function loadThread(dir) {
       continue;
     if (!entry.isFile() || !entry.name.endsWith(".md"))
       throw new Error(`Unexpected thread entry: ${entry.name}`);
-    sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join28(path, entry.name)) });
+    sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join29(path, entry.name)) });
   }
   const legacy = parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
   const inspection = inspectThreadPosts(sources, legacy);
@@ -14063,7 +15838,7 @@ function listLocal(cwd = process.cwd(), onError) {
   const rows = [];
   for (const entry of readdirSync2(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
     try {
-      rows.push(loadThread(join28(base, entry.name)));
+      rows.push(loadThread(join29(base, entry.name)));
     } catch (error) {
       if (!onError)
         throw error;
@@ -14084,11 +15859,11 @@ function createThread(slug, about, cwd = process.cwd(), attachedTo) {
   if (existsSync19(base))
     safeDirectory(base);
   else
-    mkdirSync7(base);
-  const dir = join28(base, slug);
-  mkdirSync7(dir);
-  mkdirSync7(join28(dir, "_agent"));
-  writeFileSync8(join28(dir, "_agent", "agreement.md"), `---
+    mkdirSync8(base);
+  const dir = join29(base, slug);
+  mkdirSync8(dir);
+  mkdirSync8(join29(dir, "_agent"));
+  writeFileSync9(join29(dir, "_agent", "agreement.md"), `---
 name: ${(0, import_yaml9.stringify)(`Agreement \u2014 ${about.trim()}`).trim()}
 summary: Local Thread entry schema and immutable posts.
 ---
@@ -14096,7 +15871,7 @@ summary: Local Thread entry schema and immutable posts.
 
 Posts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.
 `, { flag: "wx" });
-  writeFileSync8(join28(dir, "README.md"), (0, import_yaml9.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
+  writeFileSync9(join29(dir, "README.md"), (0, import_yaml9.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
   return loadThread(dir);
 }
 function references(parents) {
@@ -14119,7 +15894,7 @@ function latestLocalActivity(posts2) {
   }, null);
 }
 function resolveThreadParent2(threadDir, knownThreads) {
-  const agreementPath = join28(threadDir, "_agent", "agreement.md");
+  const agreementPath = join29(threadDir, "_agent", "agreement.md");
   const parsedAgreement = parseThreadAgreementAttachment(safeFile(agreementPath), `_threads/${basename14(threadDir)}/_agent/agreement.md`);
   const canonicalThreadDir = realpathSync14(threadDir);
   const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
@@ -14340,10 +16115,10 @@ function appendPost(dir, options) {
   if (options.map !== void 0)
     validateThreadMomentMap(options.map);
   options.verifyTarget?.(thread, parentIds, options.supersedes);
-  const id = `msg_${randomUUID6()}`;
+  const id = `msg_${randomUUID8()}`;
   const date = (/* @__PURE__ */ new Date()).toISOString();
   const stamp = date.replace(/[:.]/g, "-");
-  const path = join28(thread.path, `${stamp}-${id}.md`);
+  const path = join29(thread.path, `${stamp}-${id}.md`);
   const fields = {
     id,
     date,
@@ -14369,14 +16144,14 @@ ${options.body.trim()}
     throw new Error(`Generated post failed validation before write: ${parsed2.issues.join(", ")}`);
   if (parsed2.post.warnings?.length)
     throw new Error(`Generated post failed validation before write: ${parsed2.post.warnings.map((w) => `${w.field}: ${w.warning}`).join(", ")}`);
-  writeFileSync8(path, content, { flag: "wx", mode: 384 });
+  writeFileSync9(path, content, { flag: "wx", mode: 384 });
   if (defaultParentId)
     options.onDefaultReplyTo?.(defaultParentId);
   return { post: parsed2.post, path };
 }
 function cursorPath(thread) {
-  const key2 = createHash6("sha256").update(thread.path).digest("hex");
-  return join28(homedir3(), ".ideaspaces", "cursors", `${key2}.json`);
+  const key2 = createHash8("sha256").update(thread.path).digest("hex");
+  return join29(homedir3(), ".ideaspaces", "cursors", `${key2}.json`);
 }
 function readCursor(thread) {
   const path = cursorPath(thread);
@@ -14394,12 +16169,12 @@ function acknowledge(thread, posts2) {
   for (const post of posts2)
     seen.add(post.id);
   const path = cursorPath(thread);
-  mkdirSync7(dirname18(path), { recursive: true, mode: 448 });
+  mkdirSync8(dirname18(path), { recursive: true, mode: 448 });
   if (lstatSync3(dirname18(path)).isSymbolicLink())
     throw new Error("Refusing symlink local cursor directory.");
-  const tmp = `${path}.${randomUUID6()}.tmp`;
-  writeFileSync8(tmp, JSON.stringify({ seen: [...seen] }), { flag: "wx", mode: 384 });
-  renameSync5(tmp, path);
+  const tmp = `${path}.${randomUUID8()}.tmp`;
+  writeFileSync9(tmp, JSON.stringify({ seen: [...seen] }), { flag: "wx", mode: 384 });
+  renameSync6(tmp, path);
 }
 function readPinnedThreadFile(repo, pin, position) {
   if (!SHA2.test(pin))
@@ -14432,7 +16207,7 @@ function readPinnedThreadAgreement(repo, pin, position) {
 }
 function initWorktree(cwd = process.cwd()) {
   const root = threadBase(cwd);
-  const dir = join28(root, "_threads");
+  const dir = join29(root, "_threads");
   if (existsSync19(dir))
     throw new Error("_threads/ already exists; refusing to replace it.");
   const origin = git3(root, ["rev-parse", "--show-toplevel"]);
@@ -14444,14 +16219,14 @@ function initWorktree(cwd = process.cwd()) {
     throw new Error("Run threads init at the repository root Agreement.");
   if (git3(root, ["branch", "--list", "threads"]))
     throw new Error("Local threads branch already exists; refusing to replace it.");
-  const ignore = join28(root, ".gitignore");
+  const ignore = join29(root, ".gitignore");
   if (existsSync19(ignore) && lstatSync3(ignore).isSymbolicLink())
     throw new Error("Refusing symlink .gitignore.");
   git3(root, ["worktree", "add", "--orphan", "-b", "threads", dir]);
   markPrivateThreadsWorktree(dir);
-  const old = existsSync19(ignore) ? readFileSync10(ignore, "utf8") : "";
+  const old = existsSync19(ignore) ? readFileSync11(ignore, "utf8") : "";
   if (!old.split("\n").includes("/_threads/"))
-    writeFileSync8(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/
+    writeFileSync9(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/
 `);
   return dir;
 }
@@ -14724,14 +16499,14 @@ function makeDoctorCommand(runtime = defaultRuntime) {
     description: "Check Node, Git, and remote-auth readiness \u2014 legacy name for `status doctor`",
     usage: "ideaspaces status doctor [--json]  (legacy: ideaspaces doctor)",
     examples: ["ideaspaces status doctor", "ideaspaces status doctor --json"],
-    async run(_args, _flags, global2) {
+    async run(_args, _flags, global3) {
       const report = buildDoctorReport({
         platform: runtime.platform,
         node: runtime.node(),
         git: runtime.git(),
         auth: runtime.auth()
       });
-      createOutput(global2).result(report, formatDoctorReport(report));
+      createOutput(global3).result(report, formatDoctorReport(report));
       return report.ok ? 0 : 1;
     }
   };
@@ -14742,7 +16517,7 @@ var doctorCommand = makeDoctorCommand();
 import { promises as fs9 } from "node:fs";
 import { existsSync as existsSync5, realpathSync as realpathSync3 } from "node:fs";
 import { spawnSync as spawnSync4 } from "node:child_process";
-import { join as join14, resolve as resolve11, relative as relative6, basename as basename4, sep as sep5 } from "node:path";
+import { join as join15, resolve as resolve11, relative as relative6, basename as basename4, sep as sep5 } from "node:path";
 init_credentials();
 init_api();
 
@@ -15305,8 +17080,8 @@ var createCommand = {
     "ideaspaces create --home ~/IdeaSpaces --yes  # scaffold Home with Agreement + empty home.map.md",
     "ideaspaces create --yes --foundation   # the older foundation.md + guide.md shape (one more release)"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const homeMode = flags2.home !== void 0;
     if (args2[0] && typeof flags2.home === "string" && flags2.home.trim()) {
       output.error("Provide a target directory either as an argument or via --home <dir>, not both.");
@@ -15314,7 +17089,7 @@ var createCommand = {
     }
     const name = typeof flags2.home === "string" && flags2.home.trim() ? flags2.home.trim() : args2[0];
     const targetDir = name ? resolve11(process.cwd(), name) : process.cwd();
-    const apply = global2.yes === true;
+    const apply = global3.yes === true;
     const sharedFlag = Boolean(flags2.shared);
     const inspection = await inspect(targetDir);
     const shape = detectShape(inspection);
@@ -15353,7 +17128,7 @@ var createCommand = {
     const kind = agentMode ? "agent" : "knowledge";
     const contract = homeMode ? { agreement: HOME_AGREEMENT_MD } : contractShape === "agreement" ? agreementContractTemplates(kind, agentName) : agentMode ? agentContractTemplates(agentName) : CONTRACT_TEMPLATES;
     const claudeMd = homeMode ? HOME_CLAUDE_MD : contractShape === "agreement" ? agreementClaudeMd(kind, agentName) : agentMode ? agentClaudeMd(agentName) : CLAUDE_MD;
-    const existingHomeMap = homeMode && existsSync5(join14(targetDir, "home.map.md"));
+    const existingHomeMap = homeMode && existsSync5(join15(targetDir, "home.map.md"));
     const plan = buildPlan({
       targetDir,
       name,
@@ -15464,16 +17239,16 @@ async function inspect(targetDir) {
       markdownCount: 0
     };
   }
-  const isGitRepo = existsSync5(join14(targetDir, ".git"));
-  const hasClaude = existsSync5(join14(targetDir, "CLAUDE.md"));
-  const hasGitignore = existsSync5(join14(targetDir, ".gitignore"));
-  const agentDir = join14(targetDir, "_agent");
-  const hasFoundation = existsSync5(join14(agentDir, "foundation.md"));
-  const hasAgreement = existsSync5(join14(agentDir, "agreement.md"));
-  const hasOldAgent = existsSync5(agentDir) && OLD_AGENT_FILES.some((f) => existsSync5(join14(agentDir, f))) && !hasFoundation && !hasAgreement;
+  const isGitRepo = existsSync5(join15(targetDir, ".git"));
+  const hasClaude = existsSync5(join15(targetDir, "CLAUDE.md"));
+  const hasGitignore = existsSync5(join15(targetDir, ".gitignore"));
+  const agentDir = join15(targetDir, "_agent");
+  const hasFoundation = existsSync5(join15(agentDir, "foundation.md"));
+  const hasAgreement = existsSync5(join15(agentDir, "agreement.md"));
+  const hasOldAgent = existsSync5(agentDir) && OLD_AGENT_FILES.some((f) => existsSync5(join15(agentDir, f))) && !hasFoundation && !hasAgreement;
   let hasCodeSignal = false;
   for (const sig of CODE_SIGNALS) {
-    if (existsSync5(join14(targetDir, sig))) {
+    if (existsSync5(join15(targetDir, sig))) {
       hasCodeSignal = true;
       break;
     }
@@ -15523,34 +17298,34 @@ function buildPlan(opts) {
     steps.push({ op: "git-init", path: targetDir });
   }
   for (const fileName of Object.keys(contract)) {
-    steps.push({ op: "write", path: join14(targetDir, "_agent", `${fileName}.md`) });
+    steps.push({ op: "write", path: join15(targetDir, "_agent", `${fileName}.md`) });
   }
-  if (homeMode && !existsSync5(join14(targetDir, "home.map.md"))) {
-    steps.push({ op: "write", path: join14(targetDir, "home.map.md"), detail: "empty Space Map" });
+  if (homeMode && !existsSync5(join15(targetDir, "home.map.md"))) {
+    steps.push({ op: "write", path: join15(targetDir, "home.map.md"), detail: "empty Space Map" });
   }
   if (contractShape === "foundation") {
     for (const dim of Object.keys(CONVENTION_READMES)) {
       steps.push({
         op: "write",
-        path: join14(targetDir, "_agent", dim, "README.md"),
+        path: join15(targetDir, "_agent", dim, "README.md"),
         detail: "convention README"
       });
     }
   }
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";
   if (!inspection.hasClaude) {
-    steps.push({ op: "write", path: join14(targetDir, claudeFile) });
+    steps.push({ op: "write", path: join15(targetDir, claudeFile) });
   }
-  if (!existsSync5(join14(targetDir, ".gitattributes"))) {
+  if (!existsSync5(join15(targetDir, ".gitattributes"))) {
     steps.push({
       op: "write",
-      path: join14(targetDir, ".gitattributes"),
+      path: join15(targetDir, ".gitattributes"),
       detail: "markdown diff/eol attributes"
     });
   }
   steps.push({
     op: inspection.hasGitignore ? "append" : "write",
-    path: join14(targetDir, ".gitignore"),
+    path: join15(targetDir, ".gitignore"),
     detail: privateAgent ? "private _agent/ defaults" : "content-space defaults"
   });
   steps.push({ op: "commit", detail: "Initial ideaspace scaffold (scaffold paths only)" });
@@ -15591,16 +17366,16 @@ async function applyPlan(opts) {
   const commitPaths2 = [];
   const trackAgent = !privateAgent;
   await fs9.mkdir(targetDir, { recursive: true });
-  await fs9.mkdir(join14(targetDir, "_agent"), { recursive: true });
+  await fs9.mkdir(join15(targetDir, "_agent"), { recursive: true });
   for (const [name, content] of Object.entries(materializedContract)) {
-    const rel = join14("_agent", `${name}.md`);
-    await fs9.writeFile(join14(targetDir, rel), content, "utf-8");
+    const rel = join15("_agent", `${name}.md`);
+    await fs9.writeFile(join15(targetDir, rel), content, "utf-8");
     if (trackAgent)
       commitPaths2.push(rel);
   }
   if (homeMapMd) {
     const mapRel = "home.map.md";
-    const mapAbs = join14(targetDir, mapRel);
+    const mapAbs = join15(targetDir, mapRel);
     if (!existsSync5(mapAbs)) {
       await fs9.writeFile(mapAbs, homeMapMd, "utf-8");
       commitPaths2.push(mapRel);
@@ -15608,10 +17383,10 @@ async function applyPlan(opts) {
   }
   if (contractShape === "foundation") {
     for (const [dim, content] of Object.entries(CONVENTION_READMES)) {
-      const rel = join14("_agent", dim, "README.md");
-      const abs = join14(targetDir, rel);
+      const rel = join15("_agent", dim, "README.md");
+      const abs = join15(targetDir, rel);
       if (!existsSync5(abs)) {
-        await fs9.mkdir(join14(targetDir, "_agent", dim), { recursive: true });
+        await fs9.mkdir(join15(targetDir, "_agent", dim), { recursive: true });
         await fs9.writeFile(abs, content, "utf-8");
       }
       if (trackAgent)
@@ -15620,16 +17395,16 @@ async function applyPlan(opts) {
   }
   const claudeFile = privateAgent ? "CLAUDE.local.md" : "CLAUDE.md";
   if (!inspection.hasClaude) {
-    await fs9.writeFile(join14(targetDir, claudeFile), claudeMd, "utf-8");
+    await fs9.writeFile(join15(targetDir, claudeFile), claudeMd, "utf-8");
     if (!privateAgent)
       commitPaths2.push(claudeFile);
   }
-  const gitattributesPath = join14(targetDir, ".gitattributes");
+  const gitattributesPath = join15(targetDir, ".gitattributes");
   if (!existsSync5(gitattributesPath)) {
     await fs9.writeFile(gitattributesPath, GITATTRIBUTES, "utf-8");
     commitPaths2.push(".gitattributes");
   }
-  const gitignorePath = join14(targetDir, ".gitignore");
+  const gitignorePath = join15(targetDir, ".gitignore");
   const existingIgnore = inspection.hasGitignore ? await fs9.readFile(gitignorePath, "utf-8") : null;
   const mergedIgnore = gitignoreWithDefaults(existingIgnore, { privateAgent });
   if (mergedIgnore !== null) {
@@ -15664,7 +17439,7 @@ async function maybeSetIdentity(targetDir) {
   if (!stored)
     return;
   try {
-    const me = await fetchAuthMe({ apiUrl: stored.api_url, apiKey: stored.api_key }, { timeoutMs: 2e3, retry: false });
+    const me = await fetchAuthMe({ apiUrl: stored.api_url, apiKey: stored.api_key, sessionId: stored.session?.id }, { timeoutMs: 2e3, retry: false });
     if (!me.username)
       return;
     runGit3(targetDir, ["config", "--local", "user.email", identityEmail(me.username)]);
@@ -15700,7 +17475,7 @@ function effectiveRealPath(target) {
     probe = parent;
   }
   const real = realpathSync3.native(probe);
-  return suffix.length ? join14(real, ...suffix) : real;
+  return suffix.length ? join15(real, ...suffix) : real;
 }
 function enclosingRepoRoot(targetDir) {
   let probe = targetDir;
@@ -15723,7 +17498,7 @@ function nestingNotice(targetDir, parentRoot) {
   const rel = (relative6(parentRoot, effectiveRealPath(targetDir)) || basename4(targetDir)).split(sep5).join("/");
   return `Note: this folder is inside git repo ${parentRoot}.
   Creating an independent ideaspace repo here \u2014 ${parentRoot} will see \`${rel}/\` as an untracked nested repo.
-  Add \`${rel}/\` to ${join14(parentRoot, ".gitignore")} to keep them separate.`;
+  Add \`${rel}/\` to ${join15(parentRoot, ".gitignore")} to keep them separate.`;
 }
 function describeTarget(targetDir, name) {
   return name ? `./${basename4(targetDir)}` : "the current directory";
@@ -15731,79 +17506,101 @@ function describeTarget(targetDir, name) {
 
 // dist/commands/login.js
 init_credentials();
-import { exec } from "node:child_process";
-import { platform } from "node:os";
+init_client_session();
+import { execFile as execFile2 } from "node:child_process";
+import { hostname, platform } from "node:os";
+import { createHash as createHash4, randomBytes } from "node:crypto";
 
 // dist/auth/callback-server.js
 import { createServer } from "node:http";
-import { URL as URL2 } from "node:url";
-var SUCCESS_HTML = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>IdeaSpaces \u2014 Logged In</title></head>
-<body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0a0a0a; color: #fafafa;">
-<div style="text-align: center;">
-<h2>Logged in to IdeaSpaces</h2>
-<p style="color: #888;">You can close this tab and return to your terminal.</p>
-</div>
-</body></html>`;
-var ERROR_HTML = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>IdeaSpaces \u2014 Error</title></head>
-<body style="font-family: system-ui; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0a0a0a; color: #fafafa;">
-<div style="text-align: center;">
-<h2>Login failed</h2>
-<p style="color: #888;">No token received. Please try again.</p>
-</div>
-</body></html>`;
-function startCallbackServer() {
+import { timingSafeEqual } from "node:crypto";
+var HTML = '<!doctype html><meta charset="utf-8"><title>IdeaSpaces sign-in</title><h2>Sign-in code received</h2><p>Return to your terminal to finish signing in. You can close this tab.</p>';
+function matches(actual, expected) {
+  if (!actual || actual.length > 1024)
+    return false;
+  const a = Buffer.from(actual), b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+function startCallbackServer(expectedState) {
   return new Promise((resolve41, reject) => {
-    let tokenResolve = null;
-    let tokenReject = null;
-    const server = createServer((req, res) => {
-      const url = new URL2(req.url || "/", `http://127.0.0.1`);
-      if (url.pathname === "/callback") {
-        const token = url.searchParams.get("token");
-        if (token) {
-          res.writeHead(200, { "Content-Type": "text/html" });
-          res.end(SUCCESS_HTML);
-          tokenResolve?.(token);
-        } else {
-          res.writeHead(400, { "Content-Type": "text/html" });
-          res.end(ERROR_HTML);
-          tokenReject?.(new Error("No token in callback"));
-        }
-      } else {
-        res.writeHead(404);
-        res.end();
+    let settled = false;
+    let timer;
+    let accept;
+    let refuse;
+    const result = new Promise((res, rej) => {
+      accept = res;
+      refuse = rej;
+    });
+    void result.catch(() => void 0);
+    const fail = (message) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        refuse(new Error(message));
       }
+    };
+    const server = createServer((req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Referrer-Policy", "no-referrer");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+      const address = server.address();
+      const host = address && typeof address !== "string" ? `127.0.0.1:${address.port}` : "";
+      if (req.method !== "GET" || req.headers.host !== host || (req.url?.length ?? 0) > 8192) {
+        res.writeHead(400).end("Invalid callback");
+        return;
+      }
+      const url = new URL(req.url || "/", `http://${host}`);
+      if (url.pathname !== "/callback") {
+        res.writeHead(404).end();
+        return;
+      }
+      if (settled || url.searchParams.getAll("state").length !== 1 || !matches(url.searchParams.get("state"), expectedState)) {
+        res.writeHead(400).end("Invalid or expired sign-in state. Return to your terminal.");
+        return;
+      }
+      if (url.searchParams.has("error")) {
+        res.writeHead(400).end("Sign-in was not approved. Return to your terminal.");
+        fail("Sign-in was not approved. Run `ideaspaces login` to try again.");
+        return;
+      }
+      const code = url.searchParams.get("code");
+      if (!code || code.length > 2048 || url.searchParams.getAll("code").length !== 1 || url.searchParams.has("token")) {
+        res.writeHead(400).end("No valid authorization code received.");
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(HTML);
+      accept(code);
+    });
+    server.on("error", (error) => {
+      fail("The local sign-in callback failed. Run `ideaspaces login` again.");
+      reject(error);
     });
     server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      if (!addr || typeof addr === "string") {
-        reject(new Error("Failed to get server address"));
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("Could not open the local sign-in callback."));
         return;
       }
       resolve41({
-        port: addr.port,
+        port: address.port,
         waitForCallback(timeoutMs = 12e4) {
-          return new Promise((res, rej) => {
-            tokenResolve = res;
-            tokenReject = rej;
-            const timer = setTimeout(() => {
-              rej(new Error("Login timed out \u2014 no callback received within 2 minutes"));
+          if (!settled && !timer)
+            timer = setTimeout(() => {
+              fail("Sign-in timed out. Run `ideaspaces login` to try again.");
               server.close();
             }, timeoutMs);
-            const origResolve = tokenResolve;
-            tokenResolve = (token) => {
-              clearTimeout(timer);
-              origResolve(token);
-            };
-          });
+          return result;
         },
         close() {
+          fail("The sign-in callback closed before completion.");
           server.close();
+          server.closeAllConnections();
         }
       });
     });
-    server.on("error", reject);
   });
 }
 
@@ -15843,67 +17640,87 @@ async function registerGitCredentialHelper() {
 
 // dist/commands/login.js
 init_api();
-function buildCliLoginUrl(apiUrl, port) {
-  const url = new URL("/login", `${deriveWebBase(apiUrl)}/`);
-  url.searchParams.set("response_type", "cli");
-  url.searchParams.set("port", String(port));
+function buildCliLoginUrl(apiUrl, request2) {
+  const url = new URL("/auth/desktop/authorize", serviceOrigin(apiUrl));
+  for (const [key2, value2] of Object.entries({
+    client: "cli",
+    redirect_uri: `http://127.0.0.1:${request2.port}/callback`,
+    state: request2.state,
+    code_challenge: request2.challenge,
+    code_challenge_method: "S256",
+    install_id: request2.installId,
+    device_name: request2.deviceName
+  }))
+    url.searchParams.set(key2, value2);
   return url.toString();
 }
 function openBrowser(url) {
-  if (platform() === "win32") {
-    exec(`start "" "${url}"`);
-    return;
+  const [command2, args2] = platform() === "win32" ? ["rundll32.exe", ["url.dll,FileProtocolHandler", url]] : platform() === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
+  return new Promise((resolve41, reject) => execFile2(command2, args2, (error) => error ? reject(new Error("Could not open a browser. Open the sign-in URL manually.")) : resolve41()));
+}
+async function cliSignIn(apiUrl, deviceName, browser, timeoutMs = 12e4) {
+  apiUrl = serviceOrigin(apiUrl);
+  const installId = await withCredentialsLock(async () => cliInstallId(apiUrl));
+  const state = randomBytes(32).toString("base64url");
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash4("sha256").update(verifier).digest("base64url");
+  const callback = await startCallbackServer(state);
+  try {
+    const code = callback.waitForCallback(timeoutMs);
+    const opened = browser(buildCliLoginUrl(apiUrl, { port: callback.port, state, challenge, installId, deviceName })).then(() => code);
+    const authCode = await Promise.race([code, opened]);
+    return await exchangeSignIn(apiUrl, installId, authCode, verifier, `http://127.0.0.1:${callback.port}/callback`);
+  } finally {
+    callback.close();
   }
-  const cmd2 = platform() === "darwin" ? "open" : "xdg-open";
-  exec(`${cmd2} "${url}"`);
 }
 var loginCommand = {
   name: "login",
   description: "Log in to IdeaSpaces (optional \u2014 required for sync)",
   usage: "ideaspaces login",
-  examples: [
-    "ideaspaces login              # OAuth login; saves credentials for git push/pull"
-  ],
-  async run(_args, _flags, global2) {
-    const output = createOutput(global2);
+  examples: ["ideaspaces login              # Browser sign-in for this CLI install; saves a rotating session"],
+  async run(_args, _flags, global3) {
+    const output = createOutput(global3);
     const apiUrl = getDefaultApiUrl();
-    const callbackServer = await startCallbackServer();
-    const authUrl = buildCliLoginUrl(apiUrl, callbackServer.port);
-    output.progress(`Opening browser for login...
-${authUrl}`);
-    openBrowser(authUrl);
-    let token;
     try {
-      token = await callbackServer.waitForCallback(12e4);
-      callbackServer.close();
-    } catch (err) {
-      callbackServer.close();
-      output.error(err instanceof Error ? err.message : String(err));
+      const stored = await cliSignIn(apiUrl, `IdeaSpaces CLI on ${hostname()}`.slice(0, 128), async (url) => {
+        output.progress(`Opening browser for sign-in...
+${url}`);
+        try {
+          await openBrowser(url);
+        } catch {
+          output.progress("Could not open the browser. Open the URL above manually; this terminal is still waiting.");
+        }
+      });
+      const config = { apiUrl: stored.api_url, apiKey: stored.api_key, sessionId: stored.session.id };
+      try {
+        const me = await fetchAuthMe(config);
+        if (me.username)
+          await cacheSessionUsername(config, me.username);
+      } catch (error) {
+        if (error instanceof UnauthorizedError || error instanceof SessionAuthError)
+          throw error;
+      }
+      await registerGitCredentialHelper();
+      const explicit = !!process.env.IS_API_KEY;
+      if (explicit)
+        output.progress("IS_API_KEY is set and still overrides the saved session. Unset it to use this sign-in.");
+      const webUrl = deriveWebBase(apiUrl);
+      output.result({ logged_in: true, web_url: webUrl, ...explicit ? { env_override_active: true } : {} }, `Logged in for this CLI install.
+View your account: ${webUrl}
+Git push/pull uses the session automatically. Manage or revoke this install in web Desktop sign-ins.`);
+      return 0;
+    } catch (error) {
+      output.error(error instanceof Error ? error.message : "Sign-in failed. Run `ideaspaces login` again.");
       return 1;
     }
-    saveCredentials({ api_url: apiUrl, api_key: token });
-    try {
-      const me = await fetchAuthMe({ apiUrl, apiKey: token });
-      if (me.username) {
-        saveCredentials({ api_url: apiUrl, api_key: token, username: me.username });
-      }
-    } catch {
-    }
-    await registerGitCredentialHelper();
-    const webUrl = deriveWebBase(apiUrl);
-    output.result({ logged_in: true, web_url: webUrl }, [
-      "Logged in.",
-      `View your account: ${webUrl}`,
-      "`git push` / `git pull` against your space repos now picks up credentials automatically."
-    ].join("\n"));
-    return 0;
   }
 };
 
 // dist/commands/publish.js
 import { spawnSync as spawnSync5 } from "node:child_process";
 import { existsSync as existsSync6, statSync } from "node:fs";
-import { basename as basename5, join as join15 } from "node:path";
+import { basename as basename5, join as join16 } from "node:path";
 init_credentials();
 init_api();
 init_spaces();
@@ -16002,7 +17819,7 @@ function preflightSize(cwd) {
   }
   const offenders = [];
   for (const rel of r.stdout.split("\0").filter(Boolean)) {
-    const abs = join15(cwd, rel);
+    const abs = join16(cwd, rel);
     let bytes;
     try {
       bytes = statSync(abs).size;
@@ -16084,15 +17901,15 @@ function trackedMarkdownFiles(cwd) {
   if (r.status !== 0) {
     throw new Error(r.stderr.trim() || "git ls-files failed while checking markdown identities");
   }
-  return r.stdout.split("\0").filter(Boolean).map((path) => join15(cwd, path));
+  return r.stdout.split("\0").filter(Boolean).map((path) => join16(cwd, path));
 }
 function deriveFreshNaming(cwd, flags2, unpublishedName, username) {
   const folderName = basename5(cwd);
   const name = flags2.name?.toString() || unpublishedName || folderName;
   const slugInput = flags2.slug?.toString() || unpublishedName || folderName;
   const slug = slugify2(slugInput);
-  const hostname = flags2.hostname?.toString() ?? null;
-  return { name, slug, slugInput, hostname, namespace: hostname ?? username };
+  const hostname2 = flags2.hostname?.toString() ?? null;
+  return { name, slug, slugInput, hostname: hostname2, namespace: hostname2 ?? username };
 }
 var publishCommand = {
   name: "publish",
@@ -16104,11 +17921,11 @@ var publishCommand = {
     "ideaspaces publish --yes --slug my-notes     # explicit slug",
     "ideaspaces publish --yes --hostname acme.com # publish into an org space (must be a member)"
   ],
-  async run(_args, rawFlags, global2) {
-    const output = createOutput(global2);
+  async run(_args, rawFlags, global3) {
+    const output = createOutput(global3);
     const flags2 = rawFlags;
     const cwd = process.cwd();
-    if (!existsSync6(join15(cwd, ".git"))) {
+    if (!existsSync6(join16(cwd, ".git"))) {
       output.error("Not a git repo. Run `ideaspaces create` first, or `git init` here.");
       return 1;
     }
@@ -16188,7 +18005,7 @@ var publishCommand = {
       output.error("Not logged in. Run `ideaspaces login` first.");
       return 1;
     }
-    const config = { apiUrl: stored.api_url, apiKey: stored.api_key };
+    const config = { apiUrl: stored.api_url, apiKey: stored.api_key, sessionId: stored.session?.id };
     if (unpublished && rootIdentity4.declaration.head !== unpublished.root_node_id) {
       output.error(`The unpublished registry identity (${unpublished.root_node_id}) requires the same committed root Agreement or Foundation declaration before publishing.`);
       return 1;
@@ -16208,7 +18025,7 @@ var publishCommand = {
       output.error("Account has no username yet. Complete onboarding before publishing.");
       return 1;
     }
-    if (global2.yes !== true) {
+    if (global3.yes !== true) {
       const identityEmailPlanned = identityEmail(me.username);
       const commitCount = runGit4(cwd, ["rev-list", "--count", "HEAD"]).stdout || "?";
       const apiUrl = config.apiUrl;
@@ -16317,7 +18134,7 @@ var publishCommand = {
       namespace = hosted.namespace;
     } else {
       const naming = deriveFreshNaming(cwd, flags2, unpublished?.name, me.username);
-      const { name, slug, slugInput, hostname } = naming;
+      const { name, slug, slugInput, hostname: hostname2 } = naming;
       if (slug !== slugInput) {
         output.log(`Using slug: ${slug} (normalized from "${slugInput}")`);
       }
@@ -16327,7 +18144,7 @@ var publishCommand = {
         repo = await createRepo(config, {
           name,
           slug,
-          hostname,
+          hostname: hostname2,
           ...prescribedRootNodeId ? { root_node_id: prescribedRootNodeId } : {}
         });
         if (prescribedRootNodeId && repo.root_node_id !== prescribedRootNodeId) {
@@ -16450,18 +18267,18 @@ ${push2.stderr}${hint}`);
 // dist/commands/write.js
 init_dist();
 var import_yaml4 = __toESM(require_dist(), 1);
-import { promises as fs10, readFileSync as readFileSync4 } from "node:fs";
+import { promises as fs10, readFileSync as readFileSync5 } from "node:fs";
 import { existsSync as existsSync7, statSync as statSync2 } from "node:fs";
-import { join as join17, relative as relative9, resolve as resolve13 } from "node:path";
+import { join as join18, relative as relative9, resolve as resolve13 } from "node:path";
 
 // node_modules/@ideaspaces/protocol/dist/local-effects-runtime.js
 var import_yaml3 = __toESM(require_dist(), 1);
 init_git();
 init_local_effects();
 init_trailers();
-import { randomUUID as randomUUID2 } from "node:crypto";
+import { randomUUID as randomUUID4 } from "node:crypto";
 import { lstat as nodeLstat2, mkdir, open, readFile as readFile2, realpath as nodeRealpath2, rename, rm } from "node:fs/promises";
-import { basename as basename6, dirname as dirname5, join as join16 } from "node:path";
+import { basename as basename6, dirname as dirname5, join as join17 } from "node:path";
 var nodeLocalEffectFileSystem = {
   realpath: (path) => nodeRealpath2(path),
   async lstat(path) {
@@ -16487,7 +18304,7 @@ var nodeLocalEffectFileSystem = {
       if (error.code !== "ENOENT")
         throw error;
     }
-    const temporary = join16(dirname5(path), `.${basename6(path)}.${process.pid}.${randomUUID2()}.tmp`);
+    const temporary = join17(dirname5(path), `.${basename6(path)}.${process.pid}.${randomUUID4()}.tmp`);
     let handle = null;
     try {
       handle = await open(temporary, "wx", mode);
@@ -16811,7 +18628,7 @@ async function runGit5(capabilities, root, args2) {
   }
 }
 function hostPath(root, path) {
-  return join16(root, ...path.split("/"));
+  return join17(root, ...path.split("/"));
 }
 function literalPathspec2(path) {
   return `:(literal)${path}`;
@@ -16945,8 +18762,8 @@ function toPortableRepoPath(input, root, cwd = process.cwd()) {
     return null;
   return rel.split(sep6).join("/");
 }
-function emitEffectFailure(output, global2, failure) {
-  if (global2.json) {
+function emitEffectFailure(output, global3, failure) {
+  if (global3.json) {
     output.result(failure, "");
     return;
   }
@@ -16994,7 +18811,7 @@ function parseBool(value2, dflt = true) {
   return !(v === "false" || v === "0" || v === "no" || v === "off");
 }
 function parseArgs(argv) {
-  const global2 = { json: false, quiet: false, yes: false, help: false };
+  const global3 = { json: false, quiet: false, yes: false, help: false };
   const flags2 = {};
   const positional = [];
   let stopFlags = false;
@@ -17010,27 +18827,27 @@ function parseArgs(argv) {
         const key3 = arg.slice(2, eqIdx);
         const value2 = arg.slice(eqIdx + 1);
         if (key3 === "json") {
-          global2.json = parseBool(value2);
+          global3.json = parseBool(value2);
           continue;
         }
         if (key3 === "quiet") {
-          global2.quiet = parseBool(value2);
+          global3.quiet = parseBool(value2);
           continue;
         }
         if (key3 === "yes") {
-          global2.yes = parseBool(value2);
+          global3.yes = parseBool(value2);
           continue;
         }
         if (key3 === "help") {
-          global2.help = parseBool(value2);
+          global3.help = parseBool(value2);
           continue;
         }
         if (key3 === "repo") {
-          global2.repo = value2;
+          global3.repo = value2;
           continue;
         }
         if (key3 === "git-bin") {
-          global2.gitBin = normalizeGitBin(value2);
+          global3.gitBin = normalizeGitBin(value2);
           continue;
         }
         setFlag(flags2, key3, value2);
@@ -17042,30 +18859,30 @@ function parseArgs(argv) {
         continue;
       }
       if (key2 === "json") {
-        global2.json = true;
+        global3.json = true;
         continue;
       }
       if (key2 === "quiet") {
-        global2.quiet = true;
+        global3.quiet = true;
         continue;
       }
       if (key2 === "yes") {
-        global2.yes = true;
+        global3.yes = true;
         continue;
       }
       if (key2 === "help") {
-        global2.help = true;
+        global3.help = true;
         continue;
       }
       if (key2 === "repo" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-        global2.repo = argv[++i];
+        global3.repo = argv[++i];
         continue;
       }
       if (key2 === "git-bin") {
         if (i + 1 >= argv.length || argv[i + 1].startsWith("--")) {
           throw new Error("--git-bin requires a path argument");
         }
-        global2.gitBin = normalizeGitBin(argv[++i]);
+        global3.gitBin = normalizeGitBin(argv[++i]);
         continue;
       }
       if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
@@ -17086,7 +18903,7 @@ function parseArgs(argv) {
   }
   const command2 = positional[0];
   const args2 = positional.slice(1);
-  return { global: global2, command: command2, args: args2, flags: flags2 };
+  return { global: global3, command: command2, args: args2, flags: flags2 };
 }
 
 // dist/commands/write.js
@@ -17114,12 +18931,12 @@ var writeCommand = {
     "ideaspaces write notes/a.md notes/b.md # batch-stage a set",
     "ideaspaces write notes/ --stage=false  # health check only, no staging"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const targets = args2.filter(Boolean);
     if (!targets.length) {
       const failure = localEffectError("write_markdown", "invalid_request", "preflight", "Usage: ideaspaces write <path> [--name NAME] [--summary TEXT] | write <dir>|<files...> (batch stage)");
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     if (isBatchTarget(targets)) {
@@ -17131,7 +18948,7 @@ var writeCommand = {
       content = await readStdin();
       if (!content) {
         const failure = localEffectError("write_markdown", "invalid_request", "preflight", "No content provided. Pipe content via stdin or use --content.", targets[0]);
-        emitEffectFailure(output, global2, failure);
+        emitEffectFailure(output, global3, failure);
         return 1;
       }
     }
@@ -17143,37 +18960,37 @@ var writeCommand = {
       root = canonicalRepoRoot();
     } catch (error) {
       const failure = localEffectError("write_markdown", "not_git_repository", "preflight", "Write requires a canonical Git worktree.", path, error instanceof Error ? error.message : String(error));
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     const portablePath = toPortableRepoPath(path, root);
     if (!portablePath) {
       const failure = localEffectError("write_markdown", "path_escape", "preflight", "The selected path is outside the repository root.", path);
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     const segments = portablePath.split("/");
     const threadsAt = segments.indexOf("_threads");
     if (threadsAt !== -1 && parseThreadAttachment(segments.slice(threadsAt).join("/"))?.kind === "path") {
       const failure = localEffectError("write_markdown", "invalid_request", "preflight", "Thread posts are immutable and require an id. Use `ideaspaces threads post` to append. To repair a never-valid post, edit that file deliberately and commit with a message explaining why; `ideaspaces write` does not repair Thread posts.", portablePath);
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
-    const absPath = join17(root, ...segments);
+    const absPath = join18(root, ...segments);
     const reviewed = await pathRevision(root, portablePath, localEffectCapabilities.git, localEffectCapabilities.filesystem);
     if (reviewed.status === "error") {
       const failure = localEffectError("write_markdown", reviewed.code, reviewed.phase, reviewed.message, reviewed.path, reviewed.detail);
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return reviewed.code === "revision_mismatch" ? 6 : 1;
     }
     if (ifMatch !== void 0 && reviewed.revision.worktree !== ifMatch && !force) {
       const failure = localEffectError("write_markdown", "revision_mismatch", "revision_check", `if_match mismatch: expected ${ifMatch}, current ${reviewed.revision.worktree ?? "(file absent)"}.`, portablePath);
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 6;
     }
     if (ifMatch === void 0 && reviewed.revision.worktree !== null && !force) {
       const failure = localEffectError("write_markdown", "revision_mismatch", "revision_check", "File exists. Re-run with --force to overwrite, or pass --if-match <sha> for a safe update.", portablePath);
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 5;
     }
     const set = {};
@@ -17191,7 +19008,7 @@ var writeCommand = {
       const mapInput = parseMapInput(flags2.map, root);
       if (mapInput.error) {
         const failure = localEffectError("write_markdown", "invalid_frontmatter_patch", "preflight", `The supplied Map block is invalid: ${mapInput.error}`, portablePath);
-        emitEffectFailure(output, global2, failure);
+        emitEffectFailure(output, global3, failure);
         return 1;
       }
       set.map = mapInput.map;
@@ -17208,7 +19025,7 @@ var writeCommand = {
       stage
     }, localEffectCapabilities);
     if (result.status !== "ok") {
-      emitEffectFailure(output, global2, result);
+      emitEffectFailure(output, global3, result);
       return result.code === "revision_mismatch" ? 6 : 1;
     }
     const revision = result.path_revisions[0]?.revision;
@@ -17241,7 +19058,7 @@ function parseMapInput(raw, root) {
     const candidatePath = resolve13(root, trimmed);
     if (existsSync7(candidatePath) && statSync2(candidatePath).isFile()) {
       try {
-        const fileContent = readFileSync4(candidatePath, "utf-8");
+        const fileContent = readFileSync5(candidatePath, "utf-8");
         const fm = parseFrontmatter(fileContent);
         if (fm && fm.map !== void 0) {
           parsed2 = fm.map;
@@ -17345,7 +19162,7 @@ async function walkMarkdown(dir, out) {
   for (const entry of entries) {
     if (entry.name.startsWith(".") || entry.name === "node_modules")
       continue;
-    const p = join17(dir, entry.name);
+    const p = join18(dir, entry.name);
     if (entry.isDirectory()) {
       await walkMarkdown(p, out);
     } else if (entry.isFile() && entry.name.endsWith(".md")) {
@@ -17370,7 +19187,7 @@ function healthIssues(content) {
 
 // dist/commands/commit.js
 init_dist();
-import { join as join18 } from "node:path";
+import { join as join19 } from "node:path";
 var OP_SET = {
   create: true,
   update: true,
@@ -17443,12 +19260,12 @@ var commitCommand = {
     'ideaspaces commit -m "Save notes" --all   # all staged Markdown / _agent/ / _assets/ paths',
     'ideaspaces commit -m "Capture" notes/auth.md --op capture --change-id chg_auth-1a2b --conversation sess_9 --co-author "agent:me-claude"'
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const message = String(flags2.m ?? flags2.message ?? "").trim();
     if (!message) {
       const failure = localEffectError("commit_paths", "invalid_message", "preflight", 'A commit message is required: ideaspaces commit -m "<message>" <path>...');
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     let root;
@@ -17456,12 +19273,12 @@ var commitCommand = {
       root = canonicalRepoRoot();
     } catch (error) {
       const failure = localEffectError("commit_paths", "not_git_repository", "preflight", "Commit requires a canonical Git worktree.", void 0, error instanceof Error ? error.message : String(error));
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     if (args2.length > 0 && flags2.all) {
       const failure = localEffectError("commit_paths", "invalid_request", "preflight", "Use exactly one of: explicit <path>..., or --all.");
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     let paths;
@@ -17471,19 +19288,19 @@ var commitCommand = {
         staged = await stagedPathsForEffects(root);
       } catch (error) {
         const failure = localEffectError("commit_paths", "git_executor_failed", "preflight", "Git could not resolve the staged path set for --all.", void 0, error instanceof Error ? error.message : String(error));
-        emitEffectFailure(output, global2, failure);
+        emitEffectFailure(output, global3, failure);
         return 1;
       }
       if (!staged.length) {
         const failure = localEffectError("commit_paths", "nothing_to_commit", "commit", "Nothing staged to commit.");
-        emitEffectFailure(output, global2, failure);
+        emitEffectFailure(output, global3, failure);
         return 1;
       }
       paths = staged.filter(isIdeaspacePath);
       const other = staged.filter((path) => !isIdeaspacePath(path));
       if (!paths.length) {
         const failure = localEffectError("commit_paths", "nothing_to_commit", "commit", "No staged ideaspace paths (Markdown, _agent/, or extension payload such as _assets/).", void 0, `Staged non-knowledge paths: ${other.join(", ")}`);
-        emitEffectFailure(output, global2, failure);
+        emitEffectFailure(output, global3, failure);
         return 1;
       }
       if (other.length) {
@@ -17495,7 +19312,7 @@ var commitCommand = {
         const path = toPortableRepoPath(input, root);
         if (!path) {
           const failure = localEffectError("commit_paths", "path_escape", "preflight", "The selected path is outside the repository root.", input);
-          emitEffectFailure(output, global2, failure);
+          emitEffectFailure(output, global3, failure);
           return 1;
         }
         converted.push(path);
@@ -17503,10 +19320,10 @@ var commitCommand = {
       paths = converted;
     }
     paths = [...new Set(paths)];
-    const legacyPaths = flags2.all ? [...paths] : paths.map((path) => join18(root, ...path.split("/")));
+    const legacyPaths = flags2.all ? [...paths] : paths.map((path) => join19(root, ...path.split("/")));
     if (!paths.length) {
       const failure = localEffectError("commit_paths", "invalid_request", "preflight", "Refusing to commit with no paths. Name paths or use --all.");
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     let trailers;
@@ -17514,7 +19331,7 @@ var commitCommand = {
       trailers = parseTrailerFlags(flags2);
     } catch (error) {
       const failure = localEffectError("commit_paths", "invalid_trailers", "preflight", error instanceof Error ? error.message : String(error));
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     let identity;
@@ -17522,7 +19339,7 @@ var commitCommand = {
       identity = await resolveIdentity(root, flags2);
     } catch (error) {
       const failure = localEffectError("commit_paths", "invalid_identity", "preflight", error instanceof Error ? error.message : String(error));
-      emitEffectFailure(output, global2, failure);
+      emitEffectFailure(output, global3, failure);
       return 1;
     }
     const selected = [];
@@ -17530,7 +19347,7 @@ var commitCommand = {
       const read2 = await pathRevision(root, path, localEffectCapabilities.git, localEffectCapabilities.filesystem);
       if (read2.status === "error") {
         const failure = localEffectError("commit_paths", read2.code, read2.phase, read2.message, read2.path, read2.detail);
-        emitEffectFailure(output, global2, failure);
+        emitEffectFailure(output, global3, failure);
         return 1;
       }
       selected.push({ path, expected_revision: read2.revision });
@@ -17545,7 +19362,7 @@ var commitCommand = {
       committer: identity
     }, localEffectCapabilities);
     if (result.status !== "ok") {
-      emitEffectFailure(output, global2, result);
+      emitEffectFailure(output, global3, result);
       return 1;
     }
     output.result({
@@ -17581,8 +19398,8 @@ var changeCommand = {
     'ideaspaces change new "auth session model"',
     "ideaspaces change new --handle surface-collapse --json"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const sub = args2[0];
     if (sub === "new")
       return cmdNew(args2.slice(1), flags2, output);
@@ -17595,7 +19412,7 @@ var changeCommand = {
 init_dist();
 init_contract_source();
 import { existsSync as existsSync10, statSync as statSync4 } from "node:fs";
-import { dirname as dirname8, join as join22, relative as relative11, resolve as resolve17, sep as sep8 } from "node:path";
+import { dirname as dirname8, join as join23, relative as relative11, resolve as resolve17, sep as sep8 } from "node:path";
 
 // dist/local-map-root.js
 init_credentials();
@@ -17641,14 +19458,14 @@ init_dist();
 init_contract_source();
 init_git2();
 import { spawnSync as spawnSync7 } from "node:child_process";
-import { mkdirSync as mkdirSync3, mkdtempSync, realpathSync as realpathSync5, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { mkdirSync as mkdirSync4, mkdtempSync, realpathSync as realpathSync5, rmSync as rmSync2, writeFileSync as writeFileSync5 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename as basename7, dirname as dirname6, join as join19 } from "node:path";
+import { basename as basename7, dirname as dirname6, join as join20 } from "node:path";
 var COMMIT_READ_MAX_BYTES = 32 * 1024 * 1024;
 async function lookAtCommit(target, options) {
   const wholeTree = target.kind === "directory" && (options.depth === "children" || options.depth === "full" || options.postId !== void 0);
   return withSnapshot(target, wholeTree, async (dir) => {
-    const position = join19(dir, target.position);
+    const position = join20(dir, target.position);
     const request2 = {
       position,
       depth: options.depth,
@@ -17678,7 +19495,7 @@ async function focusAtCommit(target, contractSource) {
   if (target.kind !== "directory")
     return { status: "not_content", reason: `${target.position} is not a directory.` };
   return withSnapshot(target, true, async (dir) => {
-    const position = join19(dir, target.position);
+    const position = join20(dir, target.position);
     let focus = await assembleContentFocus({ position, ...contractSource ? { contractSource } : {} });
     if (focus?.status === "contract_choice_required" && !contractSource) {
       const preferred = preferredContractSource(focus.availableSources);
@@ -17694,10 +19511,10 @@ async function focusAtCommit(target, contractSource) {
   });
 }
 async function withSnapshot(target, wholeTree, read2) {
-  const parent = realpathSync5.native(mkdtempSync(join19(tmpdir(), "ideaspaces-commit-read-")));
-  const dir = join19(parent, basename7(target.checkoutPath) || "root");
+  const parent = realpathSync5.native(mkdtempSync(join20(tmpdir(), "ideaspaces-commit-read-")));
+  const dir = join20(parent, basename7(target.checkoutPath) || "root");
   try {
-    mkdirSync3(dir);
+    mkdirSync4(dir);
     const written = writeSnapshot(target, wholeTree, dir);
     if (written)
       return written;
@@ -17740,7 +19557,7 @@ function writeSnapshot(target, wholeTree, dir) {
       files.push({ path, object: match[2] });
   }
   if (kind === "directory")
-    mkdirSync3(join19(dir, position), { recursive: true });
+    mkdirSync4(join20(dir, position), { recursive: true });
   if (!files.length) {
     return initRepository(dir);
   }
@@ -17767,9 +19584,9 @@ function writeSnapshot(target, wholeTree, dir) {
     const start = newline + 1;
     if (start + size > out.length)
       return { status: "git_error", reason: `git cat-file ended inside ${file2.path} at ${commit}.` };
-    const destination = join19(dir, file2.path);
-    mkdirSync3(dirname6(destination), { recursive: true });
-    writeFileSync4(destination, out.subarray(start, start + size));
+    const destination = join20(dir, file2.path);
+    mkdirSync4(dirname6(destination), { recursive: true });
+    writeFileSync5(destination, out.subarray(start, start + size));
     offset = start + size + 1;
   }
   return initRepository(dir);
@@ -18010,8 +19827,8 @@ var lookCommand = {
     "ideaspaces look @home//_threads/decision/msg_75cc2f37 --map thread.map.md --at pin --depth full",
     "ideaspaces look . --contract foundation --depth summary"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     if ((args2.length !== 1 || !args2[0]?.trim()) && !(args2.length === 0 && typeof flags2.post === "string" && flags2.post.trim())) {
       output.error(`Usage: ${USAGE2}`);
       return 1;
@@ -18096,10 +19913,10 @@ var lookCommand = {
           ...order ? { order } : {},
           ...postId ? { postId } : {}
         });
-        return emit(output, global2.json, read2.ok, read2.data, read2.text);
+        return emit(output, global3.json, read2.ok, read2.data, read2.text);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        return emit(output, global2.json, false, { source: "map", address: raw, status: "read_error", reason }, `Cannot read Map address ${raw}: ${reason}`);
+        return emit(output, global3.json, false, { source: "map", address: raw, status: "read_error", reason }, `Cannot read Map address ${raw}: ${reason}`);
       }
     }
     if (flags2.map !== void 0 || flags2.at !== void 0) {
@@ -18108,7 +19925,7 @@ var lookCommand = {
     }
     const path = resolve17(raw);
     if (flags2.pin !== void 0) {
-      return lookAtPin(output, global2.json, raw, flags2.pin, {
+      return lookAtPin(output, global3.json, raw, flags2.pin, {
         depth: depth2,
         ...selected.source ? { contractSource: selected.source } : {},
         ...limit !== void 0 ? { limit } : {},
@@ -18146,7 +19963,7 @@ var lookCommand = {
     }
     if (looked.status !== "ok") {
       if ("postId" in looked) {
-        return emit(output, global2.json, false, { status: looked.status, post_id: looked.postId, position: looked.position, reason: looked.reason }, `Cannot select post ${looked.postId}: ${looked.reason}`);
+        return emit(output, global3.json, false, { status: looked.status, post_id: looked.postId, position: looked.position, reason: looked.reason }, `Cannot select post ${looked.postId}: ${looked.reason}`);
       }
       output.error(renderContentLook(looked));
       return 1;
@@ -18315,7 +20132,7 @@ function observedPaths(looked) {
   const { target } = looked;
   const paths = [target.position];
   if (target.kind === "directory") {
-    if (existsSync10(join22(target.path, "README.md"))) {
+    if (existsSync10(join23(target.path, "README.md"))) {
       paths.push(target.position === "." ? "README.md" : `${target.position}/README.md`);
     }
     for (const child of target.children ?? []) {
@@ -18355,7 +20172,7 @@ import { spawnSync as spawnSync9 } from "node:child_process";
 init_dist();
 import { existsSync as existsSync11, statSync as statSync5 } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { basename as basename8, join as join23, resolve as resolvePath } from "node:path";
+import { basename as basename8, join as join24, resolve as resolvePath } from "node:path";
 var AUTOCOMPLETE_EXCLUDES = [".git", "node_modules", "backups", ".pi", ".claude"];
 var MAX_CATALOG_REPOS = 20;
 function directoryDetails(count) {
@@ -18431,7 +20248,7 @@ function catalogInput(repository, root, pov, mounts) {
 async function catalogCandidates(workspaceFolder) {
   try {
     const entries = await readdir(workspaceFolder, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name)).map((entry) => join23(workspaceFolder, entry.name)).filter((root) => existsSync11(join23(root, ".git"))).sort((left, right) => basename8(left).localeCompare(basename8(right)));
+    return entries.filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name)).map((entry) => join24(workspaceFolder, entry.name)).filter((root) => existsSync11(join24(root, ".git"))).sort((left, right) => basename8(left).localeCompare(basename8(right)));
   } catch {
     return [];
   }
@@ -18539,8 +20356,8 @@ var navigateCommand = {
     "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
     "ideaspaces navigate --workspace . --pullable team:acme.com,notes:alice --no-git --json  # + remote tier; caller renders its own state"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const selected = contractSourceFlag(flags2.contract);
     if (selected.error) {
       output.error(selected.error);
@@ -18569,7 +20386,7 @@ var navigateCommand = {
         ...at ? { at } : {},
         ...selected.source ? { contractSource: selected.source } : {}
       });
-      if (read2.ok || global2.json)
+      if (read2.ok || global3.json)
         output.result({ ...read2.data, ok: read2.ok }, read2.text);
       if (read2.ok)
         return 0;
@@ -19128,12 +20945,12 @@ async function resolveSpaceBinding(dir, config) {
     return { failure: "unreachable" };
   }
   const gitBase = deriveGitBase(config.apiUrl);
-  const matches = me.repos.filter((repo2) => repoKeys(repo2, me, gitBase, config.apiUrl).includes(originKey));
-  if (matches.length > 1)
+  const matches2 = me.repos.filter((repo2) => repoKeys(repo2, me, gitBase, config.apiUrl).includes(originKey));
+  if (matches2.length > 1)
     return { failure: "ambiguous" };
-  if (matches.length === 0)
+  if (matches2.length === 0)
     return { failure: "no-match" };
-  const repo = matches[0];
+  const repo = matches2[0];
   if (!repo.root_node_id)
     return { failure: "no-match" };
   try {
@@ -19611,9 +21428,9 @@ async function runMapSelection(args2, flags2, _global, output) {
           if (tree.root_node_id !== binding.rootNodeId) {
             throw new Error("The hosted Content tree returned a different root identity");
           }
-          const matches = tree.children.filter((child) => child.path === position && child.type === "file" && child.node_type === "note" && child.node_id);
-          if (matches.length === 1 && matches[0].node_id) {
-            targetNodeId = matches[0].node_id;
+          const matches2 = tree.children.filter((child) => child.path === position && child.type === "file" && child.node_type === "note" && child.node_id);
+          if (matches2.length === 1 && matches2[0].node_id) {
+            targetNodeId = matches2[0].node_id;
           } else {
             throw new Error("The selected Map Note is absent or ambiguous in the hosted index. Pass --about <node_id>.");
           }
@@ -19624,11 +21441,11 @@ async function runMapSelection(args2, flags2, _global, output) {
           output.error("--note-depth must be name, summary, surface, children, or full");
           return 1;
         }
-        const hostname = canonicalHostname(flags2);
+        const hostname2 = canonicalHostname(flags2);
         const parent = posix.dirname(position) === "." ? "" : posix.dirname(position);
         const [tree, entity] = await Promise.all([
           fetchContentTree(config, binding.rootNodeId, parent, { timeoutMs: MAP_TREE_READ_TIMEOUT_MS }),
-          hostname ? fetchEntity(config, "hostname", hostname) : Promise.resolve(null)
+          hostname2 ? fetchEntity(config, "hostname", hostname2) : Promise.resolve(null)
         ]);
         if (tree.root_node_id !== binding.rootNodeId) {
           throw new Error("The hosted Content tree returned a different root identity");
@@ -19636,15 +21453,15 @@ async function runMapSelection(args2, flags2, _global, output) {
         if (!tree.hosted_history_available) {
           throw new Error("Hosted history is not available for this Space. Share history before selecting an exact Note.");
         }
-        const matches = tree.children.filter((child) => child.path === position && child.type === "file" && child.node_type === "note" && child.node_id);
-        if (matches.length !== 1) {
+        const matches2 = tree.children.filter((child) => child.path === position && child.type === "file" && child.node_type === "note" && child.node_id);
+        if (matches2.length !== 1) {
           throw new Error("The selected Note is absent or ambiguous in the hosted index. Push and wait for indexing, then retry.");
         }
-        if (entity && (entity.entity_type !== "hostname" || entity.entity_key !== hostname)) {
+        if (entity && (entity.entity_type !== "hostname" || entity.entity_key !== hostname2)) {
           throw new Error("The hosted entity response does not match the selected hostname");
         }
         if (!targetNodeId) {
-          targetNodeId = matches[0].node_id ?? void 0;
+          targetNodeId = matches2[0].node_id ?? void 0;
         }
         const observedNote = noteDisclosure(committed, position);
         const noteObserved = selectedNoteDepth === "name" ? { name: observedNote.name } : observedNote;
@@ -19662,10 +21479,10 @@ async function runMapSelection(args2, flags2, _global, output) {
             disclosure: noteObserved
           }
         ];
-        if (hostname && entity) {
+        if (hostname2 && entity) {
           const entityObserved = selectedEntityDepth === "name" ? { name: entity.name } : { name: entity.name, summary: entity.summary };
           members.push({
-            address: `hostname:${hostname}`,
+            address: `hostname:${hostname2}`,
             depth: selectedEntityDepth,
             ...annotation2(flags2, "entity"),
             disclosure: entityObserved
@@ -19705,7 +21522,7 @@ init_spaces();
 init_map_checkouts();
 init_git2();
 init_space_map();
-import { createHash as createHash4, randomUUID as randomUUID4 } from "node:crypto";
+import { createHash as createHash6, randomUUID as randomUUID6 } from "node:crypto";
 import { promises as fs11, realpathSync as realpathSync9 } from "node:fs";
 import { basename as basename11, dirname as dirname10, resolve as resolve20 } from "node:path";
 var USAGE3 = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>] | --checkout <repo> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address|@root//position> [--if-match <file_sha>]\n       ideaspaces map remove <map-note> --root-node-id <id> --position <path>\n       ideaspaces map remove <map-note> --root-node-id <id>  # remove an empty root explicitly";
@@ -19714,7 +21531,7 @@ function value(flags2, key2) {
   return typeof v === "string" && v.trim() ? v.trim() : void 0;
 }
 function hash(content) {
-  return createHash4("sha256").update(content).digest("hex");
+  return createHash6("sha256").update(content).digest("hex");
 }
 function validFile(path) {
   return basename11(path) === "README.md" || basename11(path).endsWith(".map.md");
@@ -19755,7 +21572,7 @@ async function locked(file2, action, warn) {
   return result;
 }
 async function replace(file2, content) {
-  const temp = resolve20(dirname10(file2), `.${basename11(file2)}.${randomUUID4()}.tmp`);
+  const temp = resolve20(dirname10(file2), `.${basename11(file2)}.${randomUUID6()}.tmp`);
   try {
     const mode = (await fs11.stat(file2)).mode & 511;
     await fs11.writeFile(temp, content, { flag: "wx", mode });
@@ -19809,11 +21626,11 @@ function memberFrom(args2, flags2, roots) {
       throw new Error(roots.length === 0 ? "Map has no roots. Supply --root-node-id <id> or --checkout <repo> to add one." : `Root index ${existingRoot} is not in this Map (0..${roots.length - 1}).`);
     }
     if (id) {
-      const matches = roots.flatMap((entry, index) => rootIdentity2(entry) === id ? [index] : []);
-      if (matches.length > 1)
+      const matches2 = roots.flatMap((entry, index) => rootIdentity2(entry) === id ? [index] : []);
+      if (matches2.length > 1)
         throw new Error(`Root ${id} occurs more than once; reconcile this Map before adding another member.`);
-      if (matches.length === 1) {
-        root = matches[0];
+      if (matches2.length === 1) {
+        root = matches2[0];
         if (roots[root].sha !== sha)
           throw new Error(`Root ${id} is ${roots[root].sha ? `pinned to ${roots[root].sha}` : "unpinned"}, but this add requested ${sha ?? "no pin"}. Select its existing index with --root or use a matching --sha.`);
       }
@@ -19838,10 +21655,10 @@ function memberFrom(args2, flags2, roots) {
   } };
 }
 function removeEmptyRoot(doc, seq, map, id) {
-  const matches = map.roots.flatMap((root, i) => rootIdentity2(root) === id ? [i] : []);
-  if (matches.length !== 1)
-    throw new Error(`Root ${id} is ${matches.length ? "ambiguous" : "not in this Map"}; choose one valid identity.`);
-  const index = matches[0];
+  const matches2 = map.roots.flatMap((root, i) => rootIdentity2(root) === id ? [i] : []);
+  if (matches2.length !== 1)
+    throw new Error(`Root ${id} is ${matches2.length ? "ambiguous" : "not in this Map"}; choose one valid identity.`);
+  const index = matches2[0];
   if (map.members.some((entry) => "root" in entry && entry.root === index)) {
     throw new Error(`Root ${id} still has members. Remove those pointers first; roots are never removed implicitly.`);
   }
@@ -19874,17 +21691,17 @@ function resolveRemoveTarget(requested, map, match, file2) {
     if (resolved.status === "unresolved" && address.address.root.kind !== "identity") {
       throw new Error(`Cannot remove ${requested}: root is not in this Map. Check the root name or identity.`);
     }
-    const matches2 = resolved.status === "resolved" ? map.members.flatMap((entry, i) => "root" in entry && entry.root === resolved.rootIndex && entry.position === resolved.position ? [i] : []) : [];
-    if (matches2.length > 1)
-      throw new Error(`Position ${requested} matches multiple members (${matches2.join(", ")}); remove by index with --if-match.`);
-    return matches2[0] ?? -1;
+    const matches3 = resolved.status === "resolved" ? map.members.flatMap((entry, i) => "root" in entry && entry.root === resolved.rootIndex && entry.position === resolved.position ? [i] : []) : [];
+    if (matches3.length > 1)
+      throw new Error(`Position ${requested} matches multiple members (${matches3.join(", ")}); remove by index with --if-match.`);
+    return matches3[0] ?? -1;
   }
   if (requested.startsWith("@") || requested.startsWith("//"))
     throw new Error(`Invalid position address ${requested}: ${address.code}. Use @<root-node-id>//<position>.`);
-  const matches = map.members.flatMap((entry, i) => "address" in entry && entry.address === requested ? [i] : []);
-  if (matches.length > 1)
-    throw new Error(`Address ${requested} matches multiple members (${matches.join(", ")}); remove by index with --if-match.`);
-  return matches[0] ?? -1;
+  const matches2 = map.members.flatMap((entry, i) => "address" in entry && entry.address === requested ? [i] : []);
+  if (matches2.length > 1)
+    throw new Error(`Address ${requested} matches multiple members (${matches2.join(", ")}); remove by index with --if-match.`);
+  return matches2[0] ?? -1;
 }
 var MAP_EDIT_USAGE = USAGE3;
 async function appendAddressMemberToMapFile(rawPath, address, depth2 = "summary") {
@@ -19928,8 +21745,8 @@ async function appendAddressMemberToMapFile(rawPath, address, depth2 = "summary"
   }, () => {
   });
 }
-async function runMapEdit(args2, flags2, global2) {
-  const output = createOutput(global2);
+async function runMapEdit(args2, flags2, global3) {
+  const output = createOutput(global3);
   const [verb, raw, ...members] = args2;
   if (!raw || !["create", "add", "remove"].includes(verb) || !validFile(raw)) {
     output.error(`Usage: ${USAGE3}`);
@@ -20112,13 +21929,13 @@ var mapCommand = {
     "ideaspaces map ../research --depth 2 --json",
     "ideaspaces map ../research --depth full --json  # complete local Content tree"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     if (args2[0] === "select") {
-      return runMapSelection(args2.slice(1), flags2, global2, output);
+      return runMapSelection(args2.slice(1), flags2, global3, output);
     }
     if (["create", "add", "remove"].includes(args2[0])) {
-      return runMapEdit(args2, flags2, global2);
+      return runMapEdit(args2, flags2, global3);
     }
     const depth2 = parseDepth2(flags2.depth);
     if (depth2 === null) {
@@ -20479,9 +22296,9 @@ function formatHuman(inspection, truncation) {
     text = inspection.markdown;
   } else {
     const label = inspection.status === "ambiguous" ? "Ambiguous heading" : "Heading not found";
-    const matches = inspection.matches.length ? `
+    const matches2 = inspection.matches.length ? `
 ${inspection.matches.map(formatHeading).join("\n")}` : "";
-    text = `${label}: ${inspection.query.heading}${matches}`;
+    text = `${label}: ${inspection.query.heading}${matches2}`;
   }
   if (!truncation.truncated)
     return text;
@@ -20500,8 +22317,8 @@ var inspectCommand = {
     'ideaspaces inspect work/Next.md --mode section --heading "Current priority"',
     'ideaspaces inspect work/Next.md --mode section --heading "Review" --occurrence 2 --json'
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const rawPath = args2[0];
     if (!rawPath || args2.length !== 1) {
       output.error(`Usage: ${USAGE4}`);
@@ -20558,6 +22375,7 @@ init_root_identity2();
 // dist/commands/whoami.js
 init_credentials();
 init_api();
+init_client_session();
 var whoamiCommand = {
   name: "whoami",
   description: "Show login state \u2014 legacy name for `status account`",
@@ -20566,12 +22384,28 @@ var whoamiCommand = {
     "ideaspaces status account",
     "ideaspaces status account --json"
   ],
-  async run(_args, _flags, global2) {
-    const output = createOutput(global2);
+  async run(_args, _flags, global3) {
+    const output = createOutput(global3);
     const config = loadConfig();
     if (!config) {
       output.result({ logged_in: false }, "Not logged in. Run `ideaspaces login`.");
       return 0;
+    }
+    if (config.sessionId) {
+      try {
+        const me = await fetchAuthMe(config);
+        if (me.username)
+          await cacheSessionUsername(config, me.username);
+        output.result({ logged_in: true, api_url: config.apiUrl, username: me.username ?? null }, `Logged in to ${config.apiUrl}${me.username ? ` as @${me.username}` : ""}.`);
+        return 0;
+      } catch (error) {
+        if (error instanceof UnauthorizedError || error instanceof SessionAuthError) {
+          output.result({ logged_in: false }, "Not signed in. Run `ideaspaces login`.");
+          return 0;
+        }
+        output.error("Could not verify this sign-in. Check your connection and retry; local credentials were kept.");
+        return 1;
+      }
     }
     let username = config.username ?? null;
     if (!username) {
@@ -20582,7 +22416,11 @@ var whoamiCommand = {
           const me = await fetchAuthMe(config);
           username = me.username ?? null;
           if (username)
-            saveCredentials({ ...stored, username });
+            await withCredentialsLock(async () => {
+              const current = loadStoredCredentials();
+              if (current && !current.session && current.api_key === stored.api_key && current.api_url === stored.api_url)
+                saveCredentials({ ...current, username });
+            });
         } catch {
         }
       }
@@ -20610,8 +22448,8 @@ var statusCommand = {
     "ideaspaces status account  # login state (legacy name: whoami)",
     "ideaspaces status doctor   # installation health (legacy name: doctor)"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const section = args2[0];
     if (section !== void 0) {
       const command2 = Object.hasOwn(STATUS_SECTIONS, section) ? STATUS_SECTIONS[section] : void 0;
@@ -20619,7 +22457,7 @@ var statusCommand = {
         output.error(`Unknown status section: ${section} (expected account or doctor)`);
         return 1;
       }
-      return command2.run(args2.slice(1), flags2, global2);
+      return command2.run(args2.slice(1), flags2, global3);
     }
     let root;
     try {
@@ -20637,7 +22475,7 @@ var statusCommand = {
       }
       const read2 = await pathRevision(root, portablePath, localEffectCapabilities.git, localEffectCapabilities.filesystem);
       if (read2.status === "error") {
-        if (global2.json)
+        if (global3.json)
           output.result(read2, "");
         else
           output.error(`${read2.message}${read2.path ? ` (${read2.path})` : ""}`);
@@ -20894,8 +22732,8 @@ var syncCommand = {
     "ideaspaces sync",
     "ideaspaces sync --limit 5 # print 5 entries; source lookup still checks its bounded 100-commit window"
   ],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const limit = limitFlag(flags2.limit);
     let root;
     try {
@@ -21105,8 +22943,8 @@ var pushCommand = {
   description: "Send committed captures to the remote",
   usage: "ideaspaces push [--dry-run]",
   examples: ["ideaspaces push", "ideaspaces push --dry-run"],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const dryRun = Boolean(flags2["dry-run"]);
     let root;
     try {
@@ -21176,8 +23014,8 @@ var pullCommand = {
   description: "Integrate remote changes into the local ideaspace \u2014 what `integrate` runs for a clone",
   usage: "ideaspaces pull [--dry-run] [--rebase=false]",
   examples: ["ideaspaces pull", "ideaspaces pull --dry-run", "ideaspaces pull --rebase=false"],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const dryRun = Boolean(flags2["dry-run"]);
     const useRebase = parseBool(flags2.rebase, true);
     let root;
@@ -21260,7 +23098,7 @@ init_git2();
 import { promises as fs12 } from "node:fs";
 import { existsSync as existsSync13 } from "node:fs";
 import { spawnSync as spawnSync11 } from "node:child_process";
-import { dirname as dirname12, join as join24, relative as relative14, sep as sep10 } from "node:path";
+import { dirname as dirname12, join as join25, relative as relative14, sep as sep10 } from "node:path";
 var GENERATED_MARKER = "ideaspaces:generated skill pointer";
 var MARKER_LINE = `<!-- ${GENERATED_MARKER} \u2014 edit the canonical skill, then re-run \`ideaspaces skills sync\` -->`;
 var PORTABLE_FIELDS = ["description", "license", "compatibility", "metadata", "allowed-tools"];
@@ -21290,9 +23128,9 @@ async function syncSkillPointers(position, opts = {}) {
   for (const level of await collectSkillLevels(root)) {
     const entries = await discoverSkillEntries([level]);
     const wanted = new Set(entries.map((e) => e.name));
-    const pointerRoot = join24(level, ".claude", "skills");
+    const pointerRoot = join25(level, ".claude", "skills");
     for (const entry of entries) {
-      const target = join24(pointerRoot, entry.name, "SKILL.md");
+      const target = join25(pointerRoot, entry.name, "SKILL.md");
       const desired = await renderPointer(entry.name, entry.path, dirname12(target));
       const rel = relative14(root, target);
       if (existsSync13(target)) {
@@ -21324,7 +23162,7 @@ async function syncSkillPointers(position, opts = {}) {
     for (const name of pointerDirs) {
       if (wanted.has(name))
         continue;
-      const target = join24(pointerRoot, name, "SKILL.md");
+      const target = join25(pointerRoot, name, "SKILL.md");
       let existing;
       try {
         existing = await fs12.readFile(target, "utf-8");
@@ -21336,7 +23174,7 @@ async function syncSkillPointers(position, opts = {}) {
       report.removed.push(relative14(root, target));
       if (!check) {
         await fs12.rm(target);
-        await fs12.rmdir(join24(pointerRoot, name)).catch(() => {
+        await fs12.rmdir(join25(pointerRoot, name)).catch(() => {
         });
       }
     }
@@ -21350,7 +23188,7 @@ async function collectSkillLevels(root) {
   async function walk(dir, isRoot) {
     if (!isRoot && await startsNestedSpace(dir))
       return;
-    if (existsSync13(join24(dir, "_agent", "skills")))
+    if (existsSync13(join25(dir, "_agent", "skills")))
       levels.push(dir);
     let dirents;
     try {
@@ -21363,17 +23201,17 @@ async function collectSkillLevels(root) {
         continue;
       if (e.name.startsWith(".") || e.name.startsWith("_") || e.name === "node_modules")
         continue;
-      await walk(join24(dir, e.name), false);
+      await walk(join25(dir, e.name), false);
     }
   }
   await walk(root, true);
   return levels;
 }
 async function startsNestedSpace(dir) {
-  if (existsSync13(join24(dir, "_agent", "foundation.md")))
+  if (existsSync13(join25(dir, "_agent", "foundation.md")))
     return true;
   try {
-    const agreement = await fs12.readFile(join24(dir, "_agent", "agreement.md"), "utf-8");
+    const agreement = await fs12.readFile(join25(dir, "_agent", "agreement.md"), "utf-8");
     const rootNodeId = parseFrontmatter(agreement)?.root_node_id;
     return isValidRootNodeId(rootNodeId);
   } catch {
@@ -21406,7 +23244,7 @@ async function renderPointer(name, canonicalPath, pointerDir) {
   ].join("\n");
 }
 function agentIsGitignored(level) {
-  const r = spawnSync11(gitBinary(), ["-C", level, "check-ignore", "-q", join24(level, "_agent", "skills")], {
+  const r = spawnSync11(gitBinary(), ["-C", level, "check-ignore", "-q", join25(level, "_agent", "skills")], {
     encoding: "utf-8",
     env: sanitizedGitEnvironment()
   });
@@ -21424,8 +23262,8 @@ var skillsCommand = {
     "ideaspaces skills sync          # generate/refresh .claude/skills pointers",
     "ideaspaces skills sync --check  # report drift without writing; exit 3 when stale"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const name = args2[0];
     if (name === "sync") {
       if (args2.length > 1) {
@@ -21476,6 +23314,7 @@ Run \`ideaspaces skills\` to list available skills.` : msg);
 
 // dist/commands/credential.js
 init_credentials();
+init_client_session();
 var credentialCommand = {
   name: "credential",
   description: "Git credential helper (invoked by git \u2014 usually not run directly)",
@@ -21499,10 +23338,11 @@ async function handleGet() {
   if (!isIdeaspacesHost(params.host)) {
     return 0;
   }
-  const config = loadConfig();
-  if (!config) {
+  const loaded = loadConfig();
+  if (!loaded) {
     return 0;
   }
+  const config = await resolveSessionConfig(loaded);
   const username = params.username && params.username.length > 0 ? params.username : "token";
   const reply2 = [
     `username=${username}`,
@@ -21555,8 +23395,8 @@ var reposCommand = {
     "ideaspaces repos",
     "ideaspaces repos --json"
   ],
-  async run(_args, _flags, global2) {
-    const output = createOutput(global2);
+  async run(_args, _flags, global3) {
+    const output = createOutput(global3);
     const config = loadConfig();
     if (!config) {
       output.error("Not logged in. Run `ideaspaces login`.");
@@ -21759,8 +23599,8 @@ var catalogCommand = {
     "ideaspaces catalog --json",
     "ideaspaces catalog --fetch  # refresh remotes first, so ahead/behind reflect the server"
   ],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const config = loadConfig();
     let me = null;
     const notes = [];
@@ -21819,8 +23659,8 @@ var cloneCommand = {
     "ideaspaces clone https://ideaspaces.xyz/repos/n_0123456789abcdef01234567",
     "ideaspaces clone alice/notes ./n       # legacy compatibility locator"
   ],
-  async run(args2, _flags, global2) {
-    const output = createOutput(global2);
+  async run(args2, _flags, global3) {
+    const output = createOutput(global3);
     const target = args2[0];
     if (!target) {
       output.error("Usage: ideaspaces clone <space> [dir]");
@@ -21852,22 +23692,22 @@ var cloneCommand = {
         return 1;
       }
     }
-    const matches = me.repos.filter((r) => {
+    const matches2 = me.repos.filter((r) => {
       if (rootNodeId)
         return r.root_node_id === rootNodeId;
       const namespace2 = repoRouteNamespace(r, me.username);
       const slug2 = repoDisplaySlug(r);
       return r.repo_id === target || slug2 === target || `${namespace2}/${slug2}` === target;
     });
-    if (!rootNodeId && matches.length === 0) {
+    if (!rootNodeId && matches2.length === 0) {
       output.error(`No space matches "${target}" in your account catalog. Run \`ideaspaces repos\` to list yours.`);
       return 1;
     }
-    if (matches.length > 1) {
+    if (matches2.length > 1) {
       output.error(`"${target}" is ambiguous \u2014 use its canonical Space URL.`);
       return 1;
     }
-    const repo = matches[0];
+    const repo = matches2[0];
     if (!rootNodeId && repo && !hasRootAction(repo, "clone")) {
       output.error(`Space "${target}" is in your account catalog but does not allow clone.`);
       return 1;
@@ -21948,18 +23788,18 @@ init_api();
 init_credentials();
 init_spaces();
 import { spawnSync as spawnSync13 } from "node:child_process";
-import { existsSync as existsSync15, mkdirSync as mkdirSync6, mkdtempSync as mkdtempSync3, renameSync as renameSync4, rmSync as rmSync5, statSync as statSync9, writeFileSync as writeFileSync7 } from "node:fs";
-import { basename as basename13, dirname as dirname14, join as join26, resolve as resolve25 } from "node:path";
+import { existsSync as existsSync15, mkdirSync as mkdirSync7, mkdtempSync as mkdtempSync3, renameSync as renameSync5, rmSync as rmSync5, statSync as statSync9, writeFileSync as writeFileSync8 } from "node:fs";
+import { basename as basename13, dirname as dirname14, join as join27, resolve as resolve25 } from "node:path";
 
 // dist/fork-update.js
 init_dist();
 var import_yaml7 = __toESM(require_dist(), 1);
 init_config_dir();
 import { spawnSync as spawnSync12 } from "node:child_process";
-import { createHash as createHash5, randomUUID as randomUUID5 } from "node:crypto";
-import { existsSync as existsSync14, lstatSync, mkdirSync as mkdirSync5, mkdtempSync as mkdtempSync2, readFileSync as readFileSync8, realpathSync as realpathSync11, renameSync as renameSync3, rmSync as rmSync4, unlinkSync as unlinkSync2, writeFileSync as writeFileSync6 } from "node:fs";
+import { createHash as createHash7, randomUUID as randomUUID7 } from "node:crypto";
+import { existsSync as existsSync14, lstatSync, mkdirSync as mkdirSync6, mkdtempSync as mkdtempSync2, readFileSync as readFileSync9, realpathSync as realpathSync11, renameSync as renameSync4, rmSync as rmSync4, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname13, isAbsolute as isAbsolute9, join as join25, relative as relative15, resolve as resolve24, sep as sep11 } from "node:path";
+import { dirname as dirname13, isAbsolute as isAbsolute9, join as join26, relative as relative15, resolve as resolve24, sep as sep11 } from "node:path";
 
 // dist/fork-paths.js
 function isExactAssetPayloadParts(parts) {
@@ -22117,17 +23957,17 @@ function readLocalBuffer(path, root) {
   }
   let cursor = root;
   for (const part of rel.split(sep11)) {
-    cursor = join25(cursor, part);
+    cursor = join26(cursor, part);
     if (!existsSync14(cursor))
       break;
     if (lstatSync(cursor).isSymbolicLink()) {
       throw new Error(`Refusing to follow a symbolic link in update path: ${path}`);
     }
   }
-  return existsSync14(absolute) ? readFileSync8(absolute) : null;
+  return existsSync14(absolute) ? readFileSync9(absolute) : null;
 }
 function assetRevision(content) {
-  return createHash5("sha256").update(content).digest("hex");
+  return createHash7("sha256").update(content).digest("hex");
 }
 function assetRevisions(assets) {
   return Object.fromEntries([...assets].sort((left, right) => left.path.localeCompare(right.path)).map((asset) => [asset.path, assetRevision(asset.content)]));
@@ -22214,20 +24054,20 @@ function planForkUpdate(baseline, incoming, root, incomingAssets = []) {
 }
 function writeTree(root, files) {
   for (const [path, content] of Object.entries(files)) {
-    const absolute = join25(root, path);
-    mkdirSync5(dirname13(absolute), { recursive: true });
-    writeFileSync6(absolute, content);
+    const absolute = join26(root, path);
+    mkdirSync6(dirname13(absolute), { recursive: true });
+    writeFileSync7(absolute, content);
   }
 }
 function applyForkUpdate(plan, root) {
   const changed = [...Object.keys(plan.writes), ...Object.keys(plan.asset_writes), ...plan.deletes];
   if (!changed.length)
     return;
-  const temp = mkdtempSync2(join25(tmpdir2(), "ideaspaces-update-"));
-  const beforeDir = join25(temp, "before");
-  const afterDir = join25(temp, "after");
-  mkdirSync5(beforeDir);
-  mkdirSync5(afterDir);
+  const temp = mkdtempSync2(join26(tmpdir2(), "ideaspaces-update-"));
+  const beforeDir = join26(temp, "before");
+  const afterDir = join26(temp, "after");
+  mkdirSync6(beforeDir);
+  mkdirSync6(afterDir);
   try {
     const before = {};
     const after = {};
@@ -22287,8 +24127,8 @@ function baselinePaths(root) {
     roots.add(canonical.slice("/private".length));
   }
   return [...roots].map((candidate) => {
-    const key2 = createHash5("sha256").update(candidate).digest("hex");
-    return join25(configDir(), "fork-baselines", `${key2}.json`);
+    const key2 = createHash7("sha256").update(candidate).digest("hex");
+    return join26(configDir(), "fork-baselines", `${key2}.json`);
   });
 }
 function loadForkBaseline(root) {
@@ -22296,18 +24136,18 @@ function loadForkBaseline(root) {
   if (!path)
     return null;
   try {
-    return JSON.parse(readFileSync8(path, "utf-8"));
+    return JSON.parse(readFileSync9(path, "utf-8"));
   } catch {
     throw new Error("The local fork update baseline is corrupt; no files were changed.");
   }
 }
 function saveForkBaseline(root, baseline) {
   const path = baselinePaths(root)[0];
-  mkdirSync5(dirname13(path), { recursive: true, mode: 448 });
-  const temp = `${path}.${process.pid}.${randomUUID5()}.tmp`;
+  mkdirSync6(dirname13(path), { recursive: true, mode: 448 });
+  const temp = `${path}.${process.pid}.${randomUUID7()}.tmp`;
   try {
-    writeFileSync6(temp, JSON.stringify(baseline) + "\n", { mode: 384 });
-    renameSync3(temp, path);
+    writeFileSync7(temp, JSON.stringify(baseline) + "\n", { mode: 384 });
+    renameSync4(temp, path);
   } finally {
     rmSync4(temp, { force: true });
   }
@@ -22578,19 +24418,19 @@ function destinationRootIdentity(markdown, sourceRootNodeId) {
 }
 function writeTree2(root, markdown, assets) {
   for (const [path, content] of Object.entries(markdown)) {
-    const absolute = join26(root, path);
-    mkdirSync6(dirname14(absolute), { recursive: true });
-    writeFileSync7(absolute, content, { encoding: "utf-8", flag: "wx" });
+    const absolute = join27(root, path);
+    mkdirSync7(dirname14(absolute), { recursive: true });
+    writeFileSync8(absolute, content, { encoding: "utf-8", flag: "wx" });
   }
   for (const asset of assets) {
-    const absolute = join26(root, asset.path);
-    mkdirSync6(dirname14(absolute), { recursive: true });
-    writeFileSync7(absolute, asset.content, { flag: "wx" });
+    const absolute = join27(root, asset.path);
+    mkdirSync7(dirname14(absolute), { recursive: true });
+    writeFileSync8(absolute, asset.content, { flag: "wx" });
   }
   const ignore = gitignoreWithDefaults(null, { privateAgent: false });
   if (ignore === null)
     throw new Error("Could not prepare local-only ignore rules");
-  writeFileSync7(join26(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
+  writeFileSync8(join27(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
 }
 function initializeImport(root) {
   runGit7(root, ["init", "-q", "-b", "main"]);
@@ -22638,12 +24478,12 @@ function installLocalFork(opts) {
   let installed = false;
   let baselineSaved = false;
   try {
-    temporary = mkdtempSync3(join26(parent, `.${basename13(destination)}.ideaspaces-fork-`));
+    temporary = mkdtempSync3(join27(parent, `.${basename13(destination)}.ideaspaces-fork-`));
     writeTree2(temporary, markdown, assets);
     initializeImport(temporary);
     if (existsSync15(destination))
       throw new Error(`${destination} appeared while the fork was being prepared`);
-    renameSync4(temporary, destination);
+    renameSync5(temporary, destination);
     temporary = null;
     installed = true;
     const baseline = {
@@ -22688,8 +24528,8 @@ var forkCommand = {
     "ideaspaces fork https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 ./manual",
     'ideaspaces fork https://ideaspaces.xyz/repos/n_0123456789abcdef01234567 ./manual --name "My manual"'
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const target = args2[0];
     if (!target || args2.length > 2) {
       output.error("Usage: ideaspaces fork <space-url> [dir] [--name <local-name>]");
@@ -22816,8 +24656,8 @@ var linkCommand = {
     "ideaspaces link ./theone                  # auto-detect from the git remote",
     "ideaspaces link ./theone alice/theone     # bind to a specific space"
   ],
-  async run(args2, _flags, global2) {
-    const output = createOutput(global2);
+  async run(args2, _flags, global3) {
+    const output = createOutput(global3);
     const dirArg = args2[0];
     if (!dirArg) {
       output.error("Usage: ideaspaces link <dir> [space]");
@@ -22859,20 +24699,20 @@ var linkCommand = {
     const target = args2[1];
     let repo;
     if (target) {
-      const matches = me.repos.filter((r) => {
+      const matches2 = me.repos.filter((r) => {
         const namespace2 = repoRouteNamespace(r, me.username);
         const slug = repoDisplaySlug(r);
         return r.repo_id === target || r.root_node_id === target || slug === target || `${namespace2}/${slug}` === target;
       });
-      if (matches.length === 0) {
+      if (matches2.length === 0) {
         output.error(`No space matches "${target}". Run \`ideaspaces repos\` to list yours.`);
         return 1;
       }
-      if (matches.length > 1) {
+      if (matches2.length > 1) {
         output.error(`"${target}" is ambiguous \u2014 use namespace/slug or the repo_id.`);
         return 1;
       }
-      repo = matches[0];
+      repo = matches2[0];
       if (!repoKeys(repo, me, gitBase, config.apiUrl).includes(originKey)) {
         const displaySlug2 = repoDisplaySlug(repo);
         const expected = repo.root_node_id ? canonicalGitUrl(config.apiUrl, repo.root_node_id) : `${gitBase}/${repoRouteNamespace(repo, me.username)}/${displaySlug2}.git`;
@@ -22881,17 +24721,17 @@ Expected a clone of ${expected}.`);
         return 1;
       }
     } else {
-      const matches = me.repos.filter((r) => repoKeys(r, me, gitBase, config.apiUrl).includes(originKey));
-      if (matches.length === 0) {
+      const matches2 = me.repos.filter((r) => repoKeys(r, me, gitBase, config.apiUrl).includes(originKey));
+      if (matches2.length === 0) {
         output.error(`${dir}'s origin (${origin}) isn't a clone of one of your spaces.
 Run \`ideaspaces repos\` to see them, or pass the space explicitly.`);
         return 1;
       }
-      if (matches.length > 1) {
+      if (matches2.length > 1) {
         output.error(`${dir}'s origin matches more than one space \u2014 name it: ideaspaces link <dir> <space>.`);
         return 1;
       }
-      repo = matches[0];
+      repo = matches2[0];
     }
     const namespace = repoRouteNamespace(repo, me.username) ?? repo.hostname ?? me.username;
     if (!namespace) {
@@ -23027,7 +24867,7 @@ function renderPlan(plan) {
 function quote(value2) {
   return /[\s"']/.test(value2) ? JSON.stringify(value2) : value2;
 }
-async function execute(mode, plan, args2, flags2, global2, output) {
+async function execute(mode, plan, args2, flags2, global3, output) {
   const chosen = plan.modes[mode];
   if (!chosen) {
     output.error(`--as ${mode} does not apply to ${plan.kind === "space" ? "a Space URL" : "a local folder"}.`);
@@ -23041,11 +24881,11 @@ ${renderPlan(plan)}`);
   const rest = args2.slice(1);
   switch (mode) {
     case "clone":
-      return cloneCommand.run([plan.address, ...rest], flags2, global2);
+      return cloneCommand.run([plan.address, ...rest], flags2, global3);
     case "fork":
-      return forkCommand.run([plan.address, ...rest], flags2, global2);
+      return forkCommand.run([plan.address, ...rest], flags2, global3);
     case "link":
-      return linkCommand.run([plan.address, ...rest], flags2, global2);
+      return linkCommand.run([plan.address, ...rest], flags2, global3);
   }
 }
 var getCommand = {
@@ -23059,8 +24899,8 @@ var getCommand = {
     "ideaspaces get ./theone --yes --as link                # bind an existing clone to the Space its origin names",
     "ideaspaces get ./theone alice/theone --yes --as link   # \u2026or to a named Space (link's second argument)"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const address = args2[0]?.trim();
     if (!address) {
       output.error(`Usage: ${USAGE5}`);
@@ -23071,7 +24911,7 @@ var getCommand = {
       output.error(`--as must be one of ${GET_MODES.join(", ")}`);
       return 1;
     }
-    if (as !== void 0 && !global2.yes) {
+    if (as !== void 0 && !global3.yes) {
       output.error("--as names the mode to run; add --yes to run it. Without --yes, get only shows the plan.");
       return 1;
     }
@@ -23091,7 +24931,7 @@ var getCommand = {
     }
     if (!plan)
       return 1;
-    if (!global2.yes) {
+    if (!global3.yes) {
       output.result(plan, renderPlan(plan));
       return 0;
     }
@@ -23100,7 +24940,7 @@ var getCommand = {
 ${renderPlan(plan)}`);
       return 1;
     }
-    return execute(as, plan, args2, flags2, global2, output);
+    return execute(as, plan, args2, flags2, global3, output);
   }
 };
 
@@ -23136,8 +24976,8 @@ var updateCommand = {
     "ideaspaces update       # preview source changes and conflicts",
     "ideaspaces update --yes # apply non-conflicting source changes"
   ],
-  async run(_args, _flags, global2) {
-    const output = createOutput(global2);
+  async run(_args, _flags, global3) {
+    const output = createOutput(global3);
     let root;
     try {
       root = repoRoot();
@@ -23205,7 +25045,7 @@ var updateCommand = {
     const registryNeeded = record.source_head !== prepared.sourceHead || !record.source_baseline_initialized;
     const changed = worktreeNeeded || baselineNeeded || registryNeeded;
     const result = {
-      apply: global2.yes,
+      apply: global3.yes,
       changed,
       worktree_changed: worktreeNeeded,
       source_head: prepared.sourceHead,
@@ -23214,7 +25054,7 @@ var updateCommand = {
       deletes: plan.deletes,
       conflicts: plan.conflicts
     };
-    if (!global2.yes) {
+    if (!global3.yes) {
       output.result(result, !changed ? plan.conflicts.length ? `Already up to date \u2014 ${plan.conflicts.length} unresolved conflict(s) remain.` : "Already up to date \u2014 no source changes to apply." : changes.length ? [
         `Source update ${prepared.sourceHead.slice(0, 12)} is ready:`,
         ...changes.map((change) => `  ${change}`),
@@ -23302,8 +25142,8 @@ var integrateCommand = {
     "ideaspaces integrate --yes        # integrate: pull a clone's upstream, or update a fork from its source",
     "ideaspaces integrate --yes --from source   # a published fork: take source changes instead of the upstream"
   ],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const requested = flags2.from;
     if (requested !== void 0 && requested !== "remote" && requested !== "source") {
       output.error("--from must be `remote` or `source`");
@@ -23323,10 +25163,10 @@ var integrateCommand = {
     }
     output.progress(`Integrating from ${plan.from}: ${plan.reason}${plan.also ? ` (\`--from ${plan.also}\` for the other)` : ""}`);
     if (plan.from === "remote") {
-      const pullFlags = global2.yes ? flags2 : { ...flags2, "dry-run": true };
-      return pullCommand.run([], pullFlags, global2);
+      const pullFlags = global3.yes ? flags2 : { ...flags2, "dry-run": true };
+      return pullCommand.run([], pullFlags, global3);
     }
-    return updateCommand.run([], flags2, global2);
+    return updateCommand.run([], flags2, global3);
   }
 };
 
@@ -23340,8 +25180,8 @@ var clonesCommand = {
     "ideaspaces clones",
     "ideaspaces clones --json"
   ],
-  async run(_args, _flags, global2) {
-    const output = createOutput(global2);
+  async run(_args, _flags, global3) {
+    const output = createOutput(global3);
     const clones = Object.entries(loadSpaces()).map(([path, record]) => isUnpublishedForkRecord(record) ? {
       path,
       state: "unpublished_fork",
@@ -23376,8 +25216,8 @@ var forgetCommand = {
     "ideaspaces forget ./theone            # remove the binding, keep the files",
     "ideaspaces forget ./theone --delete   # remove the binding AND delete the folder"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const dirArg = args2[0];
     if (!dirArg) {
       output.error("Usage: ideaspaces forget <dir> [--delete]");
@@ -23422,8 +25262,8 @@ function makeConversationsCommand(local) {
       "ideaspaces conversations repo_abc123 --json",
       "ideaspaces conversations --local"
     ],
-    async run(args2, flags2, global2) {
-      const output = createOutput(global2);
+    async run(args2, flags2, global3) {
+      const output = createOutput(global3);
       if (flags2.local)
         return local.list(flags2, output);
       const repoId = args2[0];
@@ -23603,8 +25443,8 @@ function makeConversationCommand(local) {
       "ideaspaces conversation get repo_abc c_123        # detail + history",
       "ideaspaces conversation cancel repo_abc c_123     # stop the active turn"
     ],
-    async run(args2, flags2, global2) {
-      const output = createOutput(global2);
+    async run(args2, flags2, global3) {
+      const output = createOutput(global3);
       const [sub, ...rest] = args2;
       if (RETIRED_PARTICIPANT_COMMANDS.has(sub ?? "")) {
         return rejectRetiredParticipantCommand(sub, output);
@@ -23643,16 +25483,16 @@ function makeConversationCommand(local) {
 // dist/commands/agent.js
 init_dist();
 init_config_dir();
-import { randomUUID as randomUUID7 } from "node:crypto";
-import { existsSync as existsSync23, readFileSync as readFileSync13, realpathSync as realpathSync17, statSync as statSync13 } from "node:fs";
-import { isAbsolute as isAbsolute16, join as join32, resolve as resolve34 } from "node:path";
+import { randomUUID as randomUUID9 } from "node:crypto";
+import { existsSync as existsSync23, readFileSync as readFileSync14, realpathSync as realpathSync17, statSync as statSync13 } from "node:fs";
+import { isAbsolute as isAbsolute16, join as join33, resolve as resolve34 } from "node:path";
 
 // dist/local/agent-reach.js
 init_git2();
 init_map_note();
 init_space_map();
 import { existsSync as existsSync17, realpathSync as realpathSync12, statSync as statSync11 } from "node:fs";
-import { dirname as dirname16, isAbsolute as isAbsolute10, join as join27, resolve as resolve29 } from "node:path";
+import { dirname as dirname16, isAbsolute as isAbsolute10, join as join28, resolve as resolve29 } from "node:path";
 function discoverAgentReach(opts) {
   const errors = [];
   const warnings = [];
@@ -23668,7 +25508,7 @@ function discoverAgentReach(opts) {
   try {
     const candidate = repoRoot(pov);
     nestedRepo = candidate === pov;
-    if (!nestedRepo && existsSync17(join27(candidate, "_threads")))
+    if (!nestedRepo && existsSync17(join28(candidate, "_threads")))
       spaceRoot = candidate;
   } catch {
   }
@@ -23677,7 +25517,7 @@ function discoverAgentReach(opts) {
       try {
         if (repoRoot(parent) !== parent)
           continue;
-        if (existsSync17(join27(parent, "_threads")))
+        if (existsSync17(join28(parent, "_threads")))
           spaceRoot = parent;
         break;
       } catch {
@@ -23787,13 +25627,13 @@ function enteredThroughRoot(root, path) {
 
 // dist/local/thread-launch.js
 init_dist();
-import { existsSync as existsSync20, lstatSync as lstatSync4, readFileSync as readFileSync11 } from "node:fs";
-import { basename as basename15, dirname as dirname19, isAbsolute as isAbsolute13, join as join29 } from "node:path";
+import { existsSync as existsSync20, lstatSync as lstatSync4, readFileSync as readFileSync12 } from "node:fs";
+import { basename as basename15, dirname as dirname19, isAbsolute as isAbsolute13, join as join30 } from "node:path";
 
 // dist/local/thread-map-member.js
 init_dist();
 var import_yaml8 = __toESM(require_dist(), 1);
-import { existsSync as existsSync18, lstatSync as lstatSync2, readFileSync as readFileSync9 } from "node:fs";
+import { existsSync as existsSync18, lstatSync as lstatSync2, readFileSync as readFileSync10 } from "node:fs";
 import { resolve as resolve30 } from "node:path";
 function loadLocalThreadMap(input) {
   const path = resolve30(input);
@@ -23801,7 +25641,7 @@ function loadLocalThreadMap(input) {
   if (existsSync18(path)) {
     if (!lstatSync2(path).isFile() || lstatSync2(path).isSymbolicLink() || lstatSync2(path).size > 128 * 1024)
       throw new Error("--map file must be a regular file no larger than 128 KiB.");
-    const content = readFileSync9(path, "utf8");
+    const content = readFileSync10(path, "utf8");
     const fm = parseFrontmatter(content);
     value2 = fm?.map ?? (0, import_yaml8.parse)(content);
   } else {
@@ -23894,9 +25734,9 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   if (!parseFrontmatter(agreement) || typeof threadName !== "string")
     throw new Error("Pinned Thread Agreement or README is invalid.");
   let agentName = "Agent";
-  const agentAgreement = join29(pov, "_agent", "agreement.md");
+  const agentAgreement = join30(pov, "_agent", "agreement.md");
   if (existsSync20(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync11(agentAgreement, "utf8"));
+    const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
       if (agentName.length > 900 || /[\r\n]/.test(agentName))
@@ -23944,9 +25784,9 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   if (localThread.closed)
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   let agentName = "Agent";
-  const agentAgreement = join29(pov, "_agent", "agreement.md");
+  const agentAgreement = join30(pov, "_agent", "agreement.md");
   if (existsSync20(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync11(agentAgreement, "utf8"));
+    const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
     }
@@ -24027,9 +25867,9 @@ async function prepareHostedThreadLaunch(pov, exchangeId, options) {
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   }
   let agentName = "Agent";
-  const agentAgreement = join29(pov, "_agent", "agreement.md");
+  const agentAgreement = join30(pov, "_agent", "agreement.md");
   if (existsSync20(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync11(agentAgreement, "utf8"));
+    const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
     }
@@ -24143,9 +25983,9 @@ function formatAgentRunCapabilities(caps) {
 // dist/local/agent-runs.js
 init_dist();
 init_config_dir();
-import { appendFileSync, existsSync as existsSync21, mkdirSync as mkdirSync8, readFileSync as readFileSync12, realpathSync as realpathSync15 } from "node:fs";
-import { createHash as createHash7 } from "node:crypto";
-import { dirname as dirname20, isAbsolute as isAbsolute14, join as join30, resolve as resolve32, win32 } from "node:path";
+import { appendFileSync, existsSync as existsSync21, mkdirSync as mkdirSync9, readFileSync as readFileSync13, realpathSync as realpathSync15 } from "node:fs";
+import { createHash as createHash9 } from "node:crypto";
+import { dirname as dirname20, isAbsolute as isAbsolute14, join as join31, resolve as resolve32, win32 } from "node:path";
 function agentDisplayName(agentPath) {
   const trimmed = agentPath.replace(/[\\/]+$/, "");
   return win32.basename(trimmed) || agentPath;
@@ -24167,7 +26007,7 @@ function deriveTask(message, cwd = process.cwd()) {
   if (candidatePath.endsWith(".md") || candidatePath.endsWith(".markdown")) {
     const resolvedPath = isAbsolute14(candidatePath) ? candidatePath : resolve32(cwd, candidatePath);
     try {
-      const content = readFileSync12(resolvedPath, "utf8");
+      const content = readFileSync13(resolvedPath, "utf8");
       const fm = parseFrontmatter(content);
       if (fm && typeof fm.name === "string" && fm.name.trim()) {
         return fm.name.trim();
@@ -24193,9 +26033,9 @@ function recordAgentRun(record) {
   try {
     const dir = configDir();
     if (!existsSync21(dir)) {
-      mkdirSync8(dir, { recursive: true, mode: 448 });
+      mkdirSync9(dir, { recursive: true, mode: 448 });
     }
-    const file2 = join30(dir, "agent-runs.jsonl");
+    const file2 = join31(dir, "agent-runs.jsonl");
     appendFileSync(file2, `${JSON.stringify(record)}
 `, { mode: 384, encoding: "utf8" });
     return true;
@@ -24204,12 +26044,12 @@ function recordAgentRun(record) {
   }
 }
 function listAgentRuns(options = {}) {
-  const file2 = join30(configDir(), "agent-runs.jsonl");
+  const file2 = join31(configDir(), "agent-runs.jsonl");
   if (!existsSync21(file2))
     return [];
   let content;
   try {
-    content = readFileSync12(file2, "utf8");
+    content = readFileSync13(file2, "utf8");
   } catch {
     return [];
   }
@@ -24271,11 +26111,11 @@ function cachedClaudeSessionId(projectDir) {
       resolved = realpathSync15(resolved);
     } catch {
     }
-    const key2 = createHash7("sha256").update(resolved).digest("hex").slice(0, 16);
-    const sessionsDir = join30(configDir(), "sessions");
-    const file2 = join30(sessionsDir, key2);
+    const key2 = createHash9("sha256").update(resolved).digest("hex").slice(0, 16);
+    const sessionsDir = join31(configDir(), "sessions");
+    const file2 = join31(sessionsDir, key2);
     if (existsSync21(file2)) {
-      const id = readFileSync12(file2, "utf8").trim();
+      const id = readFileSync13(file2, "utf8").trim();
       if (id)
         return id;
     }
@@ -24289,7 +26129,7 @@ function findActiveClaudeSessionId(cwd = process.cwd()) {
     const id = cachedClaudeSessionId(cur);
     if (id)
       return id;
-    if (existsSync21(join30(cur, ".git")) || existsSync21(join30(cur, "_agent"))) {
+    if (existsSync21(join31(cur, ".git")) || existsSync21(join31(cur, "_agent"))) {
       break;
     }
     const parent = dirname20(cur);
@@ -24308,7 +26148,7 @@ function resolveParentId(explicitParent, cwd = process.cwd()) {
 // dist/local/agent-pov.js
 init_spaces();
 import { existsSync as existsSync22, lstatSync as lstatSync5, realpathSync as realpathSync16, statSync as statSync12 } from "node:fs";
-import { isAbsolute as isAbsolute15, join as join31, relative as relative17, resolve as resolve33 } from "node:path";
+import { isAbsolute as isAbsolute15, join as join32, relative as relative17, resolve as resolve33 } from "node:path";
 function isWithin2(parent, child) {
   const rel = relative17(parent, child);
   return !rel.startsWith("..") && !isAbsolute15(rel);
@@ -24390,8 +26230,8 @@ function validateAgentPov(pov, options = {}) {
       message: `Agent point of view "${pov}" is inaccessible: ${err instanceof Error ? err.message : String(err)}`
     };
   }
-  const agreementPath = join31(canonicalDir, "_agent", "agreement.md");
-  const foundationPath = join31(canonicalDir, "_agent", "foundation.md");
+  const agreementPath = join32(canonicalDir, "_agent", "agreement.md");
+  const foundationPath = join32(canonicalDir, "_agent", "foundation.md");
   const hasAgreement = existsSync22(agreementPath);
   const allowFoundation = options.allowFoundation ?? true;
   const hasFoundation = allowFoundation && existsSync22(foundationPath);
@@ -24499,15 +26339,15 @@ var LIST_USAGE = "ideaspaces agent list --map <file> [--json]";
 var USAGE8 = `ideaspaces agent <run|runs|record|list|capabilities> \u2026 (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; record ${RECORD_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 function readAgentDefaults(povPath) {
   const available = [
-    ...existsSync23(join32(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
-    ...existsSync23(join32(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
+    ...existsSync23(join33(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
+    ...existsSync23(join33(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
   ];
   const source = preferredContractSource(available);
   if (!source)
     return {};
-  const contractPath = join32(povPath, "_agent", `${source}.md`);
+  const contractPath = join33(povPath, "_agent", `${source}.md`);
   try {
-    const content = readFileSync13(contractPath, "utf-8");
+    const content = readFileSync14(contractPath, "utf-8");
     const fm = parseFrontmatter(content);
     if (!fm || typeof fm !== "object")
       return {};
@@ -24556,7 +26396,7 @@ async function cmdRun(args2, flags2, local, output, jsonMode) {
       output.error("Selected POV Agreement exceeds 16 KiB; shorten it before launch.");
       return 1;
     }
-    const contract = readFileSync13(povResult.contractPath, "utf8");
+    const contract = readFileSync14(povResult.contractPath, "utf8");
     povOrientation = `[Selected ${povResult.contractType} POV: ${povPath}]
 ${contract}`;
     if (Buffer.byteLength(povOrientation) > MAX_ORIENTATION_BYTES) {
@@ -24773,7 +26613,7 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
   };
   const parentId = resolveParentId(flagString2(flags2, "parent"), process.cwd());
   const parentToolUseId = flagString2(flags2, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
-  const runId = flagString2(flags2, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID7()}`;
+  const runId = flagString2(flags2, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID9()}`;
   const task = flagString2(flags2, "task") ?? deriveTask(message, process.cwd());
   const runRecord = {
     run_id: runId,
@@ -25039,20 +26879,20 @@ Usage: ${RECORD_USAGE}`);
   };
   const ok = recordAgentRun(record);
   if (!ok) {
-    output.error(`Failed to record agent run ${record.run_id} to ${join32(configDir(), "agent-runs.jsonl")}`);
+    output.error(`Failed to record agent run ${record.run_id} to ${join33(configDir(), "agent-runs.jsonl")}`);
     return 1;
   }
   output.result(record, `Recorded run ${record.run_id} (${record.status}) for ${agentDisplayName(record.agent)}`);
   return 0;
 }
-function cmdList(flags2, global2, output) {
+function cmdList(flags2, global3, output) {
   const mapPath = flagString2(flags2, "map");
   if (!mapPath) {
     output.error(`--map <file> is required.
 Usage: ${LIST_USAGE}`);
     return 1;
   }
-  const callerRoot = global2.repo ? resolve34(global2.repo) : process.cwd();
+  const callerRoot = global3.repo ? resolve34(global3.repo) : process.cwd();
   let loadedMap;
   try {
     loadedMap = loadMapNote(mapPath, callerRoot);
@@ -25060,7 +26900,7 @@ Usage: ${LIST_USAGE}`);
     output.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
-  const contextRoot = global2.repo ? callerRoot : mapContextDir(loadedMap.absolutePath);
+  const contextRoot = global3.repo ? callerRoot : mapContextDir(loadedMap.absolutePath);
   const result = projectMapAgents(loadedMap, { cwd: contextRoot });
   const text = formatMapAgentsText(result);
   output.result(result, text);
@@ -25089,18 +26929,18 @@ function makeAgentCommand(local) {
       "ideaspaces agent run agents/scout --thread x_0123456789abcdef01234567 --message 'Draft a reply'  # private; does not post",
       "ideaspaces agent run n_0935a5df1f883eeb60bcdfbb --message 'Hello from root id' --runtime claude"
     ],
-    async run(args2, flags2, global2) {
-      const output = createOutput(global2);
+    async run(args2, flags2, global3) {
+      const output = createOutput(global3);
       const [sub, ...rest] = args2;
       switch (sub) {
         case "run":
-          return cmdRun(rest, flags2, local, output, global2.json);
+          return cmdRun(rest, flags2, local, output, global3.json);
         case "runs":
           return cmdRuns(flags2, output);
         case "record":
           return cmdRecord(flags2, output);
         case "list":
-          return cmdList(flags2, global2, output);
+          return cmdList(flags2, global3, output);
         case "capabilities": {
           const caps = agentRunCapabilities();
           output.result(caps, formatAgentRunCapabilities(caps));
@@ -25132,8 +26972,8 @@ var agentsCommand = {
     "ideaspaces agents --owner hostname:acme.com",
     "ideaspaces agents --json"
   ],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const config = loadConfig();
     if (!config) {
       output.error("Not logged in. Run `ideaspaces login`.");
@@ -25346,8 +27186,8 @@ var nodeCommand = {
     "ideaspaces node history notes/a.md --limit 50 --json",
     "ideaspaces node history repo_abc node_xyz --json"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const [sub, ...rest] = args2;
     switch (sub) {
       case "get":
@@ -25365,8 +27205,8 @@ var nodeCommand = {
 
 // dist/commands/search.js
 init_git2();
-import { readFileSync as readFileSync15 } from "node:fs";
-import { join as join34 } from "node:path";
+import { readFileSync as readFileSync16 } from "node:fs";
+import { join as join35 } from "node:path";
 
 // dist/search.js
 var K1 = 1.2;
@@ -25454,8 +27294,8 @@ function searchDocs(docs, query, limit = 20) {
 // dist/search-map.js
 init_dist();
 init_git2();
-import { readFileSync as readFileSync14 } from "node:fs";
-import { basename as basename16, extname as extname2, join as join33 } from "node:path";
+import { readFileSync as readFileSync15 } from "node:fs";
+import { basename as basename16, extname as extname2, join as join34 } from "node:path";
 function safeHead(repoRoot2) {
   try {
     return headSha(repoRoot2);
@@ -25478,7 +27318,7 @@ function member(path, source) {
 function projectSearchMap(repoRoot2, headBefore, hitPaths, dependencies = {}) {
   const headSha2 = dependencies.headSha ?? safeHead;
   const tracked = dependencies.trackedAt ?? ((root) => trackedAt("HEAD", root));
-  const readSource = dependencies.readSource ?? ((root, path) => readFileSync14(join33(root, path), "utf-8"));
+  const readSource = dependencies.readSource ?? ((root, path) => readFileSync15(join34(root, path), "utf-8"));
   let members = null;
   let readIssue;
   try {
@@ -25542,7 +27382,7 @@ var DEFAULT_LIMIT2 = 20;
 function* readDocs(root, paths) {
   for (const path of paths) {
     try {
-      yield { path, content: readFileSync15(join34(root, path), "utf-8") };
+      yield { path, content: readFileSync16(join35(root, path), "utf-8") };
     } catch {
       continue;
     }
@@ -25558,8 +27398,8 @@ var searchCommand = {
     "ideaspaces search conversation --json",
     "ideaspaces search decision --threads  # include the local _threads/ extension"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const query = args2.join(" ").trim();
     if (!query) {
       output.error(`Usage: ${USAGE10}`);
@@ -25653,14 +27493,14 @@ import { resolve as resolve36 } from "node:path";
 
 // dist/file-listing.js
 import { existsSync as existsSync25, readdirSync as readdirSync3 } from "node:fs";
-import { join as join35, relative as relative19 } from "node:path";
+import { join as join36, relative as relative19 } from "node:path";
 var EXCLUDES = new Set(AUTOCOMPLETE_EXCLUDES);
 var DEFAULT_MAX_SCAN = 5e3;
 var DEFAULT_MAX_DEPTH = 10;
 function folderKind(abs) {
-  if (existsSync25(join35(abs, "_agent")))
+  if (existsSync25(join36(abs, "_agent")))
     return "ideaspace-repo";
-  if (existsSync25(join35(abs, ".git")))
+  if (existsSync25(join36(abs, ".git")))
     return "code-repo";
   return "folder";
 }
@@ -25686,7 +27526,7 @@ function listEntries(root, opts = {}) {
         continue;
       if (entries.length >= maxScan)
         return { entries, truncated: true };
-      const childAbs = join35(abs, dirent.name);
+      const childAbs = join36(abs, dirent.name);
       const path = toPosix(relative19(root, childAbs));
       if (dirent.isDirectory()) {
         entries.push({ path, name: dirent.name, kind: folderKind(childAbs) });
@@ -25742,8 +27582,8 @@ var lsCommand = {
     "ideaspaces ls ~/IdeaSpaces --json",
     "ideaspaces ls . --query awareness --limit 8 --json"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const root = resolve36(args2[0] ?? ".");
     try {
       if (!statSync15(root).isDirectory()) {
@@ -25778,8 +27618,8 @@ var timesCommand = {
   description: "Per-note git created/updated times (first & last commit) for this clone",
   usage: "ideaspaces times [--json]",
   examples: ["ideaspaces times --json"],
-  async run(_args, _flags, global2) {
-    const output = createOutput(global2);
+  async run(_args, _flags, global3) {
+    const output = createOutput(global3);
     let root;
     try {
       root = repoRoot();
@@ -25971,10 +27811,10 @@ function errorText(reason) {
 }
 async function repoIdForRoot(config, rootNodeId) {
   const me = await fetchAuthMe(config);
-  const matches = me.repos.filter((repo) => repo.root_node_id === rootNodeId);
-  if (matches.length === 1)
-    return matches[0].repo_id;
-  if (matches.length > 1) {
+  const matches2 = me.repos.filter((repo) => repo.root_node_id === rootNodeId);
+  if (matches2.length === 1)
+    return matches2[0].repo_id;
+  if (matches2.length > 1) {
     throw new Error("This Space matches more than one managed repository. Re-link the clone before changing visibility.");
   }
   throw new Error("This Space is not in your managed repository catalog, so its visibility cannot be changed here.");
@@ -26024,8 +27864,8 @@ async function shareWithPerson(rest, flags2, output) {
   return 0;
 }
 async function shareWithTeam(rest, flags2, output) {
-  const hostname = rest[0]?.replace(/^team:/i, "").toLowerCase();
-  if (!hostname || rest.length !== 1) {
+  const hostname2 = rest[0]?.replace(/^team:/i, "").toLowerCase();
+  if (!hostname2 || rest.length !== 1) {
     output.error("Usage: ideaspaces share team <hostname> [--grade explore|fork|collaborate] [--repo <url>]");
     return 1;
   }
@@ -26043,16 +27883,16 @@ async function shareWithTeam(rest, flags2, output) {
   if (!target)
     return 1;
   const audiences = await listEligibleTeamAudiences(config);
-  const matches = audiences.filter((audience) => audience.hostname.toLowerCase() === hostname);
-  if (matches.length !== 1) {
+  const matches2 = audiences.filter((audience) => audience.hostname.toLowerCase() === hostname2);
+  if (matches2.length !== 1) {
     const available = audiences.map((audience) => audience.hostname).sort();
-    output.error(matches.length > 1 ? `More than one registered team matches ${hostname}.` : `No registered team you belong to matches ${hostname}.` + (available.length ? `
+    output.error(matches2.length > 1 ? `More than one registered team matches ${hostname2}.` : `No registered team you belong to matches ${hostname2}.` + (available.length ? `
 Available teams: ${available.join(", ")}` : ""));
     return 1;
   }
-  const result = await setTeamShare(config, target, matches[0].org_node_id, grade);
+  const result = await setTeamShare(config, target, matches2[0].org_node_id, grade);
   const unchanged = result.status === "already_shared";
-  output.result(result, unchanged ? `${hostname} already has ${grade} access.` : `${hostname}'s access is now ${grade}.`);
+  output.result(result, unchanged ? `${hostname2} already has ${grade} access.` : `${hostname2}'s access is now ${grade}.`);
   return 0;
 }
 async function listProductAccess(rest, flags2, output) {
@@ -26263,15 +28103,15 @@ async function removeProductAccess(rest, flags2, output) {
   if (!target)
     return 1;
   if (who.toLowerCase().startsWith("team:")) {
-    const hostname = who.slice(5).toLowerCase();
+    const hostname2 = who.slice(5).toLowerCase();
     const collection = await listTeamShares(config, target);
-    const relationship = collection.relationships.find((row) => row.hostname?.toLowerCase() === hostname);
+    const relationship = collection.relationships.find((row) => row.hostname?.toLowerCase() === hostname2);
     if (!relationship) {
-      output.error(`${hostname} has no direct team access here.`);
+      output.error(`${hostname2} has no direct team access here.`);
       return 1;
     }
     const result = await removeTeamShare(config, target, relationship.org_node_id);
-    output.result(result, result.status === "removed" ? `Removed direct team access for ${hostname}. Members may still have access through another path.` : `Direct team access was already removed for ${hostname}.`);
+    output.result(result, result.status === "removed" ? `Removed direct team access for ${hostname2}. Members may still have access through another path.` : `Direct team access was already removed for ${hostname2}.`);
     return 0;
   }
   const selector = personSelector(who);
@@ -26474,11 +28314,11 @@ var shareCommand = {
     "ideaspaces share visibility public --yes  # apply",
     "ideaspaces share visibility private --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const [sub, ...rest] = args2;
-    const withRepo = global2.repo === void 0 ? flags2 : { repo: global2.repo, ...flags2 };
-    return run(sub ?? "", rest, withRepo, output, global2.yes === true);
+    const withRepo = global3.repo === void 0 ? flags2 : { repo: global3.repo, ...flags2 };
+    return run(sub ?? "", rest, withRepo, output, global3.yes === true);
   }
 };
 
@@ -26654,8 +28494,8 @@ var requestCommand = {
     "ideaspaces request decline r_0123456789abcdef01",
     "ideaspaces request cancel r_0123456789abcdef01"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const [sub, ...rest] = args2;
     if (!sub) {
       output.error(`Usage: ${REQUEST_USAGE}`);
@@ -26696,8 +28536,8 @@ var spacesCommand = {
     "ideaspaces spaces --attached-to repo:n_0123456789abcdef01234567",
     "ideaspaces spaces --include-dormant"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const config = loadConfig();
     if (!config) {
       output.error("Not logged in. Run `ideaspaces login`.");
@@ -26738,8 +28578,8 @@ var spacesCommand = {
 // dist/commands/inbox.js
 init_api();
 init_credentials();
-import { randomUUID as randomUUID8 } from "node:crypto";
-import { readFileSync as readFileSync16, statSync as statSync16 } from "node:fs";
+import { randomUUID as randomUUID10 } from "node:crypto";
+import { readFileSync as readFileSync17, statSync as statSync16 } from "node:fs";
 init_dist();
 var USAGE13 = "ideaspaces threads <list|posts|read|send|reply|add|close|rename|expand> ...";
 var LIST_USAGE2 = "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
@@ -26794,7 +28634,7 @@ async function writeBody(flags2, output) {
     return null;
   }
   return {
-    send_id: flagString5(flags2, "send-id")?.trim() || `cli_${randomUUID8()}`,
+    send_id: flagString5(flags2, "send-id")?.trim() || `cli_${randomUUID10()}`,
     name,
     summary,
     markdown
@@ -26812,7 +28652,7 @@ function loadMapSelection(flags2, output) {
     if (statSync16(path).size > MAX_SELECTION_FILE_BYTES) {
       throw new Error(`selection file exceeds ${MAX_SELECTION_FILE_BYTES} bytes`);
     }
-    const raw = JSON.parse(readFileSync16(path, "utf8"));
+    const raw = JSON.parse(readFileSync17(path, "utf8"));
     return parseExchangeMapSelection(raw);
   } catch (error) {
     output.error(`Could not load --map selection: ${error instanceof Error ? error.message : String(error)}`);
@@ -27834,8 +29674,8 @@ var hostedThreadsCommand = {
     "ideaspaces threads reply x_example --map selection.json --name 'Answer' --summary 'A bounded answer' --message 'Here is the counter-proposal'",
     "printf '# Reply\\n\\nKeep it narrow.' | ideaspaces threads reply x_example --name 'Answer' --summary 'A bounded answer'"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const [sub, ...rest] = args2;
     const flagError = threadFlagError(sub ?? "", flags2);
     if (flagError) {
@@ -27856,7 +29696,7 @@ var hostedThreadsCommand = {
       case "add":
       case "close":
       case "rename":
-        return manage(sub, rest, flags2, output, global2.yes === true);
+        return manage(sub, rest, flags2, output, global3.yes === true);
       case "expand":
         return expand(rest, output);
       default:
@@ -27871,17 +29711,17 @@ var inboxCommand = {
   description: "Legacy name for hosted threads (deprecated; use threads)",
   usage: USAGE13.replace("ideaspaces threads", "ideaspaces inbox"),
   examples: hostedThreadsCommand.examples?.map((example) => example.replace("ideaspaces threads", "ideaspaces inbox")),
-  async run(args2, flags2, global2) {
-    createOutput(global2).log("`ideaspaces inbox` is deprecated; use `ideaspaces threads` (legacy alias for this release).");
-    return hostedThreadsCommand.run(args2, flags2, global2);
+  async run(args2, flags2, global3) {
+    createOutput(global3).log("`ideaspaces inbox` is deprecated; use `ideaspaces threads` (legacy alias for this release).");
+    return hostedThreadsCommand.run(args2, flags2, global3);
   }
 };
 
 // dist/commands/threads.js
 init_dist();
-import { existsSync as existsSync27, lstatSync as lstatSync7, readFileSync as readFileSync18, realpathSync as realpathSync20 } from "node:fs";
+import { existsSync as existsSync27, lstatSync as lstatSync7, readFileSync as readFileSync19, realpathSync as realpathSync20 } from "node:fs";
 import { spawnSync as spawnSync16 } from "node:child_process";
-import { dirname as dirname21, isAbsolute as isAbsolute19, join as join37, relative as relative20, resolve as resolve37, sep as sep14 } from "node:path";
+import { dirname as dirname21, isAbsolute as isAbsolute19, join as join38, relative as relative20, resolve as resolve37, sep as sep14 } from "node:path";
 
 // dist/local/cross-thread-target.js
 init_dist();
@@ -27890,8 +29730,8 @@ init_git2();
 init_root_identity2();
 init_threads2();
 import { spawnSync as spawnSync15 } from "node:child_process";
-import { existsSync as existsSync26, lstatSync as lstatSync6, readFileSync as readFileSync17, realpathSync as realpathSync19 } from "node:fs";
-import { basename as basename17, isAbsolute as isAbsolute18, join as join36 } from "node:path";
+import { existsSync as existsSync26, lstatSync as lstatSync6, readFileSync as readFileSync18, realpathSync as realpathSync19 } from "node:fs";
+import { basename as basename17, isAbsolute as isAbsolute18, join as join37 } from "node:path";
 function physical(path) {
   if (!isAbsolute18(path))
     throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
@@ -27931,8 +29771,8 @@ function locate(root, hint) {
   if (hint) {
     return validatedCheckout(hint, id);
   }
-  const matches = listClones().filter(({ record }) => record.root_node_id === id);
-  const paths = new Set(matches.map(({ path }) => physical(path)));
+  const matches2 = listClones().filter(({ record }) => record.root_node_id === id);
+  const paths = new Set(matches2.map(({ path }) => physical(path)));
   if (paths.size === 0) {
     const caller = threadBase();
     const callerId = inspectLocalRootIdentity(caller).root_node_id;
@@ -27985,21 +29825,21 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   const verifyWrite = (live, parents, supersedes) => {
     if (live.path !== directory || live.slug !== slug || live.closed)
       throw new Error("Selected live Thread changed or closed; refusing append.");
-    const selectedPath = join36(directory, basename17(position));
+    const selectedPath = join37(directory, basename17(position));
     const safeEqual = (path, content) => {
       if (!existsSync26(path))
         return false;
       const entry = lstatSync6(path);
-      return !entry.isSymbolicLink() && entry.isFile() && readFileSync17(path, "utf8") === content;
+      return !entry.isSymbolicLink() && entry.isFile() && readFileSync18(path, "utf8") === content;
     };
-    if (!safeEqual(join36(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join36(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename17(position))) {
+    if (!safeEqual(join37(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join37(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename17(position))) {
       throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
     }
     if (!parents.length || new Set(parents).size !== parents.length)
       throw new Error("Selected cross-Space post requires distinct explicit --reply-to ids; no implicit HEAD parent.");
     for (const id of [...parents, ...supersedes ? [supersedes] : []]) {
       const parent = live.posts.find((post) => post.id === id);
-      if (!parent || !safeEqual(join36(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
+      if (!parent || !safeEqual(join37(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
         throw new Error(`Selected parent or superseded post ${id} is missing or changed since the authored pin.`);
       }
     }
@@ -28101,7 +29941,7 @@ function threadSection(markdown, heading) {
 function threadFrame(thread) {
   let agreement = "";
   try {
-    agreement = readFileSync18(join37(thread.path, "_agent", "agreement.md"), "utf8");
+    agreement = readFileSync19(join38(thread.path, "_agent", "agreement.md"), "utf8");
   } catch (error) {
     if (error.code !== "ENOENT")
       throw error;
@@ -28186,13 +30026,13 @@ function selectedWriterName() {
     const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep14}`) || isAbsolute19(pathFromRoot);
     if (outsideRoot)
       break;
-    const agentDir = join37(at, "_agent");
-    const agreement = join37(agentDir, "agreement.md");
+    const agentDir = join38(at, "_agent");
+    const agreement = join38(agentDir, "agreement.md");
     if (existsSync27(agentDir) || existsSync27(agreement)) {
       if (!existsSync27(agentDir) || lstatSync7(agentDir).isSymbolicLink() || !lstatSync7(agentDir).isDirectory() || !existsSync27(agreement) || lstatSync7(agreement).isSymbolicLink() || !lstatSync7(agreement).isFile()) {
         throw new Error("Caller POV needs a regular _agent/agreement.md with a name to author a selected Thread post.");
       }
-      const fm = parseFrontmatter(readFileSync18(agreement, "utf8"));
+      const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
       if (typeof fm?.name !== "string" || !fm.name.trim() || fm.agreement !== void 0 && (typeof fm.agreement !== "string" || !fm.agreement.startsWith("agent:repo:"))) {
         throw new Error("Caller POV _agent/agreement.md needs an agent name (and agent:repo: kind if declared) to author a selected Thread post.");
       }
@@ -28212,9 +30052,9 @@ function writerName(explicit) {
     return explicit;
   let at = resolve37(process.cwd());
   while (true) {
-    const agreement = join37(at, "_agent", "agreement.md");
+    const agreement = join38(at, "_agent", "agreement.md");
     if (existsSync27(agreement)) {
-      const fm = parseFrontmatter(readFileSync18(agreement, "utf8"));
+      const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
       }
@@ -28265,8 +30105,8 @@ var threadsCommand = {
     "ideaspaces threads open <slug> --post msg_<id>  # one exact post plus child Threads attached to it",
     "ideaspaces threads open <slug|x_id> --post <id>  # one post in full, regardless of --depth"
   ],
-  async run(args2, flags2, global2) {
-    const output = createOutput(global2);
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
     const [sub, ...rest] = args2;
     try {
       const flagError = threadFlagError(sub ?? "", flags2);
@@ -28277,14 +30117,14 @@ var threadsCommand = {
       }
       if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || sub === "posts" || sub === "close" && HOSTED_THREAD_ID.test(rest[0] ?? "")) {
         if (sub === "read" && rest.length === 1 && !HOSTED_THREAD_ID.test(rest[0])) {
-          return threadsCommand.run(["open", rest[0]], flags2, global2);
+          return threadsCommand.run(["open", rest[0]], flags2, global3);
         }
-        return hostedThreadsCommand.run(args2, flags2, global2);
+        return hostedThreadsCommand.run(args2, flags2, global3);
       }
       if (sub === "locate") {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0]))
           throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
-        const matches = [...new Map(rest.slice(1).flatMap((root) => {
+        const matches2 = [...new Map(rest.slice(1).flatMap((root) => {
           if (!existsSync27(resolve37(root)))
             throw new Error(`Space root not found: ${root}. Supply an existing folder with _agent/agreement.md.`);
           if (lstatSync7(resolve37(root)).isSymbolicLink())
@@ -28294,9 +30134,9 @@ var threadsCommand = {
             throw new Error(`Not a Space root: ${root}. Supply the folder with _agent/agreement.md.`);
           return listLocal(requested);
         }).filter((thread) => thread.thread_id === rest[0]).map((thread) => [thread.path, thread])).values()];
-        const status = matches.length === 1 ? "found" : matches.length ? "ambiguous" : "not_found";
-        output.result({ status, thread_id: rest[0], matches: matches.map(({ path, slug, name }) => ({ path, slug, name })) }, status === "found" ? matches[0].path : status === "ambiguous" ? `Ambiguous Thread id: ${matches.length} locations. Select a Space explicitly:
-${matches.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the supplied Space roots.");
+        const status = matches2.length === 1 ? "found" : matches2.length ? "ambiguous" : "not_found";
+        output.result({ status, thread_id: rest[0], matches: matches2.map(({ path, slug, name }) => ({ path, slug, name })) }, status === "found" ? matches2[0].path : status === "ambiguous" ? `Ambiguous Thread id: ${matches2.length} locations. Select a Space explicitly:
+${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the supplied Space roots.");
         return 0;
       }
       if (sub === "list") {
@@ -28314,7 +30154,7 @@ ${matches.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the supp
         if (flags2.kind !== void 0 || flags2.since !== void 0 || rung === "full" && space) {
           if (rest.length)
             throw new Error("Hosted filters cannot be combined with a local directory.");
-          return hostedThreadsCommand.run(args2, flags2, global2);
+          return hostedThreadsCommand.run(args2, flags2, global3);
         }
         const cwd = rest[0] ? resolve37(rest[0]) : process.cwd();
         let local = [];
@@ -28431,7 +30271,7 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
         if (rest.length !== 1)
           throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");
         if (HOSTED_THREAD_ID.test(rest[0]))
-          return hostedThreadsCommand.run(["read", rest[0]], flags2, global2);
+          return hostedThreadsCommand.run(["read", rest[0]], flags2, global3);
         selectionFlags(flags2);
         if (flags2.map !== void 0 && flags2.member === void 0)
           throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");
@@ -28615,7 +30455,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
         } : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
-        const rawPost = postId && posts2.length ? readFileSync18(join37(thread.path, posts2[0].path), "utf8") : void 0;
+        const rawPost = postId && posts2.length ? readFileSync19(join38(thread.path, posts2[0].path), "utf8") : void 0;
         let humanText;
         if (pinned && effectiveRung === "full") {
           humanText = pinned;
@@ -28695,7 +30535,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         if (!kind.trim() || /[\r\n]/.test(kind))
           throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");
         if (!KNOWN_POST_KINDS.has(kind)) {
-          if (!global2.yes)
+          if (!global3.yes)
             throw new Error(`Unrecognised --kind ${kind}. Posts are immutable; check spelling, or pass --yes to author this custom kind deliberately.`);
           output.log(`Authoring custom post kind ${kind} with --yes; this immutable kind is not one of the standard values.`);
         }
@@ -28888,8 +30728,8 @@ var followCommand = {
     "ideaspaces follow repo n_0123456789abcdef01234567",
     "ideaspaces follow thread x_example --ack 42"
   ],
-  async run(args2, flags2, global2) {
-    return follow(args2, flags2, createOutput(global2));
+  async run(args2, flags2, global3) {
+    return follow(args2, flags2, createOutput(global3));
   }
 };
 var unfollowCommand = {
@@ -28900,19 +30740,19 @@ var unfollowCommand = {
     "ideaspaces unfollow thread x_example",
     "ideaspaces unfollow repo n_0123456789abcdef01234567"
   ],
-  async run(args2, _flags, global2) {
-    return unfollow(args2, createOutput(global2));
+  async run(args2, _flags, global3) {
+    return unfollow(args2, createOutput(global3));
   }
 };
 
 // dist/commands/power/logout.js
-init_credentials();
+init_client_session();
 
 // dist/auth/session-state.js
 import { existsSync as existsSync28, unlinkSync as unlinkSync3 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join38 } from "node:path";
-var SESSION_FILE = join38(homedir4(), ".ideaspaces", "session.json");
+import { join as join39 } from "node:path";
+var SESSION_FILE = join39(homedir4(), ".ideaspaces", "session.json");
 function clearSessionState() {
   try {
     if (existsSync28(SESSION_FILE))
@@ -28926,18 +30766,24 @@ var logoutCommand = {
   name: "logout",
   description: "Log out and clear stored credentials",
   usage: "ideaspaces power logout",
-  async run(_args, _flags, global2) {
-    const output = createOutput(global2);
-    deleteCredentials();
-    clearSessionState();
-    output.result({ logged_out: true }, "Logged out. Credentials and session state removed.");
-    return 0;
+  async run(_args, _flags, global3) {
+    const output = createOutput(global3);
+    try {
+      await signOut();
+      clearSessionState();
+      const explicit = !!process.env.IS_API_KEY;
+      output.result({ logged_out: true, ...explicit ? { env_override_active: true } : {} }, "Logged out. This install's session was revoked, if present; local credentials and session state removed. Existing API keys were only forgotten, not revoked." + (explicit ? " IS_API_KEY remains set; unset it to stop using that explicit credential." : ""));
+      return 0;
+    } catch {
+      output.error("Could not complete server sign-out. Local credentials were kept so you can retry `ideaspaces power logout` when connected.");
+      return 1;
+    }
   }
 };
 
 // dist/pi/pi-status.js
-import { existsSync as existsSync30, readFileSync as readFileSync20 } from "node:fs";
-import { basename as basename18, join as join40 } from "node:path";
+import { existsSync as existsSync30, readFileSync as readFileSync21 } from "node:fs";
+import { basename as basename18, join as join41 } from "node:path";
 
 // dist/local/probe-binary.js
 import { spawnSync as spawnSync17 } from "node:child_process";
@@ -28954,17 +30800,17 @@ function probeBinary(bin, env = process.env) {
 }
 
 // dist/pi/pi-auth.js
-import { chmodSync, existsSync as existsSync29, mkdirSync as mkdirSync9, readFileSync as readFileSync19, writeFileSync as writeFileSync9 } from "node:fs";
+import { chmodSync, existsSync as existsSync29, mkdirSync as mkdirSync10, readFileSync as readFileSync20, writeFileSync as writeFileSync10 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname22, join as join39 } from "node:path";
+import { dirname as dirname22, join as join40 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
   const override = env.PI_CODING_AGENT_DIR?.trim();
   if (override)
-    return override.startsWith("~") ? join39(homedir5(), override.slice(1)) : override;
-  return join39(homedir5(), ".pi", "agent");
+    return override.startsWith("~") ? join40(homedir5(), override.slice(1)) : override;
+  return join40(homedir5(), ".pi", "agent");
 }
 function resolvePiAuthPath(env = process.env) {
-  return join39(resolvePiAgentDir(env), "auth.json");
+  return join40(resolvePiAgentDir(env), "auth.json");
 }
 function parseAuth(raw) {
   if (!raw || !raw.trim())
@@ -28989,13 +30835,13 @@ function removeProvider(current, provider) {
 function readAuthFile(path) {
   if (!existsSync29(path))
     return {};
-  return parseAuth(readFileSync19(path, "utf8"));
+  return parseAuth(readFileSync20(path, "utf8"));
 }
 function writeAuthFile(path, auth) {
   const dir = dirname22(path);
   if (!existsSync29(dir))
-    mkdirSync9(dir, { recursive: true, mode: 448 });
-  writeFileSync9(path, `${JSON.stringify(auth, null, 2)}
+    mkdirSync10(dir, { recursive: true, mode: 448 });
+  writeFileSync10(path, `${JSON.stringify(auth, null, 2)}
 `, { encoding: "utf8", mode: 384 });
   chmodSync(path, 384);
 }
@@ -29025,17 +30871,17 @@ function resolveExtension(path) {
     return check(false);
   if (/\.[cm]?[jt]s$/.test(path))
     return check(true);
-  const pkgPath = join40(path, "package.json");
+  const pkgPath = join41(path, "package.json");
   if (existsSync30(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync20(pkgPath, "utf8"));
+      const pkg = JSON.parse(readFileSync21(pkgPath, "utf8"));
       const exts = pkg.pi?.extensions;
       if (Array.isArray(exts) && exts.length > 0)
         return check(true);
     } catch {
     }
   }
-  return check(existsSync30(join40(path, "index.ts")) || existsSync30(join40(path, "index.js")));
+  return check(existsSync30(join41(path, "index.ts")) || existsSync30(join41(path, "index.js")));
 }
 function formatHuman3(s) {
   const out = [];
@@ -29065,8 +30911,8 @@ var piStatusCommand = {
     "ideaspaces pi-status --ext /path/pi-is-space,/path/pi-local-context",
     "IDEASPACES_PI_EXTENSIONS=/path/pi-is-space,/path/pi-local-context ideaspaces pi-status  # env fallback"
   ],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const piBin = typeof flags2["pi-bin"] === "string" ? flags2["pi-bin"] : "pi";
     const binary = probeBinary(piBin);
     const auth = readAuthFile(resolvePiAuthPath());
@@ -29087,8 +30933,8 @@ var piLoginCommand = {
     "ideaspaces pi-login --provider anthropic --api-key sk-ant-\u2026",
     "ideaspaces pi-login --provider openai --api-key sk-\u2026"
   ],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const provider = typeof flags2.provider === "string" ? flags2.provider.trim() : "";
     const apiKey = typeof flags2["api-key"] === "string" ? flags2["api-key"].trim() : "";
     if (!provider) {
@@ -29118,8 +30964,8 @@ var piLogoutCommand = {
   description: "Remove a local-agent model provider from pi's auth.json",
   usage: "ideaspaces pi-logout --provider <id> [--json]",
   examples: ["ideaspaces pi-logout --provider anthropic"],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const provider = typeof flags2.provider === "string" ? flags2.provider.trim() : "";
     if (!provider) {
       output.error("Usage: ideaspaces pi-logout --provider <id>");
@@ -29231,8 +31077,8 @@ var piModelsCommand = {
   description: "List the models a local Pi turn can use (auth-gated), for a model picker.",
   usage: "ideaspaces pi-models [--pi-bin <path>] [--json]",
   examples: ["ideaspaces pi-models --json", "ideaspaces pi-models  # human-readable"],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const piBin = typeof flags2["pi-bin"] === "string" ? flags2["pi-bin"] : "pi";
     try {
       const result = await queryPiModels(piBin);
@@ -29246,7 +31092,7 @@ var piModelsCommand = {
 };
 
 // dist/pi/local-conversation-ops.js
-import { join as join43 } from "node:path";
+import { join as join44 } from "node:path";
 
 // dist/local/observed-event.js
 function observedEvent(event, options) {
@@ -29947,8 +31793,8 @@ async function* readJsonLines(input) {
 
 // dist/pi/local-agent.js
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync32, mkdirSync as mkdirSync10, writeFileSync as writeFileSync10 } from "node:fs";
-import { join as join41 } from "node:path";
+import { existsSync as existsSync32, mkdirSync as mkdirSync11, writeFileSync as writeFileSync11 } from "node:fs";
+import { join as join42 } from "node:path";
 var NON_AGENT_TYPES = /* @__PURE__ */ new Set(["response", "extension_ui_request"]);
 function lastPosition(tools) {
   for (let i = tools.length - 1; i >= 0; i--) {
@@ -29972,10 +31818,10 @@ function deriveConversationName(message) {
   return clean.length > 60 ? `${clean.slice(0, 57)}\u2026` : clean;
 }
 function ensureSessionDir(dir) {
-  mkdirSync10(dir, { recursive: true });
-  const ignore = join41(dir, ".gitignore");
+  mkdirSync11(dir, { recursive: true });
+  const ignore = join42(dir, ".gitignore");
   if (!existsSync32(ignore))
-    writeFileSync10(ignore, "*\n");
+    writeFileSync11(ignore, "*\n");
 }
 function buildPiArgs(opts) {
   const args2 = [
@@ -30201,9 +32047,9 @@ async function* runLocalTurn(opts) {
 }
 
 // dist/pi/local-conversations.js
-import { existsSync as existsSync33, readdirSync as readdirSync4, readFileSync as readFileSync21, realpathSync as realpathSync22, statSync as statSync18 } from "node:fs";
-import { randomUUID as randomUUID9 } from "node:crypto";
-import { join as join42 } from "node:path";
+import { existsSync as existsSync33, readdirSync as readdirSync4, readFileSync as readFileSync22, realpathSync as realpathSync22, statSync as statSync18 } from "node:fs";
+import { randomUUID as randomUUID11 } from "node:crypto";
+import { join as join43 } from "node:path";
 
 // dist/local/task-notification.js
 var TASK_NOTIFICATION = /^\s*<task-notification>[\s\S]*?<\/task-notification>\s*$/u;
@@ -30213,10 +32059,10 @@ function isTaskNotification(content, origin) {
 
 // dist/pi/local-conversations.js
 function localSessionDir(contextRoot) {
-  return join42(contextRoot, ".pi", "sessions");
+  return join43(contextRoot, ".pi", "sessions");
 }
 function mintConversationId() {
-  return `local-${randomUUID9()}`;
+  return `local-${randomUUID11()}`;
 }
 function textOf(content) {
   if (typeof content === "string")
@@ -30310,12 +32156,12 @@ function findSessionFile(dir, convId) {
   const files = readdirSync4(dir).filter((f) => f.endsWith(".jsonl"));
   const bySuffix = files.find((f) => f.endsWith(`_${convId}.jsonl`));
   if (bySuffix)
-    return join42(dir, bySuffix);
+    return join43(dir, bySuffix);
   for (const f of files) {
     try {
-      const first = readFileSync21(join42(dir, f), "utf8").split("\n", 1)[0];
+      const first = readFileSync22(join43(dir, f), "utf8").split("\n", 1)[0];
       if (JSON.parse(first).id === convId)
-        return join42(dir, f);
+        return join43(dir, f);
     } catch {
     }
   }
@@ -30331,7 +32177,7 @@ function canResumePiConversation(contextRoot, convId) {
   try {
     if (!isContained(realpathSync22(contextRoot), realpathSync22(dir)) || !isContained(realpathSync22(dir), realpathSync22(file2)))
       return false;
-    const text = readFileSync21(file2, "utf8");
+    const text = readFileSync22(file2, "utf8");
     const header = JSON.parse(text.split("\n", 1)[0] ?? "");
     if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync22(header.cwd) !== realpathSync22(contextRoot))
       return false;
@@ -30346,7 +32192,7 @@ function getLocalConversation(contextRoot, convId) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
   const mtime = statSync18(file2).mtime.toISOString();
-  const s = parseSessionJsonl(readFileSync21(file2, "utf8"), mtime);
+  const s = parseSessionJsonl(readFileSync22(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -30364,10 +32210,10 @@ function listLocalConversations(contextRoot) {
     return { conversations: [], total: 0 };
   const summaries = [];
   for (const f of readdirSync4(dir).filter((f2) => f2.endsWith(".jsonl"))) {
-    const path = join42(dir, f);
+    const path = join43(dir, f);
     let text;
     try {
-      text = readFileSync21(path, "utf8");
+      text = readFileSync22(path, "utf8");
     } catch {
       continue;
     }
@@ -30469,7 +32315,7 @@ async function send2(flags2, output, options) {
     output.error("--topic is supported only on agent run for a new Pi session.");
     return 1;
   }
-  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join43(repoPath, ".pi", "sessions");
+  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join44(repoPath, ".pi", "sessions");
   const conversationId = typeof flags2.conversation === "string" ? flags2.conversation : `local-${Date.now().toString(36)}`;
   if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
     output.error(`Pi conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
@@ -30661,12 +32507,12 @@ import { spawnSync as spawnSync18 } from "node:child_process";
 import { spawn as spawn4 } from "node:child_process";
 
 // dist/claude/local-conversations.js
-import { existsSync as existsSync34, readdirSync as readdirSync5, readFileSync as readFileSync22, realpathSync as realpathSync24, statSync as statSync20 } from "node:fs";
-import { randomUUID as randomUUID10 } from "node:crypto";
+import { existsSync as existsSync34, readdirSync as readdirSync5, readFileSync as readFileSync23, realpathSync as realpathSync24, statSync as statSync20 } from "node:fs";
+import { randomUUID as randomUUID12 } from "node:crypto";
 import { homedir as homedir6 } from "node:os";
-import { basename as basename19, dirname as dirname25, join as join44, resolve as resolve40 } from "node:path";
+import { basename as basename19, dirname as dirname25, join as join45, resolve as resolve40 } from "node:path";
 function claudeConfigDir(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR?.trim() || join44(homedir6(), ".claude");
+  return env.CLAUDE_CONFIG_DIR?.trim() || join45(homedir6(), ".claude");
 }
 function slugOf(path) {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");
@@ -30680,13 +32526,13 @@ function claudeProjectSlug(cwd) {
   return slugOf(resolved);
 }
 function claudeProjectDir(cwd, env = process.env) {
-  return join44(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
+  return join45(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
 }
 function legacyClaudeProjectDir(cwd, env = process.env) {
-  return join44(claudeConfigDir(env), "projects", slugOf(resolve40(cwd)));
+  return join45(claudeConfigDir(env), "projects", slugOf(resolve40(cwd)));
 }
 function mintClaudeConversationId() {
-  return randomUUID10();
+  return randomUUID12();
 }
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 var CMD_NAME = /<command-name>([\s\S]*?)<\/command-name>/u;
@@ -30699,12 +32545,12 @@ function claudeSessionFile(cwd, convId, env = process.env) {
   if (!isClaudeConversationId(convId))
     return null;
   const projectDir = claudeProjectDir(cwd, env);
-  const file2 = join44(projectDir, `${convId}.jsonl`);
+  const file2 = join45(projectDir, `${convId}.jsonl`);
   if (existsSync34(file2))
     return file2;
   const unresolvedDir = legacyClaudeProjectDir(cwd, env);
   if (unresolvedDir !== projectDir) {
-    const fallbackFile = join44(unresolvedDir, `${convId}.jsonl`);
+    const fallbackFile = join45(unresolvedDir, `${convId}.jsonl`);
     if (existsSync34(fallbackFile))
       return fallbackFile;
   }
@@ -30851,7 +32697,7 @@ function canResumeClaudeConversation(contextRoot, convId) {
   try {
     if (!isContained(realpathSync24(dirname25(file2)), realpathSync24(file2)))
       return false;
-    const text = readFileSync22(file2, "utf8");
+    const text = readFileSync23(file2, "utf8");
     let sawIdentity = false;
     let sawRoot = false;
     const root = realpathSync24(contextRoot);
@@ -30888,7 +32734,7 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
   const mtime = statSync20(file2).mtime.toISOString();
-  const s = parseClaudeSessionJsonl(readFileSync22(file2, "utf8"), mtime);
+  const s = parseClaudeSessionJsonl(readFileSync23(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -30905,7 +32751,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
   const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync34(path));
   const summaries = [];
   const seen = /* @__PURE__ */ new Set();
-  const files = dirs.flatMap((folder) => readdirSync5(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join44(folder, f)));
+  const files = dirs.flatMap((folder) => readdirSync5(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join45(folder, f)));
   for (const path of files) {
     const fileId = basename19(path, ".jsonl");
     if (seen.has(fileId))
@@ -30913,7 +32759,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
     seen.add(fileId);
     let text;
     try {
-      text = readFileSync22(path, "utf8");
+      text = readFileSync23(path, "utf8");
     } catch {
       continue;
     }
@@ -31286,8 +33132,8 @@ var claudeModelsCommand = {
     "ideaspaces claude-models --json",
     "ideaspaces claude-models --claude-bin /opt/homebrew/bin/claude --json"
   ],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const claudeBin = typeof flags2["claude-bin"] === "string" ? flags2["claude-bin"] : "claude";
     const binary = probeBinary(claudeBin);
     const roster = getClaudeRoster(binary.version);
@@ -31383,8 +33229,8 @@ var claudeStatusCommand = {
     "ideaspaces claude-status --claude-bin /opt/homebrew/bin/claude --json",
     "ideaspaces claude-status --claude-auth api-key  # count an ANTHROPIC_API_KEY as signed in"
   ],
-  async run(_args, flags2, global2) {
-    const output = createOutput(global2);
+  async run(_args, flags2, global3) {
+    const output = createOutput(global3);
     const claudeBin = typeof flags2["claude-bin"] === "string" ? flags2["claude-bin"] : "claude";
     const auth = flags2["claude-auth"] === void 0 ? "login" : flags2["claude-auth"];
     if (typeof auth !== "string" || !isValidClaudeAuthMode(auth)) {
@@ -31816,18 +33662,18 @@ Run: ideaspaces --help
 `);
   process.exit(1);
 }
-var { global, command, args, flags } = parsed;
-if (global.gitBin) {
-  process.env.IDEASPACES_GIT_BIN = global.gitBin;
+var { global: global2, command, args, flags } = parsed;
+if (global2.gitBin) {
+  process.env.IDEASPACES_GIT_BIN = global2.gitBin;
 }
-if (!command || global.help && !command) {
+if (!command || global2.help && !command) {
   printHelp();
   process.exit(0);
 }
 var resolvedCommand = command;
 var resolvedArgs = args;
 if (command === "power") {
-  if (global.help || !args[0]) {
+  if (global2.help || !args[0]) {
     printPowerHelp();
     process.exit(0);
   }
@@ -31845,7 +33691,7 @@ Run: ideaspaces --help
 `);
   process.exit(1);
 }
-if (global.help) {
+if (global2.help) {
   const lines = [`Usage: ${cmd.usage}`, "", cmd.description];
   if (cmd.examples?.length) {
     lines.push("", "Examples:");
@@ -31856,10 +33702,10 @@ if (global.help) {
   process.exit(0);
 }
 try {
-  const exitCode = await cmd.run(resolvedArgs, flags, global);
+  const exitCode = await cmd.run(resolvedArgs, flags, global2);
   process.exit(exitCode);
 } catch (err) {
-  const output = createOutput(global);
+  const output = createOutput(global2);
   const exitCode = handleError(err, output);
   process.exit(exitCode);
 }

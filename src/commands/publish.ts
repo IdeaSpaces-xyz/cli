@@ -370,7 +370,7 @@ export const publishCommand: CommandDef = {
       output.error("Not logged in. Run `ideaspaces login` first.");
       return 1;
     }
-    const config = { apiUrl: stored.api_url, apiKey: stored.api_key };
+    const config = { apiUrl: stored.api_url, apiKey: stored.api_key, sessionId: stored.session?.id };
     if (unpublished && rootIdentity.declaration.head !== unpublished.root_node_id) {
       output.error(
         `The unpublished registry identity (${unpublished.root_node_id}) requires the same committed ` +
