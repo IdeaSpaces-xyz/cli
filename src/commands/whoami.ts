@@ -32,7 +32,8 @@ export const whoamiCommand: CommandDef = {
           output.result({ logged_in: false }, "Not signed in. Run `ideaspaces login`.");
           return 0;
         }
-        output.error("Could not verify this sign-in. Check your connection and retry; local credentials were kept.");
+        const detail = error instanceof Error ? error.message : "The sign-in check failed.";
+        output.error(`${detail} Could not verify this sign-in; local credentials were kept. Resolve the cause and retry.`);
         return 1;
       }
     }

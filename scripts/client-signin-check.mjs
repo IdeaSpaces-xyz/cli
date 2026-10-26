@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { loadConfig, loadStoredCredentials, saveCredentials } from '../dist/auth/credentials.js';
 import { fetchAuthMe } from '../dist/auth/api.js';
+import { resolveSessionConfig } from '../dist/auth/client-session.js';
 const arg = key => process.argv[process.argv.indexOf(key) + 1];
 assert(process.argv.includes('--sw-space') && process.argv.includes('--python'), 'Select a local sw_space checkout and its Python explicitly.');
 const scratch = await mkdtemp(join(tmpdir(), 'cli-signin-proof-'));
@@ -132,11 +133,35 @@ try {
   assert(!existsSync(sentinel), 'Git must stop before another helper or identity');
   assert(!gitOutput.includes('password='), 'No credential on failed helper resolution');
   saveCredentials({ ...offline, session: { ...offline.session, expires_at: Date.now() } });
+  const directFetch = globalThis.fetch;
+  let committedAccess;
+  globalThis.fetch = async (url, init) => {
+    const upstream = await directFetch(url, init);
+    if (String(url).endsWith('/auth/desktop/token')) {
+      assert.equal(upstream.status, 200);
+      committedAccess = (await upstream.json()).access_token;
+      // Fault at the proxy/response boundary AFTER the real server committed rotation.
+      return new Response('upstream response lost', { status: 503 });
+    }
+    return upstream;
+  };
+  try { await assert.rejects(resolveSessionConfig(loadConfig()), /token exchange/); }
+  finally { globalThis.fetch = directFetch; }
+  assert.equal(loadStoredCredentials().session.refreshing, true);
+  assert.equal((await directFetch(`${service}/auth/me`, { headers: { Authorization: `Bearer ${committedAccess}` } })).status, 200);
+  const unsafeReplay = await directFetch(`${service}/auth/desktop/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token', install_id: installId, refresh_token: offline.session.refresh_token }) });
+  assert.equal(unsafeReplay.status, 400);
+  assert.equal((await directFetch(`${service}/auth/me`, { headers: { Authorization: `Bearer ${committedAccess}` } })).status, 401);
+  await cliLogin(); // explicit fresh sign-in, never replay an ambiguous refresh
+  const offlineRetry = loadStoredCredentials();
+  saveCredentials({ ...offlineRetry, session: { ...offlineRetry.session, expires_at: Date.now() } });
   child.kill('SIGTERM'); await once(child, 'exit');
   await cliStatus(['status', 'account', '--json'], 1);
   assert.equal(loadStoredCredentials().session.refreshing, undefined, 'Real connection refusal must not strand the refresh');
-  assert(loadStoredCredentials().session.refresh_token === offline.session.refresh_token, 'An undelivered refresh stays available for retry');
-  console.log(JSON.stringify({ result: 'pass', localOnly: true, realRoutesAndAuth: true, externalProviderOnly: 'fake Google', client: 'cli', webSessionEntry: true, stableInstall: true, bundledCliRefreshRotates: true, gitHelperRefresh: true, replayRevokesFamily: true, webRevocationSignsCliOut: true, alreadyRevokedLogout: true, serverSignOut: true, connectionRefusalAllowsRetry: true, gitHelperFailsClosed: true }));
+  assert(loadStoredCredentials().session.refresh_token === offlineRetry.session.refresh_token, 'An undelivered refresh stays available for retry');
+  await cliStatus(['power', 'logout', '--json'], 1);
+  assert(loadStoredCredentials(), 'Offline server sign-out must retain local credentials');
+  console.log(JSON.stringify({ result: 'pass', localOnly: true, realRoutesAndAuth: true, externalProviderOnly: 'fake Google', client: 'cli', webSessionEntry: true, stableInstall: true, bundledCliRefreshRotates: true, gitHelperRefresh: true, replayRevokesFamily: true, webRevocationSignsCliOut: true, alreadyRevokedLogout: true, serverSignOut: true, connectionRefusalAllowsRetry: true, gitHelperFailsClosed: true, committedRotationCanSurface503: true, offlineLogoutRetainsCredentials: true }));
 } finally {
   child.kill('SIGTERM');
   if (child.exitCode === null && child.signalCode === null) await once(child, 'exit');

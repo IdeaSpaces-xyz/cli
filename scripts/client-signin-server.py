@@ -12,7 +12,8 @@ Settings.model_config["env_file"] = None
 from sw_space.api.deps import set_settings
 root = Path.cwd()
 set_settings(Settings(data_root=str(root / "data"), lancedb_path=str(root / "lance"), billing_bypass=True,
-                      environment="development", google_client_id="local-client", google_client_secret="local-fake-secret"))
+                      environment="development", google_client_id="local-client", google_client_secret="local-fake-secret",
+                      desktop_auth_rate_limit_rpm=600, desktop_auth_rate_limit_burst=100))
 from fastapi import FastAPI
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

@@ -11,9 +11,11 @@ From a built CLI checkout, with a scratch HOME:
 node scripts/client-signin-check.mjs --sw-space /path/to/sw_space --python /path/to/venv/bin/python
 ```
 
-The opt-in runner requires the selected server checkout's Python dependencies. It disables
+This is a **maintainer-only, opt-in, pinned manual proof**, not a supported standalone
+CLI check or a CI dependency. The runner requires the selected server checkout's Python dependencies. It disables
 server env-file loading, starts loopback-only uvicorn with a fresh SQLite database and a
-synthetic One user/web session, and cleans up its temporary state. Only the external Google
+synthetic One user/web session, and cleans up its temporary state. Only the fixture's
+admission budget is raised to allow the scripted cycles; token/auth logic remains real. Only the external Google
 token/userinfo boundary is faked, following the server's own test pattern. No production
 OAuth provider or external browser is contacted. The native browser opener is a disposable
 Unix stub; the driver follows the real local authorize/provider-state/cookie/callback routes.
@@ -36,7 +38,12 @@ and `power logout`, one process at a time. It proves:
 - a controlled interrupted-refresh fixture stops the real Git credential-fill chain before
   a fallback helper/prompt can choose a different identity;
 - stopping the local server produces real TCP connection refusal, leaves the unspent refresh
-  available and clears only its in-flight marker, permitting a later retry.
+  available and clears only its in-flight marker, permitting a later retry;
+- an injected proxy failure discards a real, already-committed token-rotation response and
+  surfaces 503 to the shared client core. The marker must stay set: replaying that consumed
+  refresh against the real server revokes the newly issued access. A 5xx response alone is
+  therefore not proof that rotation did not commit. Only the service's typed admission 429
+  (before the token transaction) and proven DNS/connect non-delivery are retry-safe.
 
 The proof asserts only public projections/booleans in stdout; it never prints tokens. It
 checks the account settings API, not a rendered web settings screen. Unit tests additionally

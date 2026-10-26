@@ -15,8 +15,9 @@ export const logoutCommand: CommandDef = {
       const explicit = !!process.env.IS_API_KEY;
       output.result({ logged_out: true, ...(explicit ? { env_override_active: true } : {}) }, "Logged out. This install's session was revoked, if present; local credentials and session state removed. Existing API keys were only forgotten, not revoked." + (explicit ? " IS_API_KEY remains set; unset it to stop using that explicit credential." : ""));
       return 0;
-    } catch {
-      output.error("Could not complete server sign-out. Local credentials were kept so you can retry `ideaspaces power logout` when connected.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "The sign-out operation failed.";
+      output.error(`Sign-out did not finish: ${detail} Local credentials are retained when remote revocation fails. Resolve the cause and retry \`ideaspaces power logout\`.`);
       return 1;
     }
   },

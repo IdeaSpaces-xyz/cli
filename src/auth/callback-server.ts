@@ -53,7 +53,7 @@ export function startCallbackServer(expectedState: string): Promise<CallbackResu
       if (!address || typeof address === "string") { server.close(); reject(new Error("Could not open the local sign-in callback.")); return; }
       resolve({ port: address.port,
         waitForCallback(timeoutMs = 120_000) {
-          if (!settled && !timer) timer = setTimeout(() => { fail("Sign-in timed out. Run `ideaspaces login` to try again."); server.close(); }, timeoutMs);
+          if (!settled && !timer) timer = setTimeout(() => { fail("Sign-in timed out. The browser must reach this CLI's 127.0.0.1 (SSH requires forwarding). For headless/CI use an existing IS_API_KEY; otherwise run `ideaspaces login` again."); server.close(); }, timeoutMs);
           return result;
         },
         close() { fail("The sign-in callback closed before completion."); server.close(); server.closeAllConnections(); },

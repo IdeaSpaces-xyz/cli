@@ -9,7 +9,8 @@ export interface SessionConfig { apiUrl: string; apiKey?: string; sessionId?: st
 export class SessionAuthError extends Error {
   constructor(message = "Your IdeaSpaces sign-in ended. Run `ideaspaces login` again.") { super(message); this.name = "SessionAuthError"; }
 }
-class RequestNotSent extends Error {}
+class RefreshUnspent extends Error {}
+class RequestNotSent extends RefreshUnspent {}
 /** Only OS DNS/connect refusal proves that no HTTP request could reach this origin.
  * Resets, TLS errors, timeouts and mixed/unknown aggregate causes remain ambiguous. */
 function definitelyNotSent(error: unknown): boolean {
@@ -25,7 +26,7 @@ export function serviceOrigin(service: string): string {
   const u = new URL(service);
   if (u.username || u.password || u.pathname !== "/" || u.search || u.hash ||
     !(u.protocol === "https:" || u.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname))) {
-    throw new Error("Sign-in needs an HTTPS API origin (loopback HTTP is allowed for local testing).");
+    throw new Error("Sign-in needs an HTTPS API origin with no path, query, fragment or userinfo (loopback HTTP is allowed for local testing).");
   }
   return u.origin;
 }
@@ -53,6 +54,15 @@ async function sessionRequest(apiUrl: string, action: "token" | "revoke", params
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body: new URLSearchParams(params), signal: AbortSignal.timeout(15_000) });
     if (!response.ok) {
+      if (response.status === 429) {
+        const retry = response.headers.get("Retry-After");
+        const body = await response.json().catch(() => null);
+        // This exact service admission error is returned before the token transaction.
+        // A generic proxy 429 or ANY 5xx is not proof that a rotation did not commit.
+        if (retry && /^\d+$/.test(retry) && body && typeof body === "object" && "detail" in body && body.detail === "Too many sign-in requests") {
+          throw new RefreshUnspent(`IdeaSpaces sign-in is rate-limited. Wait ${Math.min(Number(retry), 3600)} seconds and retry; this request was not accepted.`);
+        }
+      }
       await response.body?.cancel();
       if (action === "token" && [400, 401, 403].includes(response.status)) throw new SessionAuthError();
       throw new Error(`IdeaSpaces ${action === "token" ? "token exchange" : "sign-out"} failed (HTTP ${response.status}). Try again later.`);
@@ -60,7 +70,7 @@ async function sessionRequest(apiUrl: string, action: "token" | "revoke", params
     if (action === "revoke") { await response.body?.cancel(); return; }
     return await response.json();
   } catch (error) {
-    if (error instanceof SessionAuthError) throw error;
+    if (error instanceof SessionAuthError || error instanceof RefreshUnspent) throw error;
     if (definitelyNotSent(error)) throw new RequestNotSent("Could not connect to IdeaSpaces (request was not sent). Check the API origin/network, then retry.");
     // Never print provider bodies, fetch causes, submitted codes/verifiers or tokens.
     throw new Error(`Could not complete IdeaSpaces ${action === "token" ? "token exchange" : "server sign-out"}. Check your connection. A rotating refresh is never retried automatically.`);
@@ -111,7 +121,7 @@ export async function resolveSessionConfig<T extends SessionConfig>(config: T, r
       const current = loadStoredCredentials();
       if (current?.session?.id === s.id && current.session.refresh_token === s.refresh_token && current.api_url === stored.api_url) {
         if (error instanceof SessionAuthError) deleteCredentials();
-        else if (error instanceof RequestNotSent) saveCredentials({ ...current, session: { ...current.session, refreshing: undefined } });
+        else if (error instanceof RefreshUnspent) saveCredentials({ ...current, session: { ...current.session, refreshing: undefined } });
       }
       // On ambiguous network/disk failure retain the marker; never silently replay a rotation.
       throw error;

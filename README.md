@@ -64,7 +64,13 @@ Neither inspection command changes access.
 not a long-lived “CLI Login” key. Each service has a stable CLI `install_id`; its
 `device_name` is “IdeaSpaces CLI on <hostname>”. Manage or revoke this install in the
 web's **Desktop sign-ins** list. Sign-in needs HTTPS; explicit loopback HTTP is allowed
-for local testing. No legacy sign-in fallback is attempted.
+for local testing. The API origin must have no path (including `/api`), query,
+fragment or userinfo. No legacy sign-in fallback is attempted.
+
+**Headless/CI and SSH:** use an existing authorized `IS_API_KEY` from your secret store.
+Browser sign-in requires the browser to reach this CLI's 127.0.0.1; SSH therefore needs
+explicit loopback forwarding. There is no device-code grant or new long-lived-key fallback.
+Local-only work still needs no sign-in.
 
 The CLI stores the short access token and rotating refresh in its existing credentials
 file (atomic replacement; mode 0600 on POSIX, the directory's existing ACL on Windows), not the model
@@ -73,6 +79,8 @@ one minute of access expiry, under a cross-process lock. The refresh is spent on
 a persisted in-flight marker prevents replay after a crash or lost response. If that
 happens, sign in again rather than retrying a consumed refresh. Only OS DNS/connect
 refusal that proves the request was never sent clears that marker for a later retry.
+The service's typed pre-transaction admission 429 also leaves the refresh unspent;
+unknown proxy errors and 5xx remain ambiguous (they may arrive after a committed rotation).
 An access-token 401 gets one conditional refresh: reads may retry once; writes/streams
 are never replayed and ask you to retry the command after renewal. If configured sign-in
 resolution fails, the Git helper reports it and stops the helper/prompt chain rather than

@@ -133,6 +133,19 @@ it("does not replay a POST after renewing its refused access", async () => {
   await expect(createRepo(config, {} as never)).rejects.toThrow("not replayed");
   expect(posts).toBe(1); expect(loadStoredCredentials()?.api_key).toBe("new-access");
 });
+it("keeps a refresh retryable after the service's typed pre-transaction admission limit", async () => {
+  saveCredentials(stored());
+  const fetcher = vi.fn(async () => Response.json({ detail: "Too many sign-in requests" }, { status: 429, headers: { "Retry-After": "4" } }));
+  vi.stubGlobal("fetch", fetcher);
+  await expect(resolveSessionConfig(config)).rejects.toThrow("Wait 4 seconds");
+  expect(loadStoredCredentials()?.session?.refreshing).toBeUndefined();
+});
+it.each([429, 500, 503])("does not infer that a generic HTTP %s means no rotation committed", async status => {
+  saveCredentials(stored()); const fetcher = vi.fn(async () => new Response("proxy error", { status })); vi.stubGlobal("fetch", fetcher);
+  await expect(resolveSessionConfig(config)).rejects.toThrow("token exchange");
+  expect(loadStoredCredentials()?.session?.refreshing).toBe(true);
+  await expect(resolveSessionConfig(config)).rejects.toThrow("interrupted"); expect(fetcher).toHaveBeenCalledOnce();
+});
 it("does not replay a refresh after network ambiguity, crashes or malformed token responses", async () => {
   saveCredentials(stored());
   const fetcher = vi.fn().mockRejectedValue(new Error("private-token-network-detail")); vi.stubGlobal("fetch", fetcher);

@@ -42,7 +42,7 @@ export async function cliSignIn(apiUrl: string, deviceName: string, browser: (ur
 
 export const loginCommand: CommandDef = {
   name: "login",
-  description: "Log in to IdeaSpaces (optional — required for sync)",
+  description: "Browser sign-in on this machine (headless/CI: use an existing IS_API_KEY)",
   usage: "ideaspaces login",
   examples: ["ideaspaces login              # Browser sign-in for this CLI install; saves a rotating session"],
   async run(_args, _flags, global) {
@@ -53,7 +53,7 @@ export const loginCommand: CommandDef = {
       if (replacing) output.progress("Signing in replaces the saved CLI credential. Existing API keys are not revoked. Use `ideaspaces power logout` first when switching accounts/services if you need the old session revoked.");
       const stored = await cliSignIn(apiUrl, `IdeaSpaces CLI on ${hostname()}`.slice(0, 128), async (url) => {
         output.progress(`Opening browser for sign-in...\n${url}`);
-        try { await openBrowser(url); } catch { output.progress("Could not open the browser. Open the URL above manually; this terminal is still waiting."); }
+        try { await openBrowser(url); } catch { output.progress("Could not open the browser. Open the URL above in a browser that reaches this CLI's 127.0.0.1; SSH requires loopback forwarding. This terminal is still waiting. For headless/CI use an existing IS_API_KEY."); }
       });
       const config = { apiUrl: stored.api_url, apiKey: stored.api_key, sessionId: stored.session!.id };
       try {

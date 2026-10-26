@@ -14018,7 +14018,7 @@ function definitelyNotSent(error) {
 function serviceOrigin(service) {
   const u = new URL(service);
   if (u.username || u.password || u.pathname !== "/" || u.search || u.hash || !(u.protocol === "https:" || u.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname))) {
-    throw new Error("Sign-in needs an HTTPS API origin (loopback HTTP is allowed for local testing).");
+    throw new Error("Sign-in needs an HTTPS API origin with no path, query, fragment or userinfo (loopback HTTP is allowed for local testing).");
   }
   return u.origin;
 }
@@ -14050,6 +14050,13 @@ async function sessionRequest(apiUrl, action, params) {
       signal: AbortSignal.timeout(15e3)
     });
     if (!response.ok) {
+      if (response.status === 429) {
+        const retry = response.headers.get("Retry-After");
+        const body = await response.json().catch(() => null);
+        if (retry && /^\d+$/.test(retry) && body && typeof body === "object" && "detail" in body && body.detail === "Too many sign-in requests") {
+          throw new RefreshUnspent(`IdeaSpaces sign-in is rate-limited. Wait ${Math.min(Number(retry), 3600)} seconds and retry; this request was not accepted.`);
+        }
+      }
       await response.body?.cancel();
       if (action === "token" && [400, 401, 403].includes(response.status))
         throw new SessionAuthError();
@@ -14061,7 +14068,7 @@ async function sessionRequest(apiUrl, action, params) {
     }
     return await response.json();
   } catch (error) {
-    if (error instanceof SessionAuthError)
+    if (error instanceof SessionAuthError || error instanceof RefreshUnspent)
       throw error;
     if (definitelyNotSent(error))
       throw new RequestNotSent("Could not connect to IdeaSpaces (request was not sent). Check the API origin/network, then retry.");
@@ -14121,7 +14128,7 @@ async function resolveSessionConfig(config, rejectedKey) {
       if (current?.session?.id === s.id && current.session.refresh_token === s.refresh_token && current.api_url === stored.api_url) {
         if (error instanceof SessionAuthError)
           deleteCredentials();
-        else if (error instanceof RequestNotSent)
+        else if (error instanceof RefreshUnspent)
           saveCredentials({ ...current, session: { ...current.session, refreshing: void 0 } });
       }
       throw error;
@@ -14151,7 +14158,7 @@ async function signOut() {
     deleteCredentials();
   });
 }
-var SessionAuthError, RequestNotSent, secret;
+var SessionAuthError, RefreshUnspent, RequestNotSent, secret;
 var init_client_session = __esm({
   "dist/auth/client-session.js"() {
     "use strict";
@@ -14163,7 +14170,9 @@ var init_client_session = __esm({
         this.name = "SessionAuthError";
       }
     };
-    RequestNotSent = class extends Error {
+    RefreshUnspent = class extends Error {
+    };
+    RequestNotSent = class extends RefreshUnspent {
     };
     secret = (v) => typeof v === "string" && v.length > 0 && v.length <= 4096 && /^[A-Za-z0-9._~+\/-]+=*$/.test(v);
   }
@@ -17635,7 +17644,7 @@ function startCallbackServer(expectedState) {
         waitForCallback(timeoutMs = 12e4) {
           if (!settled && !timer)
             timer = setTimeout(() => {
-              fail("Sign-in timed out. Run `ideaspaces login` to try again.");
+              fail("Sign-in timed out. The browser must reach this CLI's 127.0.0.1 (SSH requires forwarding). For headless/CI use an existing IS_API_KEY; otherwise run `ideaspaces login` again.");
               server.close();
             }, timeoutMs);
           return result;
@@ -17722,7 +17731,7 @@ async function cliSignIn(apiUrl, deviceName, browser, timeoutMs = 12e4) {
 }
 var loginCommand = {
   name: "login",
-  description: "Log in to IdeaSpaces (optional \u2014 required for sync)",
+  description: "Browser sign-in on this machine (headless/CI: use an existing IS_API_KEY)",
   usage: "ideaspaces login",
   examples: ["ideaspaces login              # Browser sign-in for this CLI install; saves a rotating session"],
   async run(_args, _flags, global3) {
@@ -17738,7 +17747,7 @@ ${url}`);
         try {
           await openBrowser(url);
         } catch {
-          output.progress("Could not open the browser. Open the URL above manually; this terminal is still waiting.");
+          output.progress("Could not open the browser. Open the URL above in a browser that reaches this CLI's 127.0.0.1; SSH requires loopback forwarding. This terminal is still waiting. For headless/CI use an existing IS_API_KEY.");
         }
       });
       const config = { apiUrl: stored.api_url, apiKey: stored.api_key, sessionId: stored.session.id };
@@ -22452,7 +22461,8 @@ var whoamiCommand = {
           output.result({ logged_in: false }, "Not signed in. Run `ideaspaces login`.");
           return 0;
         }
-        output.error("Could not verify this sign-in. Check your connection and retry; local credentials were kept.");
+        const detail3 = error instanceof Error ? error.message : "The sign-in check failed.";
+        output.error(`${detail3} Could not verify this sign-in; local credentials were kept. Resolve the cause and retry.`);
         return 1;
       }
     }
@@ -30826,8 +30836,9 @@ var logoutCommand = {
       const explicit = !!process.env.IS_API_KEY;
       output.result({ logged_out: true, ...explicit ? { env_override_active: true } : {} }, "Logged out. This install's session was revoked, if present; local credentials and session state removed. Existing API keys were only forgotten, not revoked." + (explicit ? " IS_API_KEY remains set; unset it to stop using that explicit credential." : ""));
       return 0;
-    } catch {
-      output.error("Could not complete server sign-out. Local credentials were kept so you can retry `ideaspaces power logout` when connected.");
+    } catch (error) {
+      const detail3 = error instanceof Error ? error.message : "The sign-out operation failed.";
+      output.error(`Sign-out did not finish: ${detail3} Local credentials are retained when remote revocation fails. Resolve the cause and retry \`ideaspaces power logout\`.`);
       return 1;
     }
   }
