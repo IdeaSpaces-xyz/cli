@@ -1,12 +1,15 @@
 /**
  * Credential storage for IdeaSpaces login.
  *
- * Stores API key + config in ~/.ideaspaces/credentials.json.
+ * Stores an access/rotating-refresh session (or an existing API key) in the CLI's
+ * owner-only ~/.ideaspaces/credentials.json. Session changes use withCredentialsLock.
  * Auth resolution: IS_API_KEY env var → stored credentials → not logged in.
  */
 
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import lockfile from "proper-lockfile";
 import { configDir } from "./config-dir.js";
 
 function credentialsFile(): string {
@@ -18,6 +21,31 @@ export interface StoredCredentials {
   api_key: string;
   /** Account handle, cached at login for offline display. Absent on pre-username creds. */
   username?: string | null;
+  session?: StoredSession;
+}
+
+export interface StoredSession {
+  id: string;
+  install_id: string;
+  refresh_token: string;
+  expires_at: number;
+  refresh_expires_at: number;
+  /** Persisted before a rotating refresh: a crash/lost response must never replay it. */
+  refreshing?: boolean;
+}
+
+export async function withCredentialsLock<T>(work: () => Promise<T>): Promise<T> {
+  mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+  let release: () => Promise<void>;
+  try {
+    // ~20s covers the token request's 15s deadline plus store I/O; still bounded for Git.
+    release = await lockfile.lock(credentialsFile(), { realpath: false, stale: 30_000, update: 10_000,
+      retries: { retries: 100, minTimeout: 100, maxTimeout: 200 } });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ELOCKED") throw new Error("Sign-in storage is locked by another CLI operation or a recently interrupted one. Wait briefly and retry.");
+    throw error;
+  }
+  try { return await work(); } finally { await release(); }
 }
 
 export function loadStoredCredentials(): StoredCredentials | null {
@@ -26,8 +54,13 @@ export function loadStoredCredentials(): StoredCredentials | null {
     if (!existsSync(file)) return null;
     const raw = readFileSync(file, "utf-8");
     const data = JSON.parse(raw);
-    if (!data.api_key) return null;
-    return data as StoredCredentials;
+    if (typeof data.api_key !== "string" || !data.api_key || (data.api_url !== undefined && typeof data.api_url !== "string")) return null;
+    if (data.session !== undefined) {
+      const s = data.session;
+      if (!data.api_url || !s || typeof s.id !== "string" || !s.id || typeof s.install_id !== "string" || !s.install_id || typeof s.refresh_token !== "string" || !s.refresh_token ||
+        !Number.isFinite(s.expires_at) || !Number.isFinite(s.refresh_expires_at) || (s.refreshing !== undefined && typeof s.refreshing !== "boolean")) return null;
+    }
+    return { ...data, api_url: data.api_url || DEFAULT_API_URL } as StoredCredentials;
   } catch {
     return null;
   }
@@ -38,9 +71,11 @@ export function saveCredentials(creds: StoredCredentials): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(credentialsFile(), JSON.stringify(creds, null, 2) + "\n", {
-    mode: 0o600,
-  });
+  const temp = `${credentialsFile()}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(creds, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+    renameSync(temp, credentialsFile());
+  } finally { try { unlinkSync(temp); } catch { /* renamed or never created */ } }
 }
 
 export function deleteCredentials(): void {
@@ -49,8 +84,8 @@ export function deleteCredentials(): void {
     if (existsSync(file)) {
       unlinkSync(file);
     }
-  } catch {
-    // Ignore — file may not exist
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 }
 
@@ -63,6 +98,8 @@ export interface LoadedConfig {
   apiKey: string;
   /** Cached account handle from login, when present. Env-key config carries none. */
   username?: string | null;
+  /** Session binding, not a secret; omitted for explicit env/API-key authentication. */
+  sessionId?: string;
 }
 
 /**
@@ -87,10 +124,14 @@ export function loadConfig(): LoadedConfig | null {
 
   const stored = loadStoredCredentials();
   if (stored) {
+    const apiUrl = (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, "");
+    // A stored rotating session belongs to its service, never an IS_API_URL override.
+    if (stored.session && apiUrl !== stored.api_url.replace(/\/$/, "")) return null;
     return {
-      apiUrl: (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, ""),
+      apiUrl,
       apiKey: stored.api_key,
       username: stored.username ?? null,
+      ...(stored.session ? { sessionId: stored.session.id } : {}),
     };
   }
 
@@ -102,6 +143,6 @@ export function getDefaultApiUrl(): string {
 }
 
 /** Public-read configuration: use ambient credentials when present, never invent an empty token. */
-export function loadOptionalAuthConfig(): { apiUrl: string; apiKey?: string } {
+export function loadOptionalAuthConfig(): { apiUrl: string; apiKey?: string; sessionId?: string } {
   return loadConfig() ?? { apiUrl: getDefaultApiUrl() };
 }

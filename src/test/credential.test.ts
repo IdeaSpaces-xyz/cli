@@ -3,13 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GlobalFlags } from "../types.js";
 
-const { loadConfigMock } = vi.hoisted(() => ({
+const { loadConfigMock, resolveMock } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
+  resolveMock: vi.fn(),
 }));
 
 vi.mock("../auth/credentials.js", () => ({
   loadConfig: loadConfigMock,
 }));
+
+vi.mock("../auth/client-session.js", () => ({ resolveSessionConfig: resolveMock }));
 
 const { credentialCommand } = await import("../commands/credential.js");
 
@@ -41,6 +44,7 @@ beforeEach(() => {
     return true;
   };
   loadConfigMock.mockReset();
+  resolveMock.mockReset().mockImplementation(async (config) => config);
 });
 
 afterEach(() => {
@@ -70,6 +74,18 @@ describe("credential command — get", () => {
     expect(out).toContain("password=sk_sw_test");
   });
 
+  it.each(["Sign-in refresh was interrupted. Run ideaspaces login.", "Another CLI command is updating sign-in; retry shortly."])("fails closed with an actionable helper refusal: %s", async message => {
+    loadConfigMock.mockReturnValue({ apiKey: "not-returned", apiUrl: "https://api.test.invalid", sessionId: "one" });
+    resolveMock.mockRejectedValue(new Error(message));
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      mockStdin("protocol=https\nhost=git.ideaspaces.xyz\n\n");
+      expect(await credentialCommand.run(["get"], {}, GLOBAL)).toBe(1);
+      expect(capturedStdout()).toBe("quit=true\n\n");
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining(message));
+      expect(capturedStdout()).not.toContain("not-returned");
+    } finally { stderr.mockRestore(); }
+  });
   it("honours git-provided username if present", async () => {
     loadConfigMock.mockReturnValue({
       apiKey: "sk_sw_abc",

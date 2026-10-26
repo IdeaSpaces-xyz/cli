@@ -5,8 +5,8 @@
  *   git runs `ideaspaces credential <action>` with credential context on stdin.
  *   Actions: get | store | erase.
  *
- * We implement `get` by reading the stored API key from
- * ~/.ideaspaces/credentials.json. `store` and `erase` are no-ops —
+ * `get` resolves the stored access token (refreshing a session before expiry) or an
+ * existing API key from ~/.ideaspaces/credentials.json. `store` and `erase` are no-ops —
  * we manage our credentials through `ideaspaces login` / `logout`,
  * not through git's credential lifecycle.
  *
@@ -17,6 +17,7 @@
  */
 
 import { loadConfig } from "../auth/credentials.js";
+import { resolveSessionConfig } from "../auth/client-session.js";
 import type { CommandDef } from "../types.js";
 
 export const credentialCommand: CommandDef = {
@@ -53,27 +54,27 @@ async function handleGet(): Promise<number> {
     return 0;
   }
 
-  const config = loadConfig();
-  if (!config) {
+  const loaded = loadConfig();
+  if (!loaded) {
     // Not logged in — git will prompt or other helpers will try.
     return 0;
   }
 
-  // Any non-empty username works. Use git's provided one if any,
-  // else a placeholder (server ignores username — password is the API key).
-  const username = params.username && params.username.length > 0
-    ? params.username
-    : "token";
-
-  const reply = [
-    `username=${username}`,
-    `password=${config.apiKey}`,
-    "",
-    "",
-  ].join("\n");
-
-  process.stdout.write(reply);
-  return 0;
+  // Git may run several helpers concurrently; resolve under the same refresh lock as HTTP.
+  try {
+    const config = await resolveSessionConfig(loaded);
+    // Any non-empty username works. The password is the access token or existing API key.
+    const username = params.username && params.username.length > 0 ? params.username : "token";
+    const reply = [`username=${username}`, `password=${config.apiKey}`, "", ""].join("\n");
+    process.stdout.write(reply);
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Sign-in could not be resolved.";
+    process.stderr.write(`IdeaSpaces credential helper: ${message}\n`);
+    // Stop Git's helper/prompt chain rather than silently using a different identity.
+    process.stdout.write("quit=true\n\n");
+    return 1;
+  }
 }
 
 function isIdeaspacesHost(host: string | undefined): boolean {

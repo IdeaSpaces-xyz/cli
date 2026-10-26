@@ -13,6 +13,7 @@ vi.mock("../auth/credentials.js", () => ({
   loadConfig: loadConfigMock,
   loadStoredCredentials: loadStoredCredentialsMock,
   saveCredentials: saveCredentialsMock,
+  withCredentialsLock: async (work: () => Promise<unknown>) => work(),
 }));
 
 vi.mock("../auth/api.js", () => ({
