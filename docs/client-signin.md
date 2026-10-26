@@ -54,12 +54,20 @@ reactive 401 renewal without write replay, helper failure/prompt-chain refusal, 
 install identities, expired refreshes, revoke errors and offline sign-out retention. A late
 browser rejection after the callback wins is explicitly tested; Promise.race handles it.
 Windows inherits the directory's existing ACL; this proof does not assert a new Windows
-ACL-hardening policy or claim a live Windows ACL test.
+ACL-hardening policy or claim a live Windows ACL test. A controlled in-flight refresh test
+holds the first request while a second resolver waits, then proves both get the one rotated
+access token. The lock budget is approximately 20s, covering the token fetch's 15s deadline
+plus store I/O, with a bounded contention error rather than an indefinite Git wait. Revoke
+200 is explicitly pinned for active, interrupted-refresh and expired local states; unexpected
+4xx/5xx is not falsely reported as successful server sign-out.
 
 ## Consumer parity and publication gate
 
-No protocol or SDK shape changed. This is CLI client authentication, not agent authority or
-Desktop keychain work. No new person-key minting or legacy-start fallback is introduced.
+No protocol or SDK shape changed. The current SDK pin exports event bridges only, not
+OAuth token/revoke transport; this follows the existing CLI-owned remote surface in
+`src/auth/api.ts`. A future shared transport extraction belongs with the SDK when another
+consumer needs it, not in the portable protocol. This is CLI client authentication, not
+agent authority or Desktop keychain work. No new person-key minting or legacy-start fallback is introduced.
 
 | Consumer | Exposure and remaining rollout |
 |---|---|

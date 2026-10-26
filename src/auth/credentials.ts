@@ -38,8 +38,9 @@ export async function withCredentialsLock<T>(work: () => Promise<T>): Promise<T>
   mkdirSync(configDir(), { recursive: true, mode: 0o700 });
   let release: () => Promise<void>;
   try {
+    // ~20s covers the token request's 15s deadline plus store I/O; still bounded for Git.
     release = await lockfile.lock(credentialsFile(), { realpath: false, stale: 30_000, update: 10_000,
-      retries: { retries: 25, minTimeout: 100, maxTimeout: 200 } });
+      retries: { retries: 100, minTimeout: 100, maxTimeout: 200 } });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ELOCKED") throw new Error("Sign-in storage is locked by another CLI operation or a recently interrupted one. Wait briefly and retry.");
     throw error;

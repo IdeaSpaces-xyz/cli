@@ -1644,7 +1644,7 @@ async function withCredentialsLock(work) {
       realpath: false,
       stale: 3e4,
       update: 1e4,
-      retries: { retries: 25, minTimeout: 100, maxTimeout: 200 }
+      retries: { retries: 100, minTimeout: 100, maxTimeout: 200 }
     });
   } catch (error) {
     if (error.code === "ELOCKED")
@@ -30826,7 +30826,7 @@ function clearSessionState() {
 // dist/commands/power/logout.js
 var logoutCommand = {
   name: "logout",
-  description: "Log out and clear stored credentials",
+  description: "Revoke this CLI session, then clear credentials (retained if revocation fails)",
   usage: "ideaspaces power logout",
   async run(_args, _flags, global3) {
     const output = createOutput(global3);

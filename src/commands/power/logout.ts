@@ -5,7 +5,7 @@ import type { CommandDef } from "../../types.js";
 
 export const logoutCommand: CommandDef = {
   name: "logout",
-  description: "Log out and clear stored credentials",
+  description: "Revoke this CLI session, then clear credentials (retained if revocation fails)",
   usage: "ideaspaces power logout",
   async run(_args, _flags, global) {
     const output = createOutput(global);

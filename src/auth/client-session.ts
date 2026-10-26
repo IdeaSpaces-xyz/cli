@@ -30,7 +30,8 @@ export function serviceOrigin(service: string): string {
   }
   return u.origin;
 }
-/** Stable per CLI installation/service, retained on sign-out. Serialized with the credential lock. */
+/** Stable per CLI installation/service, retained on sign-out.
+ * Precondition: caller must hold withCredentialsLock (cliSignIn does); never nest that lock. */
 export function cliInstallId(apiUrl: string): string {
   const directory = join(configDir(), "installs");
   mkdirSync(directory, { recursive: true, mode: 0o700 });

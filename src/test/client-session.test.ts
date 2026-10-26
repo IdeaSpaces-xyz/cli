@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, statSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { cliSignIn } from "../commands/login.js";
+import lockfile from "proper-lockfile";
 import { join } from "node:path";
 import { loadConfig, loadStoredCredentials, saveCredentials, withCredentialsLock } from "../auth/credentials.js";
 import { cliInstallId, exchangeSignIn, resolveSessionConfig, refuseSession, signOut } from "../auth/client-session.js";
@@ -44,6 +45,26 @@ it("serializes rotations, persists the next refresh atomically and reuses the ne
   expect(a.apiKey).toBe("new-access"); expect(b.apiKey).toBe("new-access"); expect(fetcher).toHaveBeenCalledTimes(1);
   expect(loadStoredCredentials()?.session).toMatchObject({ refresh_token: "refresh-two" });
   expect(loadStoredCredentials()?.session?.refreshing).toBeUndefined();
+});
+it("waits behind an in-flight refresh and budgets more lock wait than the 15s fetch deadline", async () => {
+  saveCredentials(stored());
+  let finish!: () => void;
+  const gate = new Promise<void>(resolve => { finish = resolve; });
+  const fetcher = vi.fn(async () => { await gate; return Response.json(tokenResponse()); });
+  vi.stubGlobal("fetch", fetcher);
+  const locks = vi.spyOn(lockfile, "lock");
+  const jobs: Array<Promise<typeof config>> = [];
+  try {
+    jobs.push(resolveSessionConfig(config));
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+    jobs.push(resolveSessionConfig(config));
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(loadStoredCredentials()?.session?.refreshing).toBe(true);
+    finish();
+    expect((await Promise.all(jobs)).map(c => c.apiKey)).toEqual(["new-access", "new-access"]);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(locks.mock.calls[0][1]).toMatchObject({ retries: { retries: 100, minTimeout: 100, maxTimeout: 200 } });
+  } finally { finish(); await Promise.allSettled(jobs); locks.mockRestore(); }
 });
 it("refreshes HTTP and streaming consumers, and clears only this session on server 401", async () => {
   saveCredentials(stored());
@@ -196,6 +217,16 @@ it("does not roll back a newer sign-in after an interrupted lock owner resumes",
   }));
   await expect(resolveSessionConfig(config)).rejects.toThrow("changed during refresh");
   expect(loadStoredCredentials()?.api_key).toBe("new-login-access");
+});
+it.each(["active", "refreshing", "expired"])("pins RFC 7009 revoke 200 as success even for local state %s", async state => {
+  const saved = { ...stored(), session: { ...stored().session, refreshing: state === "refreshing",
+    refresh_expires_at: state === "expired" ? Date.now() - 1 : Date.now() + 3600_000 } };
+  saveCredentials(saved);
+  const fetcher = vi.fn(async (_url: string) => new Response("{}", { status: 200 })); vi.stubGlobal("fetch", fetcher);
+  await signOut();
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(fetcher.mock.calls[0][0]).toBe(`${apiUrl}/auth/desktop/revoke`);
+  expect(loadStoredCredentials()).toBeNull();
 });
 it.each([400, 401, 404, 503])("keeps local state on unexpected revoke HTTP %s (the server contract is idempotent 200)", async status => {
   saveCredentials(stored()); vi.stubGlobal("fetch", vi.fn(async () => new Response("unexpected", { status })));
