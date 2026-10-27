@@ -76,13 +76,13 @@ agent authority or Desktop keychain work. No new person-key minting or legacy-st
 | Pi integration | Existing is_auth also shells `login` / `power logout`. Keep its current pin unchanged until the approved CLI publication, then update its pin/version and affected auth guidance with that integration's next change. |
 | Claude Code plugin | Requires reproducible CLI re-vendoring and its own version bump when the human opens the batch. No hand-edited bundle or silent update under an existing plugin version. Update presence-only auth guidance in that batch. |
 
-**Publication is blocked pending the human's explicit go and an agreed consumer rollout.**
-The coordinator must name the CLI version cut, bundled-CLI/pin owners and the presence-check
-skill updates before requesting publication. Merged auth code alone is not rollout approval.
+**2026-10-27: the human approved the standalone CLI 0.5.0 release.**
+The [0.5.0 release notes](releases/0.5.0.md) name the existing pins, owners and
+presence-check guidance updates. Merged auth code alone is not rollout approval.
 
-This PR deliberately does **not** publish a CLI version, change consumer pins, or open a plugin
-batch. The bundled consumers must update before they can renew a new session or perform its
-server sign-out; old bundles understand only the access field. Existing legacy API keys keep
-working. Do not close fresh legacy server starts until the approved CLI publication and its
-coordinated rollout. The coordinating delivery records this as a publication/consumer gate,
-not as already delivered to installed users.
+This release deliberately does **not** change consumer pins or open a plugin batch.
+The bundled consumers must update before they can renew a new session or perform its
+server sign-out; old bundles understand only the access field. Existing legacy API keys
+keep working. Closing fresh legacy server starts remains a backend rollout action after
+confirmed publication and coordination, not an effect of this version bump. The release
+delivery must distinguish standalone publication from delivery to installed integrations.

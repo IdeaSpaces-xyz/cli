@@ -45,7 +45,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Test
-        run: npm test
+        run: npm test -- --maxWorkers=1 --no-file-parallelism
 
       - name: Build and verify the publishable package
         run: npm run check:package
