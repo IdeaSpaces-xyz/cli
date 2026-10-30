@@ -1,58 +1,10 @@
-name: CI
+name: Current command exit proof (diagnostic only)
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-# Every PR is gated on Linux. macOS and Windows run together on main (and on
-# demand): the Windows runner's git-heavy publish/sync tests drift past the
-# 5s test timeout on a slow day, and a one-line PR should not wait on that.
-# The publish workflow re-verifies the package on release. The focused Windows
-# exit job also runs on every PR: Node 22 cannot detect the Node 24.19.0 race.
 jobs:
-  build:
-    name: Typecheck, test, bundle (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: "npm"
-
-      # Public IdeaSpaces dependencies are git-pinned, but package-lock records
-      # GitHub SSH URLs and the CI runner has no SSH key. Rewrite them to
-      # anonymous HTTPS; no token is needed.
-      - name: Force HTTPS for GitHub git fetch
-        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      - name: Test
-        run: npm test -- --maxWorkers=1 --no-file-parallelism
-
-      - name: Build and verify the publishable package
-        run: npm run check:package
-
-  windows-exit:
-    name: Windows command exit (Node 24.19.0)
+  proof:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -63,7 +15,54 @@ jobs:
           cache: "npm"
       - name: Force HTTPS for GitHub git fetch
         run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - name: Install and build
+      - name: Install and build candidate
         run: npm ci
-      - name: Verify real subprocess exit and resource cleanup
+      - name: Verify candidate subprocess lifecycle
         run: npm test -- src/test/cli-exit.test.ts src/test/cli-exit-lifecycle.test.ts --maxWorkers=1 --no-file-parallelism
+      - name: Download released v0.7.0 MCP bundle
+        shell: bash
+        run: |
+          mkdir -p .exit-proof
+          curl --fail --location --output .exit-proof/mcp.mjs https://raw.githubusercontent.com/IdeaSpaces-xyz/claude-code-plugin/v0.7.0/dist/index.js
+      - name: Verify packaged MCP with candidate CLI
+        run: node scripts/current-exit-mcp-proof.mjs
+      - name: Restore only forced exits for a negative control
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const file = 'src/main.ts', source = readFileSync(file, 'utf8');
+          if (source.split('process.exitCode = exitCode;').length !== 3) throw Error('Expected exactly two exit sites');
+          writeFileSync(file, source.replaceAll('process.exitCode = exitCode;', 'process.exit(exitCode);'));
+          JS
+          npm run build
+      - name: Run forced-exit control with literal loopback IP
+        id: forced-ip
+        continue-on-error: true
+        run: |
+          npm test -- src/test/cli-exit.test.ts src/test/cli-exit-lifecycle.test.ts --maxWorkers=1 --no-file-parallelism *> .exit-proof/forced-ip.log
+          exit $LASTEXITCODE
+      - name: Enable loopback DNS for the second negative control
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const file = 'src/test/cli-exit.test.ts', source = readFileSync(file, 'utf8');
+          writeFileSync(file, source.replace('http://127.0.0.1:${address.port}', 'http://localhost:${address.port}').replace('https://127.0.0.1:${secure.port}', 'https://localhost:${secure.port}'));
+          JS
+      - name: Run forced-exit control with loopback DNS
+        id: forced-dns
+        continue-on-error: true
+        run: |
+          npm test -- src/test/cli-exit.test.ts --maxWorkers=1 --no-file-parallelism *> .exit-proof/forced-dns.log
+          exit $LASTEXITCODE
+      - name: Record negative control outcomes without treating them as candidate failures
+        shell: bash
+        run: |
+          printf '{"literalIp":"%s","loopbackDns":"%s"}\n' '${{ steps.forced-ip.outcome }}' '${{ steps.forced-dns.outcome }}' | tee .exit-proof/control-outcomes.json
+      - name: Retain raw proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: current-command-exit-proof
+          path: .exit-proof
