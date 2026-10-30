@@ -66,3 +66,5 @@ jobs:
         with:
           name: current-command-exit-proof
           path: .exit-proof
+          include-hidden-files: true
+          if-no-files-found: error
