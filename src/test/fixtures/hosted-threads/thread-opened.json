@@ -1,0 +1,27 @@
+{
+  "thread_id": "x_0123456789abcdef0123456789abcdef",
+  "seq": 1,
+  "post_id": "msg_cli_opening",
+  "actor": "person:user_7",
+  "actor_ref": "person:user_7",
+  "actor_label": "@ada",
+  "handle": "ada",
+  "display_name": "Ada Example",
+  "picture_url": null,
+  "principal_ref": "person:user_7",
+  "principal_label": "@ada",
+  "principal_handle": "ada",
+  "principal_picture_url": null,
+  "surface": "human",
+  "received_at": "2026-10-29T10:01:00Z",
+  "edited_at": null,
+  "note": "---\nid: msg_cli_opening\nkind: post\nname: New plan\nsummary: One line\n---\n\nOpening.\n",
+  "fields": {
+    "id": "msg_cli_opening",
+    "kind": "post",
+    "name": "New plan",
+    "summary": "One line"
+  },
+  "marks": [],
+  "pending_invites": []
+}

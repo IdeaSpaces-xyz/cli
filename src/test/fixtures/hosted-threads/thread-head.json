@@ -1,0 +1,15 @@
+{
+  "thread_id": "x_0123456789abcdef0123456789abcdef",
+  "name": "Launch plan",
+  "summary": "What ships",
+  "owner": "person:user_7",
+  "opening_post": null,
+  "closed": false,
+  "last_seq": 6,
+  "grade": "Commenter",
+  "participants": [],
+  "agents": [],
+  "pending_invites": [],
+  "door_open": null,
+  "knock": null
+}

@@ -13,6 +13,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { hostToken } from "./host-token.js";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
@@ -181,6 +182,28 @@ export function loadConfig(): LoadedConfig | null {
 /** For a local read that only asks whether a sign-in exists or which service: none in host mode. */
 export function peekConfig(): LoadedConfig | null {
   return isHostAuth() ? null : loadConfig();
+}
+
+/** A hosted-verb config: the host's per-call token in host mode, marked so only these verbs spend it. */
+export interface HostedConfig extends LoadedConfig { host?: true }
+
+/**
+ * The sign-in a hosted Thread or Vault verb runs under, and nothing else.
+ *
+ * In host mode: only the token the host passed on `--token-fd`, never IS_API_KEY or
+ * credentials.json, with no session binding, so it is never refreshed or written.
+ * Without that token, host mode refuses as before. Outside host mode: the terminal's
+ * own `login` (or IS_API_KEY), exactly as every other remote command uses it.
+ */
+export function hostedConfig(what: string): HostedConfig {
+  if (isHostAuth()) {
+    const token = hostToken();
+    if (!token) throw new HostAuthRefusal(what);
+    return { apiUrl: token.apiUrl, apiKey: token.accessToken, host: true };
+  }
+  const config = loadConfig();
+  if (!config) throw new Error(`Not logged in. Run \`ideaspaces login\` to use ${what.charAt(0).toLowerCase()}${what.slice(1)}.`);
+  return config;
 }
 
 export function getDefaultApiUrl(): string {
