@@ -1,51 +1,77 @@
 name: CI
 
+# Diagnostic branch only. No push/PR trigger, release, or production credentials.
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
 
-# Every PR is gated on Linux. macOS and Windows run together on main (and on
-# demand): the Windows runner's git-heavy publish/sync tests drift past the
-# 5s test timeout on a slow day, and a one-line PR should not wait on that.
-# The publish workflow re-verifies the package on release.
 jobs:
-  build:
-    name: Typecheck, test, bundle (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
-    runs-on: ${{ matrix.os }}
+  prepare:
+    name: Rebuild exact release and one-change candidate
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-
       - uses: actions/setup-node@v6
         with:
-          node-version: "22"
-          cache: "npm"
-
-      # Public IdeaSpaces dependencies are git-pinned, but package-lock records
-      # GitHub SSH URLs and the CI runner has no SSH key. Rewrite them to
-      # anonymous HTTPS; no token is needed.
-      - name: Force HTTPS for GitHub git fetch
+          node-version: '22'
+          cache: npm
+      - name: Use anonymous HTTPS for public Git dependencies
         run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-
-      - name: Install dependencies
+      - name: Install and prepare pinned public build dependencies
         run: npm ci
+      - name: Rebuild and verify experiment variants
+        run: node scripts/prepare-exit-ab.mjs
+      - name: Create synthetic loopback TLS fixture
+        run: >-
+          openssl req -x509 -newkey rsa:2048 -nodes
+          -keyout .controlled-exit/localhost.key -out .controlled-exit/localhost.crt
+          -days 2 -subj '/CN=localhost'
+          -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
+      - uses: actions/upload-artifact@v6
+        with:
+          name: controlled-exit-variants
+          path: .controlled-exit/
+          include-hidden-files: true
+          retention-days: 7
 
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      - name: Test
-        run: npm test
-
-      - name: Build and verify the publishable package
-        run: npm run check:package
+  experiment:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            node: '24.19.0'
+          - os: windows-latest
+            node: '22'
+          - os: windows-latest
+            node: '24'
+          - os: ubuntu-latest
+            node: '24.19.0'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v6
+        with:
+          name: controlled-exit-variants
+          path: .controlled-exit
+      - name: Interleaved CLI A/B, minimal controls, real stdio MCP
+        run: node scripts/windows-exit-ab.mjs
+        env:
+          EXIT_AB_ITERATIONS: '20'
+      - name: Retain raw process results and summary
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: exit-ab-${{ matrix.os }}-node-${{ matrix.node }}
+          path: .exit-ab-results/
+          include-hidden-files: true
+          retention-days: 7

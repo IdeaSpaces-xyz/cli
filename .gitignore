@@ -11,3 +11,7 @@ CLAUDE.local.md
 *.draft.md
 scratch/
 _local/
+
+# Controlled exit diagnostic build/results (not release artifacts)
+.controlled-exit/
+.exit-ab-results/
