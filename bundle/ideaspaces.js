@@ -33766,9 +33766,9 @@ if (global2.help) {
 }
 try {
   const exitCode = await cmd.run(resolvedArgs, flags, global2);
-  process.exit(exitCode);
+  process.exitCode = exitCode;
 } catch (err) {
   const output = createOutput(global2);
   const exitCode = handleError(err, output);
-  process.exit(exitCode);
+  process.exitCode = exitCode;
 }
