@@ -10,14 +10,13 @@ import { parseArgs } from "./argv.js";
 /**
  * Replace a stream's `write` with a synchronous fd write (partial-write-safe,
  * retrying on EAGAIN). `process.stdout.write()` is non-blocking to a pipe:
- * output past the OS pipe buffer (~64 KB) is queued in the stream, and the CLI
- * calls `process.exit()` right after a command — terminating before the queued
- * tail drains. That truncated large output (e.g. a 100 KB `conversation get`) at
- * 64 KB, so the desktop read invalid JSON. The Node "drain before exit" trick
- * doesn't help the bun-compiled sidecar (bun's `process.exit()` doesn't await
- * it); a synchronous fd write blocks until the bytes reach the OS, in any
- * runtime. Installed here, in the real entry (never imported by tests), so test
- * stubs of `process.stdout.write` are untouched.
+ * output past the OS pipe buffer (~64 KB) can be queued in the stream. Forced
+ * exits previously truncated large output (e.g. a 100 KB `conversation get`) at
+ * 64 KB, so the desktop read invalid JSON. Keep this independent of runtime
+ * exit/drain behaviour, including the bun-compiled sidecar: a synchronous fd
+ * write blocks until the bytes reach the OS. Command completion below now lets
+ * Node finish its own teardown. Installed in the real entry (never imported by
+ * tests), so test stubs of `process.stdout.write` are untouched.
  */
 function installSyncWriter(stream: NodeJS.WriteStream, fd: number): void {
   stream.write = ((chunk: string | Uint8Array, ...rest: unknown[]): boolean => {
@@ -97,11 +96,15 @@ if (global.help) {
   process.exit(0);
 }
 
+// A completed HTTP read can still leave native background work pending. Forcing
+// exit here races Node's teardown on Windows (UV_HANDLE_CLOSING after redirects),
+// even after the response body and output are complete. Preserve the status and
+// let the runtime drain; command-owned resources must be closed by their owners.
 try {
   const exitCode = await cmd.run(resolvedArgs, flags, global);
-  process.exit(exitCode);
+  process.exitCode = exitCode;
 } catch (err) {
   const output = createOutput(global);
   const exitCode = handleError(err, output);
-  process.exit(exitCode);
+  process.exitCode = exitCode;
 }

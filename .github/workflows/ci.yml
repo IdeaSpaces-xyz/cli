@@ -14,7 +14,8 @@ concurrency:
 # Every PR is gated on Linux. macOS and Windows run together on main (and on
 # demand): the Windows runner's git-heavy publish/sync tests drift past the
 # 5s test timeout on a slow day, and a one-line PR should not wait on that.
-# The publish workflow re-verifies the package on release.
+# The publish workflow re-verifies the package on release. The focused Windows
+# exit job also runs on every PR: Node 22 cannot detect the Node 24.19.0 race.
 jobs:
   build:
     name: Typecheck, test, bundle (${{ matrix.os }})
@@ -49,3 +50,20 @@ jobs:
 
       - name: Build and verify the publishable package
         run: npm run check:package
+
+  windows-exit:
+    name: Windows command exit (Node 24.19.0)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.19.0"
+          cache: "npm"
+      - name: Force HTTPS for GitHub git fetch
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+      - name: Install and build
+        run: npm ci
+      - name: Verify real subprocess exit and resource cleanup
+        run: npm test -- src/test/cli-exit.test.ts src/test/cli-exit-lifecycle.test.ts --maxWorkers=1 --no-file-parallelism
