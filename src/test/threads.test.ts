@@ -500,10 +500,16 @@ describe("local Threads", () => {
     expect(() => readPinnedThreadMember(root, pin, `_threads/decision/${two.post.path}`)).toThrow(/refusing working-tree HEAD fallback/);
     expect(() => readPinnedThreadMember(root, main, `_threads/decision/${one.post.path}`)).toThrow(/fallback/);
     const oldPath = process.env.PATH;
+    const oldGitBin = process.env.IDEASPACES_GIT_BIN;
+    delete process.env.IDEASPACES_GIT_BIN;
     process.env.PATH = "";
     try {
       expect(() => readPinnedThreadMember(root, pin, `_threads/decision/${one.post.path}`)).toThrow(/git not found/);
-    } finally { process.env.PATH = oldPath; }
+    } finally {
+      process.env.PATH = oldPath;
+      if (oldGitBin === undefined) delete process.env.IDEASPACES_GIT_BIN;
+      else process.env.IDEASPACES_GIT_BIN = oldGitBin;
+    }
     expect(readFileSync(join(root, ".gitignore"), "utf8")).toContain("/_threads/");
     git(root, "remote", "add", "origin", "https://github.com/example/repo.git");
     expect(() => pushWorktree(root, "origin")).toThrow(/GitHub|origin/);

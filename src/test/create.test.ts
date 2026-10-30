@@ -80,6 +80,8 @@ describe("ideaspaces create", () => {
     // ever spawns `git`; we're already inside node, so nothing else breaks.
     const gitless = await mkdtemp(join(tmpdir(), "is-cli-nogit-"));
     const savedPath = process.env.PATH;
+    const savedGitBin = process.env.IDEASPACES_GIT_BIN;
+    delete process.env.IDEASPACES_GIT_BIN;
     process.env.PATH = gitless;
     try {
       const { exit, out } = await captureStdout(() =>
@@ -100,6 +102,8 @@ describe("ideaspaces create", () => {
       expect(out).toMatch(/git not found/i);
     } finally {
       process.env.PATH = savedPath;
+      if (savedGitBin === undefined) delete process.env.IDEASPACES_GIT_BIN;
+      else process.env.IDEASPACES_GIT_BIN = savedGitBin;
       await rm(gitless, { recursive: true, force: true });
     }
   });
@@ -122,6 +126,8 @@ describe("ideaspaces create", () => {
       await fs.chmod(stubGit, 0o755);
     }
     const savedPath = process.env.PATH;
+    const savedGitBin = process.env.IDEASPACES_GIT_BIN;
+    delete process.env.IDEASPACES_GIT_BIN;
     process.env.PATH = stubDirectory;
     try {
       const { exit, out } = await captureStdout(() =>
@@ -137,6 +143,8 @@ describe("ideaspaces create", () => {
       expect(out).not.toMatch(/brew install git/i);
     } finally {
       process.env.PATH = savedPath;
+      if (savedGitBin === undefined) delete process.env.IDEASPACES_GIT_BIN;
+      else process.env.IDEASPACES_GIT_BIN = savedGitBin;
       await rm(stubDirectory, { recursive: true, force: true });
     }
   });
