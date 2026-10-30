@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { configDir } from "./config-dir.js";
-import { deleteCredentials, loadStoredCredentials, saveCredentials, withCredentialsLock, type StoredCredentials } from "./credentials.js";
+import { deleteCredentials, HostAuthRefusal, isHostAuth, loadStoredCredentials, saveCredentials, withCredentialsLock, type StoredCredentials } from "./credentials.js";
 
 export interface SessionConfig { apiUrl: string; apiKey?: string; sessionId?: string }
 export class SessionAuthError extends Error {
@@ -49,6 +49,7 @@ export function cliInstallId(apiUrl: string): string {
 }
 
 async function sessionRequest(apiUrl: string, action: "token" | "revoke", params: Record<string, string>): Promise<any> {
+  if (isHostAuth()) throw new HostAuthRefusal();
   let response: Response;
   try {
     response = await fetch(`${serviceOrigin(apiUrl)}/auth/desktop/${action}`, { method: "POST", redirect: "error",

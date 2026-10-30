@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { hostname, platform } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
-import { getDefaultApiUrl, withCredentialsLock, loadStoredCredentials } from "../auth/credentials.js";
+import { getDefaultApiUrl, hostAuthMessage, isHostAuth, withCredentialsLock, loadStoredCredentials } from "../auth/credentials.js";
 import { cliInstallId, exchangeSignIn, cacheSessionUsername, serviceOrigin, SessionAuthError } from "../auth/client-session.js";
 import { startCallbackServer } from "../auth/callback-server.js";
 import { registerGitCredentialHelper } from "../auth/git-credential-helper.js";
@@ -47,6 +47,10 @@ export const loginCommand: CommandDef = {
   examples: ["ideaspaces login              # Browser sign-in for this CLI install; saves a rotating session"],
   async run(_args, _flags, global) {
     const output = createOutput(global);
+    if (isHostAuth()) {
+      output.error(hostAuthMessage("Sign-in"));
+      return 1;
+    }
     const apiUrl = getDefaultApiUrl();
     try {
       const replacing = !!loadStoredCredentials();

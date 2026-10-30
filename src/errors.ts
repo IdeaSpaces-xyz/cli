@@ -1,6 +1,11 @@
 import type { Output } from "./output.js";
+import { HostAuthRefusal } from "./auth/credentials.js";
 
 export function handleError(err: unknown, output: Output): number {
+  if (err instanceof HostAuthRefusal) {
+    output.error(err.message);
+    return 1;
+  }
   if (err instanceof Error) {
     if (err.message.includes("Not logged in")) {
       output.error(`Error: ${err.message}\nRun: ideaspaces login`);

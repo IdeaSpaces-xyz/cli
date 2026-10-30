@@ -1636,7 +1636,18 @@ import { randomUUID } from "node:crypto";
 function credentialsFile() {
   return join2(configDir(), "credentials.json");
 }
+function isHostAuth() {
+  return process.env[HOST_AUTH_ENV] === "host";
+}
+function hostAuthMessage(what = "Remote IdeaSpaces work") {
+  return `${what} isn't available from this \`ideaspaces\` command: it runs inside an app that holds its own sign-in (${HOST_AUTH_ENV}=host). Remote work is coming through the IdeaSpaces tools; local commands work here.`;
+}
+function refuseInHostMode() {
+  if (isHostAuth())
+    throw new HostAuthRefusal();
+}
 async function withCredentialsLock(work) {
+  refuseInHostMode();
   mkdirSync(configDir(), { recursive: true, mode: 448 });
   let release;
   try {
@@ -1658,6 +1669,8 @@ async function withCredentialsLock(work) {
   }
 }
 function loadStoredCredentials() {
+  if (isHostAuth())
+    return null;
   const file2 = credentialsFile();
   try {
     if (!existsSync(file2))
@@ -1677,6 +1690,7 @@ function loadStoredCredentials() {
   }
 }
 function saveCredentials(creds) {
+  refuseInHostMode();
   const dir = configDir();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 448 });
@@ -1693,6 +1707,7 @@ function saveCredentials(creds) {
   }
 }
 function deleteCredentials() {
+  refuseInHostMode();
   const file2 = credentialsFile();
   try {
     if (existsSync(file2)) {
@@ -1704,6 +1719,7 @@ function deleteCredentials() {
   }
 }
 function loadConfig() {
+  refuseInHostMode();
   const envKey = process.env.IS_API_KEY;
   if (envKey) {
     return {
@@ -1725,18 +1741,29 @@ function loadConfig() {
   }
   return null;
 }
+function peekConfig() {
+  return isHostAuth() ? null : loadConfig();
+}
 function getDefaultApiUrl() {
   return (process.env.IS_API_URL || DEFAULT_API_URL).replace(/\/$/, "");
 }
 function loadOptionalAuthConfig() {
   return loadConfig() ?? { apiUrl: getDefaultApiUrl() };
 }
-var import_proper_lockfile, DEFAULT_API_URL;
+var import_proper_lockfile, HOST_AUTH_ENV, HostAuthRefusal, DEFAULT_API_URL;
 var init_credentials = __esm({
   "dist/auth/credentials.js"() {
     "use strict";
     import_proper_lockfile = __toESM(require_proper_lockfile(), 1);
     init_config_dir();
+    HOST_AUTH_ENV = "IDEASPACES_AUTH";
+    HostAuthRefusal = class extends Error {
+      code = "HOST_AUTH";
+      constructor(what) {
+        super(hostAuthMessage(what));
+        this.name = "HostAuthRefusal";
+      }
+    };
     DEFAULT_API_URL = "https://api.ideaspaces.xyz";
   }
 });
@@ -14040,6 +14067,8 @@ function cliInstallId(apiUrl) {
   return install_id;
 }
 async function sessionRequest(apiUrl, action, params) {
+  if (isHostAuth())
+    throw new HostAuthRefusal();
   let response;
   try {
     response = await fetch(`${serviceOrigin(apiUrl)}/auth/desktop/${action}`, {
@@ -14246,6 +14275,8 @@ function unreachableMessage(apiUrl, timedOut, call) {
   return process.env.CLAUDE_PLUGIN_ROOT?.trim() ? `${lead} If you're in Cowork, its sandbox blocks remote access \u2014 switch to Claude Code view to browse and sync (local capture still works).` : lead;
 }
 async function authHeaders(config, extra) {
+  if (isHostAuth())
+    throw new HostAuthRefusal();
   let apiKey;
   try {
     apiKey = (await resolveSessionConfig(config)).apiKey?.trim();
@@ -14671,6 +14702,7 @@ var init_api = __esm({
   "dist/auth/api.js"() {
     "use strict";
     init_client_session();
+    init_credentials();
     API_V1 = "/api/v1";
     DEFAULT_REQUEST_TIMEOUT_MS = 5e3;
     UnauthorizedError = class extends Error {
@@ -15090,7 +15122,7 @@ function inspectLocalRootIdentity(cwd, apiUrl) {
   const record = findSpaceFor(cwd);
   const localRegistry = record?.root_node_id;
   const origin = originUrl(cwd);
-  const configuredApiUrl = apiUrl ?? loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const configuredApiUrl = apiUrl ?? peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const canonicalOrigin = origin ? rootNodeIdFromGitUrl(origin, configuredApiUrl) ?? void 0 : void 0;
   const evaluation = evaluateRootIdentity({
     declaration: entrypointConflict ? INVALID_DECLARATION : head,
@@ -15353,7 +15385,7 @@ function inspectSpaceMapRoots(roots, context) {
     return mapCheckouts;
   };
   let capped = false;
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const spaces = () => {
     if (!knownSpaces) {
       try {
@@ -15474,7 +15506,7 @@ function inspectSpaceMapRoots(roots, context) {
   });
 }
 function checkoutRootNodeId(dir) {
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   let spaces = null;
   return getRepoRootNodeId(dir, apiUrl, () => {
     if (!spaces) {
@@ -16511,7 +16543,7 @@ function buildDoctorReport(input) {
     version: null,
     detail: "Remote features are unavailable; local capture still works.",
     exit_code: null,
-    fix: "Run `ideaspaces login` to enable publish, sync, and sharing.",
+    fix: isHostAuth() ? "Remote work is coming through the IdeaSpaces tools; this `ideaspaces` runs with IDEASPACES_AUTH=host." : "Run `ideaspaces login` to enable publish, sync, and sharing.",
     api_url: null
   };
   return {
@@ -16546,7 +16578,7 @@ var defaultRuntime = {
   platform: process.platform,
   node: nodeAvailability,
   git: gitAvailability,
-  auth: loadConfig
+  auth: peekConfig
 };
 function makeDoctorCommand(runtime = defaultRuntime) {
   return {
@@ -17736,6 +17768,10 @@ var loginCommand = {
   examples: ["ideaspaces login              # Browser sign-in for this CLI install; saves a rotating session"],
   async run(_args, _flags, global3) {
     const output = createOutput(global3);
+    if (isHostAuth()) {
+      output.error(hostAuthMessage("Sign-in"));
+      return 1;
+    }
     const apiUrl = getDefaultApiUrl();
     try {
       const replacing = !!loadStoredCredentials();
@@ -19478,7 +19514,7 @@ init_git2();
 init_repo_locator();
 init_root_identity2();
 function inspectPortableLocalRoot(repoRoot2, headSha2, observedPaths2) {
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const identity = inspectLocalRootIdentity(repoRoot2, apiUrl);
   const root = {
     local_path: repoRoot2,
@@ -23397,6 +23433,12 @@ async function handleGet() {
   if (!isIdeaspacesHost(params.host)) {
     return 0;
   }
+  if (isHostAuth()) {
+    process.stderr.write(`IdeaSpaces credential helper: ${hostAuthMessage("Git access to IdeaSpaces")}
+`);
+    process.stdout.write("quit=true\n\n");
+    return 1;
+  }
   const loaded = loadConfig();
   if (!loaded) {
     return 0;
@@ -23663,7 +23705,7 @@ var catalogCommand = {
   ],
   async run(_args, flags2, global3) {
     const output = createOutput(global3);
-    const config = loadConfig();
+    const config = peekConfig();
     let me = null;
     const notes = [];
     if (config) {
@@ -23673,7 +23715,7 @@ var catalogCommand = {
         notes.push(err instanceof UnauthorizedError ? "Session expired \u2014 showing local clones only. Run `ideaspaces login`." : `Could not reach the server (${err instanceof Error ? err.message : String(err)}) \u2014 showing local clones only.`);
       }
     } else {
-      notes.push("Not logged in \u2014 showing local clones only. `ideaspaces login` adds the remote tier.");
+      notes.push(isHostAuth() ? "Showing local clones only: remote work is coming through the IdeaSpaces tools." : "Not logged in \u2014 showing local clones only. `ideaspaces login` adds the remote tier.");
     }
     const clones = listClones();
     if (flags2.fetch) {
@@ -24839,7 +24881,7 @@ function planFolder(dir) {
     modes: {
       link: inside ? origin ? { available: true, origin } : { available: false, origin: null, reason: "no `origin` remote \u2014 cannot tell which Space it belongs to" } : { available: false, origin: null, reason: "not a git repository" }
     },
-    logged_in: loadConfig() !== null
+    logged_in: peekConfig() !== null
   };
 }
 async function planSpace(address, output) {
@@ -30239,7 +30281,9 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
               throw error;
           }
         }
-        const config = loadConfig();
+        if (space && isHostAuth())
+          throw new HostAuthRefusal("Listing hosted Space Threads");
+        const config = peekConfig();
         if (space && !config)
           throw new Error("Not logged in. Run `ideaspaces login` to list hosted Space Threads.");
         let hosted = [];
@@ -30296,7 +30340,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
           return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : void 0, "closed" in row && typeof row.closed === "boolean" ? row.closed : void 0)}${"closed" in row && row.closed === "unknown" ? " \xB7 closed: unknown" : ""}
   ${"summary" in row ? row.summary : ""} \xB7 ${row.source}`;
         }).join("\n\n");
-        const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
+        const hint = !config && !rest.length ? isHostAuth() ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools." : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
         output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `
 Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
@@ -30809,6 +30853,7 @@ var unfollowCommand = {
 
 // dist/commands/power/logout.js
 init_client_session();
+init_credentials();
 
 // dist/auth/session-state.js
 import { existsSync as existsSync28, unlinkSync as unlinkSync3 } from "node:fs";
@@ -30830,6 +30875,10 @@ var logoutCommand = {
   usage: "ideaspaces power logout",
   async run(_args, _flags, global3) {
     const output = createOutput(global3);
+    if (isHostAuth()) {
+      output.error(hostAuthMessage("Sign-out"));
+      return 1;
+    }
     try {
       await signOut();
       clearSessionState();
@@ -33681,7 +33730,12 @@ function printPowerHelp() {
 }
 
 // dist/errors.js
+init_credentials();
 function handleError(err, output) {
+  if (err instanceof HostAuthRefusal) {
+    output.error(err.message);
+    return 1;
+  }
   if (err instanceof Error) {
     if (err.message.includes("Not logged in")) {
       output.error(`Error: ${err.message}

@@ -13,7 +13,7 @@
 import { gitState } from "@ideaspaces/protocol";
 import { fetchAuthMe, UnauthorizedError } from "../auth/api.js";
 import type { AuthMeRepo, AuthMeResponse } from "../auth/api.js";
-import { loadConfig } from "../auth/credentials.js";
+import { isHostAuth, peekConfig } from "../auth/credentials.js";
 import { isHostedSpaceRecord, isUnpublishedForkRecord, listClones } from "../auth/spaces.js";
 import type { SpaceRecord } from "../auth/spaces.js";
 import { fetch as gitFetch } from "../git.js";
@@ -225,7 +225,7 @@ export const catalogCommand: CommandDef = {
   async run(_args, flags, global) {
     const output = createOutput(global);
 
-    const config = loadConfig();
+    const config = peekConfig();
     let me: AuthMeResponse | null = null;
     const notes: string[] = [];
     if (config) {
@@ -239,7 +239,9 @@ export const catalogCommand: CommandDef = {
         );
       }
     } else {
-      notes.push("Not logged in — showing local clones only. `ideaspaces login` adds the remote tier.");
+      notes.push(isHostAuth()
+        ? "Showing local clones only: remote work is coming through the IdeaSpaces tools."
+        : "Not logged in — showing local clones only. `ideaspaces login` adds the remote tier.");
     }
 
     const clones: CloneEntry[] = listClones();

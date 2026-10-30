@@ -1,4 +1,5 @@
 import { signOut } from "../../auth/client-session.js";
+import { hostAuthMessage, isHostAuth } from "../../auth/credentials.js";
 import { clearSessionState } from "../../auth/session-state.js";
 import { createOutput } from "../../output.js";
 import type { CommandDef } from "../../types.js";
@@ -9,6 +10,10 @@ export const logoutCommand: CommandDef = {
   usage: "ideaspaces power logout",
   async run(_args, _flags, global) {
     const output = createOutput(global);
+    if (isHostAuth()) {
+      output.error(hostAuthMessage("Sign-out"));
+      return 1;
+    }
     try {
       await signOut();
       clearSessionState();
