@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -42,6 +42,8 @@ async function pathDirectory(
   }
   return directory;
 }
+
+beforeEach(() => { delete process.env.IDEASPACES_GIT_BIN; });
 
 afterEach(async () => {
   process.env.PATH = originalPath;
