@@ -1,0 +1,46 @@
+{
+  "personal": {
+    "handle": "ada",
+    "person_node_id": "n_000000000000000000000001",
+    "picture_url": null,
+    "roots": [
+      {
+        "root_node_id": "n_00000000000000000000000a",
+        "repo_id": "r_0001",
+        "name": "Notebook",
+        "archived": false,
+        "level": "owner",
+        "actions": [
+          "open",
+          "copy",
+          "clone",
+          "collaborate"
+        ],
+        "canonical_path": "/ada/notebook"
+      }
+    ]
+  },
+  "orgs": [
+    {
+      "hostname": "example.test",
+      "org_node_id": "n_000000000000000000000002",
+      "my_role": "MEMBER",
+      "picture_url": null,
+      "roots": [
+        {
+          "root_node_id": "n_00000000000000000000000b",
+          "repo_id": "r_0002",
+          "name": "Team plan",
+          "archived": false,
+          "level": "editor",
+          "actions": [
+            "open",
+            "collaborate"
+          ],
+          "canonical_path": "/example.test/team-plan"
+        }
+      ]
+    }
+  ],
+  "shared_with_me": []
+}

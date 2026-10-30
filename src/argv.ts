@@ -57,6 +57,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
         if (key === "yes") { global.yes = parseBool(value); continue; }
         if (key === "help") { global.help = parseBool(value); continue; }
         if (key === "repo") { global.repo = value; continue; }
+        if (key === "token-fd") { global.tokenFd = value; continue; }
         if (key === "git-bin") {
           global.gitBin = normalizeGitBin(value);
           continue;
@@ -78,6 +79,12 @@ export function parseArgs(argv: string[]): ParsedArgs {
       // Check if next arg is a value
       if (key === "repo" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
         global.repo = argv[++i];
+        continue;
+      }
+      if (key === "token-fd") {
+        // A descriptor number, never a secret: the host writes the token into it.
+        if (i + 1 >= argv.length || argv[i + 1].startsWith("--")) throw new Error("--token-fd requires a descriptor number");
+        global.tokenFd = argv[++i];
         continue;
       }
       if (key === "git-bin") {
