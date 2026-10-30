@@ -93,6 +93,7 @@ const scenarios = [
   ...(bases.https ? [
     { name: 'https-small', base: bases.https, route: 'small', expected: 0 },
     { name: 'https-gzip-large', base: bases.https, route: 'gzip', expected: 0 },
+    { name: 'https-redirect', base: bases.https, route: 'redirect', expected: 0 },
   ] : []),
 ];
 function verdict(result, expected) {
@@ -101,7 +102,7 @@ function verdict(result, expected) {
   const ok = !result.timedOut && !result.nativeAbort && result.code === expected && (expected !== 0 || validJson);
   return { validJson, ok };
 }
-async function mcpCheck(variant, base) {
+async function mcpCheck(variant, base, fixture) {
   const env = { ...environment(base), IS_CLI_PATH: join(artifacts, `${variant}.mjs`) };
   const child = spawn(process.execPath, [join(artifacts, 'mcp.mjs')], { env, cwd: home, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
   let next = 0, buffer = '', stderr = '';
@@ -142,13 +143,17 @@ async function mcpCheck(variant, base) {
       const result = message.result;
       const text = result?.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || JSON.stringify(message);
       let validJson = false; try { validJson = JSON.parse(text).repos.length === 30; } catch {}
-      rows.push({ variant, scenario: 'mcp-is_spaces', iteration: i, ok: !result?.isError && validJson, nativeAbort: nativePattern.test(text), text, ms: Math.round(performance.now() - start) });
+      rows.push({ variant, scenario: `mcp-${fixture}-is_spaces`, iteration: i, ok: !result?.isError && validJson, nativeAbort: nativePattern.test(text), text, ms: Math.round(performance.now() - start) });
       const status = await send('tools/call', { name: 'is_get', arguments: { address: home } });
       let loggedIn = false; try { loggedIn = JSON.parse(status.result.content[0].text).logged_in === true; } catch {}
-      rows.push({ variant, scenario: 'mcp-subsequent-is_get', iteration: i, ok: !status.result?.isError && loggedIn, nativeAbort: false, text: JSON.stringify(status.result) });
+      rows.push({ variant, scenario: `mcp-${fixture}-subsequent-local-is_get`, iteration: i, ok: !status.result?.isError && loggedIn, nativeAbort: false, text: JSON.stringify(status.result) });
+      const remote = await send('tools/call', { name: 'is_get', arguments: { address: `${base}/repos/n_000000000000000000000001` } });
+      const remoteText = remote.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || JSON.stringify(remote);
+      let planned = false; try { const p = JSON.parse(remoteText); planned = p.logged_in === true && p.root_node_id === 'n_000000000000000000000001'; } catch {}
+      rows.push({ variant, scenario: `mcp-${fixture}-subsequent-remote-is_get`, iteration: i, ok: !remote.result?.isError && planned, nativeAbort: nativePattern.test(remoteText), text: remoteText });
     }
   } catch (error) {
-    rows.push({ variant, scenario: 'mcp-transport', ok: false, nativeAbort: nativePattern.test(stderr), error: String(error), stderr });
+    rows.push({ variant, scenario: `mcp-${fixture}-transport`, ok: false, nativeAbort: nativePattern.test(stderr), error: String(error), stderr });
   } finally {
     child.stdin.end();
     if (child.exitCode === null && child.signalCode === null) {
@@ -186,7 +191,9 @@ try {
       }
     }
   }
-  for (const variant of ['forced', 'graceful']) await mcpCheck(variant, `${bases.http}/gzip/mcp`);
+  for (const fixture of ['gzip', 'redirect']) {
+    for (const variant of ['forced', 'graceful']) await mcpCheck(variant, `${bases.http}/${fixture}/mcp`, fixture);
+  }
 } finally {
   for (const server of servers) { server.closeAllConnections(); await new Promise(r => server.close(r)); }
   writeFileSync(join(output, 'requests.json'), JSON.stringify(requests, null, 2) + '\n');
