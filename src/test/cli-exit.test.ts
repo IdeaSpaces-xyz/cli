@@ -4,6 +4,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { runCli, type CliProcessResult } from "./cli-process.js";
 
 // Deliberately exercise the built entry, not CommandDef.run: only the entry owns
@@ -29,10 +30,10 @@ describe("bundled CLI command completion", () => {
   let home: string;
   let httpUrl: string;
   let httpsUrl: string;
-  const hits: string[] = [];
-  const handler = (req: IncomingMessage, res: ServerResponse) => {
+  const hits: Record<"http" | "https", string[]> = { http: [], https: [] };
+  const handler = (req: IncomingMessage, res: ServerResponse, requests: string[]) => {
     const path = new URL(req.url!, "http://localhost").pathname;
-    hits.push(path);
+    requests.push(path);
     if (path === "/redirect/auth/me") {
       res.writeHead(302, { Location: "/redirect/catalog" }).end();
     } else if (path === "/denied/auth/me") {
@@ -51,8 +52,8 @@ describe("bundled CLI command completion", () => {
       res.writeHead(404).end("synthetic not found");
     }
   };
-  const http = createServer(handler);
-  const https = createHttpsServer({ key: readFileSync(join(tlsFixture, "key.pem")), cert: readFileSync(certificate) }, handler);
+  const http = createServer((req, res) => handler(req, res, hits.http));
+  const https = createHttpsServer({ key: readFileSync(join(tlsFixture, "key.pem")), cert: readFileSync(certificate) }, (req, res) => handler(req, res, hits.https));
   beforeAll(async () => {
     home = mkdtempSync(join(tmpdir(), "cli-exit-"));
     await new Promise<void>(r => http.listen(0, "127.0.0.1", r));
@@ -71,8 +72,9 @@ describe("bundled CLI command completion", () => {
   });
   const env = (base: string) => ({ IS_API_URL: base, IS_API_KEY: "synthetic-loopback-key", NODE_EXTRA_CA_CERTS: certificate });
 
-  it.each(["http", "https"])("refuses %s redirects with an ordinary error, never a native abort", async protocol => {
+  it.each(["http", "https"] as const)("refuses %s redirects with an ordinary error, never a native abort", async protocol => {
     const base = protocol === "https" ? httpsUrl : httpUrl;
+    const before = hits[protocol].length;
     for (let i = 0; i < 5; i++) {
       const result = await runCli(["--json", "repos"], { home, env: env(`${base}/redirect`) });
       // Current auth intentionally uses redirect:error. Do not relax that policy
@@ -82,15 +84,33 @@ describe("bundled CLI command completion", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr.length).toBeGreaterThan(0);
     }
-    expect(hits).toContain("/redirect/auth/me");
-    expect(hits).not.toContain("/redirect/catalog");
+    // Prove each HTTPS request reached the TLS server: a trust/handshake error
+    // also exits 1, and must not pass by reusing the HTTP test's request history.
+    expect(hits[protocol].slice(before)).toEqual(Array(5).fill("/redirect/auth/me"));
   }, 90_000);
 
-  it("returns complete JSON and exits successfully after an authenticated read", async () => {
-    const result = await runCli(["--json", "repos"], { home, env: env(httpUrl) });
+  it.each(["http", "https"] as const)("returns complete JSON after an authenticated %s read", async protocol => {
+    const before = hits[protocol].length;
+    const result = await runCli(["--json", "repos"], { home, env: env(protocol === "https" ? httpsUrl : httpUrl) });
     expectExit(result);
     expect(JSON.parse(result.stdout)).toMatchObject({ username: "synthetic", repos: [{ root_node_id: rootId }] });
+    expect(hits[protocol].slice(before)).toEqual(["/auth/me"]);
   }, 20_000);
+
+  it("allows runtime beforeExit completion on success, returned errors and thrown errors", async () => {
+    const marker = join(home, "completion-observed");
+    const observer = join(home, "completion-observer.mjs");
+    // A test-only observer, not a replacement fetch or production exit hook.
+    // This detects forced exits even where Node/auth hardening no longer
+    // reproduces the historical native abort on the same redirect fixture.
+    writeFileSync(observer, `import { writeFileSync } from 'node:fs';\nprocess.once('beforeExit', code => writeFileSync(${JSON.stringify(marker)}, String(code)));\n`);
+    for (const [suffix, code] of [["", 0], ["/denied", 1], ["/throw", 1]] as const) {
+      rmSync(marker, { force: true });
+      const result = await runCli(["--json", "repos"], { home, env: env(httpUrl + suffix), preload: pathToFileURL(observer).href });
+      expectExit(result, code);
+      expect(readFileSync(marker, "utf8")).toBe(String(code));
+    }
+  }, 45_000);
 
   it("preserves returned-error and thrown-error exit statuses after network I/O", async () => {
     for (const scenario of ["denied", "invalid", "throw", "reset"]) {
@@ -100,7 +120,7 @@ describe("bundled CLI command completion", () => {
       expect(result.stderr.length).toBeGreaterThan(0);
       if (scenario === "denied") expect(result.stderr).toMatch(/Session expired/);
       if (scenario === "throw") expect(result.stderr).toMatch(/^Error:/);
-      expect(hits).toContain(`/${scenario}/auth/me`);
+      expect(hits.http).toContain(`/${scenario}/auth/me`);
     }
   }, 45_000);
 
