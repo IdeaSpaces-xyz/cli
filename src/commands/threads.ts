@@ -5,7 +5,7 @@ import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
-import { loadConfig } from "../auth/credentials.js";
+import { HostAuthRefusal, isHostAuth, peekConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { exchangeText, hostedThreadsCommand, threadBadges } from "./inbox.js";
@@ -336,7 +336,8 @@ export const threadsCommand: CommandDef = {
             if (rest.length || !(error instanceof NoAgreementError)) throw error;
           }
         }
-        const config = loadConfig();
+        if (space && isHostAuth()) throw new HostAuthRefusal("Listing hosted Space Threads");
+        const config = peekConfig();
         if (space && !config) throw new Error("Not logged in. Run `ideaspaces login` to list hosted Space Threads.");
         let hosted: Array<{ source: "hosted"; id: string; name: string; summary: string; your_grade?: ThreadGrade; closed?: boolean; count?: number; messages?: unknown[]; text?: string }> = [];
         if (config) {
@@ -383,7 +384,9 @@ export const threadsCommand: CommandDef = {
           if (rung === "full" && "text" in row && typeof row.text === "string") return row.text;
           return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row && typeof row.closed === "boolean" ? row.closed : undefined)}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
         }).join("\n\n");
-        const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
+        const hint = !config && !rest.length ? isHostAuth()
+          ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools."
+          : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
         output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }

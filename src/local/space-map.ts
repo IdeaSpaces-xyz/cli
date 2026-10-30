@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { parseFrontmatter, type MapMember, type MapRoot } from "@ideaspaces/protocol";
 import { isHostedSpaceRecord, loadSpaces, type SpacesMap } from "../auth/spaces.js";
 import { loadMapCheckouts } from "./map-checkouts.js";
-import { getDefaultApiUrl, loadConfig } from "../auth/credentials.js";
+import { getDefaultApiUrl, peekConfig } from "../auth/credentials.js";
 import { deriveGitBase } from "../auth/api.js";
 import { headSha, normalizeRepoUrl, originUrl, repoRoot } from "../git.js";
 import { canonicalRepoUrl, parseRepoLocator } from "../repo-locator.js";
@@ -166,7 +166,7 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
     return mapCheckouts;
   };
   let capped = false;
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const spaces = (): SpacesMap => {
     if (!knownSpaces) {
       try {
@@ -313,7 +313,7 @@ export function inspectSpaceMapRoots(roots: MapRoot[], context: string): SpaceMa
 
 /** The root identity of one checkout, by declaration, canonical origin, or registry route. */
 export function checkoutRootNodeId(dir: string): string | null {
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   let spaces: SpacesMap | null = null;
   return getRepoRootNodeId(dir, apiUrl, () => {
     if (!spaces) {

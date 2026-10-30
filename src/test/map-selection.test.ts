@@ -14,7 +14,8 @@ const { loadConfigMock, resolveSpaceBindingMock, originUrlMock, fetchContentTree
   fetchEntityMock: vi.fn(),
 }));
 
-vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
+// Outside host mode, peekConfig is loadConfig.
+vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock, peekConfig: loadConfigMock, isHostAuth: () => false }));
 vi.mock("../auth/resolve-space.js", () => ({ resolveSpaceBinding: resolveSpaceBindingMock }));
 vi.mock("../auth/api.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../auth/api.js")>(),

@@ -10,6 +10,8 @@ const { loadConfigMock, resolveMock } = vi.hoisted(() => ({
 
 vi.mock("../auth/credentials.js", () => ({
   loadConfig: loadConfigMock,
+  isHostAuth: () => false,
+  hostAuthMessage: () => "host mode",
 }));
 
 vi.mock("../auth/client-session.js", () => ({ resolveSessionConfig: resolveMock }));

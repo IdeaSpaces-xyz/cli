@@ -13,10 +13,11 @@ import { mapCommand } from "../commands/map.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
 import type { GlobalFlags } from "../types.js";
 
-vi.mock("../auth/credentials.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../auth/credentials.js")>()),
-  loadConfig: vi.fn(() => null),
-}));
+vi.mock("../auth/credentials.js", async (importOriginal) => {
+  const loadConfig = vi.fn(() => null);
+  // Outside host mode, peekConfig is loadConfig; a test that sets one sets both.
+  return { ...(await importOriginal<typeof import("../auth/credentials.js")>()), loadConfig, peekConfig: () => loadConfig() };
+});
 vi.mock("../auth/spaces.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../auth/spaces.js")>()),
   loadSpaces: vi.fn(() => ({})),

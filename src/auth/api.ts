@@ -1,5 +1,6 @@
 import type { MapBlock, MapMember } from "@ideaspaces/protocol";
 import { resolveSessionConfig, refuseSession, SessionAuthError } from "./client-session.js";
+import { HostAuthRefusal, isHostAuth } from "./credentials.js";
 
 /**
  * Thin fetch helpers for the IdeaSpaces server API.
@@ -258,6 +259,8 @@ function unreachableMessage(apiUrl: string, timedOut: boolean, call: string): st
 
 /** Optional auth + JSON headers, shared so streaming and public reads cannot drift. */
 async function authHeaders(config: PublicApiConfig, extra?: Record<string, string>): Promise<Record<string, string>> {
+  // Every HTTP call passes here, public reads included: host mode makes none.
+  if (isHostAuth()) throw new HostAuthRefusal();
   let apiKey: string | undefined;
   try { apiKey = (await resolveSessionConfig(config)).apiKey?.trim(); }
   catch (error) {

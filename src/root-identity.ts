@@ -9,7 +9,7 @@ import {
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadConfig, getDefaultApiUrl } from "./auth/credentials.js";
+import { peekConfig, getDefaultApiUrl } from "./auth/credentials.js";
 import { preferredContractSource } from "./contract-source.js";
 import { findSpaceFor } from "./auth/spaces.js";
 import { gitBinary, originUrl } from "./git.js";
@@ -190,7 +190,7 @@ export function inspectLocalRootIdentity(cwd: string, apiUrl?: string): LocalRoo
   const record = findSpaceFor(cwd);
   const localRegistry = record?.root_node_id;
   const origin = originUrl(cwd);
-  const configuredApiUrl = apiUrl ?? loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const configuredApiUrl = apiUrl ?? peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const canonicalOrigin = origin
     ? rootNodeIdFromGitUrl(origin, configuredApiUrl) ?? undefined
     : undefined;

@@ -10,7 +10,8 @@ const { loadConfigMock, fetchAuthMeMock, listClonesMock, gitStateMock, gitFetchM
   gitFetchMock: vi.fn(),
 }));
 
-vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
+// Outside host mode, peekConfig is loadConfig.
+vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock, peekConfig: loadConfigMock, isHostAuth: () => false }));
 vi.mock("../auth/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/api.js")>();
   return { ...actual, fetchAuthMe: fetchAuthMeMock };

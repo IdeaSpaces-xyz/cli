@@ -6,7 +6,8 @@ import { join } from "node:path";
 const { loadConfigMock, fetchInboxMock, fetchExchangeMock, fetchSpaceThreadsMock } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(), fetchInboxMock: vi.fn(), fetchExchangeMock: vi.fn(), fetchSpaceThreadsMock: vi.fn(),
 }));
-vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock }));
+// Outside host mode, peekConfig is loadConfig.
+vi.mock("../auth/credentials.js", () => ({ loadConfig: loadConfigMock, peekConfig: loadConfigMock, isHostAuth: () => false }));
 vi.mock("../auth/api.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../auth/api.js")>(),
   fetchInbox: fetchInboxMock, fetchExchange: fetchExchangeMock, fetchSpaceThreads: fetchSpaceThreadsMock,
