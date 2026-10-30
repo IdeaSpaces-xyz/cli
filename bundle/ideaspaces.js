@@ -15782,6 +15782,7 @@ var init_map_resolve = __esm({
 // dist/local/threads.js
 var threads_exports = {};
 __export(threads_exports, {
+  NO_THREAD_AGREEMENT: () => NO_THREAD_AGREEMENT,
   NoAgreementError: () => NoAgreementError,
   acknowledge: () => acknowledge,
   activityAt: () => activityAt,
@@ -15867,14 +15868,30 @@ function resolveLocalThread(input, cwd = process.cwd()) {
     throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
   return dir;
 }
+function threadAgreementContent(path) {
+  const agent = join29(path, "_agent");
+  if (!lexists(agent))
+    return null;
+  safeDirectory(agent);
+  const agreement = join29(agent, "agreement.md");
+  return lexists(agreement) ? safeFile(agreement) : null;
+}
+function lexists(path) {
+  try {
+    lstatSync3(path);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT")
+      return false;
+    throw error;
+  }
+}
 function loadThread(dir) {
   const path = safeDirectory(dir);
-  const agreement = join29(path, "_agent", "agreement.md");
   const readmePath = join29(path, "README.md");
-  if (!existsSync19(agreement) || !existsSync19(readmePath))
-    throw new Error(`Thread ${path} needs _agent/agreement.md and README.md.`);
-  safeDirectory(join29(path, "_agent"));
-  const agreementContent = safeFile(agreement);
+  if (!existsSync19(readmePath))
+    throw new Error(`Thread ${path} needs README.md.`);
+  const agreementContent = threadAgreementContent(path);
   const readme = safeFile(readmePath);
   const fm = parseFrontmatter(readme);
   if (!fm)
@@ -15888,7 +15905,7 @@ function loadThread(dir) {
       throw new Error(`Unexpected thread entry: ${entry.name}`);
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join29(path, entry.name)) });
   }
-  const legacy = parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
+  const legacy = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
   const inspection = inspectThreadPosts(sources, legacy);
   const allPosts = inspection.posts.map((post) => ({ ...post, path: basename14(post.path) }));
   const seen = /* @__PURE__ */ new Set();
@@ -15900,7 +15917,10 @@ function loadThread(dir) {
   const timeline = reconstructThreadTimeline(allPosts);
   const openingPath = [...sources].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.path;
   const opening = inspection.posts.find((post) => post.path === openingPath);
-  const warnings = inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`);
+  const warnings = [
+    ...agreementContent === null ? [NO_THREAD_AGREEMENT] : [],
+    ...inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`)
+  ];
   return {
     path,
     slug,
@@ -15982,7 +16002,8 @@ function latestLocalActivity(posts2) {
 }
 function resolveThreadParent2(threadDir, knownThreads) {
   const agreementPath = join29(threadDir, "_agent", "agreement.md");
-  const parsedAgreement = parseThreadAgreementAttachment(safeFile(agreementPath), `_threads/${basename14(threadDir)}/_agent/agreement.md`);
+  const agreementContent = threadAgreementContent(safeDirectory(threadDir));
+  const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename14(threadDir)}/_agent/agreement.md`);
   const canonicalThreadDir = realpathSync14(threadDir);
   const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
   if (parsedAgreement.status === "invalid" && !thread.attachment) {
@@ -16334,7 +16355,7 @@ function pushWorktree(cwd = process.cwd(), remote) {
   git3(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
   return remote;
 }
-var import_yaml9, MAX_POST, SHA2, SLUG, NoAgreementError;
+var import_yaml9, MAX_POST, SHA2, SLUG, NoAgreementError, NO_THREAD_AGREEMENT;
 var init_threads2 = __esm({
   "dist/local/threads.js"() {
     "use strict";
@@ -16347,6 +16368,7 @@ var init_threads2 = __esm({
     SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
     NoAgreementError = class extends Error {
     };
+    NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
   }
 });
 

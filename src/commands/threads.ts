@@ -88,7 +88,7 @@ function threadSection(markdown: string, heading: string): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 function threadFrame(thread: LocalThread) {
-  // loadThread validates the Agreement, but it can disappear between the two
+  // A Thread's Agreement is optional, and it can disappear between the two
   // reads. A missing target frame does not erase the curated README frame.
   let agreement = "";
   try {
