@@ -28,7 +28,7 @@
     "api:inventory": "node scripts/api-calls.mjs",
     "check:api": "node scripts/check-api-parity.mjs",
     "dev": "tsc --watch",
-    "test": "vitest run",
+    "test": "node scripts/test-git-isolation.mjs",
     "test:watch": "vitest",
     "prepare": "npm run build"
   },
