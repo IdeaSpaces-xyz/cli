@@ -11,9 +11,9 @@ import type { CommandDef } from "../types.js";
 import { exchangeText, hostedThreadsCommand, threadBadges } from "./inbox.js";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
-  acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
+  acknowledge, appendPost, createThread, initWorktree, listLocal, loadNewestPage, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
-  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
+  resolveThreadParent, resolveThreadParentDirect, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { HOSTED_THREAD_ID as HOSTED, hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
@@ -278,6 +278,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads open <slug> --depth children  # branches/children default newer; post ranges default older",
     "ideaspaces threads open <slug> --depth surface --limit 5  # head counts toward the limit; --order newer reverses the selected page",
     "ideaspaces threads open <slug> --depth full --limit 10 --order older  # page history; --since <post-id> continues (older order only)",
+    "ideaspaces threads open <slug> --depth full --limit 30 --order newer  # newest page: opens only the newest post files; matching counts post files (marks included)",
     "ideaspaces threads open <slug> --post msg_<id>  # one exact post plus child Threads attached to it",
     "ideaspaces threads open <slug|x_id> --post <id>  # one post in full, regardless of --depth",
   ],
@@ -459,8 +460,6 @@ export const threadsCommand: CommandDef = {
           return 0;
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
-        const thread = loadThread(resolveLocalThread(rest[0]));
-        reportThreadWarnings(thread, output);
         const rung = depth(flags, "surface");
         const postId = str(flags, "post");
         if (flags.post !== undefined && !postId) throw new Error("--post requires a post id.");
@@ -483,6 +482,14 @@ export const threadsCommand: CommandDef = {
         if (newOnly && since) throw new Error("Use either --new or --since, not both.");
         if (since && order === "newer") throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         if (postId && (newOnly || since || limit !== undefined || order)) throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
+        // The newest page of a long Thread opens only its newest post files. --new, --since,
+        // --post, pins and --ack need the whole Thread, so they keep the full read.
+        const ack = yes(flags, "ack");
+        const newestPage = order === "newer" && limit !== undefined && (rung === "full" || rung === "summary") && !newOnly && !since && !postId && !ack
+          && flags.pin === undefined && flags.position === undefined
+          ? loadNewestPage(resolveLocalThread(rest[0]), limit) : null;
+        const thread = newestPage?.thread ?? loadThread(resolveLocalThread(rest[0]));
+        reportThreadWarnings(thread, output);
         const seen = newOnly ? readCursor(thread) : new Set<string>();
         let posts = thread.posts.filter((p) => !seen.has(p.id));
         if (since) {
@@ -512,7 +519,8 @@ export const threadsCommand: CommandDef = {
         // Cold summary is a coordinate, not the entire timeline. Full is paged;
         // surface keeps the head and a bounded tail, with --post for exact bodies.
         const filtered = Boolean(since || newOnly || limit !== undefined || order);
-        const totalMatching = postId ? 1 : rangeCount;
+        // A newest page counts post files, an upper bound on timeline posts (marks fold).
+        const totalMatching = postId ? 1 : newestPage ? newestPage.postFiles : rangeCount;
         if (rung === "summary" && !filtered && !postId) posts = [];
         else if (!postId && rung !== "name" && rung !== "children") {
           if (rung === "surface") {
@@ -527,7 +535,6 @@ export const threadsCommand: CommandDef = {
           }
         }
 
-        const ack = yes(flags, "ack");
         const bodyClipped = rung === "surface" && posts.some((p) => Buffer.byteLength(p.body) > SURFACE_BODY_BYTES);
         if (ack && (rung === "name" || rung === "children" || postId || since || posts.length < totalMatching || bodyClipped)) throw new Error("Cannot --ack an incomplete Thread read (name/children, --post, --since, bounded page or shortened body). Use: threads open <slug> --depth full --new --ack when the complete unread range fits one page.");
         const pin = str(flags, "pin");
@@ -544,7 +551,7 @@ export const threadsCommand: CommandDef = {
         const effectiveRung = postId ? "full" : rung;
         let parent: ThreadParentInfo | null = null;
         let parentWarning: string | undefined;
-        try { parent = resolveThreadParent(thread.path); }
+        try { parent = newestPage ? resolveThreadParentDirect(thread) : resolveThreadParent(thread.path); }
         catch (error) {
           parentWarning = `Thread ${thread.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`;
           output.log(parentWarning);
@@ -593,7 +600,9 @@ export const threadsCommand: CommandDef = {
         }
 
         if (parentWarning) humanText += `\nParent lookup incomplete: ${parentWarning}`;
-        if (effectiveRung === "full" && !postId && posts.length < totalMatching) {
+        if (newestPage) {
+          humanText += `\n\nShowing the newest ${posts.length} posts; the Thread has ${newestPage.postFiles} post files (marks included). For forward paging, switch to --order older.`;
+        } else if (effectiveRung === "full" && !postId && posts.length < totalMatching) {
           const cursor = posts.at(-1)?.id;
           humanText += `\n\nShowing ${posts.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
         }
@@ -605,7 +614,8 @@ export const threadsCommand: CommandDef = {
           ...(effectiveRung === "children" || postId ? { child_threads: childThreads, child_threads_total: allChildThreads.length, child_threads_complete: childWarnings === 0 } : {}),
           ...(effectiveRung === "children" ? { branches, branches_total: allBranches.length } : {}),
           ...(rawPost ? { raw_post: rawPost } : {}),
-          ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), shown: posts.length, matching: totalMatching, acknowledged: ack },
+          ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), shown: posts.length, matching: totalMatching,
+          ...(newestPage ? { newest_page: { post_files: newestPage.postFiles, files_read: newestPage.filesRead } } : {}), acknowledged: ack },
           humanText); return 0;
       }
       if (sub === "post" || sub === "close") {

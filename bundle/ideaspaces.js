@@ -15959,6 +15959,7 @@ __export(threads_exports, {
   initWorktree: () => initWorktree,
   latestLocalActivity: () => latestLocalActivity,
   listLocal: () => listLocal,
+  loadNewestPage: () => loadNewestPage,
   loadThread: () => loadThread,
   pushWorktree: () => pushWorktree,
   readCursor: () => readCursor,
@@ -15966,6 +15967,7 @@ __export(threads_exports, {
   readPinnedThreadMember: () => readPinnedThreadMember,
   resolveLocalThread: () => resolveLocalThread,
   resolveThreadParent: () => resolveThreadParent2,
+  resolveThreadParentDirect: () => resolveThreadParentDirect,
   threadBase: () => threadBase,
   threadsDirectory: () => threadsDirectory,
   validateMarkOptions: () => validateMarkOptions,
@@ -16100,6 +16102,138 @@ function loadThread(dir) {
     ...inspection.writeRefusal ? { writeRefusal: inspection.writeRefusal } : {},
     attachment: inspection.parent,
     readme
+  };
+}
+function foldsOnto(post) {
+  return post.kind === "mark" && post.inReplyTo.length === 1 && typeof post.mark === "string" && post.mark.trim().length > 0;
+}
+function loadNewestPage(dir, limit) {
+  const path = safeDirectory(dir);
+  const readmePath = join29(path, "README.md");
+  if (!existsSync19(readmePath))
+    throw new Error(`Thread ${path} needs README.md.`);
+  const agreementContent = threadAgreementContent(path);
+  const readme = safeFile(readmePath);
+  const fm = parseFrontmatter(readme);
+  if (!fm)
+    throw new Error(`Malformed README frontmatter: ${readmePath}`);
+  const slug = basename14(path);
+  const names = [];
+  for (const entry of readdirSync2(path, { withFileTypes: true })) {
+    if (entry.name === "README.md" || entry.name === "_agent")
+      continue;
+    if (!entry.isFile() || !entry.name.endsWith(".md"))
+      throw new Error(`Unexpected thread entry: ${entry.name}`);
+    names.push(entry.name);
+  }
+  names.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+  const position = (name) => `_threads/${slug}/${name}`;
+  const contents = /* @__PURE__ */ new Map();
+  const read2 = (name) => {
+    let content = contents.get(name);
+    if (content === void 0) {
+      content = safeFile(join29(path, name));
+      contents.set(name, content);
+    }
+    return content;
+  };
+  let start = names.length;
+  let timelinePosts = 0;
+  while (start > 1 && timelinePosts < limit) {
+    start--;
+    const parsed2 = parseThreadPost(read2(names[start]), position(names[start]));
+    if (parsed2.status === "valid" && !foldsOnto(parsed2.post))
+      timelinePosts++;
+  }
+  if (timelinePosts < limit)
+    return null;
+  const legacy = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
+  const opening = inspectThreadPosts([{ path: position(names[0]), content: read2(names[0]) }], legacy);
+  const inspection = inspectThreadPosts(names.slice(start).map((name) => ({ path: position(name), content: read2(name) })), { status: "absent" });
+  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename14(post.path) }));
+  const ids = /* @__PURE__ */ new Set();
+  for (const post of allPosts) {
+    if (ids.has(post.id))
+      throw new Error(`Duplicate post id: ${post.id}`);
+    ids.add(post.id);
+  }
+  const outsideTail = (post) => foldsOnto(post) && !ids.has(post.inReplyTo[0]);
+  const dangling = new Set(inspection.posts.filter(outsideTail).map((post) => post.path));
+  const timeline = reconstructThreadTimeline(allPosts.filter((post) => !outsideTail(post)));
+  const unreadable = [...opening.unreadable, ...inspection.unreadable].map((post) => post.path);
+  return {
+    thread: {
+      path,
+      slug,
+      thread_id: opening.posts[0]?.id ?? null,
+      name: typeof fm.name === "string" ? fm.name : slug,
+      summary: typeof fm.summary === "string" ? fm.summary : "",
+      posts: timeline.posts,
+      allPosts,
+      warnings: [
+        ...agreementContent === null ? [NO_THREAD_AGREEMENT] : [],
+        ...[
+          ...opening.warnings.filter((warning) => warning.field === "attached_to"),
+          ...inspection.warnings.filter((warning) => !(warning.warning === "mark_target_missing" && dangling.has(warning.post)))
+        ].map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`)
+      ],
+      unreadablePosts: unreadable,
+      closed: inspection.posts.some((post) => post.kind === "closure") ? true : unreadable.length ? "unknown" : false,
+      ...opening.writeRefusal ? { writeRefusal: opening.writeRefusal } : {},
+      attachment: opening.parent,
+      readme
+    },
+    postFiles: names.length,
+    filesRead: names.length - start + 1
+  };
+}
+function resolveThreadParentDirect(thread) {
+  if (thread.attachment === "unknown")
+    return { attached_to: "unknown", status: "unknown" };
+  if (!thread.attachment) {
+    const agreementContent = threadAgreementContent(thread.path);
+    if (agreementContent !== null && parseThreadAgreementAttachment(agreementContent, `_threads/${thread.slug}/_agent/agreement.md`).status === "invalid") {
+      return resolveThreadParent2(thread.path);
+    }
+    return null;
+  }
+  const attachment = thread.attachment;
+  const attachedTo = attachment.raw ?? attachment.value;
+  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path")
+    return { attached_to: attachedTo, status: "none" };
+  const full = () => resolveThreadParent2(thread.path);
+  const spaceRoot = spaceForThread(thread.path);
+  const threads = join29(spaceRoot, "_threads");
+  const byId = attachment.kind === "id" || attachment.kind === "post" && /^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(attachment.value);
+  const candidates = [];
+  if (byId) {
+    for (const entry of readdirSync2(threads, { withFileTypes: true })) {
+      if (!entry.isDirectory())
+        continue;
+      for (const name of readdirSync2(join29(threads, entry.name))) {
+        if (name.endsWith(`-${attachment.value}.md`))
+          candidates.push(`_threads/${entry.name}/${name}`);
+      }
+    }
+  } else if (/^_threads\/[^/.][^/]*\/[^/.][^/]*\.md$/.test(attachment.value) && existsSync19(join29(spaceRoot, attachment.value))) {
+    candidates.push(attachment.value);
+  }
+  if (candidates.length !== 1)
+    return full();
+  const [candidate] = candidates;
+  const parsed2 = parseThreadPost(safeFile(join29(spaceRoot, candidate)), candidate);
+  if (parsed2.status !== "valid")
+    return full();
+  const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: [{ path: candidate, id: parsed2.post.id }] }]);
+  if (resolved.status !== "resolved")
+    return full();
+  return {
+    attached_to: attachedTo,
+    id: resolved.parent.id,
+    slug: candidate.split("/")[1],
+    path: resolved.parent.path,
+    name: parsed2.post.frontmatter.name ?? resolved.parent.id,
+    summary: parsed2.post.frontmatter.summary ?? ""
   };
 }
 function listLocal(cwd = process.cwd(), onError) {
@@ -30778,6 +30912,7 @@ var threadsCommand = {
     "ideaspaces threads open <slug> --depth children  # branches/children default newer; post ranges default older",
     "ideaspaces threads open <slug> --depth surface --limit 5  # head counts toward the limit; --order newer reverses the selected page",
     "ideaspaces threads open <slug> --depth full --limit 10 --order older  # page history; --since <post-id> continues (older order only)",
+    "ideaspaces threads open <slug> --depth full --limit 30 --order newer  # newest page: opens only the newest post files; matching counts post files (marks included)",
     "ideaspaces threads open <slug> --post msg_<id>  # one exact post plus child Threads attached to it",
     "ideaspaces threads open <slug|x_id> --post <id>  # one post in full, regardless of --depth"
   ],
@@ -31016,8 +31151,6 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         }
         if (flags2.checkout !== void 0)
           throw new Error("--checkout requires --map and --member.");
-        const thread = loadThread(resolveLocalThread(rest[0]));
-        reportThreadWarnings(thread, output);
         const rung = depth(flags2, "surface");
         const postId2 = str2(flags2, "post");
         if (flags2.post !== void 0 && !postId2)
@@ -31045,6 +31178,10 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         if (postId2 && (newOnly || since || limit !== void 0 || order))
           throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
+        const ack = yes(flags2, "ack");
+        const newestPage = order === "newer" && limit !== void 0 && (rung === "full" || rung === "summary") && !newOnly && !since && !postId2 && !ack && flags2.pin === void 0 && flags2.position === void 0 ? loadNewestPage(resolveLocalThread(rest[0]), limit) : null;
+        const thread = newestPage?.thread ?? loadThread(resolveLocalThread(rest[0]));
+        reportThreadWarnings(thread, output);
         const seen = newOnly ? readCursor(thread) : /* @__PURE__ */ new Set();
         let posts3 = thread.posts.filter((p) => !seen.has(p.id));
         if (since) {
@@ -31074,7 +31211,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           }
         }
         const filtered = Boolean(since || newOnly || limit !== void 0 || order);
-        const totalMatching = postId2 ? 1 : rangeCount;
+        const totalMatching = postId2 ? 1 : newestPage ? newestPage.postFiles : rangeCount;
         if (rung === "summary" && !filtered && !postId2)
           posts3 = [];
         else if (!postId2 && rung !== "name" && rung !== "children") {
@@ -31091,7 +31228,6 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
             posts3 = posts3.slice(0, limit ?? 10);
           }
         }
-        const ack = yes(flags2, "ack");
         const bodyClipped = rung === "surface" && posts3.some((p) => Buffer.byteLength(p.body) > SURFACE_BODY_BYTES);
         if (ack && (rung === "name" || rung === "children" || postId2 || since || posts3.length < totalMatching || bodyClipped))
           throw new Error("Cannot --ack an incomplete Thread read (name/children, --post, --since, bounded page or shortened body). Use: threads open <slug> --depth full --new --ack when the complete unread range fits one page.");
@@ -31115,7 +31251,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         let parent = null;
         let parentWarning;
         try {
-          parent = resolveThreadParent2(thread.path);
+          parent = newestPage ? resolveThreadParentDirect(thread) : resolveThreadParent2(thread.path);
         } catch (error) {
           parentWarning = `Thread ${thread.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`;
           output.log(parentWarning);
@@ -31189,7 +31325,11 @@ Child Thread lookup incomplete: ${childWarnings} unreadable sibling(s).`;
         if (parentWarning)
           humanText += `
 Parent lookup incomplete: ${parentWarning}`;
-        if (effectiveRung === "full" && !postId2 && posts3.length < totalMatching) {
+        if (newestPage) {
+          humanText += `
+
+Showing the newest ${posts3.length} posts; the Thread has ${newestPage.postFiles} post files (marks included). For forward paging, switch to --order older.`;
+        } else if (effectiveRung === "full" && !postId2 && posts3.length < totalMatching) {
           const cursor = posts3.at(-1)?.id;
           humanText += `
 
@@ -31217,6 +31357,7 @@ Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer"
           ...pinned ? { pinned: effectiveRung === "full" ? pinned : void 0, pin, position } : {},
           shown: posts3.length,
           matching: totalMatching,
+          ...newestPage ? { newest_page: { post_files: newestPage.postFiles, files_read: newestPage.filesRead } } : {},
           acknowledged: ack
         }, humanText);
         return 0;

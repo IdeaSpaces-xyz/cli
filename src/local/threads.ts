@@ -190,6 +190,144 @@ export function loadThread(dir: string): LocalThread {
   };
 }
 
+/** A mark that would fold onto one target post rather than stand in the timeline. */
+function foldsOnto(post: ThreadPost): boolean {
+  return post.kind === "mark" && post.inReplyTo.length === 1 && typeof post.mark === "string" && post.mark.trim().length > 0;
+}
+
+export interface NewestPage {
+  /** The page's posts and the Thread's frame. Lists and counts cover only the files read. */
+  thread: LocalThread;
+  /** Post files in the folder: every post, mark and unreadable file counts as one. */
+  postFiles: number;
+  /** Post files this read opened: the newest ones, plus the opening post. */
+  filesRead: number;
+}
+
+/**
+ * The newest `limit` timeline posts of a long Thread, opening only the newest post files
+ * (walked back in the protocol's path order until `limit` timeline posts are in hand) and the
+ * opening post, for the Thread's id, parent and write state. Marks in that tail fold onto
+ * posts in it; a mark whose target is older than the tail is not a timeline post, so it is
+ * left out with its target. `closed` holds because the CLI never appends after a closure.
+ * Returns null when the page reaches the opening post: the caller then reads the whole
+ * Thread, exactly.
+ */
+export function loadNewestPage(dir: string, limit: number): NewestPage | null {
+  const path = safeDirectory(dir);
+  const readmePath = join(path, "README.md");
+  if (!existsSync(readmePath)) throw new Error(`Thread ${path} needs README.md.`);
+  const agreementContent = threadAgreementContent(path);
+  const readme = safeFile(readmePath);
+  const fm = parseFrontmatter(readme);
+  if (!fm) throw new Error(`Malformed README frontmatter: ${readmePath}`);
+  const slug = basename(path);
+  const names: string[] = [];
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    if (entry.name === "README.md" || entry.name === "_agent") continue;
+    if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
+    names.push(entry.name);
+  }
+  // One folder, so name order is the protocol's path order (code units, never locale).
+  names.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+  const position = (name: string) => `_threads/${slug}/${name}`;
+  const contents = new Map<string, string>();
+  const read = (name: string) => {
+    let content = contents.get(name);
+    if (content === undefined) { content = safeFile(join(path, name)); contents.set(name, content); }
+    return content;
+  };
+  let start = names.length;
+  let timelinePosts = 0;
+  while (start > 1 && timelinePosts < limit) {
+    start--;
+    const parsed = parseThreadPost(read(names[start]), position(names[start]));
+    if (parsed.status === "valid" && !foldsOnto(parsed.post)) timelinePosts++;
+  }
+  if (timelinePosts < limit) return null;
+
+  const legacy = agreementContent === null ? { status: "absent" as const }
+    : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
+  const opening = inspectThreadPosts([{ path: position(names[0]), content: read(names[0]) }], legacy);
+  const inspection = inspectThreadPosts(names.slice(start).map((name) => ({ path: position(name), content: read(name) })), { status: "absent" });
+  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename(post.path) }));
+  const ids = new Set<string>();
+  for (const post of allPosts) {
+    if (ids.has(post.id)) throw new Error(`Duplicate post id: ${post.id}`);
+    ids.add(post.id);
+  }
+  const outsideTail = (post: ThreadPost) => foldsOnto(post) && !ids.has(post.inReplyTo[0]);
+  const dangling = new Set(inspection.posts.filter(outsideTail).map((post) => post.path));
+  const timeline = reconstructThreadTimeline(allPosts.filter((post) => !outsideTail(post)));
+  const unreadable = [...opening.unreadable, ...inspection.unreadable].map((post) => post.path);
+  return {
+    thread: {
+      path, slug, thread_id: opening.posts[0]?.id ?? null,
+      name: typeof fm.name === "string" ? fm.name : slug,
+      summary: typeof fm.summary === "string" ? fm.summary : "",
+      posts: timeline.posts, allPosts,
+      warnings: [
+        ...(agreementContent === null ? [NO_THREAD_AGREEMENT] : []),
+        ...[...opening.warnings.filter((warning) => warning.field === "attached_to"),
+          ...inspection.warnings.filter((warning) => !(warning.warning === "mark_target_missing" && dangling.has(warning.post)))]
+          .map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`),
+      ],
+      unreadablePosts: unreadable,
+      closed: inspection.posts.some((post) => post.kind === "closure") ? true : unreadable.length ? "unknown" : false,
+      ...(opening.writeRefusal ? { writeRefusal: opening.writeRefusal } : {}),
+      attachment: opening.parent, readme,
+    },
+    postFiles: names.length,
+    filesRead: names.length - start + 1,
+  };
+}
+
+/**
+ * The Thread's parent from the one post file it names, not from every Thread in the Space.
+ * A path attachment names the file; a post id is found by the CLI's `<stamp>-<id>.md` file
+ * name and checked against the file's own id. Anything else (no such file, two candidates,
+ * an id in an older file name) goes to the full lookup, which decides it exactly.
+ */
+export function resolveThreadParentDirect(thread: LocalThread): ThreadParentInfo | null {
+  if (thread.attachment === "unknown") return { attached_to: "unknown", status: "unknown" };
+  if (!thread.attachment) {
+    const agreementContent = threadAgreementContent(thread.path);
+    if (agreementContent !== null && parseThreadAgreementAttachment(agreementContent, `_threads/${thread.slug}/_agent/agreement.md`).status === "invalid") {
+      return resolveThreadParent(thread.path);
+    }
+    return null;
+  }
+  const attachment = thread.attachment;
+  const attachedTo = attachment.raw ?? attachment.value;
+  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") return { attached_to: attachedTo, status: "none" };
+  const full = () => resolveThreadParent(thread.path);
+  const spaceRoot = spaceForThread(thread.path);
+  const threads = join(spaceRoot, "_threads");
+  const byId = attachment.kind === "id" || (attachment.kind === "post" && /^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(attachment.value));
+  const candidates: string[] = [];
+  if (byId) {
+    for (const entry of readdirSync(threads, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      for (const name of readdirSync(join(threads, entry.name))) {
+        if (name.endsWith(`-${attachment.value}.md`)) candidates.push(`_threads/${entry.name}/${name}`);
+      }
+    }
+  } else if (/^_threads\/[^/.][^/]*\/[^/.][^/]*\.md$/.test(attachment.value) && existsSync(join(spaceRoot, attachment.value))) {
+    candidates.push(attachment.value);
+  }
+  if (candidates.length !== 1) return full();
+  const [candidate] = candidates;
+  const parsed = parseThreadPost(safeFile(join(spaceRoot, candidate)), candidate);
+  if (parsed.status !== "valid") return full();
+  const resolved = resolveProtocolParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: [{ path: candidate, id: parsed.post.id }] }]);
+  if (resolved.status !== "resolved") return full();
+  return {
+    attached_to: attachedTo, id: resolved.parent.id, slug: candidate.split("/")[1],
+    path: resolved.parent.path, name: parsed.post.frontmatter.name ?? resolved.parent.id,
+    summary: parsed.post.frontmatter.summary ?? "",
+  };
+}
+
 export function listLocal(cwd = process.cwd(), onError?: (message: string) => void): LocalThread[] {
   const base = threadsDirectory(cwd);
   if (!existsSync(base)) return [];

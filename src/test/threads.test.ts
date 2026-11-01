@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
@@ -925,5 +925,81 @@ describe("local Threads", () => {
       expect(openPostInMain.child_threads).toHaveLength(1);
       expect(openPostInMain.child_threads[0].slug).toBe("sub-work");
     } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
+  });
+});
+
+describe("newest page", () => {
+  // Distinct millisecond stamps, so file-name order is append order.
+  const tick = () => { const at = Date.now(); while (Date.now() === at) { /* wait */ } };
+  async function capture(root: string, body: (open: (options: Record<string, string | boolean>) => Promise<any>) => Promise<void>) {
+    const previous = process.cwd(); process.chdir(root);
+    const write = process.stdout.write; let out = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    const global = { json: true, quiet: true, yes: false, help: false };
+    try {
+      await body(async (options) => { out = ""; expect(await threadsCommand.run(["open", "long"], options, global)).toBe(0); return JSON.parse(out); });
+    } finally { process.stdout.write = write; process.chdir(previous); }
+  }
+
+  it("opens only the newest post files and returns the full read's page", async () => {
+    const root = fixture();
+    process.env.HOME = root;
+    const parent = createThread("parent", "Parent", root);
+    const anchor = appendPost(parent.path, { body: "Anchor", name: "Anchor", summary: "The post this Thread grows from" });
+    const thread = createThread("long", "Long", root);
+    tick(); const opening = appendPost(thread.path, { body: "Opening", attachedTo: `post:${anchor.post.id}` });
+    const posts = [opening];
+    for (let i = 1; i <= 12; i++) { tick(); posts.push(appendPost(thread.path, { body: `Post ${i}`, name: `P${i}`, replyTo: [posts.at(-1)!.post.id] })); }
+    tick(); appendPost(thread.path, { body: "Claimed", kind: "mark", mark: "claimed", author: "Scout", replyTo: [posts[11].post.id] });
+    tick(); appendPost(thread.path, { body: "Old mark", kind: "mark", mark: "done", author: "Scout", replyTo: [posts[2].post.id] });
+    const full = loadThread(thread.path);
+    const expected = [...full.posts].reverse().slice(0, 5);
+
+    await capture(root, async (open) => {
+      const page = await open({ depth: "full", order: "newer", limit: "5" });
+      // 15 files: the opening, 12 posts and 2 marks. Read: 2 marks, 5 posts and the opening.
+      expect(page.newest_page).toEqual({ post_files: 15, files_read: 8 });
+      expect(page.matching).toBe(15);
+      expect(page.posts).toEqual(JSON.parse(JSON.stringify(expected)));
+      expect(page.posts.find((post: any) => post.id === posts[11].post.id).marks).toMatchObject([{ mark: "claimed", author: "Scout" }]);
+      expect(page.thread).toMatchObject({ thread_id: opening.post.id, closed: false, warnings: [], unreadable_posts: [] });
+      expect(page.thread.parent).toEqual(resolveThreadParent(thread.path));
+      expect(page.thread.parent).toMatchObject({ id: anchor.post.id, slug: "parent", name: "Anchor" });
+      const summary = await open({ depth: "summary", order: "newer", limit: "5" });
+      expect(summary.posts.map((post: any) => post.id)).toEqual(expected.map((post) => post.id));
+
+      // An older file the page never opens cannot break it; the full read must open it.
+      const older = posts[3].path;
+      chmodSync(older, 0o000);
+      try {
+        expect((await open({ depth: "full", order: "newer", limit: "5" })).posts.map((post: any) => post.id)).toEqual(expected.map((post) => post.id));
+        expect(() => loadThread(thread.path)).toThrow();
+      } finally { chmodSync(older, 0o644); }
+    });
+  });
+
+  it("keeps the full read when the page needs the whole Thread or the cursor", async () => {
+    const root = fixture();
+    process.env.HOME = root;
+    const thread = createThread("long", "Long", root);
+    const posts = [appendPost(thread.path, { body: "Opening" })];
+    for (let i = 1; i <= 4; i++) { tick(); posts.push(appendPost(thread.path, { body: `Post ${i}`, replyTo: [posts.at(-1)!.post.id] })); }
+    await capture(root, async (open) => {
+      for (const options of [
+        { depth: "full", order: "newer", limit: "5" }, // reaches the opening post
+        { depth: "full", order: "newer", limit: "2", new: true }, // unread needs every id
+        { depth: "full", order: "older", limit: "2" },
+        { depth: "surface", order: "newer", limit: "2" },
+      ]) {
+        const read = await open(options);
+        expect(read.newest_page).toBeUndefined();
+        expect(read.matching).toBe(5);
+      }
+      // A newest page never moves the seen-cursor; --new still counts every unread post.
+      expect((await open({ depth: "full", order: "newer", limit: "2" })).newest_page).toEqual({ post_files: 5, files_read: 3 });
+      expect(readCursor(loadThread(thread.path)).size).toBe(0);
+      acknowledge(loadThread(thread.path), loadThread(thread.path).posts.slice(0, 2));
+      expect((await open({ depth: "summary", new: true, limit: "10" })).matching).toBe(3);
+    });
   });
 });
