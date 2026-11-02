@@ -1,7 +1,8 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { assembleContentReference, parseFrontmatter, parseThreadPost, renderContentFocus, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
+import { agreementFlag, preferredContractSource } from "../contract-source.js";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
@@ -11,7 +12,7 @@ import type { CommandDef } from "../types.js";
 import { exchangeText, hostedThreadsCommand, threadBadges } from "./inbox.js";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
-  acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread,
+  acknowledge, appendPost, attachThread, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
   resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
@@ -103,6 +104,23 @@ function threadFrame(thread: LocalThread) {
     done_when: threadSection(agreement, "Done when"),
   };
 }
+/**
+ * The Thread's reference frame: its own and the Space's Agreements, read as
+ * reference (summary unless `--agreement full`), never composed into the reader's
+ * own frame. Agreement-first selection is CLI policy over the neutral protocol.
+ */
+async function threadReference(threadPath: string, agreement?: ContentRepresentation): Promise<ContentFocusResult | null> {
+  const opts = agreement ? { agreement } : {};
+  let reference = await assembleContentReference(threadPath, opts);
+  if (reference?.status === "contract_choice_required") {
+    const preferred = preferredContractSource(reference.availableSources);
+    if (preferred) reference = await assembleContentReference(threadPath, { ...opts, contractSource: preferred });
+  }
+  return reference;
+}
+function originLine(parent: ThreadParentInfo | null | undefined): string | undefined {
+  return parent?.origin ? `Origin: ${clip(parent.origin, 400)} (where this Thread started; its Agreement now names the parent)` : undefined;
+}
 function localText(
   thread: LocalThread,
   posts: LocalThread["posts"],
@@ -126,6 +144,7 @@ function localText(
     return [
       header,
       parentLine,
+      originLine(options?.parent),
       lens.current_frame && `Current frame: ${clip(lens.current_frame, 1200, "… [shortened; read this Thread's README.md for the full frame]")}`,
       lens.goal && `Goal: ${clip(lens.goal, 1200, "… [shortened; read this Thread's _agent/agreement.md for the full goal]")}`,
       lens.done_when && `Done when: ${clip(lens.done_when, 1200, "… [shortened; read this Thread's _agent/agreement.md for the full criterion]")}`,
@@ -141,6 +160,8 @@ function localText(
     if (options?.parent) {
       const p = options.parent;
       parts.push(`Parent post: ${p.id ?? p.attached_to}${p.slug ? ` (${p.slug})` : ""}${p.name ? ` · ${clip(p.name, 200)}` : ""}${p.summary ? `\n  ${clip(p.summary, 400)}` : ""}`);
+      const origin = originLine(p);
+      if (origin) parts.push(origin);
     }
     if (options?.snapshot) {
       const s = options.snapshot;
@@ -163,6 +184,8 @@ function localText(
     const parts = [context];
     if (options?.parent) {
       parts.push(`Parent: ${clip(options.parent.attached_to, 400)}${options.parent.slug ? ` (${options.parent.slug})` : ""}`);
+      const origin = originLine(options.parent);
+      if (origin) parts.push(origin);
     }
     const branches = options?.branches ?? [];
     if (branches.length) {
@@ -242,7 +265,7 @@ function writerName(explicit?: string): string {
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ... | threads <list|new> --hosted | threads <open|post|ack> x_<32hex> ...",
+  usage: "ideaspaces threads <list|posts|locate|open|new|attach|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ... | threads <list|new> --hosted | threads <open|post|ack> x_<32hex> ...",
   examples: [
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>]  # hosted Threads (x_<32hex>) this sign-in can read",
     "ideaspaces threads open x_<32hex> [--limit 50] [--cursor <older or newer cursor>]  # head + one page; author and date come from the service",
@@ -253,9 +276,10 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads posts [--space n_…] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary] [--order newer|older]",
     "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
-    "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older]  # local cold default: surface",
+    "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older] [--agreement summary|full]  # local cold default: surface; the Thread's Agreements come first, as reference",
     "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent] [--map moment.map.md]  # opening post captures origin + pinned Map",
     "ideaspaces threads new <slug> --about 'About this Note' --attached-to note:@home//notes/topic.md  # link, no child edge",
+    "ideaspaces threads attach <slug|path> post:msg_<parent> --message 'Why it moves'  # sets the Agreement's attached_to (current parent) and appends a reframe; the opening post keeps the origin",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
@@ -435,7 +459,11 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");
+        if (HOSTED.test(rest[0]) && flags.agreement !== undefined) throw new Error("--agreement applies to local Threads; a hosted Thread's terms are kept by the service.");
         if (HOSTED.test(rest[0])) return hostedThreadsCommand.run(["read", rest[0]], flags, global);
+        const referenceSelection = agreementFlag(flags.agreement);
+        if (referenceSelection.error) throw new Error(referenceSelection.error);
+        if (flags.map !== undefined && flags.agreement !== undefined) throw new Error("--agreement reads the live reference frame; a selected pinned read carries none. Omit --agreement with --map.");
         selectionFlags(flags);
         if (flags.map !== undefined && flags.member === undefined) throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");
         if (flags.map !== undefined && flags.member !== undefined) {
@@ -460,6 +488,13 @@ export const threadsCommand: CommandDef = {
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
         const thread = loadThread(resolveLocalThread(rest[0]));
+        // The Thread's terms arrive with every read of it, as reference: a dispatched agent reading
+        // one post learns the Thread's name and terms, and where to read them in full.
+        const pinnedRead = flags.pin !== undefined || flags.position !== undefined;
+        if (pinnedRead && flags.agreement !== undefined) throw new Error("--agreement reads the live reference frame; a pinned read carries none. Omit --agreement with --pin.");
+        const reference = pinnedRead ? null : await threadReference(thread.path, referenceSelection.agreement);
+        const referenceDiagnostic = reference && reference.status !== "ok" ? renderContentFocus(reference) : undefined;
+        if (referenceDiagnostic) output.log(`Thread ${thread.slug} reference frame unavailable: ${referenceDiagnostic}`);
         reportThreadWarnings(thread, output);
         const rung = depth(flags, "surface");
         const postId = str(flags, "post");
@@ -593,11 +628,12 @@ export const threadsCommand: CommandDef = {
         }
 
         if (parentWarning) humanText += `\nParent lookup incomplete: ${parentWarning}`;
+        if (reference?.status === "ok") humanText = `${renderContentFocus(reference)}\n\n${humanText}`;
         if (effectiveRung === "full" && !postId && posts.length < totalMatching) {
           const cursor = posts.at(-1)?.id;
           humanText += `\n\nShowing ${posts.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
         }
-        output.result({ schema: "ideaspaces.local-thread.open.v3", thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
+        output.result({ schema: "ideaspaces.local-thread.open.v4", ...(reference?.status === "ok" ? { reference } : {}), ...(referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {}), thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
           closed: thread.closed, parent, warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
           ...(parentWarning ? { parent_warning: parentWarning } : {}),
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
@@ -607,6 +643,33 @@ export const threadsCommand: CommandDef = {
           ...(rawPost ? { raw_post: rawPost } : {}),
           ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), shown: posts.length, matching: totalMatching, acknowledged: ack },
           humanText); return 0;
+      }
+      if (sub === "attach") {
+        const usage = "Usage: threads attach <slug|path> <post:msg_…|msg_…|_threads/<thread>/<post>.md> --message <why>";
+        if (rest.length !== 2) throw new Error(usage);
+        if (HOSTED.test(rest[0]) || HOSTED_THREAD_32.test(rest[0])) {
+          throw new Error("threads attach moves local Threads only; a hosted Thread's parent is kept by the service.");
+        }
+        for (const flag of ["message", "author"]) if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
+        // A one-line reason, never stdin: a move without a stated reason is refused before anything is read.
+        const message = str(flags, "message") ?? "";
+        if (!message.trim()) throw new Error(`--message is required: say why the Thread moves. ${usage}`);
+        const result = attachThread(resolveLocalThread(rest[0]), rest[1], { message, author: writerName(str(flags, "author")) });
+        const previous = result.previous ? `${result.previous.id ?? result.previous.attached_to}${result.previous.slug ? ` (${result.previous.slug})` : ""}` : "none";
+        output.result({
+          path: result.thread.path, slug: result.thread.slug,
+          previous_parent: result.previous,
+          parent: result.parent,
+          origin: result.thread.origin === null ? null : result.thread.origin === "unknown" ? "unknown" : result.thread.origin.raw ?? result.thread.origin.value,
+          agreement_path: result.agreementPath, agreement_created: result.agreementCreated,
+          reframe: { id: result.post.id, path: result.postPath, in_reply_to: result.post.inReplyTo },
+        }, [
+          `Attached ${result.thread.slug} under ${result.parent.id} · ${result.parent.name} (${result.parent.slug}).`,
+          `  previous parent: ${previous}`,
+          `  Agreement: ${result.agreementPath}${result.agreementCreated ? " (created: this Thread had none; it now carries the minimal Agreement threads new writes)" : " (attached_to only; every other line kept)"}`,
+          `  reframe: ${result.postPath}`,
+        ].join("\n"));
+        return 0;
       }
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || HOSTED.test(rest[0])) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);

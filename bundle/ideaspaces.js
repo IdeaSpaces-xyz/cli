@@ -9745,10 +9745,12 @@ async function readRegularFile(path) {
     return null;
   }
 }
+var CONTENT_REPRESENTATIONS;
 var init_agreement = __esm({
   "node_modules/@ideaspaces/protocol/dist/agreement.js"() {
     init_frontmatter();
     init_root_identity();
+    CONTENT_REPRESENTATIONS = ["summary", "full"];
   }
 });
 
@@ -11203,6 +11205,10 @@ async function assembleContentAwareness(opts) {
   };
 }
 async function assembleContentFocus(opts) {
+  const agreementRepresentation = opts.agreement ?? "summary";
+  if (!CONTENT_REPRESENTATIONS.includes(agreementRepresentation)) {
+    throw new RangeError(`Reference Agreement representation must be one of: ${CONTENT_REPRESENTATIONS.join(", ")}`);
+  }
   const selected = await selectContentFrame(opts.position, opts.contractSource, true);
   if (!selected)
     return null;
@@ -11228,7 +11234,10 @@ async function assembleContentFocus(opts) {
       ...common,
       contract: foundation.contract,
       stack: foundation.stack
-    }) : contractSource === "agreement" ? readAgreementAwarenessSections({ ...common, agreement }) : readFloorAwarenessSections(common)
+    }) : contractSource === "agreement" ? readAgreementAwarenessSections({
+      ...common,
+      agreement: referenceAgreement(agreement, agreementRepresentation)
+    }) : readFloorAwarenessSections(common)
   ]);
   return {
     status: "ok",
@@ -11247,6 +11256,30 @@ async function assembleContentFocus(opts) {
     tree: sections.tree ? toFocusTree(sections.tree) : null,
     contract: sections.contract.map((entry) => ({ ...entry, placement: "history" })),
     skills: sections.skills.map((skill) => ({ ...skill, placement: "history" }))
+  };
+}
+async function assembleContentReference(position, opts = {}) {
+  const focused = await assembleContentFocus({
+    position,
+    ...opts.contractSource ? { contractSource: opts.contractSource } : {},
+    ...opts.summaryExcerptLength !== void 0 ? { summaryExcerptLength: opts.summaryExcerptLength } : {},
+    ...opts.agreement ? { agreement: opts.agreement } : {},
+    treeMaxEntries: 0
+  });
+  if (!focused || focused.status !== "ok")
+    return focused;
+  return { ...focused, tree: null };
+}
+function referenceAgreement(agreement, representation) {
+  const nearest = [...agreement.stack].reverse().find((level) => level.agreementPath !== null);
+  const stack = agreement.stack.map((level) => representation === "full" && level === nearest ? level : {
+    ...level,
+    files: level.files.map((file2) => ({ ...file2, representation: "summary" }))
+  });
+  return {
+    ...agreement,
+    stack,
+    agreements: stack.flatMap((level) => level.files.filter((file2) => file2.name === "agreement"))
   };
 }
 function renderContentAwareness(result, opts = {}) {
@@ -11867,6 +11900,10 @@ function renderContract(entries, levelBase) {
         lines.push(`    ${line2}`);
     } else {
       lines.push(entry.summary ? `  ${name} \u2014 ${entry.summary}` : `  ${name}`);
+      if (entry.name === "agreement") {
+        const source = levelBase ? relative4(levelBase, entry.path) : entry.path;
+        lines.push(`    summary only \u2014 read ${source.split(sep3).join("/")} in full before writing here`);
+      }
     }
   }
   return lines.join("\n");
@@ -12559,7 +12596,7 @@ function parseThreadPost(content, path = "") {
   };
   return { status: "valid", post };
 }
-function inspectThreadPosts(sources, legacyAgreement) {
+function inspectThreadPosts(sources, agreementAttachment) {
   const sorted = sources.filter((source) => parseThreadAttachment(source.path)?.kind === "path").sort((a, b) => compareOrdinal(a.path, b.path));
   const posts3 = [];
   const unreadable = [];
@@ -12574,8 +12611,8 @@ function inspectThreadPosts(sources, legacyAgreement) {
       warnings.push(...(result.post.warnings ?? []).map((warning) => ({ post: source.path, ...warning })));
     }
   }
-  if (legacyAgreement?.status === "absent" && legacyAgreement.warning) {
-    warnings.push({ post: "_agent/agreement.md", field: "attached_to", warning: legacyAgreement.warning });
+  if (agreementAttachment?.status === "absent" && agreementAttachment.warning) {
+    warnings.push({ post: "_agent/agreement.md", field: "attached_to", warning: agreementAttachment.warning });
   }
   const byId = new Map(posts3.map((post) => [post.id, post]));
   for (const post of posts3) {
@@ -12586,7 +12623,8 @@ function inspectThreadPosts(sources, legacyAgreement) {
   const opening = sorted[0];
   const openingUnreadable = Boolean(opening && unreadable.some((entry) => entry.path === opening.path));
   const firstPost = posts3.find((post) => post.path === opening?.path);
-  const parent = !opening ? null : openingUnreadable ? "unknown" : firstPost?.attachedTo ?? (legacyAgreement?.status === "valid" ? legacyAgreement.attachment : null);
+  const origin = !opening ? null : openingUnreadable ? "unknown" : firstPost?.attachedTo ?? null;
+  const parent = agreementAttachment?.status === "valid" ? agreementAttachment.attachment : origin;
   const closed = posts3.some((post) => post.kind === "closure") ? true : unreadable.length ? "unknown" : false;
   const writeRefusal = openingUnreadable ? `Opening post ${opening?.path ?? "(missing)"} is unreadable; writes refused. Any Thread writer may repair it with a commit explaining why.` : void 0;
   return {
@@ -12594,6 +12632,7 @@ function inspectThreadPosts(sources, legacyAgreement) {
     unreadable,
     warnings,
     parent,
+    origin,
     closed,
     writable: !openingUnreadable,
     ...writeRefusal ? { writeRefusal } : {}
@@ -12812,6 +12851,7 @@ async function assembleContentLook(opts) {
   const focusOpts = {
     position: framePosition,
     ...opts.contractSource ? { contractSource: opts.contractSource } : {},
+    ...opts.agreement ? { agreement: opts.agreement } : {},
     ...opts.summaryExcerptLength !== void 0 ? { summaryExcerptLength: opts.summaryExcerptLength } : {},
     treeMaxEntries: 0
   };
@@ -12843,6 +12883,7 @@ async function assembleContentLook(opts) {
       position: selected.path,
       depth: depth2,
       ...opts.contractSource ? { contractSource: opts.contractSource } : {},
+      ...opts.agreement ? { agreement: opts.agreement } : {},
       ...opts.summaryExcerptLength !== void 0 ? { summaryExcerptLength: opts.summaryExcerptLength } : {}
     });
   }
@@ -14917,6 +14958,13 @@ function contractSourceFlag(value2) {
     return { source: value2 };
   return { error: "--contract must be `foundation` or `agreement`" };
 }
+function agreementFlag(value2) {
+  if (value2 === void 0)
+    return {};
+  if (value2 === "summary" || value2 === "full")
+    return { agreement: value2 };
+  return { error: "--agreement must be `summary` or `full`" };
+}
 var MAX_DRIFT;
 var init_contract_source = __esm({
   "dist/contract-source.js"() {
@@ -15952,6 +16000,8 @@ __export(threads_exports, {
   acknowledge: () => acknowledge,
   activityAt: () => activityAt,
   appendPost: () => appendPost,
+  attachThread: () => attachThread,
+  attachmentText: () => attachmentText,
   computeBranches: () => computeBranches,
   createThread: () => createThread,
   findChildThreads: () => findChildThreads,
@@ -15973,9 +16023,21 @@ __export(threads_exports, {
 });
 import { randomUUID as randomUUID9, createHash as createHash8 } from "node:crypto";
 import { spawnSync as spawnSync14 } from "node:child_process";
-import { existsSync as existsSync19, lstatSync as lstatSync3, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync2, realpathSync as realpathSync14, renameSync as renameSync6, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync19, lstatSync as lstatSync3, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync2, realpathSync as realpathSync14, renameSync as renameSync6, rmSync as rmSync7, writeFileSync as writeFileSync9 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { basename as basename14, dirname as dirname18, isAbsolute as isAbsolute12, join as join29, resolve as resolve31 } from "node:path";
+function attachmentText(attachment) {
+  return attachment === "unknown" ? "unknown" : attachment.raw ?? `${attachment.kind}:${attachment.value}`;
+}
+function sameTarget(a, b) {
+  if (a === null || b === null || a === "unknown" || b === "unknown")
+    return a === b;
+  const post = (x) => x.kind === "post" || x.kind === "id" || x.kind === "path";
+  return post(a) && post(b) ? a.value === b.value : a.kind === b.kind && a.value === b.value;
+}
+function originNote(thread) {
+  return thread.origin !== null && !sameTarget(thread.origin, thread.attachment) ? { origin: attachmentText(thread.origin) } : {};
+}
 function git3(cwd, args2) {
   const availability = gitAvailability();
   if (availability.state !== "usable")
@@ -16070,8 +16132,8 @@ function loadThread(dir) {
       throw new Error(`Unexpected thread entry: ${entry.name}`);
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join29(path, entry.name)) });
   }
-  const legacy = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
-  const inspection = inspectThreadPosts(sources, legacy);
+  const agreementAttachment = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
+  const inspection = inspectThreadPosts(sources, agreementAttachment);
   const allPosts = inspection.posts.map((post) => ({ ...post, path: basename14(post.path) }));
   const seen = /* @__PURE__ */ new Set();
   for (const post of allPosts) {
@@ -16099,6 +16161,7 @@ function loadThread(dir) {
     closed: inspection.closed,
     ...inspection.writeRefusal ? { writeRefusal: inspection.writeRefusal } : {},
     attachment: inspection.parent,
+    origin: inspection.origin,
     readme
   };
 }
@@ -16119,6 +16182,17 @@ function listLocal(cwd = process.cwd(), onError) {
   }
   return rows.sort((a, b) => a.slug.localeCompare(b.slug));
 }
+function minimalAgreement(about, attachedTo) {
+  return `---
+name: ${(0, import_yaml10.stringify)(`Agreement \u2014 ${about}`).trim()}
+summary: Local Thread entry schema and immutable posts.
+` + (attachedTo ? `attached_to: ${attachedTo}
+` : "") + `---
+# ${about}
+
+Posts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.
+`;
+}
 function createThread(slug, about, cwd = process.cwd(), attachedTo) {
   if (!SLUG.test(slug))
     throw new Error("Thread slug must be lowercase letters, numbers and hyphens (1\u2013101 characters).");
@@ -16135,14 +16209,7 @@ function createThread(slug, about, cwd = process.cwd(), attachedTo) {
   const dir = join29(base, slug);
   mkdirSync8(dir);
   mkdirSync8(join29(dir, "_agent"));
-  writeFileSync9(join29(dir, "_agent", "agreement.md"), `---
-name: ${(0, import_yaml10.stringify)(`Agreement \u2014 ${about.trim()}`).trim()}
-summary: Local Thread entry schema and immutable posts.
----
-# ${about.trim()}
-
-Posts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.
-`, { flag: "wx" });
+  writeFileSync9(join29(dir, "_agent", "agreement.md"), minimalAgreement(about.trim()), { flag: "wx" });
   writeFileSync9(join29(dir, "README.md"), (0, import_yaml10.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
   return loadThread(dir);
 }
@@ -16181,7 +16248,7 @@ function resolveThreadParent2(threadDir, knownThreads) {
   const attachment = thread.attachment;
   const attachedTo = attachment.raw ?? attachment.value;
   if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
-    return { attached_to: attachedTo, status: "none" };
+    return { attached_to: attachedTo, status: "none", ...originNote(thread) };
   }
   const spaceRoot = spaceForThread(threadDir);
   const siblings = knownThreads ?? listLocal(spaceRoot);
@@ -16191,7 +16258,7 @@ function resolveThreadParent2(threadDir, knownThreads) {
   })));
   const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: posts3 }]);
   if (resolved.status !== "resolved")
-    return { attached_to: attachedTo, status: resolved.status };
+    return { attached_to: attachedTo, status: resolved.status, ...originNote(thread) };
   const parent = siblings.find((sibling) => sibling.slug === resolved.parent.path.split("/")[1]);
   const post = parent?.allPosts.find((candidate) => candidate.id === resolved.parent.id);
   return {
@@ -16200,7 +16267,8 @@ function resolveThreadParent2(threadDir, knownThreads) {
     slug: parent?.slug,
     path: resolved.parent.path,
     name: post?.frontmatter.name ?? resolved.parent.id,
-    summary: post?.frontmatter.summary ?? ""
+    summary: post?.frontmatter.summary ?? "",
+    ...originNote(thread)
   };
 }
 function findChildThreads(targetThreadDir, postId2, onError) {
@@ -16520,7 +16588,150 @@ function pushWorktree(cwd = process.cwd(), remote) {
   git3(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
   return remote;
 }
-var import_yaml10, MAX_POST, SHA2, SLUG, NoAgreementError, NO_THREAD_AGREEMENT;
+function withAttachedTo(content, value2) {
+  const block = FRONTMATTER.exec(content);
+  if (!block)
+    return `---
+attached_to: ${value2}
+---
+${content}`;
+  const body = block[1] ?? "";
+  const lines = body.split(/(?<=\n)/);
+  const at = lines.findIndex((line2) => /^attached_to\s*:/.test(line2));
+  if (at !== -1) {
+    if (lines[at + 1] !== void 0 && /^[ \t]/.test(lines[at + 1])) {
+      throw new Error("The Thread Agreement's attached_to spans several lines; edit it to one line, then attach again.");
+    }
+    const newline = lines[at].endsWith("\r\n") ? "\r\n" : "\n";
+    lines[at] = `attached_to: ${value2}${newline}`;
+  } else {
+    lines.push(`attached_to: ${value2}
+`);
+  }
+  const open2 = content.startsWith("---\r\n") ? "---\r\n" : "---\n";
+  const close = `---${block[2]}`;
+  return open2 + lines.join("") + close + content.slice(block[0].length);
+}
+function attachThread(dir, target, options) {
+  const thread = loadThread(dir);
+  if (thread.writeRefusal)
+    throw new Error(thread.writeRefusal);
+  if (thread.closed === true)
+    throw new Error(`Thread ${thread.slug} is closed; a closed Thread is not moved.`);
+  if (!thread.posts.length)
+    throw new Error(`Thread ${thread.slug} has no opening post yet; attach after its first post.`);
+  if (!options.message.trim())
+    throw new Error("--message is required: say why the Thread moves.");
+  const attachment = parseThreadAttachment(target);
+  if (!attachment)
+    throw new Error(`Not a post target: ${target}. Use post:msg_\u2026, msg_\u2026 or _threads/<thread>/<post>.md.`);
+  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
+    throw new Error(`threads attach takes a post target; ${target} is a ${attachment.kind} link. A Thread's Agreement parent is post-only; record other links on a post.`);
+  }
+  const spaceRoot = spaceForThread(thread.path);
+  const siblings = listLocal(spaceRoot);
+  const posts3 = siblings.flatMap((sibling) => sibling.allPosts.map((post) => ({
+    path: `_threads/${sibling.slug}/${post.path}`,
+    id: post.id
+  })));
+  const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: posts3 }]);
+  if (resolved.status === "unresolved")
+    throw new Error(`${target} is not a readable post in this Space's Threads; nothing changed.`);
+  if (resolved.status === "ambiguous")
+    throw new Error(`${target} names several posts in this Space; use the post's path. Nothing changed.`);
+  if (resolved.status !== "resolved")
+    throw new Error(`${target} is not a post edge; nothing changed.`);
+  const parentSlug = resolved.parent.path.split("/")[1];
+  if (parentSlug === thread.slug)
+    throw new Error(`${target} is a post in ${thread.slug} itself; a Thread cannot be its own parent.`);
+  const parentOf = /* @__PURE__ */ new Map();
+  for (const sibling of siblings) {
+    try {
+      const info = resolveThreadParent2(sibling.path, siblings);
+      if (info?.slug)
+        parentOf.set(sibling.slug, info.slug);
+    } catch {
+    }
+  }
+  const descendants = /* @__PURE__ */ new Set([thread.slug]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [child, parent] of parentOf) {
+      if (descendants.has(parent) && !descendants.has(child)) {
+        descendants.add(child);
+        grew = true;
+      }
+    }
+  }
+  if (descendants.has(parentSlug)) {
+    throw new Error(`${target} is in ${parentSlug}, which already descends from ${thread.slug}; attaching would make a cycle. Nothing changed.`);
+  }
+  const previous = resolveThreadParent2(thread.path, siblings);
+  if (previous?.id === resolved.parent.id)
+    throw new Error(`Thread ${thread.slug} is already attached to ${resolved.parent.id}; nothing changed.`);
+  const value2 = /^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(resolved.parent.id) ? resolved.parent.id : resolved.parent.path;
+  const agentDir = join29(thread.path, "_agent");
+  const agreementPath = join29(agentDir, "agreement.md");
+  const before = threadAgreementContent(thread.path);
+  const createdDir = !lexists(agentDir);
+  const after = before === null ? minimalAgreement(thread.name, value2) : withAttachedTo(before, value2);
+  const check = parseThreadAgreementAttachment(after, `_threads/${thread.slug}/_agent/agreement.md`);
+  if (check.status !== "valid" || check.attachment.value !== value2) {
+    throw new Error(`Could not write a valid attached_to into ${agreementPath}; nothing changed.`);
+  }
+  if (before !== null) {
+    const strip = (content) => {
+      const fm = { ...parseFrontmatter(content) ?? {} };
+      delete fm.attached_to;
+      return JSON.stringify(fm);
+    };
+    if (strip(before) !== strip(after))
+      throw new Error(`Writing attached_to would change other fields of ${agreementPath}; nothing changed.`);
+  }
+  if (createdDir)
+    mkdirSync8(agentDir);
+  const temporary = `${agreementPath}.${randomUUID9()}.tmp`;
+  writeFileSync9(temporary, after, { flag: "wx" });
+  renameSync6(temporary, agreementPath);
+  const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
+  const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
+  const parentName = parentPost?.frontmatter.name ?? resolved.parent.id;
+  const previousText = previous ? `${previous.id ?? previous.attached_to}${previous.slug ? ` (${previous.slug})` : ""}` : "none";
+  const originText = thread.origin === null ? "none" : attachmentText(thread.origin);
+  try {
+    const { post, path } = appendPost(thread.path, {
+      kind: "reframe",
+      replyTo: ["latest"],
+      author: options.author,
+      name: `Moved under ${parentSlug}`,
+      summary: `Current parent ${previousText} \u2192 ${resolved.parent.id} (${parentSlug}). ${options.message.trim().split("\n")[0]}`.slice(0, 1e3),
+      body: `Reattached this Thread.
+
+- Previous parent: ${previousText}
+- New parent: ${resolved.parent.id} \xB7 ${parentName} (${resolved.parent.path})
+- Origin, unchanged: ${originText}
+
+Why: ${options.message.trim()}
+`
+    });
+    return {
+      thread: loadThread(thread.path),
+      previous,
+      parent: { id: resolved.parent.id, slug: parentSlug, path: resolved.parent.path, name: parentName, attached_to: value2 },
+      agreementPath,
+      agreementCreated: before === null,
+      post,
+      postPath: path
+    };
+  } catch (error) {
+    if (before === null)
+      rmSync7(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
+    else
+      writeFileSync9(agreementPath, before);
+    throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+var import_yaml10, MAX_POST, SHA2, SLUG, NoAgreementError, NO_THREAD_AGREEMENT, FRONTMATTER;
 var init_threads2 = __esm({
   "dist/local/threads.js"() {
     "use strict";
@@ -16534,6 +16745,7 @@ var init_threads2 = __esm({
     NoAgreementError = class extends Error {
     };
     NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
+    FRONTMATTER = /^---\r?\n([\s\S]*?\r?\n)?---(\r?\n|$)/;
   }
 });
 
@@ -19761,6 +19973,7 @@ async function lookAtCommit(target, options) {
       position,
       depth: options.depth,
       ...options.contractSource ? { contractSource: options.contractSource } : {},
+      ...options.agreement ? { agreement: options.agreement } : {},
       ...options.limit !== void 0 ? { limit: options.limit } : {},
       ...options.since !== void 0 ? { since: options.since } : {},
       ...options.order !== void 0 ? { order: options.order } : {},
@@ -19782,16 +19995,17 @@ async function lookAtCommit(target, options) {
     return { status: "ok", text: relabel(renderContentLook(looked)), result: relabelDeep(looked, relabelValue(dir, target.label, relabel)) };
   });
 }
-async function focusAtCommit(target, contractSource) {
+async function focusAtCommit(target, contractSource, agreement) {
   if (target.kind !== "directory")
     return { status: "not_content", reason: `${target.position} is not a directory.` };
   return withSnapshot(target, true, async (dir) => {
     const position = join20(dir, target.position);
-    let focus = await assembleContentFocus({ position, ...contractSource ? { contractSource } : {} });
+    const focusOpts = { position, ...contractSource ? { contractSource } : {}, ...agreement ? { agreement } : {} };
+    let focus = await assembleContentFocus(focusOpts);
     if (focus?.status === "contract_choice_required" && !contractSource) {
       const preferred = preferredContractSource(focus.availableSources);
       if (preferred)
-        focus = await assembleContentFocus({ position, contractSource: preferred });
+        focus = await assembleContentFocus({ ...focusOpts, contractSource: preferred });
     }
     if (!focus)
       return { status: "not_content", reason: `${target.position} is not a Content position.` };
@@ -19968,6 +20182,7 @@ async function lookAtAddress(note, address, options) {
   return readAddress(note, address, options, (target) => lookAtCommit(target, {
     depth: options.depth,
     ...options.contractSource ? { contractSource: options.contractSource } : {},
+    ...options.agreement ? { agreement: options.agreement } : {},
     ...options.limit !== void 0 ? { limit: options.limit } : {},
     ...options.since !== void 0 ? { since: options.since } : {},
     ...options.order !== void 0 ? { order: options.order } : {},
@@ -19975,7 +20190,7 @@ async function lookAtAddress(note, address, options) {
   }), selectedAddress);
 }
 async function focusAtAddress(note, address, options) {
-  return readAddress(note, address, options, (target) => focusAtCommit(target, options.contractSource));
+  return readAddress(note, address, options, (target) => focusAtCommit(target, options.contractSource, options.agreement));
 }
 async function readAddress(note, address, options, read2, selectedAddress = address) {
   const selected = resolveMapAddress(note, selectedAddress, options.at ? { at: options.at } : {});
@@ -20083,8 +20298,8 @@ function renderHeader(note, resolved, name) {
 // dist/commands/look.js
 init_map_resolve();
 var DEPTHS2 = "<name|summary|surface|children|full>";
-var USAGE2 = `ideaspaces look [<path>] [--depth ${DEPTHS2}] [--contract <foundation|agreement>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_\u2026] [--pin <sha>] [--json]
-       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS2}] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_\u2026] [--json]`;
+var USAGE2 = `ideaspaces look [<path>] [--depth ${DEPTHS2}] [--contract <foundation|agreement>] [--agreement <summary|full>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_\u2026] [--pin <sha>] [--json]
+       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS2}] [--agreement <summary|full>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_\u2026] [--json]`;
 function parseDepth(value2) {
   if (value2 === void 0)
     return "summary";
@@ -20116,7 +20331,8 @@ var lookCommand = {
     "ideaspaces look _threads/decision --post msg_75cc2f37 --depth full  # unique id, not guessed",
     "ideaspaces look --post msg_75cc2f37 --depth summary  # searches only the current Space root (cwd)",
     "ideaspaces look @home//_threads/decision/msg_75cc2f37 --map thread.map.md --at pin --depth full",
-    "ideaspaces look . --contract foundation --depth summary"
+    "ideaspaces look . --contract foundation --depth summary",
+    "ideaspaces look _threads/decision/2026-10-02T10-00-00Z-direction.md --agreement full  # the Thread's own Agreement in full; ancestors stay summary"
   ],
   async run(args2, flags2, global3) {
     const output = createOutput(global3);
@@ -20125,7 +20341,7 @@ var lookCommand = {
       return 1;
     }
     const raw = args2[0]?.trim() ?? ".";
-    const allowed = /* @__PURE__ */ new Set(["depth", "contract", "limit", "pin", "map", "at", "new", "since", "order", "post"]);
+    const allowed = /* @__PURE__ */ new Set(["depth", "contract", "agreement", "limit", "pin", "map", "at", "new", "since", "order", "post"]);
     const unknown = Object.keys(flags2).find((flag) => !allowed.has(flag));
     if (unknown) {
       output.error(`Unknown flag for look: --${unknown}`);
@@ -20173,6 +20389,11 @@ var lookCommand = {
       output.error(selected.error);
       return 1;
     }
+    const reference = agreementFlag(flags2.agreement);
+    if (reference.error) {
+      output.error(reference.error);
+      return 1;
+    }
     if (looksLikeMapAddress(raw)) {
       if (threadPostIdAddress(raw) && (limit !== void 0 || since || order)) {
         output.error("A post-id address selects one post; omit limit, since and order.");
@@ -20199,6 +20420,7 @@ var lookCommand = {
           depth: depth2,
           ...at ? { at } : {},
           ...selected.source ? { contractSource: selected.source } : {},
+          ...reference.agreement ? { agreement: reference.agreement } : {},
           ...limit !== void 0 ? { limit } : {},
           ...since ? { since } : {},
           ...order ? { order } : {},
@@ -20219,6 +20441,7 @@ var lookCommand = {
       return lookAtPin(output, global3.json, raw, flags2.pin, {
         depth: depth2,
         ...selected.source ? { contractSource: selected.source } : {},
+        ...reference.agreement ? { agreement: reference.agreement } : {},
         ...limit !== void 0 ? { limit } : {},
         ...since ? { since } : {},
         ...order ? { order } : {},
@@ -20231,6 +20454,7 @@ var lookCommand = {
         position: path,
         depth: depth2,
         ...selected.source ? { contractSource: selected.source } : {},
+        ...reference.agreement ? { agreement: reference.agreement } : {},
         ...limit !== void 0 ? { limit } : {},
         ...since ? { since } : {},
         ...order ? { order } : {},
@@ -20636,12 +20860,13 @@ function gitRef(cwd, args2) {
 var navigateCommand = {
   name: "navigate",
   description: "Orient here, or read another position as bounded reference",
-  usage: "ideaspaces navigate [<path>] [--focus] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,\u2026>] [--no-git]\n       ideaspaces navigate <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--contract <foundation|agreement>]",
+  usage: "ideaspaces navigate [<path>] [--focus [--agreement <summary|full>]] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,\u2026>] [--no-git]\n       ideaspaces navigate <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--contract <foundation|agreement>] [--agreement <summary|full>]",
   examples: [
     "ideaspaces navigate @notes//ideas --map space.map.md   # focus on a Map member, no path",
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate docs --json       # orient at a branch",
     "ideaspaces navigate docs --focus --json  # read a branch as history reference",
+    "ideaspaces navigate _threads/decision --focus --agreement full  # the Thread's own Agreement in full; ancestors stay summary",
     "ideaspaces navigate --contract foundation --json  # explicit compatibility frame",
     "ideaspaces navigate --depth 2 --json  # probe the map: name-rung outline one level below",
     "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
@@ -20654,7 +20879,16 @@ var navigateCommand = {
       output.error(selected.error);
       return 1;
     }
+    const reference = agreementFlag(flags2.agreement);
+    if (reference.error) {
+      output.error(reference.error);
+      return 1;
+    }
     const raw = (args2[0] ?? ".").trim();
+    if (reference.agreement && !flags2.focus && !looksLikeMapAddress(raw)) {
+      output.error("--agreement sets how another position's Agreement is read; use it with --focus or an address. Orientation always loads your own Agreement in full.");
+      return 1;
+    }
     if (looksLikeMapAddress(raw)) {
       const incompatible = ["focus", "depth", "pin", "mark-seen", "workspace", "mount", "pullable", "no-git"].filter((name) => flags2[name] !== void 0);
       if (incompatible.length) {
@@ -20675,7 +20909,8 @@ var navigateCommand = {
       }
       const read2 = await focusAtAddress(note, raw, {
         ...at ? { at } : {},
-        ...selected.source ? { contractSource: selected.source } : {}
+        ...selected.source ? { contractSource: selected.source } : {},
+        ...reference.agreement ? { agreement: reference.agreement } : {}
       });
       if (read2.ok || global3.json)
         output.result({ ...read2.data, ok: read2.ok }, read2.text);
@@ -20705,7 +20940,8 @@ var navigateCommand = {
       }
       const focusOpts = {
         position: target,
-        ...selected.source ? { contractSource: selected.source } : {}
+        ...selected.source ? { contractSource: selected.source } : {},
+        ...reference.agreement ? { agreement: reference.agreement } : {}
       };
       let focus = await assembleContentFocus(focusOpts);
       if (focus?.status === "contract_choice_required" && !selected.source) {
@@ -20744,6 +20980,7 @@ var navigateCommand = {
     const awarenessOpts = {
       position: target,
       ...selected.source ? { contractSource: selected.source } : {},
+      ...reference.agreement ? { agreement: reference.agreement } : {},
       ...depth2 && Number.isFinite(depth2) ? { treeDepth: depth2 } : {}
     };
     let awareness = await assembleContentAwareness(awarenessOpts);
@@ -28305,9 +28542,10 @@ var NODE_ID2 = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 var THREAD_FLAGS = Object.fromEntries(Object.entries({
   list: "new space depth kind since",
   locate: "",
-  open: "depth new ack since post map member checkout pin position limit order",
-  read: "depth new ack kind since post map member checkout pin position limit order",
+  open: "depth new ack since post map member checkout pin position limit order agreement",
+  read: "depth new ack kind since post map member checkout pin position limit order agreement",
   new: "about attached-to map",
+  attach: "message author",
   post: "map member checkout reply-to kind mark author name summary supersedes message tags",
   posts: "space scope limit since depth order cursor",
   close: "map reply-to kind author name summary supersedes message",
@@ -30390,6 +30628,7 @@ var inboxCommand = {
 
 // dist/commands/threads.js
 init_dist();
+init_contract_source();
 import { existsSync as existsSync27, lstatSync as lstatSync7, readFileSync as readFileSync19, realpathSync as realpathSync20 } from "node:fs";
 import { spawnSync as spawnSync16 } from "node:child_process";
 import { dirname as dirname21, isAbsolute as isAbsolute19, join as join38, relative as relative20, resolve as resolve37, sep as sep14 } from "node:path";
@@ -30623,6 +30862,19 @@ function threadFrame(thread) {
     done_when: threadSection(agreement, "Done when")
   };
 }
+async function threadReference(threadPath, agreement) {
+  const opts = agreement ? { agreement } : {};
+  let reference = await assembleContentReference(threadPath, opts);
+  if (reference?.status === "contract_choice_required") {
+    const preferred = preferredContractSource(reference.availableSources);
+    if (preferred)
+      reference = await assembleContentReference(threadPath, { ...opts, contractSource: preferred });
+  }
+  return reference;
+}
+function originLine(parent) {
+  return parent?.origin ? `Origin: ${clip(parent.origin, 400)} (where this Thread started; its Agreement now names the parent)` : void 0;
+}
 function localText(thread, posts3, rung, options) {
   const header = `${thread.slug}  ${thread.name}`;
   if (rung === "name") {
@@ -30631,6 +30883,7 @@ function localText(thread, posts3, rung, options) {
     return [
       header,
       parentLine,
+      originLine(options?.parent),
       lens.current_frame && `Current frame: ${clip(lens.current_frame, 1200, "\u2026 [shortened; read this Thread's README.md for the full frame]")}`,
       lens.goal && `Goal: ${clip(lens.goal, 1200, "\u2026 [shortened; read this Thread's _agent/agreement.md for the full goal]")}`,
       lens.done_when && `Done when: ${clip(lens.done_when, 1200, "\u2026 [shortened; read this Thread's _agent/agreement.md for the full criterion]")}`
@@ -30645,6 +30898,9 @@ ${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "
       const p = options.parent;
       parts.push(`Parent post: ${p.id ?? p.attached_to}${p.slug ? ` (${p.slug})` : ""}${p.name ? ` \xB7 ${clip(p.name, 200)}` : ""}${p.summary ? `
   ${clip(p.summary, 400)}` : ""}`);
+      const origin = originLine(p);
+      if (origin)
+        parts.push(origin);
     }
     if (options?.snapshot) {
       const s = options.snapshot;
@@ -30661,6 +30917,9 @@ ${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "
     const parts = [context];
     if (options?.parent) {
       parts.push(`Parent: ${clip(options.parent.attached_to, 400)}${options.parent.slug ? ` (${options.parent.slug})` : ""}`);
+      const origin = originLine(options.parent);
+      if (origin)
+        parts.push(origin);
     }
     const branches = options?.branches ?? [];
     if (branches.length) {
@@ -30742,7 +31001,7 @@ function writerName(explicit) {
 var threadsCommand = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ... | threads <list|new> --hosted | threads <open|post|ack> x_<32hex> ...",
+  usage: "ideaspaces threads <list|posts|locate|open|new|attach|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ... | threads <list|new> --hosted | threads <open|post|ack> x_<32hex> ...",
   examples: [
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>]  # hosted Threads (x_<32hex>) this sign-in can read",
     "ideaspaces threads open x_<32hex> [--limit 50] [--cursor <older or newer cursor>]  # head + one page; author and date come from the service",
@@ -30753,9 +31012,10 @@ var threadsCommand = {
     "ideaspaces threads posts [--space n_\u2026] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary] [--order newer|older]",
     "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
     "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0",
-    "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older]  # local cold default: surface",
+    "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older] [--agreement summary|full]  # local cold default: surface; the Thread's Agreements come first, as reference",
     "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent] [--map moment.map.md]  # opening post captures origin + pinned Map",
     "ideaspaces threads new <slug> --about 'About this Note' --attached-to note:@home//notes/topic.md  # link, no child edge",
+    "ideaspaces threads attach <slug|path> post:msg_<parent> --message 'Why it moves'  # sets the Agreement's attached_to (current parent) and appends a reframe; the opening post keeps the origin",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
@@ -30970,8 +31230,15 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
       if (sub === "open") {
         if (rest.length !== 1)
           throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");
+        if (HOSTED_THREAD_ID.test(rest[0]) && flags2.agreement !== void 0)
+          throw new Error("--agreement applies to local Threads; a hosted Thread's terms are kept by the service.");
         if (HOSTED_THREAD_ID.test(rest[0]))
           return hostedThreadsCommand.run(["read", rest[0]], flags2, global3);
+        const referenceSelection = agreementFlag(flags2.agreement);
+        if (referenceSelection.error)
+          throw new Error(referenceSelection.error);
+        if (flags2.map !== void 0 && flags2.agreement !== void 0)
+          throw new Error("--agreement reads the live reference frame; a selected pinned read carries none. Omit --agreement with --map.");
         selectionFlags(flags2);
         if (flags2.map !== void 0 && flags2.member === void 0)
           throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");
@@ -31017,6 +31284,13 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         if (flags2.checkout !== void 0)
           throw new Error("--checkout requires --map and --member.");
         const thread = loadThread(resolveLocalThread(rest[0]));
+        const pinnedRead = flags2.pin !== void 0 || flags2.position !== void 0;
+        if (pinnedRead && flags2.agreement !== void 0)
+          throw new Error("--agreement reads the live reference frame; a pinned read carries none. Omit --agreement with --pin.");
+        const reference = pinnedRead ? null : await threadReference(thread.path, referenceSelection.agreement);
+        const referenceDiagnostic = reference && reference.status !== "ok" ? renderContentFocus(reference) : void 0;
+        if (referenceDiagnostic)
+          output.log(`Thread ${thread.slug} reference frame unavailable: ${referenceDiagnostic}`);
         reportThreadWarnings(thread, output);
         const rung = depth(flags2, "surface");
         const postId2 = str2(flags2, "post");
@@ -31189,6 +31463,10 @@ Child Thread lookup incomplete: ${childWarnings} unreadable sibling(s).`;
         if (parentWarning)
           humanText += `
 Parent lookup incomplete: ${parentWarning}`;
+        if (reference?.status === "ok")
+          humanText = `${renderContentFocus(reference)}
+
+${humanText}`;
         if (effectiveRung === "full" && !postId2 && posts3.length < totalMatching) {
           const cursor = posts3.at(-1)?.id;
           humanText += `
@@ -31196,7 +31474,9 @@ Parent lookup incomplete: ${parentWarning}`;
 Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
         }
         output.result({
-          schema: "ideaspaces.local-thread.open.v3",
+          schema: "ideaspaces.local-thread.open.v4",
+          ...reference?.status === "ok" ? { reference } : {},
+          ...referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {},
           thread: {
             path: thread.path,
             thread_id: thread.thread_id,
@@ -31219,6 +31499,38 @@ Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer"
           matching: totalMatching,
           acknowledged: ack
         }, humanText);
+        return 0;
+      }
+      if (sub === "attach") {
+        const usage = "Usage: threads attach <slug|path> <post:msg_\u2026|msg_\u2026|_threads/<thread>/<post>.md> --message <why>";
+        if (rest.length !== 2)
+          throw new Error(usage);
+        if (HOSTED_THREAD_ID.test(rest[0]) || HOSTED_THREAD_32.test(rest[0])) {
+          throw new Error("threads attach moves local Threads only; a hosted Thread's parent is kept by the service.");
+        }
+        for (const flag of ["message", "author"])
+          if (flags2[flag] === true)
+            throw new Error(`--${flag} requires a value.`);
+        const message = str2(flags2, "message") ?? "";
+        if (!message.trim())
+          throw new Error(`--message is required: say why the Thread moves. ${usage}`);
+        const result = attachThread(resolveLocalThread(rest[0]), rest[1], { message, author: writerName(str2(flags2, "author")) });
+        const previous = result.previous ? `${result.previous.id ?? result.previous.attached_to}${result.previous.slug ? ` (${result.previous.slug})` : ""}` : "none";
+        output.result({
+          path: result.thread.path,
+          slug: result.thread.slug,
+          previous_parent: result.previous,
+          parent: result.parent,
+          origin: result.thread.origin === null ? null : result.thread.origin === "unknown" ? "unknown" : result.thread.origin.raw ?? result.thread.origin.value,
+          agreement_path: result.agreementPath,
+          agreement_created: result.agreementCreated,
+          reframe: { id: result.post.id, path: result.postPath, in_reply_to: result.post.inReplyTo }
+        }, [
+          `Attached ${result.thread.slug} under ${result.parent.id} \xB7 ${result.parent.name} (${result.parent.slug}).`,
+          `  previous parent: ${previous}`,
+          `  Agreement: ${result.agreementPath}${result.agreementCreated ? " (created: this Thread had none; it now carries the minimal Agreement threads new writes)" : " (attached_to only; every other line kept)"}`,
+          `  reframe: ${result.postPath}`
+        ].join("\n"));
         return 0;
       }
       if (sub === "post" || sub === "close") {

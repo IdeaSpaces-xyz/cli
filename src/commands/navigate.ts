@@ -47,7 +47,7 @@ import {
   resolveRepoRoot,
   CONTENT_AWARENESS_SECTIONS,
 } from "@ideaspaces/protocol";
-import { contractSourceFlag, preferredContractSource, MAX_DRIFT } from "../contract-source.js";
+import { agreementFlag, contractSourceFlag, preferredContractSource, MAX_DRIFT } from "../contract-source.js";
 import { gitBinary, headSha } from "../git.js";
 import { floorHint, formatWorkingSetSection, planCatalog } from "../catalog.js";
 import { findSpaceMapFile } from "../local/space-map.js";
@@ -87,13 +87,14 @@ function gitRef(cwd: string, args: string[]): string | null {
 export const navigateCommand: CommandDef = {
   name: "navigate",
   description: "Orient here, or read another position as bounded reference",
-  usage: "ideaspaces navigate [<path>] [--focus] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]\n" +
-    "       ideaspaces navigate <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--contract <foundation|agreement>]",
+  usage: "ideaspaces navigate [<path>] [--focus [--agreement <summary|full>]] [--contract <foundation|agreement>] [--depth <1..4>] [--mark-seen] [--workspace <dir>] [--mount <a,b,c>] [--pullable <s:ns,…>] [--no-git]\n" +
+    "       ideaspaces navigate <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--contract <foundation|agreement>] [--agreement <summary|full>]",
   examples: [
     "ideaspaces navigate @notes//ideas --map space.map.md   # focus on a Map member, no path",
     "ideaspaces navigate --json            # orient at the current directory",
     "ideaspaces navigate docs --json       # orient at a branch",
     "ideaspaces navigate docs --focus --json  # read a branch as history reference",
+    "ideaspaces navigate _threads/decision --focus --agreement full  # the Thread's own Agreement in full; ancestors stay summary",
     "ideaspaces navigate --contract foundation --json  # explicit compatibility frame",
     "ideaspaces navigate --depth 2 --json  # probe the map: name-rung outline one level below",
     "ideaspaces navigate --workspace . --mount ../other-repo --json  # + local repo catalog + working set",
@@ -107,7 +108,17 @@ export const navigateCommand: CommandDef = {
       return 1;
     }
 
+    const reference = agreementFlag(flags.agreement);
+    if (reference.error) {
+      output.error(reference.error);
+      return 1;
+    }
+
     const raw = (args[0] ?? ".").trim();
+    if (reference.agreement && !flags.focus && !looksLikeMapAddress(raw)) {
+      output.error("--agreement sets how another position's Agreement is read; use it with --focus or an address. Orientation always loads your own Agreement in full.");
+      return 1;
+    }
     if (looksLikeMapAddress(raw)) {
       const incompatible = ["focus", "depth", "pin", "mark-seen", "workspace", "mount", "pullable", "no-git"]
         .filter((name) => flags[name] !== undefined);
@@ -130,6 +141,7 @@ export const navigateCommand: CommandDef = {
       const read = await focusAtAddress(note, raw, {
         ...(at ? { at } : {}),
         ...(selected.source ? { contractSource: selected.source } : {}),
+        ...(reference.agreement ? { agreement: reference.agreement } : {}),
       });
       // A failed read still gives --json callers its structured status on stdout, and exits 1.
       if (read.ok || global.json) output.result({ ...read.data, ok: read.ok }, read.text);
@@ -164,6 +176,7 @@ export const navigateCommand: CommandDef = {
       const focusOpts = {
         position: target,
         ...(selected.source ? { contractSource: selected.source } : {}),
+        ...(reference.agreement ? { agreement: reference.agreement } : {}),
       };
       let focus = await assembleContentFocus(focusOpts);
       // The protocol remains neutral; the CLI applies its established
@@ -221,6 +234,7 @@ export const navigateCommand: CommandDef = {
     const awarenessOpts = {
       position: target,
       ...(selected.source ? { contractSource: selected.source } : {}),
+      ...(reference.agreement ? { agreement: reference.agreement } : {}),
       ...(depth && Number.isFinite(depth) ? { treeDepth: depth } : {}),
     };
     let awareness = await assembleContentAwareness(awarenessOpts);
