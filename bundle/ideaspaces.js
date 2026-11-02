@@ -27460,7 +27460,7 @@ function rankDocs(docs, terms, options = {}) {
       if (options.accept && !options.accept(doc, frontmatter))
         continue;
       const snippet = bestLine.length > SNIPPET_MAX ? `${bestLine.slice(0, SNIPPET_MAX - 1)}\u2026` : bestLine;
-      hits.push({ doc, length, tf, nameHits, snippet, line: bestLineNo, frontmatter, heading });
+      hits.push({ path: doc.path, root: doc.root, length, tf, nameHits, snippet, line: bestLineNo, frontmatter, heading });
     }
   }
   if (n === 0)
@@ -27473,8 +27473,8 @@ function rankDocs(docs, terms, options = {}) {
       bm25 += idf(n, df.get(term) ?? 0) * (freq * (K1 + 1) / norm);
     }
     return {
-      path: h.doc.path,
-      ...h.doc.root !== void 0 ? { root: h.doc.root } : {},
+      path: h.path,
+      ...h.root !== void 0 ? { root: h.root } : {},
       score: bm25 + h.nameHits * NAME_BOOST,
       body_hits: h.tf.size,
       name_hits: h.nameHits,
@@ -27889,7 +27889,7 @@ async function listRoots(roots, threads) {
   }
   return listings;
 }
-function* readCorpus(files, withRoot) {
+function* readCorpus(files, withRoot, readCounts) {
   for (const { root, path } of files) {
     const abs = join34(root, path);
     try {
@@ -27897,6 +27897,7 @@ function* readCorpus(files, withRoot) {
       if (!stat2.isFile() || stat2.size > MAX_DOC_BYTES)
         continue;
       const content = readFileSync15(abs, "utf-8");
+      readCounts?.set(root, (readCounts.get(root) ?? 0) + 1);
       yield withRoot ? { root, path, content } : { path, content };
     } catch {
       continue;
@@ -28006,15 +28007,17 @@ var QUERY_HELP = `Query:
   author:name      frontmatter author (Thread posts)
   -word -tag:x     leave out what matches; works on every filter
   tag:"a b"        quote a value with spaces
-  Case and accents fold: P\u0113teris finds peteris. A query of only filters lists
+  Case and accents fold: P\u0113teris finds peteris (letters with no decomposed
+  form, such as \u0142, \xF8 or \xDF, stay as written). A query of only filters lists
   every match, newest first. An unknown key: is searched as words. Put the
   query after -- when it starts with a one-letter -x word.
 
 Roots:
   --root <dir>     search this folder; repeat for several. One corpus, one
                    ranking. A Git repo is listed by Git (untracked files in,
-                   ignored files out); a plain folder is walked. Without
-                   --root, the current repository.
+                   ignored files out); a plain folder is walked. A folder
+                   given twice is searched once. Without --root, the
+                   current repository.
   --threads        include local Threads: each root's own _threads/ READMEs
                    and posts. Implied by kind:thread, kind:post or kind:readme.`;
 function stem(path) {
@@ -28087,10 +28090,10 @@ function selectFiles(listings, base, query) {
   }
   return files;
 }
-function rank(files, query, limit, withRoot) {
+function rank(files, query, limit, withRoot, readCounts) {
   const listAll = query.terms.length === 0;
   const readsFrontmatter = needsFrontmatter(query);
-  const outcome = rankDocs(readCorpus(files, withRoot), query.terms, {
+  const outcome = rankDocs(readCorpus(files, withRoot, readCounts), query.terms, {
     limit: listAll ? Number.MAX_SAFE_INTEGER : limit,
     exclude: query.excludeTerms,
     listWhenNoTerms: listAll,
@@ -28158,7 +28161,7 @@ ${QUERY_HELP}`);
     const listAll = query.terms.length === 0;
     const roots = rootFlags(flags2);
     if (roots !== null) {
-      return searchRoots(roots, query, { limit, threads, listAll }, output);
+      return searchRoots(roots, query, { limit, threads, listAll, json: global3.json }, output);
     }
     let root;
     try {
@@ -28196,7 +28199,8 @@ ${QUERY_HELP}`);
     }
     const data = {
       query: raw,
-      scanned: files.length,
+      // Files actually read: tracked-but-deleted, oversized and unreadable files are not counted.
+      scanned: outcome.scanned,
       total: results.length,
       matched: outcome.matched,
       results,
@@ -28209,7 +28213,7 @@ ${QUERY_HELP}`);
       ...projection.portability_issue ? { portability_issue: projection.portability_issue } : {}
     };
     if (results.length === 0) {
-      output.result(data, `No matches for "${raw}" (${files.length} files searched).
+      output.result(data, `No matches for "${raw}" (${outcome.scanned} files searched).
 ${searchMapLine(projection)}`);
       return 0;
     }
@@ -28239,20 +28243,23 @@ async function searchRoots(inputs, query, options, output) {
   const listings = await listRoots(usable, options.threads);
   const base = commonBase(usable);
   const files = selectFiles(listings.filter((l) => !l.error), base, query);
-  const outcome = rank(files, query, options.limit, true);
+  const readCounts = /* @__PURE__ */ new Map();
+  const outcome = rank(files, query, options.limit, true, readCounts);
   const results = finish(outcome.hits, null, options.listAll, options.limit);
-  const counts = /* @__PURE__ */ new Map();
+  const listed = /* @__PURE__ */ new Map();
   for (const file2 of files)
-    counts.set(file2.root, (counts.get(file2.root) ?? 0) + 1);
+    listed.set(file2.root, (listed.get(file2.root) ?? 0) + 1);
   const listingByRoot = new Map(listings.map((l) => [l.root, l]));
   const rootRows = requests.map((request2) => {
     if (request2.root === null)
-      return { root: request2.input, scanned: 0, error: request2.error };
+      return { root: request2.input, listed: 0, scanned: 0, error: request2.error };
     const listing = listingByRoot.get(request2.root);
     return {
       root: request2.root,
       listing: listing.listing,
-      scanned: counts.get(request2.root) ?? 0,
+      // Listed to search; read is `scanned` (deleted, oversized or unreadable files drop out).
+      listed: listed.get(request2.root) ?? 0,
+      scanned: readCounts.get(request2.root) ?? 0,
       ...listing.error ? { error: listing.error } : {},
       ...listing.truncated ? { truncated: true } : {},
       ...listing.warnings ? { warnings: listing.warnings } : {}
@@ -28260,21 +28267,26 @@ async function searchRoots(inputs, query, options, output) {
   });
   const failed = rootRows.filter((row) => "error" in row && row.error);
   const complete = failed.length === 0 && !rootRows.some((row) => "truncated" in row && row.truncated);
-  if (usable.length === 0 || failed.length === rootRows.length) {
-    output.error(`No root could be searched:
-${failed.map((row) => `  ${row.root}: ${row.error}`).join("\n")}`);
-    return 1;
-  }
   const data = {
     query: query.raw,
     base,
-    scanned: files.length,
+    scanned: outcome.scanned,
     total: results.length,
     matched: outcome.matched,
     complete,
     results,
     roots: rootRows
   };
+  if (usable.length === 0 || failed.length === rootRows.length) {
+    const reasons = failed.map((row) => `  ${row.root}: ${row.error}`).join("\n");
+    const hint = "Check each path exists and is a folder you can read; a relative --root is taken from the current directory.";
+    if (options.json)
+      output.result(data, "");
+    output.error(`No root could be searched:
+${reasons}
+${hint}`);
+    return 1;
+  }
   const notes = rootRows.flatMap((row) => [
     ..."error" in row && row.error ? [`Could not search ${row.root}: ${row.error}`] : [],
     ..."truncated" in row && row.truncated ? [`Stopped early in ${row.root}: too many files to walk`] : []

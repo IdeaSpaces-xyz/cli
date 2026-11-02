@@ -131,7 +131,9 @@ export function leadingFrontmatter(lines: string[]): string | null {
 }
 
 interface Hit {
-  doc: SearchDoc;
+  // Identity only — never the content, so retained hits stay small.
+  path: string;
+  root?: string;
   length: number;
   tf: Map<string, number>;
   nameHits: number;
@@ -208,7 +210,7 @@ export function rankDocs(docs: Iterable<SearchDoc>, terms: string[], options: Ra
       if (options.accept && !options.accept(doc, frontmatter)) continue;
       const snippet =
         bestLine.length > SNIPPET_MAX ? `${bestLine.slice(0, SNIPPET_MAX - 1)}…` : bestLine;
-      hits.push({ doc, length, tf, nameHits, snippet, line: bestLineNo, frontmatter, heading });
+      hits.push({ path: doc.path, root: doc.root, length, tf, nameHits, snippet, line: bestLineNo, frontmatter, heading });
     }
   }
 
@@ -222,8 +224,8 @@ export function rankDocs(docs: Iterable<SearchDoc>, terms: string[], options: Ra
       bm25 += idf(n, df.get(term) ?? 0) * ((freq * (K1 + 1)) / norm);
     }
     return {
-      path: h.doc.path,
-      ...(h.doc.root !== undefined ? { root: h.doc.root } : {}),
+      path: h.path,
+      ...(h.root !== undefined ? { root: h.root } : {}),
       score: bm25 + h.nameHits * NAME_BOOST,
       body_hits: h.tf.size,
       name_hits: h.nameHits,

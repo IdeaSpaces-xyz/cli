@@ -50,15 +50,17 @@ const QUERY_HELP = `Query:
   author:name      frontmatter author (Thread posts)
   -word -tag:x     leave out what matches; works on every filter
   tag:"a b"        quote a value with spaces
-  Case and accents fold: Pēteris finds peteris. A query of only filters lists
+  Case and accents fold: Pēteris finds peteris (letters with no decomposed
+  form, such as ł, ø or ß, stay as written). A query of only filters lists
   every match, newest first. An unknown key: is searched as words. Put the
   query after -- when it starts with a one-letter -x word.
 
 Roots:
   --root <dir>     search this folder; repeat for several. One corpus, one
                    ranking. A Git repo is listed by Git (untracked files in,
-                   ignored files out); a plain folder is walked. Without
-                   --root, the current repository.
+                   ignored files out); a plain folder is walked. A folder
+                   given twice is searched once. Without --root, the
+                   current repository.
   --threads        include local Threads: each root's own _threads/ READMEs
                    and posts. Implied by kind:thread, kind:post or kind:readme.`;
 
@@ -157,10 +159,10 @@ function selectFiles(listings: RootListing[], base: string, query: ParsedQuery):
   return files;
 }
 
-function rank(files: Corpus["files"], query: ParsedQuery, limit: number, withRoot: boolean) {
+function rank(files: Corpus["files"], query: ParsedQuery, limit: number, withRoot: boolean, readCounts?: Map<string, number>) {
   const listAll = query.terms.length === 0;
   const readsFrontmatter = needsFrontmatter(query);
-  const outcome = rankDocs(readCorpus(files, withRoot), query.terms, {
+  const outcome = rankDocs(readCorpus(files, withRoot, readCounts), query.terms, {
     limit: listAll ? Number.MAX_SAFE_INTEGER : limit,
     exclude: query.excludeTerms,
     listWhenNoTerms: listAll,
@@ -231,7 +233,7 @@ export const searchCommand: CommandDef = {
 
     const roots = rootFlags(flags);
     if (roots !== null) {
-      return searchRoots(roots, query, { limit, threads, listAll }, output);
+      return searchRoots(roots, query, { limit, threads, listAll, json: global.json }, output);
     }
 
     let root: string;
@@ -276,7 +278,8 @@ export const searchCommand: CommandDef = {
 
     const data = {
       query: raw,
-      scanned: files.length,
+      // Files actually read: tracked-but-deleted, oversized and unreadable files are not counted.
+      scanned: outcome.scanned,
       total: results.length,
       matched: outcome.matched,
       results,
@@ -289,7 +292,7 @@ export const searchCommand: CommandDef = {
       ...(projection.portability_issue ? { portability_issue: projection.portability_issue } : {}),
     };
     if (results.length === 0) {
-      output.result(data, `No matches for "${raw}" (${files.length} files searched).\n${searchMapLine(projection)}`);
+      output.result(data, `No matches for "${raw}" (${outcome.scanned} files searched).\n${searchMapLine(projection)}`);
       return 0;
     }
 
@@ -306,7 +309,7 @@ export const searchCommand: CommandDef = {
 async function searchRoots(
   inputs: string[],
   query: ParsedQuery,
-  options: { limit: number; threads: boolean; listAll: boolean },
+  options: { limit: number; threads: boolean; listAll: boolean; json: boolean },
   output: ReturnType<typeof createOutput>,
 ): Promise<number> {
   if (inputs.length === 0) {
@@ -322,19 +325,22 @@ async function searchRoots(
   const listings = await listRoots(usable, options.threads);
   const base = commonBase(usable);
   const files = selectFiles(listings.filter((l) => !l.error), base, query);
-  const outcome = rank(files, query, options.limit, true);
+  const readCounts = new Map<string, number>();
+  const outcome = rank(files, query, options.limit, true, readCounts);
   const results = finish(outcome.hits, null, options.listAll, options.limit);
 
-  const counts = new Map<string, number>();
-  for (const file of files) counts.set(file.root, (counts.get(file.root) ?? 0) + 1);
+  const listed = new Map<string, number>();
+  for (const file of files) listed.set(file.root, (listed.get(file.root) ?? 0) + 1);
   const listingByRoot = new Map(listings.map((l) => [l.root, l]));
   const rootRows = requests.map((request) => {
-    if (request.root === null) return { root: request.input, scanned: 0, error: request.error };
+    if (request.root === null) return { root: request.input, listed: 0, scanned: 0, error: request.error };
     const listing = listingByRoot.get(request.root)!;
     return {
       root: request.root,
       listing: listing.listing,
-      scanned: counts.get(request.root) ?? 0,
+      // Listed to search; read is `scanned` (deleted, oversized or unreadable files drop out).
+      listed: listed.get(request.root) ?? 0,
+      scanned: readCounts.get(request.root) ?? 0,
       ...(listing.error ? { error: listing.error } : {}),
       ...(listing.truncated ? { truncated: true } : {}),
       ...(listing.warnings ? { warnings: listing.warnings } : {}),
@@ -343,21 +349,24 @@ async function searchRoots(
   const failed = rootRows.filter((row) => "error" in row && row.error);
   const complete = failed.length === 0 && !rootRows.some((row) => "truncated" in row && row.truncated);
 
-  if (usable.length === 0 || failed.length === rootRows.length) {
-    output.error(`No root could be searched:\n${failed.map((row) => `  ${row.root}: ${row.error}`).join("\n")}`);
-    return 1;
-  }
-
   const data = {
     query: query.raw,
     base,
-    scanned: files.length,
+    scanned: outcome.scanned,
     total: results.length,
     matched: outcome.matched,
     complete,
     results,
     roots: rootRows,
   };
+  if (usable.length === 0 || failed.length === rootRows.length) {
+    // Exit 1, but a JSON caller still gets every root's reason in the usual shape.
+    const reasons = failed.map((row) => `  ${row.root}: ${row.error}`).join("\n");
+    const hint = "Check each path exists and is a folder you can read; a relative --root is taken from the current directory.";
+    if (options.json) output.result(data, "");
+    output.error(`No root could be searched:\n${reasons}\n${hint}`);
+    return 1;
+  }
   const notes = rootRows.flatMap((row) => [
     ...("error" in row && row.error ? [`Could not search ${row.root}: ${row.error}`] : []),
     ...("truncated" in row && row.truncated ? [`Stopped early in ${row.root}: too many files to walk`] : []),

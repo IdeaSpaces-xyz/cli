@@ -239,6 +239,8 @@ export async function listRoots(roots: string[], threads: boolean): Promise<Root
   await Promise.all(Array.from({ length: Math.min(LIST_CONCURRENCY, roots.length) }, worker));
 
   const claimed = new Set<string>();
+  // Roots are canonical, so a root nested in another always has the longer path:
+  // longest first means the deeper root claims a shared file.
   const byDepth = [...listings].sort((a, b) => b.root.length - a.root.length);
   for (const listing of byDepth) {
     listing.files = listing.files.filter((p) => {
@@ -257,13 +259,19 @@ export async function listRoots(roots: string[], threads: boolean): Promise<Root
  * followed, as single-repo search always has; walks and Thread listings never
  * yield one.
  */
-export function* readCorpus(files: Array<{ root: string; path: string }>, withRoot: boolean): Generator<SearchDoc> {
+export function* readCorpus(
+  files: Array<{ root: string; path: string }>,
+  withRoot: boolean,
+  /** Incremented per root for each file actually read. */
+  readCounts?: Map<string, number>,
+): Generator<SearchDoc> {
   for (const { root, path } of files) {
     const abs = join(root, path);
     try {
       const stat = statSync(abs);
       if (!stat.isFile() || stat.size > MAX_DOC_BYTES) continue;
       const content = readFileSync(abs, "utf-8");
+      readCounts?.set(root, (readCounts.get(root) ?? 0) + 1);
       yield withRoot ? { root, path, content } : { path, content };
     } catch {
       continue;

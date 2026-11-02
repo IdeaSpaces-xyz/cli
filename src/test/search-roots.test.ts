@@ -8,7 +8,7 @@ import { loadConfig } from "../auth/credentials.js";
 import { parseArgs } from "../argv.js";
 import { searchCommand } from "../commands/search.js";
 import { searchDocs } from "../search.js";
-import { captureJson, captureStdout } from "./helpers.js";
+import { captureJson } from "./helpers.js";
 import type { GlobalFlags } from "../types.js";
 
 vi.mock("../auth/credentials.js", async (importOriginal) => ({
@@ -92,8 +92,8 @@ describe("search --root: one corpus across several roots", () => {
     expect(data.complete).toBe(true);
     expect(data.base).toBe(vault);
     expect(data.roots).toEqual([
-      { root: vault, listing: "git", scanned: 2 },
-      { root: join(vault, "agents", "scout"), listing: "git", scanned: 2 },
+      { root: vault, listing: "git", listed: 2, scanned: 2 },
+      { root: join(vault, "agents", "scout"), listing: "git", listed: 2, scanned: 2 },
     ]);
   });
 
@@ -139,7 +139,7 @@ describe("search --root: one corpus across several roots", () => {
   });
 
   it("walks a plain folder that is not a Git repo, skipping noise and nested repos", async () => {
-    const plain = join(vault, "..", `${vault.split("/").pop()}-plain`);
+    const plain = `${vault}-plain`;
     try {
       write(join(plain, "a", "loopback.md"), "# A\n");
       write(join(plain, "node_modules", "pkg", "loopback.md"), "# no\n");
@@ -157,18 +157,31 @@ describe("search --root: one corpus across several roots", () => {
   it("answers from the roots that work and names the one that does not", async () => {
     const data = await search("loopback", [vault, join(vault, "missing")]);
     expect(data.complete).toBe(false);
-    expect(data.roots[1]).toEqual({ root: join(vault, "missing"), scanned: 0, error: `No such folder: ${join(vault, "missing")}` });
+    expect(data.roots[1]).toEqual({ root: join(vault, "missing"), listed: 0, scanned: 0, error: `No such folder: ${join(vault, "missing")}` });
     expect(data.total).toBe(1);
   });
 
-  it("fails with every reason when no root can be searched", async () => {
-    const { exit } = await captureStdout(() =>
-      searchCommand.run(["loopback"], { root: [join(vault, "nope")] } as never, { ...G, json: false }));
+  it("fails with every reason when no root can be searched, and JSON still carries the roots", async () => {
+    const { exit, json } = await run(["loopback"], { root: [join(vault, "nope")] });
     expect(exit).toBe(1);
+    expect(json).toMatchObject({ complete: false, total: 0, results: [], roots: [{ root: join(vault, "nope"), error: `No such folder: ${join(vault, "nope")}` }] });
+    const { exit: humanExit, stderr } = await captureStdoutAndErr(["loopback"], { root: [join(vault, "nope")] });
+    expect(humanExit).toBe(1);
+    expect(stderr).toContain("Check each path exists");
+  });
+
+  it("counts files read, not files listed: a tracked file deleted from disk is not scanned", async () => {
+    git(vault, ["add", "notes/plan.md"]);
+    write(join(vault, "notes", "gone.md"), "loopback\n");
+    git(vault, ["add", "notes/gone.md"]);
+    await rm(join(vault, "notes", "gone.md"));
+    const data = await search("loopback", [vault]);
+    expect(data.roots[0]).toMatchObject({ listed: 3, scanned: 2 });
+    expect(data.scanned).toBe(2);
   });
 
   it("counts a file reachable from two roots once, for the deeper root", async () => {
-    const plain = join(vault, "..", `${vault.split("/").pop()}-overlap`);
+    const plain = `${vault}-overlap`;
     try {
       write(join(plain, "loopback.md"), "# top\n");
       write(join(plain, "sub", "loopback.md"), "# sub\n");
@@ -182,7 +195,7 @@ describe("search --root: one corpus across several roots", () => {
   });
 
   it.skipIf(process.platform === "win32")("does not list a symlinked _threads folder", async () => {
-    const elsewhere = join(vault, "..", `${vault.split("/").pop()}-elsewhere`);
+    const elsewhere = `${vault}-elsewhere`;
     try {
       write(join(elsewhere, "t", "README.md"), "---\nname: Elsewhere\n---\nloopback\n");
       const space = repo(join(vault, "agents", "linked"));
@@ -205,6 +218,13 @@ describe("query filters through the command", () => {
     expect(tagged.results.map((r: { kind: string }) => r.kind)).toEqual(["thread_post"]);
     const either = await search("loopback tag:friction,onboarding", [vault], { threads: true });
     expect(either.total).toBe(2);
+  });
+
+  it("a tag word that appears only in another frontmatter field does not match", async () => {
+    write(join(vault, "notes", "decoy.md"), "---\nname: Decoy\nsummary: About friction, not tagged so.\ntags: [other]\n---\nloopback\n");
+    const data = await search("loopback tag:friction", [vault], { threads: true });
+    expect(data.results.map((r: { path: string }) => r.path)).not.toContain("notes/decoy.md");
+    expect(data.total).toBe(1);
   });
 
   it("a query of only filters lists every match, newest first", async () => {
