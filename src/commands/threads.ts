@@ -463,7 +463,10 @@ export const threadsCommand: CommandDef = {
         if (HOSTED.test(rest[0])) return hostedThreadsCommand.run(["read", rest[0]], flags, global);
         const referenceSelection = agreementFlag(flags.agreement);
         if (referenceSelection.error) throw new Error(referenceSelection.error);
+        // Every pinned read refuses --agreement the same way, before the Thread is resolved.
         if (flags.map !== undefined && flags.agreement !== undefined) throw new Error("--agreement reads the live reference frame; a selected pinned read carries none. Omit --agreement with --map.");
+        const pinnedRead = flags.pin !== undefined || flags.position !== undefined;
+        if (pinnedRead && flags.agreement !== undefined) throw new Error("--agreement reads the live reference frame; a pinned read carries none. Omit --agreement with --pin.");
         selectionFlags(flags);
         if (flags.map !== undefined && flags.member === undefined) throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");
         if (flags.map !== undefined && flags.member !== undefined) {
@@ -490,8 +493,6 @@ export const threadsCommand: CommandDef = {
         const thread = loadThread(resolveLocalThread(rest[0]));
         // The Thread's terms arrive with every read of it, as reference: a dispatched agent reading
         // one post learns the Thread's name and terms, and where to read them in full.
-        const pinnedRead = flags.pin !== undefined || flags.position !== undefined;
-        if (pinnedRead && flags.agreement !== undefined) throw new Error("--agreement reads the live reference frame; a pinned read carries none. Omit --agreement with --pin.");
         const reference = pinnedRead ? null : await threadReference(thread.path, referenceSelection.agreement);
         const referenceDiagnostic = reference && reference.status !== "ok" ? renderContentFocus(reference) : undefined;
         if (referenceDiagnostic) output.log(`Thread ${thread.slug} reference frame unavailable: ${referenceDiagnostic}`);

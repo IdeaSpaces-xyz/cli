@@ -202,3 +202,91 @@ describe("threads attach", () => {
     expect(existsSync(join(fixture.child, "_agent", "agreement.md"))).toBe(true);
   });
 });
+
+describe("threads attach keeps every other Agreement byte", () => {
+  async function attachWith(agreement: string) {
+    const fixture = space();
+    writeFileSync(join(fixture.child, "_agent", "agreement.md"), agreement);
+    const result = await run(["attach", fixture.child, B], { message: "Moving.", author: "Tester" }, fixture.root);
+    return { result, after: () => readFileSync(join(fixture.child, "_agent", "agreement.md"), "utf8") };
+  }
+
+  it("replaces an existing one-line attached_to in place", async () => {
+    const before = `---\nname: Agreement — Child\nattached_to: ${A}\nsummary: S.\n---\n# Child\n`;
+    const { result, after } = await attachWith(before);
+    expect(result.code).toBe(0);
+    expect(after()).toBe(before.replace(`attached_to: ${A}\n`, `attached_to: ${B}\n`));
+  });
+
+  it("keeps CRLF line endings, including on the line it adds", async () => {
+    const before = "---\r\nname: Agreement — Child\r\nsummary: S.\r\n---\r\n# Child\r\n";
+    const { result, after } = await attachWith(before);
+    expect(result.code).toBe(0);
+    expect(after()).toBe(`---\r\nname: Agreement — Child\r\nsummary: S.\r\nattached_to: ${B}\r\n---\r\n# Child\r\n`);
+  });
+
+  it("adds frontmatter to a plain-Markdown Agreement and keeps its body", async () => {
+    const { result, after } = await attachWith("# Child\n\nPlain terms.\n");
+    expect(result.code).toBe(0);
+    expect(after()).toBe(`---\nattached_to: ${B}\n---\n# Child\n\nPlain terms.\n`);
+  });
+
+  it("refuses a multi-line attached_to and changes nothing", async () => {
+    const fixture = space();
+    writeFileSync(join(fixture.child, "_agent", "agreement.md"), `---\nname: Agreement — Child\nattached_to: >\n  ${A}\n---\n# Child\n`);
+    const before = snapshot(fixture.root);
+    const refused = await run(["attach", fixture.child, B], { message: "Moving.", author: "Tester" }, fixture.root);
+    expect(refused.code).toBe(1);
+    expect(refused.err).toContain("spans several lines");
+    expect(snapshot(fixture.root)).toEqual(before);
+  });
+});
+
+describe("threads open when the reference frame cannot be selected", () => {
+  it("logs the diagnostic and keeps --json stdout one valid object", async () => {
+    const { root, child } = space();
+    writeFileSync(join(root, "_agent", "agreement.md"), "---\nname: Agreement — Fixture Space\ncontext:\n  full: [../outside.md]\n---\n# Space\n");
+    const opened = await run(["open", child], { depth: "summary" }, root);
+    expect(opened.code).toBe(0);
+    const json = JSON.parse(opened.out);
+    expect(json.reference).toBeUndefined();
+    expect(json.reference_diagnostic).toContain("invalid_full_load_path");
+    expect(json.thread.path).toBe(loadThread(child).path);
+  });
+});
+
+describe("--agreement on look and navigate", () => {
+  async function command(which: "look" | "navigate", args: string[], flags: Record<string, string | boolean>, cwd: string) {
+    const { lookCommand } = await import("../commands/look.js");
+    const { navigateCommand } = await import("../commands/navigate.js");
+    const previous = process.cwd(); process.chdir(cwd);
+    const stdout = process.stdout.write; const stderr = process.stderr.write;
+    let out = ""; let err = "";
+    process.stdout.write = ((s: string) => { out += s; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((s: string) => { err += s; return true; }) as typeof process.stderr.write;
+    try {
+      const code = await (which === "look" ? lookCommand : navigateCommand).run(args, flags, { json: false, quiet: true, yes: false, help: false });
+      return { code, out, err };
+    } finally { process.stdout.write = stdout; process.stderr.write = stderr; process.chdir(previous); }
+  }
+
+  it("look and navigate --focus load the target's own Agreement in full on request", async () => {
+    const { root, child } = space();
+    const looked = await command("look", [join(child, "02-reply.md")], { agreement: "full" }, root);
+    expect(looked.code).toBe(0);
+    expect(looked.out).toContain("CHILD_TERMS_SENTINEL");
+    expect(looked.out).not.toContain("SPACE_TERMS_SENTINEL");
+    const summary = await command("look", [join(child, "02-reply.md")], {}, root);
+    expect(summary.out).not.toContain("CHILD_TERMS_SENTINEL");
+    const focused = await command("navigate", [child], { focus: true, agreement: "full" }, root);
+    expect(focused.code).toBe(0);
+    expect(focused.out).toContain("CHILD_TERMS_SENTINEL");
+  });
+
+  it("navigate refuses --agreement without --focus or an address", async () => {
+    const { root } = space();
+    const refused = await command("navigate", [root], { agreement: "full" }, root);
+    expect(refused.code).toBe(1);
+    expect(refused.err).toContain("use it with --focus or an address");
+  });
+});

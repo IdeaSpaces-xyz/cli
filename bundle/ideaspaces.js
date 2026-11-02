@@ -16605,8 +16605,7 @@ ${content}`;
     const newline = lines[at].endsWith("\r\n") ? "\r\n" : "\n";
     lines[at] = `attached_to: ${value2}${newline}`;
   } else {
-    lines.push(`attached_to: ${value2}
-`);
+    lines.push(`attached_to: ${value2}${content.startsWith("---\r\n") ? "\r\n" : "\n"}`);
   }
   const open2 = content.startsWith("---\r\n") ? "---\r\n" : "---\n";
   const close = `---${block[2]}`;
@@ -16690,9 +16689,12 @@ function attachThread(dir, target, options) {
   }
   if (createdDir)
     mkdirSync8(agentDir);
-  const temporary = `${agreementPath}.${randomUUID9()}.tmp`;
-  writeFileSync9(temporary, after, { flag: "wx" });
-  renameSync6(temporary, agreementPath);
+  const replace2 = (content) => {
+    const temporary = `${agreementPath}.${randomUUID9()}.tmp`;
+    writeFileSync9(temporary, content, { flag: "wx" });
+    renameSync6(temporary, agreementPath);
+  };
+  replace2(after);
   const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
   const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
   const parentName = parentPost?.frontmatter.name ?? resolved.parent.id;
@@ -16727,7 +16729,7 @@ Why: ${options.message.trim()}
     if (before === null)
       rmSync7(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
     else
-      writeFileSync9(agreementPath, before);
+      replace2(before);
     throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
@@ -31239,6 +31241,9 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
           throw new Error(referenceSelection.error);
         if (flags2.map !== void 0 && flags2.agreement !== void 0)
           throw new Error("--agreement reads the live reference frame; a selected pinned read carries none. Omit --agreement with --map.");
+        const pinnedRead = flags2.pin !== void 0 || flags2.position !== void 0;
+        if (pinnedRead && flags2.agreement !== void 0)
+          throw new Error("--agreement reads the live reference frame; a pinned read carries none. Omit --agreement with --pin.");
         selectionFlags(flags2);
         if (flags2.map !== void 0 && flags2.member === void 0)
           throw new Error("Pinned open with --map requires --member <zero-based ordinal>; no live HEAD fallback.");
@@ -31284,9 +31289,6 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         if (flags2.checkout !== void 0)
           throw new Error("--checkout requires --map and --member.");
         const thread = loadThread(resolveLocalThread(rest[0]));
-        const pinnedRead = flags2.pin !== void 0 || flags2.position !== void 0;
-        if (pinnedRead && flags2.agreement !== void 0)
-          throw new Error("--agreement reads the live reference frame; a pinned read carries none. Omit --agreement with --pin.");
         const reference = pinnedRead ? null : await threadReference(thread.path, referenceSelection.agreement);
         const referenceDiagnostic = reference && reference.status !== "ok" ? renderContentFocus(reference) : void 0;
         if (referenceDiagnostic)

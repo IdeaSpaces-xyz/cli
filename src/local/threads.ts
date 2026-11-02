@@ -641,7 +641,7 @@ function withAttachedTo(content: string, value: string): string {
     const newline = lines[at].endsWith("\r\n") ? "\r\n" : "\n";
     lines[at] = `attached_to: ${value}${newline}`;
   } else {
-    lines.push(`attached_to: ${value}\n`);
+    lines.push(`attached_to: ${value}${content.startsWith("---\r\n") ? "\r\n" : "\n"}`);
   }
   const open = content.startsWith("---\r\n") ? "---\r\n" : "---\n";
   const close = `---${block[2]}`;
@@ -684,7 +684,10 @@ export function attachThread(dir: string, target: string, options: { message: st
     try {
       const info = resolveThreadParent(sibling.path, siblings);
       if (info?.slug) parentOf.set(sibling.slug, info.slug);
-    } catch { /* an unreadable parent proves no edge */ }
+    } catch {
+      // An unreadable parent proves no edge. The trade-off: a Thread whose parent cannot be read
+      // could hide a real descendant, so such a cycle is only prevented once it is readable again.
+    }
   }
   const descendants = new Set<string>([thread.slug]);
   for (let grew = true; grew;) {
@@ -716,9 +719,12 @@ export function attachThread(dir: string, target: string, options: { message: st
     if (strip(before) !== strip(after)) throw new Error(`Writing attached_to would change other fields of ${agreementPath}; nothing changed.`);
   }
   if (createdDir) mkdirSync(agentDir);
-  const temporary = `${agreementPath}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, after, { flag: "wx" });
-  renameSync(temporary, agreementPath);
+  const replace = (content: string) => {
+    const temporary = `${agreementPath}.${randomUUID()}.tmp`;
+    writeFileSync(temporary, content, { flag: "wx" });
+    renameSync(temporary, agreementPath);
+  };
+  replace(after);
 
   const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
   const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
@@ -741,7 +747,7 @@ export function attachThread(dir: string, target: string, options: { message: st
     };
   } catch (error) {
     if (before === null) rmSync(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
-    else writeFileSync(agreementPath, before);
+    else replace(before);
     throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
