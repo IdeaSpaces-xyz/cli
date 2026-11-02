@@ -27481,8 +27481,15 @@ function toPosix(path) {
   return sep14 === "/" ? path : path.split(sep14).join("/");
 }
 function storedRoot(noteDir, root) {
-  const rel = toPosix(relative19(noteDir, root));
-  return rel === "" ? "." : rel;
+  const rel = relative19(noteDir, root);
+  if (isAbsolute18(rel)) {
+    throw new SavedSearchError(`${root} has no path relative to the Note's folder (another drive?). Save the Note on the same drive as the folders it searches.`);
+  }
+  const posix2 = toPosix(rel);
+  return posix2 === "" ? "." : posix2;
+}
+function oneLine(text) {
+  return text.replace(/\s+/g, " ").trim();
 }
 function describeQuery(search) {
   const lines = [
@@ -27498,9 +27505,18 @@ function writeSavedSearch(notePath, options) {
   const path = resolve36(notePath);
   if (!path.endsWith(".md"))
     throw new SavedSearchError(`A saved search is a Note: give a path ending in .md (for example ${notePath}.search.md).`);
-  if (existsSync25(path) && !options.force) {
-    throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
+  if (existsSync25(path)) {
+    if (!options.force)
+      throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
+    try {
+      readSavedSearch(path);
+    } catch {
+      throw new SavedSearchError(`${notePath} is a Note that is not a saved search; --force only replaces saved searches. Choose another name.`);
+    }
   }
+  const name = oneLine(options.name);
+  if (!name)
+    throw new SavedSearchError("--name needs text.");
   const dir = dirname21(path);
   if (!existsSync25(dir) || !statSync15(dir).isDirectory())
     throw new SavedSearchError(`No such folder for the saved search: ${dirname21(notePath)}`);
@@ -27510,12 +27526,12 @@ function writeSavedSearch(notePath, options) {
     threads: options.threads,
     ...options.limit !== void 0 ? { limit: options.limit } : {}
   };
-  const frontmatter = { name: options.name };
+  const frontmatter = { name };
   if (options.summary)
     frontmatter.summary = options.summary;
   frontmatter.search = search;
   const body = [
-    `# ${options.name}`,
+    `# ${name}`,
     "",
     "A saved search. It runs again over what is on disk when opened:",
     "",
@@ -27529,7 +27545,7 @@ ${(0, import_yaml11.stringify)(frontmatter).trimEnd()}
 ---
 
 ${body}`, { flag: options.force ? "w" : "wx" });
-  return { path, name: options.name, summary: options.summary ?? null, search, absoluteRoots: options.roots };
+  return { path, name, summary: options.summary ?? null, search, absoluteRoots: options.roots };
 }
 function readSavedSearch(notePath) {
   const path = resolve36(notePath);
@@ -28255,7 +28271,9 @@ Saved searches:
   --save <note.md> write this search as a Note: the query, its roots
                    (relative to the Note's folder) and the Threads setting
                    go in its frontmatter under search:. --name and
-                   --summary title it; --force replaces an existing file.
+                   --summary title it; --force replaces an existing saved
+                   search (never an ordinary Note). Roots on another drive
+                   than the Note are refused.
                    Without --root it saves the current repository.
   --open <note.md> run a saved search again over what is on disk now.
                    Only --limit and --json may be added. The Note is an
@@ -28355,7 +28373,7 @@ function selectFiles(listings, base, query, skip) {
         if (!acceptsPath(query, locations, hitKind(path)))
           continue;
       }
-      if (skip !== void 0 && join36(listing.root, path) === skip)
+      if (skip !== void 0 && basename18(path) === basename18(skip) && canonicalFile(join36(listing.root, path)) === skip)
         continue;
       files.push({ root: listing.root, path });
     }
@@ -28410,8 +28428,10 @@ var searchCommand = {
         output.error("--open needs a saved-search Note, for example --open frictions.search.md.");
         return 1;
       }
-      if (args2.length > 0 || flags2.root !== void 0 || flags2.save !== void 0 || flags2.threads !== void 0) {
-        output.error("--open runs the Note's own query, roots and Threads setting; add only --limit or --json. To change it, run the search and --save a new Note.");
+      const extra = ["root", "save", "threads", "name", "summary", "force"].filter((key2) => flags2[key2] !== void 0);
+      if (args2.length > 0 || extra.length > 0) {
+        const given = [...args2.length > 0 ? ["a query"] : [], ...extra.map((key2) => `--${key2}`)].join(", ");
+        output.error(`--open runs the Note's own query, roots and Threads setting, so it takes no ${given}; add only --limit or --json. To change it, run the search and --save a new Note.`);
         return 1;
       }
       try {
@@ -28635,7 +28655,7 @@ ${hint}`);
     for (const warning of "warnings" in row && row.warnings || [])
       output.error(`Warning: ${row.root}: ${warning}`);
   }
-  const footer = `${outcome.scanned} files in ${rootRows.length - failed.length} root${rootRows.length - failed.length === 1 ? "" : "s"}` + (notes.length ? `
+  const footer = `${files.length} files in ${rootRows.length - failed.length} root${rootRows.length - failed.length === 1 ? "" : "s"}` + (notes.length ? `
 ${notes.join("\n")}` : "") + (savedLine.length ? `
 ${savedLine.join("\n")}` : "");
   if (results.length === 0) {

@@ -14,7 +14,12 @@
  * any other; readers that do not know `search` ignore it. Roots are stored
  * relative to the Note, never as machine paths, so the same Note opens the
  * same folders on another checkout of the same tree. Opening it runs the query
- * again over what is on disk now: the same files give the same results.
+ * again over what is on disk now: the same files give the same results. A
+ * hand-written Note may name an absolute root; it is honoured, but is not
+ * portable.
+ *
+ * The CLI owns this `search:` shape until the protocol adopts it; then the
+ * validation in readSavedSearch moves there.
  */
 
 import { parseFrontmatter } from "@ideaspaces/protocol";
@@ -48,10 +53,23 @@ function toPosix(path: string): string {
   return sep === "/" ? path : path.split(sep).join("/");
 }
 
-/** A root as the Note stores it: relative to the Note's folder, `.` for the folder itself. */
+/**
+ * A root as the Note stores it: relative to the Note's folder, `.` for the
+ * folder itself. A root that has no relative path from the Note (another
+ * drive on Windows) is refused rather than stored as a machine path.
+ */
 export function storedRoot(noteDir: string, root: string): string {
-  const rel = toPosix(relative(noteDir, root));
-  return rel === "" ? "." : rel;
+  const rel = relative(noteDir, root);
+  if (isAbsolute(rel)) {
+    throw new SavedSearchError(`${root} has no path relative to the Note's folder (another drive?). Save the Note on the same drive as the folders it searches.`);
+  }
+  const posix = toPosix(rel);
+  return posix === "" ? "." : posix;
+}
+
+/** One line of title text: a --name with newlines or runs of spaces becomes one line. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function describeQuery(search: SavedSearch): string {
@@ -71,9 +89,17 @@ export function writeSavedSearch(
 ): SavedSearchNote {
   const path = resolve(notePath);
   if (!path.endsWith(".md")) throw new SavedSearchError(`A saved search is a Note: give a path ending in .md (for example ${notePath}.search.md).`);
-  if (existsSync(path) && !options.force) {
-    throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
+  if (existsSync(path)) {
+    if (!options.force) throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
+    // --force replaces a saved search, never an ordinary Note that happens to share the name.
+    try {
+      readSavedSearch(path);
+    } catch {
+      throw new SavedSearchError(`${notePath} is a Note that is not a saved search; --force only replaces saved searches. Choose another name.`);
+    }
   }
+  const name = oneLine(options.name);
+  if (!name) throw new SavedSearchError("--name needs text.");
   const dir = dirname(path);
   if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new SavedSearchError(`No such folder for the saved search: ${dirname(notePath)}`);
   const search: SavedSearch = {
@@ -82,11 +108,11 @@ export function writeSavedSearch(
     threads: options.threads,
     ...(options.limit !== undefined ? { limit: options.limit } : {}),
   };
-  const frontmatter: Record<string, unknown> = { name: options.name };
+  const frontmatter: Record<string, unknown> = { name };
   if (options.summary) frontmatter.summary = options.summary;
   frontmatter.search = search;
   const body = [
-    `# ${options.name}`,
+    `# ${name}`,
     "",
     "A saved search. It runs again over what is on disk when opened:",
     "",
@@ -96,7 +122,7 @@ export function writeSavedSearch(
     "",
   ].join("\n");
   writeFileSync(path, `---\n${stringify(frontmatter).trimEnd()}\n---\n\n${body}`, { flag: options.force ? "w" : "wx" });
-  return { path, name: options.name, summary: options.summary ?? null, search, absoluteRoots: options.roots };
+  return { path, name, summary: options.summary ?? null, search, absoluteRoots: options.roots };
 }
 
 /** Read and check a saved-search Note; every refusal says what is wrong and where. */

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -148,6 +148,71 @@ describe("saved searches", () => {
     const opened = await runErr([], { open: "searches/plain.md" });
     expect(opened.exit).toBe(1);
     expect(opened.stderr).toContain("no search: block");
+  });
+
+  it("--force replaces a saved search but never an ordinary Note", async () => {
+    const plan = readFileSync(join(vault, "notes", "plan.md"), "utf8");
+    const refused = await runErr(["loopback"], { root: [vault], save: "notes/plan.md", force: true });
+    expect(refused.exit).toBe(1);
+    expect(refused.stderr).toContain("not a saved search; --force only replaces saved searches");
+    expect(readFileSync(join(vault, "notes", "plan.md"), "utf8")).toBe(plan);
+  });
+
+  it("refuses a missing folder, a search outside a repository with no --root, and keeps one-line titles", async () => {
+    const missing = await runErr(["loopback"], { root: [vault], save: "nowhere/x.search.md" });
+    expect(missing.exit).toBe(1);
+    expect(missing.stderr).toContain("No such folder for the saved search");
+    const outside = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-search-saved-outside-")));
+    try {
+      process.chdir(outside);
+      const noRepo = await runErr(["loopback"], { save: "x.search.md" });
+      expect(noRepo.exit).toBe(1);
+      expect(noRepo.stderr).toContain("to save a search");
+    } finally {
+      process.chdir(vault);
+      await rm(outside, { recursive: true, force: true });
+    }
+    const titled = await run(["loopback"], { root: [vault], save: "searches/t.search.md", name: "Two\nlines   here" });
+    expect(titled.json.saved.name).toBe("Two lines here");
+    expect(readFileSync(join(vault, "searches", "t.search.md"), "utf8")).toContain("# Two lines here\n");
+  });
+
+  it("names a bad threads or limit value, and lets --limit override the stored one", async () => {
+    write(join(vault, "searches", "threads.md"), "---\nsearch:\n  query: x\n  threads: yes please\n---\n");
+    write(join(vault, "searches", "zero.md"), "---\nsearch:\n  query: x\n  limit: 0\n---\n");
+    write(join(vault, "searches", "text.md"), "---\nsearch:\n  query: x\n  limit: \"5\"\n---\n");
+    expect(() => readSavedSearch(join(vault, "searches", "threads.md"))).toThrow(/search.threads/);
+    expect(() => readSavedSearch(join(vault, "searches", "zero.md"))).toThrow(/search.limit/);
+    expect(() => readSavedSearch(join(vault, "searches", "text.md"))).toThrow(/search.limit/);
+    write(join(vault, "searches", "one.search.md"), "---\nsearch:\n  query: loopback\n  roots: [\"..\", ../agents/scout]\n  limit: 1\n---\n");
+    const stored = await run([], { open: "searches/one.search.md" });
+    expect(stored.json.total).toBe(1);
+    const overridden = await run([], { open: "searches/one.search.md", limit: "5" });
+    expect(overridden.json.total).toBe(2);
+  });
+
+  it("says where it looked when a saved root is gone", async () => {
+    write(join(vault, "searches", "gone.search.md"), "---\nsearch:\n  query: loopback\n  roots: [../gone]\n---\n");
+    const { exit, json } = await run([], { open: "searches/gone.search.md" });
+    expect(exit).toBe(1);
+    expect(json.roots[0].root).toBe(join(vault, "gone"));
+    const human = await runErr([], { open: "searches/gone.search.md" });
+    expect(human.stderr).toContain(join(vault, "gone"));
+    expect(human.stderr).toContain("relative to its Note");
+  });
+
+  it("an --open with other flags gives one clear refusal", async () => {
+    const mixed = await runErr([], { open: "searches/x.search.md", name: "Foo" });
+    expect(mixed.exit).toBe(1);
+    expect(mixed.stderr).toContain("takes no --name");
+  });
+
+  it.skipIf(process.platform === "win32")("never finds its own Note, even when opened through a symlinked folder", async () => {
+    write(join(vault, "searches", "self.search.md"), "---\nname: Self\nsearch:\n  query: loopback\n  roots: [\"..\"]\n---\nloopback loopback loopback\n");
+    symlinkSync(join(vault, "searches"), join(vault, "linked"));
+    const opened = await run([], { open: "linked/self.search.md" });
+    expect(opened.exit).toBe(0);
+    expect(opened.json.results.map((r: { path: string }) => r.path)).not.toContain("searches/self.search.md");
   });
 
   it("a hand-written saved search with no roots searches the Note's own folder", async () => {

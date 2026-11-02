@@ -70,7 +70,9 @@ Saved searches:
   --save <note.md> write this search as a Note: the query, its roots
                    (relative to the Note's folder) and the Threads setting
                    go in its frontmatter under search:. --name and
-                   --summary title it; --force replaces an existing file.
+                   --summary title it; --force replaces an existing saved
+                   search (never an ordinary Note). Roots on another drive
+                   than the Note are refused.
                    Without --root it saves the current repository.
   --open <note.md> run a saved search again over what is on disk now.
                    Only --limit and --json may be added. The Note is an
@@ -198,7 +200,8 @@ function selectFiles(listings: RootListing[], base: string, query: ParsedQuery, 
         if (prefix) locations.push(fold(`${prefix}/${path}`));
         if (!acceptsPath(query, locations, hitKind(path))) continue;
       }
-      if (skip !== undefined && join(listing.root, path) === skip) continue;
+      // Roots are canonical, but a path can still pass through a symlinked folder: compare canonical files.
+      if (skip !== undefined && basename(path) === basename(skip) && canonicalFile(join(listing.root, path)) === skip) continue;
       files.push({ root: listing.root, path });
     }
   }
@@ -271,8 +274,10 @@ export const searchCommand: CommandDef = {
         output.error("--open needs a saved-search Note, for example --open frictions.search.md.");
         return 1;
       }
-      if (args.length > 0 || flags.root !== undefined || flags.save !== undefined || flags.threads !== undefined) {
-        output.error("--open runs the Note's own query, roots and Threads setting; add only --limit or --json. To change it, run the search and --save a new Note.");
+      const extra = ["root", "save", "threads", "name", "summary", "force"].filter((key) => flags[key] !== undefined);
+      if (args.length > 0 || extra.length > 0) {
+        const given = [...(args.length > 0 ? ["a query"] : []), ...extra.map((key) => `--${key}`)].join(", ");
+        output.error(`--open runs the Note's own query, roots and Threads setting, so it takes no ${given}; add only --limit or --json. To change it, run the search and --save a new Note.`);
         return 1;
       }
       try {
@@ -515,7 +520,7 @@ async function searchRoots(
   for (const row of rootRows) {
     for (const warning of ("warnings" in row && row.warnings) || []) output.error(`Warning: ${row.root}: ${warning}`);
   }
-  const footer = `${outcome.scanned} files in ${rootRows.length - failed.length} root${rootRows.length - failed.length === 1 ? "" : "s"}` +
+  const footer = `${files.length} files in ${rootRows.length - failed.length} root${rootRows.length - failed.length === 1 ? "" : "s"}` +
     (notes.length ? `\n${notes.join("\n")}` : "") + (savedLine.length ? `\n${savedLine.join("\n")}` : "");
   if (results.length === 0) {
     output.result(data, `No matches for "${query.raw}".\n${footer}`);
