@@ -79,10 +79,6 @@
       "path": "/api/v1/inbox"
     },
     {
-      "method": "GET",
-      "path": "/api/v1/inbox/posts"
-    },
-    {
       "method": "POST",
       "path": "/api/v1/inquiries"
     },
@@ -253,6 +249,10 @@
     {
       "method": "POST",
       "path": "/api/v1/threads/{threadId}/posts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/threads/posts"
     },
     {
       "method": "GET",

@@ -896,9 +896,9 @@ export async function fetchThreadPosts(
   if (query?.cursor) params.set("cursor", query.cursor);
   if (query?.order) params.set("order", query.order);
   const queryString = params.toString();
-  // The exchange posts feed lives at /inbox/posts; /threads/posts is an alias the
-  // service retires once no CLI calls it (same handler, same response).
-  const path = `${API_V1}/inbox/posts${queryString ? `?${queryString}` : ""}`;
+  // The exchange posts feed, at the route released CLIs already call. Moving it to
+  // /inbox/posts waits until the service is checked to serve that route (#265).
+  const path = `${API_V1}/threads/posts${queryString ? `?${queryString}` : ""}`;
   return request<ThreadPostsPageResponse>(config, "GET", path, undefined, opts);
 }
 

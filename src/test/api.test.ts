@@ -679,8 +679,8 @@ describe("direct Inbox API", () => {
 
     expect(calls.map((call) => [call.init?.method ?? "GET", call.url])).toEqual([
       ["GET", "http://api.test/api/v1/inbox"],
-      ["GET", "http://api.test/api/v1/inbox/posts?scope=followed&limit=10&after=n_post_1&order=newer"],
-      ["GET", "http://api.test/api/v1/inbox/posts?space_id=n_0123456789abcdef01234567&cursor=token"],
+      ["GET", "http://api.test/api/v1/threads/posts?scope=followed&limit=10&after=n_post_1&order=newer"],
+      ["GET", "http://api.test/api/v1/threads/posts?space_id=n_0123456789abcdef01234567&cursor=token"],
       ["GET", "http://api.test/api/v1/exchanges/x_one"],
       ["GET", "http://api.test/api/v1/exchanges/x_one/map/members/0"],
       ["GET", "http://api.test/api/v1/content/n_0123456789abcdef01234567/tree/notes/current"],

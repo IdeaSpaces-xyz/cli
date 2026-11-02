@@ -14567,7 +14567,7 @@ async function fetchThreadPosts(config, query, opts) {
   if (query?.order)
     params.set("order", query.order);
   const queryString = params.toString();
-  const path = `${API_V1}/inbox/posts${queryString ? `?${queryString}` : ""}`;
+  const path = `${API_V1}/threads/posts${queryString ? `?${queryString}` : ""}`;
   return request(config, "GET", path, void 0, opts);
 }
 async function fetchVaults(config, opts) {
