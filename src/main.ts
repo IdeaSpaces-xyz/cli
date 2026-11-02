@@ -105,6 +105,6 @@ try {
   process.exit(exitCode);
 } catch (err) {
   const output = createOutput(global);
-  const exitCode = handleError(err, output);
+  const exitCode = handleError(err, output, { json: global.json, command: cmd.name });
   process.exit(exitCode);
 }

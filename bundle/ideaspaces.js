@@ -34330,23 +34330,7 @@ function printPowerHelp() {
 
 // dist/errors.js
 init_credentials();
-function handleError(err, output) {
-  if (err instanceof HostAuthRefusal) {
-    output.error(err.message);
-    return 1;
-  }
-  if (err instanceof Error) {
-    if (err.message.includes("Not logged in")) {
-      output.error(`Error: ${err.message}
-Run: ideaspaces login`);
-      return 2;
-    }
-    output.error(`Error: ${err.message}`);
-    return 1;
-  }
-  output.error(`Error: ${String(err)}`);
-  return 1;
-}
+init_host_token();
 
 // dist/host-token-flag.js
 init_credentials();
@@ -34374,6 +34358,28 @@ function takeTokenFd(raw, command2) {
   if (!/^\d+$/.test(raw))
     throw new HostTokenError("--token-fd needs an inherited descriptor number of 3 or more.");
   readHostToken(Number(raw));
+}
+
+// dist/errors.js
+function handleError(err, output, context = {}) {
+  if (err instanceof HostAuthRefusal || err instanceof HostTokenError) {
+    if (context.json && context.command && HOST_TOKEN_COMMANDS.has(context.command)) {
+      process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: { state: "signed_out", message: err.message } }, null, 2) + "\n");
+    }
+    output.error(err instanceof HostAuthRefusal ? err.message : `Error: ${err.message}`);
+    return 1;
+  }
+  if (err instanceof Error) {
+    if (err.message.includes("Not logged in")) {
+      output.error(`Error: ${err.message}
+Run: ideaspaces login`);
+      return 2;
+    }
+    output.error(`Error: ${err.message}`);
+    return 1;
+  }
+  output.error(`Error: ${String(err)}`);
+  return 1;
 }
 
 // dist/main.js
@@ -34451,6 +34457,6 @@ try {
   process.exit(exitCode);
 } catch (err) {
   const output = createOutput(global2);
-  const exitCode = handleError(err, output);
+  const exitCode = handleError(err, output, { json: global2.json, command: cmd.name });
   process.exit(exitCode);
 }

@@ -15,6 +15,7 @@ import { loginCommand } from "../commands/login.js";
 import { logoutCommand } from "../commands/power/logout.js";
 import { reposCommand } from "../commands/repos.js";
 import { whoamiCommand } from "../commands/whoami.js";
+import { HostTokenError } from "../auth/host-token.js";
 import { handleError } from "../errors.js";
 import { createOutput } from "../output.js";
 import type { GlobalFlags } from "../types.js";
@@ -128,6 +129,23 @@ describe("IDEASPACES_AUTH=host", () => {
     await expect(fetchAuthMe({ apiUrl: STORED.api_url, apiKey: "explicit" })).rejects.toThrow(HostAuthRefusal);
     await expect(optionalAuthRead({ apiUrl: STORED.api_url }, (config) => fetchAuthMe(config as { apiUrl: string; apiKey: string })))
       .rejects.toThrow(HostAuthRefusal);
+  });
+
+  it("answers a hosted verb's refusal in the hosted JSON envelope under --json, and only there", () => {
+    const refusals = [new HostAuthRefusal("Reading Vaults"), new HostTokenError("--token-fd 7 is not an open descriptor in this process.")];
+    for (const error of refusals) {
+      for (const command of ["vaults", "threads"]) {
+        stdout.length = 0;
+        expect(handleError(error, createOutput(JSON_FLAGS), { json: true, command })).toBe(1);
+        expect(JSON.parse(stdout.join(""))).toEqual({ schema: "ideaspaces.hosted.error.v1", error: { state: "signed_out", message: error.message } });
+      }
+      stdout.length = 0;
+      // Not a hosted verb, or not --json: nothing on stdout, as before.
+      handleError(error, createOutput(JSON_FLAGS), { json: true, command: "repos" });
+      handleError(error, createOutput(HUMAN), { json: false, command: "vaults" });
+      expect(stdout.join("")).toBe("");
+    }
+    expect(stdout.join("") + stderr.join("")).not.toContain("terminal-access-token");
   });
 
   it("keeps local commands working and says where remote work goes", async () => {
