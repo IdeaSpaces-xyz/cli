@@ -746,8 +746,14 @@ export function attachThread(dir: string, target: string, options: { message: st
       agreementPath, agreementCreated: before === null, post, postPath: path,
     };
   } catch (error) {
-    if (before === null) rmSync(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
-    else replace(before);
-    throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${error instanceof Error ? error.message : String(error)}`);
+    const cause = error instanceof Error ? error.message : String(error);
+    try {
+      if (before === null) rmSync(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
+      else replace(before);
+    } catch (restoreError) {
+      // Never let a failed restore hide either failure: the Agreement now names a parent no post explains.
+      throw new Error(`The reframe post could not be written (${cause}), and restoring ${agreementPath} also failed (${restoreError instanceof Error ? restoreError.message : String(restoreError)}). Its attached_to now says ${value}, with no reframe post: restore the file from Git or run attach again.`);
+    }
+    throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${cause}`);
   }
 }

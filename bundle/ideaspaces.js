@@ -16726,11 +16726,16 @@ Why: ${options.message.trim()}
       postPath: path
     };
   } catch (error) {
-    if (before === null)
-      rmSync7(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
-    else
-      replace2(before);
-    throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${error instanceof Error ? error.message : String(error)}`);
+    const cause = error instanceof Error ? error.message : String(error);
+    try {
+      if (before === null)
+        rmSync7(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
+      else
+        replace2(before);
+    } catch (restoreError) {
+      throw new Error(`The reframe post could not be written (${cause}), and restoring ${agreementPath} also failed (${restoreError instanceof Error ? restoreError.message : String(restoreError)}). Its attached_to now says ${value2}, with no reframe post: restore the file from Git or run attach again.`);
+    }
+    throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${cause}`);
   }
 }
 var import_yaml10, MAX_POST, SHA2, SLUG, NoAgreementError, NO_THREAD_AGREEMENT, FRONTMATTER;
