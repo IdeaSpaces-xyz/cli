@@ -271,6 +271,17 @@ describe("threads post x_<32hex>", () => {
     }
     expect(calls).toEqual([]);
   });
+
+  it("refuses a multi-line name and a Note larger than the service takes, before calling", async () => {
+    serve({ [`POST /api/v1/threads/${T}/posts`]: "post-created" });
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", name: "Two\nlines" })).toBe(1);
+    expect(json().error).toMatchObject({ state: "invalid_request", message: expect.stringContaining("--name must be one line") });
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "x".repeat(32 * 1024) })).toBe(1);
+    expect(json().error).toMatchObject({ state: "invalid_request", message: expect.stringContaining("32 KiB") });
+    expect(await threads(["new"], { hosted: true, name: "n", summary: "s", message: "x".repeat(32 * 1024) })).toBe(1);
+    expect(json().error.state).toBe("invalid_request");
+    expect(calls).toEqual([]);
+  });
 });
 
 describe("threads new --hosted and threads ack", () => {
