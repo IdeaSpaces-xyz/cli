@@ -17108,7 +17108,8 @@ when the person asks to say again what this place is for, or to add an agent or 
 
 There is no agent in this conversation and no point of view to speak from. Talk plainly, as help
 in this place. The only frame is the place's goal. Never invent the answers: a short answer in the
-person's own words is right.
+person's own words is right. Write only what the person said, with no name, date or detail they
+did not give, even one you could find elsewhere.
 
 ## 1. Ask the three questions
 
@@ -17154,7 +17155,8 @@ before you change it again.
 - **A Core Thread exists** (a Space made with one): post the three answers to it, as a reply to its
   opening post.
 
-Tell the person where the Thread is.
+Tell the person where the Thread is. Offer to commit it, with the Map's change if there is one, and
+commit only those paths after a yes.
 
 ## 5. An agent or a knowledge repo, when asked
 
@@ -17164,14 +17166,17 @@ Explain the difference once, briefly, in the person's terms:
 - An **agent** is a folder that is a point of view: its Agreement says who it is, what it does and
   what it never does. A conversation can start with it once it is in the Space.
 
-To create one, from Home's root, with the name the person chose:
+The person asking for one is the approval to create it. Use the name they chose: letters, digits,
+spaces, \`.\`, \`_\` or \`-\`, and no \`/\`.
 
-- An agent: \`ideaspaces create agents/<name> --agent --yes\`.
-- A knowledge repo: \`ideaspaces create <name> --yes\`.
+- An agent: in Home's \`agents/\` folder (make it first if it is missing), run
+  \`ideaspaces create <name> --agent --yes\`. It becomes \`agents/<name>\`.
+- A knowledge repo: in Home's root, run \`ideaspaces create <name> --yes\`.
 
 Each one is its own Git repo, with its own identity. Then:
 
-1. Add it to this Space (the Space's curation tool, or \`ideaspaces map add\`).
+1. Add it to this Space: the Space's curation tool, or
+   \`ideaspaces map add home.map.md --position . --checkout <path>\`.
 2. Add \`/<path>/\` to Home's \`.gitignore\`: Home's own Git never tracks a child. Commit
    \`.gitignore\` with the person's yes.
 3. Its Agreement's sections are prompts too. Offer to draw them out now, the same way: ask, show,

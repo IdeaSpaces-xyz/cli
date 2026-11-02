@@ -860,8 +860,11 @@ describe("ideaspaces create — git author identity", () => {
       const skillFields = parseFrontmatter(skill)!;
       expect(skillFields.name).toBe("first-conversation");
       expect(String(skillFields.description)).toMatch(/^A fresh Space's first conversation, with no agent\./);
-      expect(skill).toContain("ideaspaces create agents/<name> --agent --yes");
+      expect(skill).toContain("`ideaspaces create <name> --agent --yes`. It becomes `agents/<name>`.");
       expect(skill).toContain("ideaspaces create <name> --yes");
+      expect(skill).not.toContain("create agents/"); // an agent's name cannot hold a path: create refuses it
+      expect(skill).toContain("ideaspaces map add home.map.md --position . --checkout <path>");
+      expect(skill).toContain("no name, date or detail they\ndid not give");
       expect(skill).toContain("Write nothing until the person\nsays yes in words.");
 
       // The skill is committed with the scaffold, so a fresh Home starts clean.
@@ -869,6 +872,15 @@ describe("ideaspaces create — git author identity", () => {
       expect(status.stdout.trim()).toBe("");
       const tracked = spawnSync("git", ["-C", target, "ls-files"], { encoding: "utf-8" }).stdout.split("\n");
       expect(tracked).toContain("_agent/skills/first-conversation.md");
+
+      // The agent command the skill teaches works as written, from Home's agents/ folder; the path form does not.
+      const refused = await captureStdout(() => cc.run(["agents/Reviewer"], { agent: true }, { ...baseGlobal, yes: true }));
+      expect(refused.exit).toBe(5);
+      await fs.mkdir(join(target, "agents"));
+      process.chdir(join(target, "agents"));
+      const made = await captureStdout(() => cc.run(["Reviewer"], { agent: true }, { ...baseGlobal, yes: true }));
+      expect(made.exit).toBe(0);
+      expect(parseFrontmatter(await fs.readFile(join(target, "agents", "Reviewer", "_agent", "agreement.md"), "utf-8"))!.name).toBe("Agreement — Reviewer");
     });
 
     it("keeps an existing first-conversation skill on create --home", async () => {
