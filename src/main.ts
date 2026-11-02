@@ -4,6 +4,7 @@ import { handleError } from "./errors.js";
 import { createOutput } from "./output.js";
 import { STATUS_SECTIONS } from "./commands/status.js";
 import { parseArgs } from "./argv.js";
+import { takeTokenFd } from "./host-token-flag.js";
 
 // ─── Main ──────────────────────────────────────────────────────────
 
@@ -98,10 +99,12 @@ if (global.help) {
 }
 
 try {
+  // Before the command does anything: read the host's token once and close the fd.
+  takeTokenFd(global.tokenFd, cmd.name);
   const exitCode = await cmd.run(resolvedArgs, flags, global);
   process.exit(exitCode);
 } catch (err) {
   const output = createOutput(global);
-  const exitCode = handleError(err, output);
+  const exitCode = handleError(err, output, { json: global.json, command: cmd.name });
   process.exit(exitCode);
 }

@@ -5,7 +5,7 @@ import { parseFrontmatter, parseThreadPost, type ThreadKind } from "@ideaspaces/
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
-import { loadConfig } from "../auth/credentials.js";
+import { HostAuthRefusal, isHostAuth, peekConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { exchangeText, hostedThreadsCommand, threadBadges } from "./inbox.js";
@@ -16,7 +16,8 @@ import {
   resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
-import { HOSTED_THREAD_ID as HOSTED, threadFlagError, type Flags } from "./thread-flags.js";
+import { HOSTED_THREAD_ID as HOSTED, hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
+import { ackVerb, HOSTED_THREAD_32, HostedError, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
 
 export { threadFlagError } from "./thread-flags.js";
 
@@ -88,7 +89,7 @@ function threadSection(markdown: string, heading: string): string | undefined {
   return match?.[1]?.trim() || undefined;
 }
 function threadFrame(thread: LocalThread) {
-  // loadThread validates the Agreement, but it can disappear between the two
+  // A Thread's Agreement is optional, and it can disappear between the two
   // reads. A missing target frame does not erase the curated README frame.
   let agreement = "";
   try {
@@ -241,8 +242,13 @@ function writerName(explicit?: string): string {
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
+  usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ... | threads <list|new> --hosted | threads <open|post|ack> x_<32hex> ...",
   examples: [
+    "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>]  # hosted Threads (x_<32hex>) this sign-in can read",
+    "ideaspaces threads open x_<32hex> [--limit 50] [--cursor <older or newer cursor>]  # head + one page; author and date come from the service",
+    "ideaspaces threads post x_<32hex> --reply-to msg_<id> --message '…' [--name '…'] [--summary '…'] [--post-id msg_…]  # never retried; resend with the same --post-id",
+    "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening'  # a hosted Thread with just you in it",
+    "ideaspaces threads ack x_<32hex> --cursor <cursor from threads open>  # or --seq <n>; moves your read cursor forward only",
     "ideaspaces threads list [<dir>] [--new] [--space n_…]",
     "ideaspaces threads posts [--space n_…] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary] [--order newer|older]",
     "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
@@ -279,6 +285,25 @@ export const threadsCommand: CommandDef = {
     const output = createOutput(global);
     const [sub, ...rest] = args;
     try {
+      // Hosted Threads (x_<32hex>) over /threads, before the exchange (x_<24hex>) paths,
+      // each with its own flag set; local verbs keep theirs.
+      const hostedTarget = HOSTED_THREAD_32.test(rest[0] ?? "");
+      const hostedFlag = flags.hosted !== undefined;
+      if (hostedFlag && flags.hosted !== true) throw new HostedError("invalid_request", "--hosted takes no value.");
+      if ((sub === "list" || sub === "new") && hostedFlag || hostedTarget && (sub === "open" || sub === "read" || sub === "post") || sub === "ack") {
+        const hostedFlagError = hostedVerbFlagError(sub!, flags);
+        if (hostedFlagError) throw new HostedError("invalid_request", hostedFlagError);
+        if (sub === "list" || sub === "new") {
+          if (rest.length) throw new HostedError("invalid_request", `Usage: threads ${sub} --hosted ${sub === "new" ? "--name <title> --summary <one line> --message <opening> [--post-id msg_…]" : "[--limit <1-200>] [--cursor <cursor>]"}`);
+          return sub === "list" ? await listVerb(output, global.json, flags) : await newVerb(output, global.json, flags);
+        }
+        if (rest.length !== 1 || !hostedTarget) {
+          throw new HostedError("invalid_request", `Usage: threads ${sub} x_<32 hex> ${sub === "ack" ? "--cursor <cursor from threads open> | --seq <n>" : sub === "post" ? "--reply-to msg_… --message <body> [--name] [--summary] [--post-id msg_…]" : "[--limit <1-200>] [--cursor <cursor>]"}`);
+        }
+        if (sub === "post") return await postVerb(output, global.json, rest[0], flags);
+        if (sub === "ack") return await ackVerb(output, global.json, rest[0], flags);
+        return await openVerb(output, global.json, rest[0], flags);
+      }
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
       if ((sub === "open" || sub === "read") && HOSTED.test(rest[0] ?? "") && (flags.limit !== undefined || flags.order !== undefined)) {
@@ -336,7 +361,8 @@ export const threadsCommand: CommandDef = {
             if (rest.length || !(error instanceof NoAgreementError)) throw error;
           }
         }
-        const config = loadConfig();
+        if (space && isHostAuth()) throw new HostAuthRefusal("Listing hosted Space Threads");
+        const config = peekConfig();
         if (space && !config) throw new Error("Not logged in. Run `ideaspaces login` to list hosted Space Threads.");
         let hosted: Array<{ source: "hosted"; id: string; name: string; summary: string; your_grade?: ThreadGrade; closed?: boolean; count?: number; messages?: unknown[]; text?: string }> = [];
         if (config) {
@@ -383,7 +409,9 @@ export const threadsCommand: CommandDef = {
           if (rung === "full" && "text" in row && typeof row.text === "string") return row.text;
           return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row && typeof row.closed === "boolean" ? row.closed : undefined)}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
         }).join("\n\n");
-        const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
+        const hint = !config && !rest.length ? isHostAuth()
+          ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools."
+          : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
         output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
@@ -635,6 +663,8 @@ export const threadsCommand: CommandDef = {
       }
       throw new Error(`Usage: ${threadsCommand.usage}`);
     } catch (error) {
+      const refused = reportHostedRefusal(error, output, global.json);
+      if (refused !== undefined) return refused;
       output.error(error instanceof Error ? error.message : String(error));
       return 1;
     }

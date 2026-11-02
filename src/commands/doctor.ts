@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { loadConfig } from "../auth/credentials.js";
+import { isHostAuth, peekConfig } from "../auth/credentials.js";
 import { gitAvailability } from "../git.js";
 import type { GitAvailability } from "../git.js";
 import { createOutput } from "../output.js";
@@ -230,7 +230,9 @@ export function buildDoctorReport(input: {
         version: null,
         detail: "Remote features are unavailable; local capture still works.",
         exit_code: null,
-        fix: "Run `ideaspaces login` to enable publish, sync, and sharing.",
+        fix: isHostAuth()
+          ? "Remote work is coming through the IdeaSpaces tools; this `ideaspaces` runs with IDEASPACES_AUTH=host."
+          : "Run `ideaspaces login` to enable publish, sync, and sharing.",
         api_url: null,
       };
 
@@ -267,7 +269,7 @@ const defaultRuntime: DoctorRuntime = {
   platform: process.platform,
   node: nodeAvailability,
   git: gitAvailability,
-  auth: loadConfig,
+  auth: peekConfig,
 };
 
 export function makeDoctorCommand(runtime: DoctorRuntime = defaultRuntime): CommandDef {

@@ -130,13 +130,29 @@ export function resolveLocalThread(input: string, cwd = process.cwd()): string {
   return dir;
 }
 
+/** A Thread's own Agreement is optional for reading and posting: an absent one
+ * declares no parent and is reported once as a warning, never a refusal. */
+function threadAgreementContent(path: string): string | null {
+  const agent = join(path, "_agent");
+  if (!lexists(agent)) return null;
+  safeDirectory(agent);
+  const agreement = join(agent, "agreement.md");
+  // lstat, not existsSync: a dangling symlink is refused by safeFile, not read as absent.
+  return lexists(agreement) ? safeFile(agreement) : null;
+}
+
+function lexists(path: string): boolean {
+  try { lstatSync(path); return true; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+}
+
+export const NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
+
 export function loadThread(dir: string): LocalThread {
   const path = safeDirectory(dir);
-  const agreement = join(path, "_agent", "agreement.md");
   const readmePath = join(path, "README.md");
-  if (!existsSync(agreement) || !existsSync(readmePath)) throw new Error(`Thread ${path} needs _agent/agreement.md and README.md.`);
-  safeDirectory(join(path, "_agent"));
-  const agreementContent = safeFile(agreement);
+  if (!existsSync(readmePath)) throw new Error(`Thread ${path} needs README.md.`);
+  const agreementContent = threadAgreementContent(path);
   const readme = safeFile(readmePath);
   const fm = parseFrontmatter(readme);
   if (!fm) throw new Error(`Malformed README frontmatter: ${readmePath}`);
@@ -147,7 +163,8 @@ export function loadThread(dir: string): LocalThread {
     if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join(path, entry.name)) });
   }
-  const legacy = parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
+  const legacy = agreementContent === null ? { status: "absent" as const }
+    : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
   const inspection = inspectThreadPosts(sources, legacy);
   const allPosts = inspection.posts.map((post) => ({ ...post, path: basename(post.path) }));
   const seen = new Set<string>();
@@ -158,7 +175,10 @@ export function loadThread(dir: string): LocalThread {
   const timeline = reconstructThreadTimeline(allPosts);
   const openingPath = [...sources].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.path;
   const opening = inspection.posts.find((post) => post.path === openingPath);
-  const warnings = inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`);
+  const warnings = [
+    ...(agreementContent === null ? [NO_THREAD_AGREEMENT] : []),
+    ...inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`),
+  ];
   return {
     path, slug, thread_id: opening?.id ?? null,
     name: typeof fm.name === "string" ? fm.name : slug,
@@ -224,7 +244,9 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
 
 export function resolveThreadParent(threadDir: string, knownThreads?: LocalThread[]): ThreadParentInfo | null {
   const agreementPath = join(threadDir, "_agent", "agreement.md");
-  const parsedAgreement = parseThreadAgreementAttachment(safeFile(agreementPath), `_threads/${basename(threadDir)}/_agent/agreement.md`);
+  const agreementContent = threadAgreementContent(safeDirectory(threadDir));
+  const parsedAgreement = agreementContent === null ? { status: "absent" as const }
+    : parseThreadAgreementAttachment(agreementContent, `_threads/${basename(threadDir)}/_agent/agreement.md`);
   const canonicalThreadDir = realpathSync(threadDir);
   const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
   if (parsedAgreement.status === "invalid" && !thread.attachment) {

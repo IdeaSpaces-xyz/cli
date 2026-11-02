@@ -1,5 +1,7 @@
 import type { MapBlock, MapMember } from "@ideaspaces/protocol";
 import { resolveSessionConfig, refuseSession, SessionAuthError } from "./client-session.js";
+import { HostAuthRefusal, isHostAuth } from "./credentials.js";
+import { hostToken } from "./host-token.js";
 
 /**
  * Thin fetch helpers for the IdeaSpaces server API.
@@ -21,6 +23,8 @@ export interface PublicApiConfig {
   apiKey?: string;
   /** Host-store session binding. Explicit env/API keys omit it. */
   sessionId?: string;
+  /** Set only by hostedConfig() on the token read from --token-fd; see authHeaders. */
+  host?: true;
 }
 
 export interface ApiConfig extends PublicApiConfig {
@@ -149,6 +153,21 @@ export interface RequestOptions {
    * latency-sensitive best-effort calls that prefer a fast fallback over
    * absorbing a cold start. */
   retry?: boolean;
+  /** Throw ApiStatusError (status, body, Retry-After) for any non-2xx, after the usual sign-in renewal. */
+  statusError?: boolean;
+  /** Send `body` as-is with Content-Type text/plain (a hosted Thread post), not as JSON. */
+  text?: boolean;
+}
+
+/** A non-2xx answer, kept typed for callers that map statuses to states (hosted Threads, Vaults). */
+export class ApiStatusError extends Error {
+  readonly retryAfterMs?: number;
+  constructor(readonly status: number, readonly body: string, retryAfter: string | null) {
+    super(`HTTP ${status}`);
+    this.name = "ApiStatusError";
+    const delay = retryAfter === null ? undefined : /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
+    if (delay !== undefined && Number.isFinite(delay)) this.retryAfterMs = Math.max(0, delay);
+  }
 }
 
 /** Thrown on 401 so callers can recognize "session expired" without
@@ -258,6 +277,14 @@ function unreachableMessage(apiUrl: string, timedOut: boolean, call: string): st
 
 /** Optional auth + JSON headers, shared so streaming and public reads cannot drift. */
 async function authHeaders(config: PublicApiConfig, extra?: Record<string, string>): Promise<Record<string, string>> {
+  // Every HTTP call passes here, public reads included. Host mode makes none, except a
+  // hosted verb spending the exact token the host passed on --token-fd, at its service.
+  if (isHostAuth()) {
+    const token = hostToken();
+    if (!(config.host && token && config.apiKey === token.accessToken && config.apiUrl === token.apiUrl && !config.sessionId)) {
+      throw new HostAuthRefusal();
+    }
+  }
   let apiKey: string | undefined;
   try { apiKey = (await resolveSessionConfig(config)).apiKey?.trim(); }
   catch (error) {
@@ -293,7 +320,7 @@ async function request<T>(
   const maxAttempts = method === "GET" && opts.retry !== false ? 2 : 1;
   let authRetried = false;
   for (let attempt = 1; ; attempt++) {
-    const headers = await authHeaders(config);
+    const headers = await authHeaders(config, opts.text ? { "Content-Type": "text/plain; charset=utf-8" } : undefined);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
@@ -301,7 +328,7 @@ async function request<T>(
         method,
         headers,
         redirect: "error",
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: body === undefined ? undefined : opts.text ? String(body) : JSON.stringify(body),
         signal: ctrl.signal,
       });
       if (!r.ok) {
@@ -314,8 +341,10 @@ async function request<T>(
             throw new UnauthorizedError("Your sign-in was renewed. Retry this command; its write was not replayed.");
           }
           await refuseSession(config, headers.Authorization?.slice(7));
+          if (opts.statusError) throw new ApiStatusError(401, text, r.headers.get("Retry-After"));
           throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
         }
+        if (opts.statusError) throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"));
         if (r.status === 410) {
           throw new RetiredEndpointError(method, path, text);
         }
@@ -867,8 +896,62 @@ export async function fetchThreadPosts(
   if (query?.cursor) params.set("cursor", query.cursor);
   if (query?.order) params.set("order", query.order);
   const queryString = params.toString();
+  // The exchange posts feed, at the route released CLIs already call. Moving it to
+  // /inbox/posts waits until the service is checked to serve that route (#265).
   const path = `${API_V1}/threads/posts${queryString ? `?${queryString}` : ""}`;
   return request<ThreadPostsPageResponse>(config, "GET", path, undefined, opts);
+}
+
+// ─── Hosted Threads (x_<32hex>) and Vaults ─────────────────────────────
+// Raw service answers; commands/hosted-threads.ts validates and projects them.
+// Each call throws ApiStatusError on a non-2xx so the verb can name the state.
+
+const HOSTED = { statusError: true } as const;
+
+/** GET /vaults: the person's own Vault, organization Vaults and roots shared with them. */
+export async function fetchVaults(config: ApiConfig, opts?: RequestOptions): Promise<unknown> {
+  return request<unknown>(config, "GET", `${API_V1}/vaults`, undefined, { ...opts, ...HOSTED });
+}
+
+/** GET /threads: hosted Threads the caller can read, newest activity first, cursor-paged. */
+export async function listHostedThreads(config: ApiConfig, query: { limit: number; cursor?: string }, opts?: RequestOptions): Promise<unknown> {
+  const params = new URLSearchParams({ limit: String(query.limit) });
+  if (query.cursor) params.set("cursor", query.cursor);
+  const queryString = params.toString();
+  const path = `${API_V1}/threads${queryString ? `?${queryString}` : ""}`;
+  return request<unknown>(config, "GET", path, undefined, { ...opts, ...HOSTED });
+}
+
+/** GET /threads/{id}: the head (name, closed, last_seq, grade). No grant answers 404, like absence. */
+export async function fetchHostedThread(config: ApiConfig, threadId: string, opts?: RequestOptions): Promise<unknown> {
+  return request<unknown>(config, "GET", `${API_V1}/threads/${encodeURIComponent(threadId)}`, undefined, { ...opts, ...HOSTED });
+}
+
+/** GET /threads/{id}/posts: one page by seq, after_seq or before_seq, never both. */
+export async function fetchHostedThreadPosts(
+  config: ApiConfig, threadId: string, query: { limit: number; after_seq?: number; before_seq?: number }, opts?: RequestOptions,
+): Promise<unknown> {
+  const params = new URLSearchParams({ limit: String(query.limit) });
+  if (query.after_seq !== undefined) params.set("after_seq", String(query.after_seq));
+  if (query.before_seq !== undefined) params.set("before_seq", String(query.before_seq));
+  const queryString = params.toString();
+  const path = `${API_V1}/threads/${encodeURIComponent(threadId)}/posts${queryString ? `?${queryString}` : ""}`;
+  return request<unknown>(config, "GET", path, undefined, { ...opts, ...HOSTED });
+}
+
+/** POST /threads/{id}/posts: one Markdown Note as text/plain. Never retried; an exact resend is idempotent. */
+export async function appendHostedThreadPost(config: ApiConfig, threadId: string, note: string, opts?: RequestOptions): Promise<unknown> {
+  return request<unknown>(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/posts`, note, { ...opts, ...HOSTED, text: true });
+}
+
+/** POST /threads: open a hosted Thread with its opening Note. An exact resend returns the same Thread. */
+export async function openHostedThread(config: ApiConfig, note: string, opts?: RequestOptions): Promise<unknown> {
+  return request<unknown>(config, "POST", `${API_V1}/threads`, { note }, { ...opts, ...HOSTED });
+}
+
+/** POST /threads/{id}/ack: move the caller's read cursor forward to seq (never back). */
+export async function ackHostedThread(config: ApiConfig, threadId: string, seq: number, opts?: RequestOptions): Promise<unknown> {
+  return request<unknown>(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/ack`, { seq }, { ...opts, ...HOSTED });
 }
 
 /** Complete immutable message history for one exchange. Non-parties receive the same 404 as absent ids. */

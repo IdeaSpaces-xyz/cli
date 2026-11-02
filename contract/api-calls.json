@@ -228,7 +228,35 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/threads"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/threads"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/threads/{threadId}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/threads/{threadId}/ack"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/threads/{threadId}/posts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/threads/{threadId}/posts"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/threads/posts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vaults"
     },
     {
       "method": "GET",

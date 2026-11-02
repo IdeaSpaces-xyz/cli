@@ -1,5 +1,5 @@
 import type { MapRoot } from "@ideaspaces/protocol";
-import { getDefaultApiUrl, loadConfig } from "./auth/credentials.js";
+import { getDefaultApiUrl, peekConfig } from "./auth/credentials.js";
 import { ignoredPaths, statusEntries } from "./git.js";
 import { canonicalRepoUrl } from "./repo-locator.js";
 import { inspectLocalRootIdentity } from "./root-identity.js";
@@ -32,7 +32,7 @@ export function inspectPortableLocalRoot(
   headSha: string | null,
   observedPaths: string[],
 ): PortableLocalRoot {
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const identity = inspectLocalRootIdentity(repoRoot, apiUrl);
   const root: LocalProjectionRoot = {
     local_path: repoRoot,

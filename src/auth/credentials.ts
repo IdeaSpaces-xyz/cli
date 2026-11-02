@@ -4,9 +4,16 @@
  * Stores an access/rotating-refresh session (or an existing API key) in the CLI's
  * owner-only ~/.ideaspaces/credentials.json. Session changes use withCredentialsLock.
  * Auth resolution: IS_API_KEY env var → stored credentials → not logged in.
+ *
+ * Host mode (IDEASPACES_AUTH=host): an app that holds its own sign-in runs this CLI
+ * for local work. The process then never reads, locks, refreshes, writes or deletes
+ * credentials.json, ignores IS_API_KEY, and refuses sign-in and every remote call
+ * with HostAuthRefusal. It keeps the CLI from using the terminal's sign-in; it is not
+ * a wall against a same-user process reading the file.
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { hostToken } from "./host-token.js";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import lockfile from "proper-lockfile";
@@ -14,6 +21,32 @@ import { configDir } from "./config-dir.js";
 
 function credentialsFile(): string {
   return join(configDir(), "credentials.json");
+}
+
+// ─── Host mode ─────────────────────────────────────────────────────
+
+export const HOST_AUTH_ENV = "IDEASPACES_AUTH";
+
+/** True when an app that keeps its own sign-in runs this CLI (`IDEASPACES_AUTH=host`). */
+export function isHostAuth(): boolean {
+  return process.env[HOST_AUTH_ENV] === "host";
+}
+
+/** The plain refusal a host-mode CLI gives for sign-in and remote work. */
+export function hostAuthMessage(what = "Remote IdeaSpaces work"): string {
+  return `${what} isn't available from this \`ideaspaces\` command: it runs inside an app that holds its own sign-in (${HOST_AUTH_ENV}=host). Remote work is coming through the IdeaSpaces tools; local commands work here.`;
+}
+
+export class HostAuthRefusal extends Error {
+  readonly code = "HOST_AUTH";
+  constructor(what?: string) {
+    super(hostAuthMessage(what));
+    this.name = "HostAuthRefusal";
+  }
+}
+
+function refuseInHostMode(): void {
+  if (isHostAuth()) throw new HostAuthRefusal();
 }
 
 export interface StoredCredentials {
@@ -35,6 +68,7 @@ export interface StoredSession {
 }
 
 export async function withCredentialsLock<T>(work: () => Promise<T>): Promise<T> {
+  refuseInHostMode();
   mkdirSync(configDir(), { recursive: true, mode: 0o700 });
   let release: () => Promise<void>;
   try {
@@ -49,6 +83,7 @@ export async function withCredentialsLock<T>(work: () => Promise<T>): Promise<T>
 }
 
 export function loadStoredCredentials(): StoredCredentials | null {
+  if (isHostAuth()) return null;
   const file = credentialsFile();
   try {
     if (!existsSync(file)) return null;
@@ -67,6 +102,7 @@ export function loadStoredCredentials(): StoredCredentials | null {
 }
 
 export function saveCredentials(creds: StoredCredentials): void {
+  refuseInHostMode();
   const dir = configDir();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -79,6 +115,7 @@ export function saveCredentials(creds: StoredCredentials): void {
 }
 
 export function deleteCredentials(): void {
+  refuseInHostMode();
   const file = credentialsFile();
   try {
     if (existsSync(file)) {
@@ -110,10 +147,14 @@ export interface LoadedConfig {
  * 2. Stored credentials from login (~/.ideaspaces/credentials.json)
  * 3. null — not logged in
  *
+ * In host mode it throws HostAuthRefusal: a caller asking for a sign-in is about
+ * to do remote work. A caller that only asks whether one exists uses peekConfig.
+ *
  * Per-folder repo binding lives in `auth/spaces.ts` (folder-keyed map),
  * not in this struct.
  */
 export function loadConfig(): LoadedConfig | null {
+  refuseInHostMode();
   const envKey = process.env.IS_API_KEY;
   if (envKey) {
     return {
@@ -136,6 +177,33 @@ export function loadConfig(): LoadedConfig | null {
   }
 
   return null;
+}
+
+/** For a local read that only asks whether a sign-in exists or which service: none in host mode. */
+export function peekConfig(): LoadedConfig | null {
+  return isHostAuth() ? null : loadConfig();
+}
+
+/** A hosted-verb config: the host's per-call token in host mode, marked so only these verbs spend it. */
+export interface HostedConfig extends LoadedConfig { host?: true }
+
+/**
+ * The sign-in a hosted Thread or Vault verb runs under, and nothing else.
+ *
+ * In host mode: only the token the host passed on `--token-fd`, never IS_API_KEY or
+ * credentials.json, with no session binding, so it is never refreshed or written.
+ * Without that token, host mode refuses as before. Outside host mode: the terminal's
+ * own `login` (or IS_API_KEY), exactly as every other remote command uses it.
+ */
+export function hostedConfig(what: string): HostedConfig {
+  if (isHostAuth()) {
+    const token = hostToken();
+    if (!token) throw new HostAuthRefusal(what);
+    return { apiUrl: token.apiUrl, apiKey: token.accessToken, host: true };
+  }
+  const config = loadConfig();
+  if (!config) throw new Error(`Not logged in. Run \`ideaspaces login\` to use ${what.charAt(0).toLowerCase()}${what.slice(1)}.`);
+  return config;
 }
 
 export function getDefaultApiUrl(): string {

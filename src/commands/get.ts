@@ -22,7 +22,7 @@ import {
   type AuthMeRepo,
   type PublicSpaceResult,
 } from "../auth/api.js";
-import { loadConfig, loadOptionalAuthConfig } from "../auth/credentials.js";
+import { loadConfig, loadOptionalAuthConfig, peekConfig } from "../auth/credentials.js";
 import { isInsideWorkTree, originUrl } from "../git.js";
 import { createOutput, type Output } from "../output.js";
 import { canonicalRepoUrl, parseRepoLocator } from "../repo-locator.js";
@@ -73,7 +73,7 @@ function planFolder(dir: string): GetPlan {
           : { available: false, origin: null, reason: "no `origin` remote — cannot tell which Space it belongs to" }
         : { available: false, origin: null, reason: "not a git repository" },
     },
-    logged_in: loadConfig() !== null,
+    logged_in: peekConfig() !== null,
   };
 }
 

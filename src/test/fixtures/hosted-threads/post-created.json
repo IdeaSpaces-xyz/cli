@@ -1,0 +1,25 @@
+{
+  "thread_id": "x_0123456789abcdef0123456789abcdef",
+  "seq": 7,
+  "post_id": "msg_cli_fixed",
+  "actor": "person:user_7",
+  "actor_ref": "person:user_7",
+  "actor_label": "@ada",
+  "handle": "ada",
+  "display_name": "Ada Example",
+  "picture_url": null,
+  "principal_ref": "person:user_7",
+  "principal_label": "@ada",
+  "principal_handle": "ada",
+  "principal_picture_url": null,
+  "surface": "human",
+  "received_at": "2026-10-29T10:07:00Z",
+  "edited_at": null,
+  "note": "---\nid: msg_cli_fixed\nkind: post\nin_reply_to: msg_reply_two\n---\n\nAnswer.\n",
+  "fields": {
+    "id": "msg_cli_fixed",
+    "kind": "post",
+    "in_reply_to": "msg_reply_two"
+  },
+  "marks": []
+}

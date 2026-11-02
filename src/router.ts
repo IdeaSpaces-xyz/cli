@@ -20,6 +20,7 @@ import { skillsCommand } from "./commands/skills.js";
 import { credentialCommand } from "./commands/credential.js";
 import { whoamiCommand } from "./commands/whoami.js";
 import { reposCommand } from "./commands/repos.js";
+import { vaultsCommand } from "./commands/vaults.js";
 import { catalogCommand } from "./commands/catalog.js";
 import { cloneCommand } from "./commands/clone.js";
 import { getCommand } from "./commands/get.js";
@@ -74,6 +75,7 @@ const topLevel: CommandDef[] = [
   loginCommand,
   whoamiCommand,
   reposCommand,
+  vaultsCommand,
   catalogCommand,
   piStatusCommand,
   piModelsCommand,
@@ -144,6 +146,7 @@ export function printHelp(): void {
   lines.push("  --quiet          Suppress non-essential output");
   lines.push("  --yes            Apply the plan (create, publish, share visibility)");
   lines.push("  --help           Show help");
+  lines.push("  --token-fd <n>   Host-run only (IDEASPACES_AUTH=host): read the app's {api_url, access_token} once from inherited fd n");
   lines.push("", "Run: ideaspaces <command> --help for command-specific help.");
   process.stderr.write(lines.join("\n") + "\n");
 }

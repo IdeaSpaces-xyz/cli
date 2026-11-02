@@ -1,0 +1,25 @@
+{
+  "threads": [
+    {
+      "thread_id": "x_00000000000000000000000000000001",
+      "name": "Older",
+      "last_post_id": "msg_last",
+      "last_post_excerpt": "…",
+      "last_post_actor": "person:user_7",
+      "last_post_actor_label": "@ada",
+      "last_post_actor_handle": "ada",
+      "last_post_actor_picture_url": null,
+      "last_post_principal_ref": "person:user_7",
+      "last_post_principal_label": "@ada",
+      "last_post_principal_handle": "ada",
+      "last_post_principal_picture_url": null,
+      "last_post_at": "2026-10-29T10:06:00Z",
+      "last_seq": 6,
+      "read_seq": 4,
+      "unread_count": 2,
+      "closed": false,
+      "participants": []
+    }
+  ],
+  "next_cursor": null
+}

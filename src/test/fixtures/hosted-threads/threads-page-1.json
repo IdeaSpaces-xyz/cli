@@ -1,0 +1,45 @@
+{
+  "threads": [
+    {
+      "thread_id": "x_0123456789abcdef0123456789abcdef",
+      "name": "Launch plan",
+      "last_post_id": "msg_last",
+      "last_post_excerpt": "…",
+      "last_post_actor": "person:user_7",
+      "last_post_actor_label": "@ada",
+      "last_post_actor_handle": "ada",
+      "last_post_actor_picture_url": null,
+      "last_post_principal_ref": "person:user_7",
+      "last_post_principal_label": "@ada",
+      "last_post_principal_handle": "ada",
+      "last_post_principal_picture_url": null,
+      "last_post_at": "2026-10-29T10:06:00Z",
+      "last_seq": 6,
+      "read_seq": 4,
+      "unread_count": 2,
+      "closed": false,
+      "participants": []
+    },
+    {
+      "thread_id": "x_fedcba9876543210fedcba9876543210",
+      "name": "Retro",
+      "last_post_id": "msg_last",
+      "last_post_excerpt": "…",
+      "last_post_actor": "person:user_7",
+      "last_post_actor_label": "@ada",
+      "last_post_actor_handle": "ada",
+      "last_post_actor_picture_url": null,
+      "last_post_principal_ref": "person:user_7",
+      "last_post_principal_label": "@ada",
+      "last_post_principal_handle": "ada",
+      "last_post_principal_picture_url": null,
+      "last_post_at": "2026-10-29T10:06:00Z",
+      "last_seq": 6,
+      "read_seq": 4,
+      "unread_count": 0,
+      "closed": true,
+      "participants": []
+    }
+  ],
+  "next_cursor": "c2VydmVyLWN1cnNvcg"
+}

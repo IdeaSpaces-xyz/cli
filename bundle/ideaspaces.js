@@ -40,6 +40,101 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// dist/auth/host-token.js
+import { closeSync, readSync } from "node:fs";
+function hostServiceOrigin(raw) {
+  if (typeof raw !== "string")
+    throw new HostTokenError("The host token's api_url is missing.");
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new HostTokenError("The host token's api_url is not a URL.");
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.username || url.password || url.search || url.hash || !["/", ""].includes(url.pathname) || !(url.protocol === "https:" || url.protocol === "http:" && loopback)) {
+    throw new HostTokenError("The host token's api_url must be an HTTPS service origin (loopback HTTP for testing).");
+  }
+  return url.origin;
+}
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+function readHostToken(fd) {
+  if (held)
+    throw new HostTokenError("The host token was already read; --token-fd is read once.");
+  if (!Number.isSafeInteger(fd) || fd < 3)
+    throw new HostTokenError("--token-fd needs an inherited descriptor number of 3 or more.");
+  const chunks = [];
+  let total = 0;
+  const deadline = Date.now() + READ_DEADLINE_MS;
+  try {
+    for (; ; ) {
+      const buffer = Buffer.alloc(1024);
+      let n;
+      try {
+        n = readSync(fd, buffer, 0, buffer.length, null);
+      } catch (error) {
+        const code = error.code;
+        if (code === "EAGAIN" && Date.now() < deadline) {
+          sleep(5);
+          continue;
+        }
+        if (code === "EAGAIN")
+          throw new HostTokenError(`--token-fd ${fd} sent nothing within ${READ_DEADLINE_MS / 1e3} s; the host must write the token and close its end.`);
+        if (code === "EBADF")
+          throw new HostTokenError(`--token-fd ${fd} is not an open descriptor in this process.`);
+        throw new HostTokenError(`--token-fd ${fd} could not be read (${code ?? "unknown error"}).`);
+      }
+      if (n === 0)
+        break;
+      total += n;
+      if (total > MAX_BYTES)
+        throw new HostTokenError(`--token-fd ${fd} sent more than ${MAX_BYTES} bytes; expected one {api_url, access_token} line.`);
+      chunks.push(buffer.subarray(0, n));
+    }
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+    }
+  }
+  let parsed2;
+  try {
+    parsed2 = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new HostTokenError(`--token-fd ${fd} did not send JSON; expected {"api_url": "...", "access_token": "..."}.`);
+  }
+  if (!parsed2 || typeof parsed2 !== "object" || Array.isArray(parsed2))
+    throw new HostTokenError(`--token-fd ${fd} must send one JSON object with api_url and access_token.`);
+  const { api_url, access_token } = parsed2;
+  const apiUrl = hostServiceOrigin(api_url);
+  if (typeof access_token !== "string" || !access_token || access_token.length > 4096 || /[\s\p{Cc}]/u.test(access_token)) {
+    throw new HostTokenError("The host token's access_token is missing or malformed.");
+  }
+  held = { apiUrl, accessToken: access_token };
+  return held;
+}
+function hostToken() {
+  return held;
+}
+var MAX_BYTES, READ_DEADLINE_MS, held, HostTokenError;
+var init_host_token = __esm({
+  "dist/auth/host-token.js"() {
+    "use strict";
+    MAX_BYTES = 8 * 1024;
+    READ_DEADLINE_MS = 5e3;
+    held = null;
+    HostTokenError = class extends Error {
+      code = "HOST_TOKEN";
+      constructor(message) {
+        super(message);
+        this.name = "HostTokenError";
+      }
+    };
+  }
+});
+
 // node_modules/graceful-fs/polyfills.js
 var require_polyfills = __commonJS({
   "node_modules/graceful-fs/polyfills.js"(exports, module) {
@@ -501,14 +596,14 @@ var require_graceful_fs = __commonJS({
         return close;
       })(fs13.close);
       fs13.closeSync = (function(fs$closeSync) {
-        function closeSync(fd) {
+        function closeSync3(fd) {
           fs$closeSync.apply(fs13, arguments);
           resetQueue();
         }
-        Object.defineProperty(closeSync, previousSymbol, {
+        Object.defineProperty(closeSync3, previousSymbol, {
           value: fs$closeSync
         });
-        return closeSync;
+        return closeSync3;
       })(fs13.closeSync);
       if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || "")) {
         process.on("exit", function() {
@@ -1636,7 +1731,18 @@ import { randomUUID } from "node:crypto";
 function credentialsFile() {
   return join2(configDir(), "credentials.json");
 }
+function isHostAuth() {
+  return process.env[HOST_AUTH_ENV] === "host";
+}
+function hostAuthMessage(what = "Remote IdeaSpaces work") {
+  return `${what} isn't available from this \`ideaspaces\` command: it runs inside an app that holds its own sign-in (${HOST_AUTH_ENV}=host). Remote work is coming through the IdeaSpaces tools; local commands work here.`;
+}
+function refuseInHostMode() {
+  if (isHostAuth())
+    throw new HostAuthRefusal();
+}
 async function withCredentialsLock(work) {
+  refuseInHostMode();
   mkdirSync(configDir(), { recursive: true, mode: 448 });
   let release;
   try {
@@ -1658,6 +1764,8 @@ async function withCredentialsLock(work) {
   }
 }
 function loadStoredCredentials() {
+  if (isHostAuth())
+    return null;
   const file2 = credentialsFile();
   try {
     if (!existsSync(file2))
@@ -1677,6 +1785,7 @@ function loadStoredCredentials() {
   }
 }
 function saveCredentials(creds) {
+  refuseInHostMode();
   const dir = configDir();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 448 });
@@ -1693,6 +1802,7 @@ function saveCredentials(creds) {
   }
 }
 function deleteCredentials() {
+  refuseInHostMode();
   const file2 = credentialsFile();
   try {
     if (existsSync(file2)) {
@@ -1704,6 +1814,7 @@ function deleteCredentials() {
   }
 }
 function loadConfig() {
+  refuseInHostMode();
   const envKey = process.env.IS_API_KEY;
   if (envKey) {
     return {
@@ -1725,18 +1836,42 @@ function loadConfig() {
   }
   return null;
 }
+function peekConfig() {
+  return isHostAuth() ? null : loadConfig();
+}
+function hostedConfig(what) {
+  if (isHostAuth()) {
+    const token = hostToken();
+    if (!token)
+      throw new HostAuthRefusal(what);
+    return { apiUrl: token.apiUrl, apiKey: token.accessToken, host: true };
+  }
+  const config = loadConfig();
+  if (!config)
+    throw new Error(`Not logged in. Run \`ideaspaces login\` to use ${what.charAt(0).toLowerCase()}${what.slice(1)}.`);
+  return config;
+}
 function getDefaultApiUrl() {
   return (process.env.IS_API_URL || DEFAULT_API_URL).replace(/\/$/, "");
 }
 function loadOptionalAuthConfig() {
   return loadConfig() ?? { apiUrl: getDefaultApiUrl() };
 }
-var import_proper_lockfile, DEFAULT_API_URL;
+var import_proper_lockfile, HOST_AUTH_ENV, HostAuthRefusal, DEFAULT_API_URL;
 var init_credentials = __esm({
   "dist/auth/credentials.js"() {
     "use strict";
+    init_host_token();
     import_proper_lockfile = __toESM(require_proper_lockfile(), 1);
     init_config_dir();
+    HOST_AUTH_ENV = "IDEASPACES_AUTH";
+    HostAuthRefusal = class extends Error {
+      code = "HOST_AUTH";
+      constructor(what) {
+        super(hostAuthMessage(what));
+        this.name = "HostAuthRefusal";
+      }
+    };
     DEFAULT_API_URL = "https://api.ideaspaces.xyz";
   }
 });
@@ -2769,13 +2904,13 @@ var require_Collection = __commonJS({
 var require_stringifyComment = __commonJS({
   "node_modules/yaml/dist/stringify/stringifyComment.js"(exports) {
     "use strict";
-    var stringifyComment = (str2) => str2.replace(/^(?!$)(?: $)?/gm, "#");
+    var stringifyComment = (str3) => str3.replace(/^(?!$)(?: $)?/gm, "#");
     function indentComment(comment, indent) {
       if (/^\n+$/.test(comment))
         return comment.substring(1);
       return indent ? comment.replace(/^(?! *$)/gm, indent) : comment;
     }
-    var lineComment = (str2, indent, comment) => str2.endsWith("\n") ? indentComment(comment, indent) : comment.includes("\n") ? "\n" + indentComment(comment, indent) : (str2.endsWith(" ") ? "" : " ") + comment;
+    var lineComment = (str3, indent, comment) => str3.endsWith("\n") ? indentComment(comment, indent) : comment.includes("\n") ? "\n" + indentComment(comment, indent) : (str3.endsWith(" ") ? "" : " ") + comment;
     exports.indentComment = indentComment;
     exports.lineComment = lineComment;
     exports.stringifyComment = stringifyComment;
@@ -2929,16 +3064,16 @@ var require_stringifyString = __commonJS({
       lineWidth: ctx.options.lineWidth,
       minContentWidth: ctx.options.minContentWidth
     });
-    var containsDocumentMarker = (str2) => /^(%|---|\.\.\.)/m.test(str2);
-    function lineLengthOverLimit(str2, lineWidth, indentLength) {
+    var containsDocumentMarker = (str3) => /^(%|---|\.\.\.)/m.test(str3);
+    function lineLengthOverLimit(str3, lineWidth, indentLength) {
       if (!lineWidth || lineWidth < 0)
         return false;
       const limit = lineWidth - indentLength;
-      const strLen = str2.length;
+      const strLen = str3.length;
       if (strLen <= limit)
         return false;
       for (let i = 0, start = 0; i < strLen; ++i) {
-        if (str2[i] === "\n") {
+        if (str3[i] === "\n") {
           if (i - start > limit)
             return true;
           start = i + 1;
@@ -2955,11 +3090,11 @@ var require_stringifyString = __commonJS({
       const { implicitKey } = ctx;
       const minMultiLineLength = ctx.options.doubleQuotedMinMultiLineLength;
       const indent = ctx.indent || (containsDocumentMarker(value2) ? "  " : "");
-      let str2 = "";
+      let str3 = "";
       let start = 0;
       for (let i = 0, ch = json[i]; ch; ch = json[++i]) {
         if (ch === " " && json[i + 1] === "\\" && json[i + 2] === "n") {
-          str2 += json.slice(start, i) + "\\ ";
+          str3 += json.slice(start, i) + "\\ ";
           i += 1;
           start = i;
           ch = "\\";
@@ -2968,38 +3103,38 @@ var require_stringifyString = __commonJS({
           switch (json[i + 1]) {
             case "u":
               {
-                str2 += json.slice(start, i);
+                str3 += json.slice(start, i);
                 const code = json.substr(i + 2, 4);
                 switch (code) {
                   case "0000":
-                    str2 += "\\0";
+                    str3 += "\\0";
                     break;
                   case "0007":
-                    str2 += "\\a";
+                    str3 += "\\a";
                     break;
                   case "000b":
-                    str2 += "\\v";
+                    str3 += "\\v";
                     break;
                   case "001b":
-                    str2 += "\\e";
+                    str3 += "\\e";
                     break;
                   case "0085":
-                    str2 += "\\N";
+                    str3 += "\\N";
                     break;
                   case "00a0":
-                    str2 += "\\_";
+                    str3 += "\\_";
                     break;
                   case "2028":
-                    str2 += "\\L";
+                    str3 += "\\L";
                     break;
                   case "2029":
-                    str2 += "\\P";
+                    str3 += "\\P";
                     break;
                   default:
                     if (code.substr(0, 2) === "00")
-                      str2 += "\\x" + code.substr(2);
+                      str3 += "\\x" + code.substr(2);
                     else
-                      str2 += json.substr(i, 6);
+                      str3 += json.substr(i, 6);
                 }
                 i += 5;
                 start = i + 1;
@@ -3009,14 +3144,14 @@ var require_stringifyString = __commonJS({
               if (implicitKey || json[i + 2] === '"' || json.length < minMultiLineLength) {
                 i += 1;
               } else {
-                str2 += json.slice(start, i) + "\n\n";
+                str3 += json.slice(start, i) + "\n\n";
                 while (json[i + 2] === "\\" && json[i + 3] === "n" && json[i + 4] !== '"') {
-                  str2 += "\n";
+                  str3 += "\n";
                   i += 2;
                 }
-                str2 += indent;
+                str3 += indent;
                 if (json[i + 2] === " ")
-                  str2 += "\\";
+                  str3 += "\\";
                 i += 1;
                 start = i + 1;
               }
@@ -3025,8 +3160,8 @@ var require_stringifyString = __commonJS({
               i += 1;
           }
       }
-      str2 = start ? str2 + json.slice(start) : json;
-      return implicitKey ? str2 : foldFlowLines.foldFlowLines(str2, indent, foldFlowLines.FOLD_QUOTED, getFoldOptions(ctx, false));
+      str3 = start ? str3 + json.slice(start) : json;
+      return implicitKey ? str3 : foldFlowLines.foldFlowLines(str3, indent, foldFlowLines.FOLD_QUOTED, getFoldOptions(ctx, false));
     }
     function singleQuotedString(value2, ctx) {
       if (ctx.options.singleQuote === false || ctx.implicitKey && value2.includes("\n") || /[ \t]\n|\n[ \t]/.test(value2))
@@ -3154,15 +3289,15 @@ ${indent}${start}${value2}${end}`;
           return quotedString(value2, ctx);
         }
       }
-      const str2 = value2.replace(/\n+/g, `$&
+      const str3 = value2.replace(/\n+/g, `$&
 ${indent}`);
       if (actualString) {
-        const test = (tag) => tag.default && tag.tag !== "tag:yaml.org,2002:str" && tag.test?.test(str2);
+        const test = (tag) => tag.default && tag.tag !== "tag:yaml.org,2002:str" && tag.test?.test(str3);
         const { compat, tags } = ctx.doc.schema;
         if (tags.some(test) || compat?.some(test))
           return quotedString(value2, ctx);
       }
-      return implicitKey ? str2 : foldFlowLines.foldFlowLines(str2, indent, foldFlowLines.FOLD_FLOW, getFoldOptions(ctx, false));
+      return implicitKey ? str3 : foldFlowLines.foldFlowLines(str3, indent, foldFlowLines.FOLD_FLOW, getFoldOptions(ctx, false));
     }
     function stringifyString(item, ctx, onComment, onChompKeep) {
       const { implicitKey, inFlow } = ctx;
@@ -3292,7 +3427,7 @@ var require_stringify = __commonJS({
         props.push(doc.directives.tagString(tag));
       return props.join(" ");
     }
-    function stringify5(item, ctx, onComment, onChompKeep) {
+    function stringify6(item, ctx, onComment, onChompKeep) {
       if (identity.isPair(item))
         return item.toString(ctx, onComment, onChompKeep);
       if (identity.isAlias(item)) {
@@ -3314,14 +3449,14 @@ var require_stringify = __commonJS({
       const props = stringifyProps(node, tagObj, ctx);
       if (props.length > 0)
         ctx.indentAtStart = (ctx.indentAtStart ?? 0) + props.length + 1;
-      const str2 = typeof tagObj.stringify === "function" ? tagObj.stringify(node, ctx, onComment, onChompKeep) : identity.isScalar(node) ? stringifyString.stringifyString(node, ctx, onComment, onChompKeep) : node.toString(ctx, onComment, onChompKeep);
+      const str3 = typeof tagObj.stringify === "function" ? tagObj.stringify(node, ctx, onComment, onChompKeep) : identity.isScalar(node) ? stringifyString.stringifyString(node, ctx, onComment, onChompKeep) : node.toString(ctx, onComment, onChompKeep);
       if (!props)
-        return str2;
-      return identity.isScalar(node) || str2[0] === "{" || str2[0] === "[" ? `${props} ${str2}` : `${props}
-${ctx.indent}${str2}`;
+        return str3;
+      return identity.isScalar(node) || str3[0] === "{" || str3[0] === "[" ? `${props} ${str3}` : `${props}
+${ctx.indent}${str3}`;
     }
     exports.createStringifyContext = createStringifyContext;
-    exports.stringify = stringify5;
+    exports.stringify = stringify6;
   }
 });
 
@@ -3331,7 +3466,7 @@ var require_stringifyPair = __commonJS({
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
-    var stringify5 = require_stringify();
+    var stringify6 = require_stringify();
     var stringifyComment = require_stringifyComment();
     function stringifyPair({ key: key2, value: value2 }, ctx, onComment, onChompKeep) {
       const { allNullValues, doc, indent, indentStep, options: { commentString, indentSeq, simpleKeys } } = ctx;
@@ -3353,8 +3488,8 @@ var require_stringifyPair = __commonJS({
       });
       let keyCommentDone = false;
       let chompKeep = false;
-      let str2 = stringify5.stringify(key2, ctx, () => keyCommentDone = true, () => chompKeep = true);
-      if (!explicitKey && !ctx.inFlow && str2.length > 1024) {
+      let str3 = stringify6.stringify(key2, ctx, () => keyCommentDone = true, () => chompKeep = true);
+      if (!explicitKey && !ctx.inFlow && str3.length > 1024) {
         if (simpleKeys)
           throw new Error("With simple keys, single line scalar must not span more than 1024 characters");
         explicitKey = true;
@@ -3363,27 +3498,27 @@ var require_stringifyPair = __commonJS({
         if (allNullValues || value2 == null) {
           if (keyCommentDone && onComment)
             onComment();
-          return str2 === "" ? "?" : explicitKey ? `? ${str2}` : str2;
+          return str3 === "" ? "?" : explicitKey ? `? ${str3}` : str3;
         }
       } else if (allNullValues && !simpleKeys || value2 == null && explicitKey) {
-        str2 = `? ${str2}`;
+        str3 = `? ${str3}`;
         if (keyComment && !keyCommentDone) {
-          str2 += stringifyComment.lineComment(str2, ctx.indent, commentString(keyComment));
+          str3 += stringifyComment.lineComment(str3, ctx.indent, commentString(keyComment));
         } else if (chompKeep && onChompKeep)
           onChompKeep();
-        return str2;
+        return str3;
       }
       if (keyCommentDone)
         keyComment = null;
       if (explicitKey) {
         if (keyComment)
-          str2 += stringifyComment.lineComment(str2, ctx.indent, commentString(keyComment));
-        str2 = `? ${str2}
+          str3 += stringifyComment.lineComment(str3, ctx.indent, commentString(keyComment));
+        str3 = `? ${str3}
 ${indent}:`;
       } else {
-        str2 = `${str2}:`;
+        str3 = `${str3}:`;
         if (keyComment)
-          str2 += stringifyComment.lineComment(str2, ctx.indent, commentString(keyComment));
+          str3 += stringifyComment.lineComment(str3, ctx.indent, commentString(keyComment));
       }
       let vsb, vcb, valueComment;
       if (identity.isNode(value2)) {
@@ -3399,13 +3534,13 @@ ${indent}:`;
       }
       ctx.implicitKey = false;
       if (!explicitKey && !keyComment && identity.isScalar(value2))
-        ctx.indentAtStart = str2.length + 1;
+        ctx.indentAtStart = str3.length + 1;
       chompKeep = false;
       if (!indentSeq && indentStep.length >= 2 && !ctx.inFlow && !explicitKey && identity.isSeq(value2) && !value2.flow && !value2.tag && !value2.anchor) {
         ctx.indent = ctx.indent.substring(2);
       }
       let valueCommentDone = false;
-      const valueStr = stringify5.stringify(value2, ctx, () => valueCommentDone = true, () => chompKeep = true);
+      const valueStr = stringify6.stringify(value2, ctx, () => valueCommentDone = true, () => chompKeep = true);
       let ws = " ";
       if (keyComment || vsb || vcb) {
         ws = vsb ? "\n" : "";
@@ -3443,16 +3578,16 @@ ${ctx.indent}`;
       } else if (valueStr === "" || valueStr[0] === "\n") {
         ws = "";
       }
-      str2 += ws + valueStr;
+      str3 += ws + valueStr;
       if (ctx.inFlow) {
         if (valueCommentDone && onComment)
           onComment();
       } else if (valueComment && !valueCommentDone) {
-        str2 += stringifyComment.lineComment(str2, ctx.indent, commentString(valueComment));
+        str3 += stringifyComment.lineComment(str3, ctx.indent, commentString(valueComment));
       } else if (chompKeep && onChompKeep) {
         onChompKeep();
       }
-      return str2;
+      return str3;
     }
     exports.stringifyPair = stringifyPair;
   }
@@ -3463,9 +3598,9 @@ var require_log = __commonJS({
   "node_modules/yaml/dist/log.js"(exports) {
     "use strict";
     var node_process = __require("process");
-    function debug(logLevel, ...messages) {
+    function debug(logLevel, ...messages2) {
       if (logLevel === "debug")
-        console.log(...messages);
+        console.log(...messages2);
     }
     function warn(logLevel, warning) {
       if (logLevel === "debug" || logLevel === "warn") {
@@ -3546,7 +3681,7 @@ var require_addPairToJSMap = __commonJS({
     "use strict";
     var log = require_log();
     var merge = require_merge();
-    var stringify5 = require_stringify();
+    var stringify6 = require_stringify();
     var identity = require_identity();
     var toJS = require_toJS();
     function addPairToJSMap(ctx, map, { key: key2, value: value2 }) {
@@ -3582,7 +3717,7 @@ var require_addPairToJSMap = __commonJS({
       if (typeof jsKey !== "object")
         return String(jsKey);
       if (identity.isNode(key2) && ctx?.doc) {
-        const strCtx = stringify5.createStringifyContext(ctx.doc, {});
+        const strCtx = stringify6.createStringifyContext(ctx.doc, {});
         strCtx.anchors = /* @__PURE__ */ new Set();
         for (const node of ctx.anchors.keys())
           strCtx.anchors.add(node.anchor);
@@ -3649,12 +3784,12 @@ var require_stringifyCollection = __commonJS({
   "node_modules/yaml/dist/stringify/stringifyCollection.js"(exports) {
     "use strict";
     var identity = require_identity();
-    var stringify5 = require_stringify();
+    var stringify6 = require_stringify();
     var stringifyComment = require_stringifyComment();
     function stringifyCollection(collection, ctx, options) {
       const flow = ctx.inFlow ?? collection.flow;
-      const stringify6 = flow ? stringifyFlowCollection : stringifyBlockCollection;
-      return stringify6(collection, ctx, options);
+      const stringify7 = flow ? stringifyFlowCollection : stringifyBlockCollection;
+      return stringify7(collection, ctx, options);
     }
     function stringifyBlockCollection({ comment, items }, ctx, { blockItemPrefix, flowChars, itemIndent, onChompKeep, onComment }) {
       const { indent, options: { commentString } } = ctx;
@@ -3679,31 +3814,31 @@ var require_stringifyCollection = __commonJS({
           }
         }
         chompKeep = false;
-        let str3 = stringify5.stringify(item, itemCtx, () => comment2 = null, () => chompKeep = true);
+        let str4 = stringify6.stringify(item, itemCtx, () => comment2 = null, () => chompKeep = true);
         if (comment2)
-          str3 += stringifyComment.lineComment(str3, itemIndent, commentString(comment2));
+          str4 += stringifyComment.lineComment(str4, itemIndent, commentString(comment2));
         if (chompKeep && comment2)
           chompKeep = false;
-        lines.push(blockItemPrefix + str3);
+        lines.push(blockItemPrefix + str4);
       }
-      let str2;
+      let str3;
       if (lines.length === 0) {
-        str2 = flowChars.start + flowChars.end;
+        str3 = flowChars.start + flowChars.end;
       } else {
-        str2 = lines[0];
+        str3 = lines[0];
         for (let i = 1; i < lines.length; ++i) {
           const line2 = lines[i];
-          str2 += line2 ? `
+          str3 += line2 ? `
 ${indent}${line2}` : "\n";
         }
       }
       if (comment) {
-        str2 += "\n" + stringifyComment.indentComment(commentString(comment), indent);
+        str3 += "\n" + stringifyComment.indentComment(commentString(comment), indent);
         if (onComment)
           onComment();
       } else if (chompKeep && onChompKeep)
         onChompKeep();
-      return str2;
+      return str3;
     }
     function stringifyFlowCollection({ items }, ctx, { flowChars, itemIndent }) {
       const { indent, indentStep, flowCollectionPadding: fcPadding, options: { commentString } } = ctx;
@@ -3746,21 +3881,21 @@ ${indent}${line2}` : "\n";
         }
         if (comment)
           reqNewline = true;
-        let str2 = stringify5.stringify(item, itemCtx, () => comment = null);
-        reqNewline || (reqNewline = lines.length > linesAtValue || str2.includes("\n"));
+        let str3 = stringify6.stringify(item, itemCtx, () => comment = null);
+        reqNewline || (reqNewline = lines.length > linesAtValue || str3.includes("\n"));
         if (i < items.length - 1) {
-          str2 += ",";
+          str3 += ",";
         } else if (ctx.options.trailingComma) {
           if (ctx.options.lineWidth > 0) {
-            reqNewline || (reqNewline = lines.reduce((sum, line2) => sum + line2.length + 2, 2) + (str2.length + 2) > ctx.options.lineWidth);
+            reqNewline || (reqNewline = lines.reduce((sum, line2) => sum + line2.length + 2, 2) + (str3.length + 2) > ctx.options.lineWidth);
           }
           if (reqNewline) {
-            str2 += ",";
+            str3 += ",";
           }
         }
         if (comment)
-          str2 += stringifyComment.lineComment(str2, itemIndent, commentString(comment));
-        lines.push(str2);
+          str3 += stringifyComment.lineComment(str3, itemIndent, commentString(comment));
+        lines.push(str3);
         linesAtValue = lines.length;
       }
       const { start, end } = flowChars;
@@ -3772,11 +3907,11 @@ ${indent}${line2}` : "\n";
           reqNewline = ctx.options.lineWidth > 0 && len > ctx.options.lineWidth;
         }
         if (reqNewline) {
-          let str2 = start;
+          let str3 = start;
           for (const line2 of lines)
-            str2 += line2 ? `
+            str3 += line2 ? `
 ${indentStep}${indent}${line2}` : "\n";
-          return `${str2}
+          return `${str3}
 ${indent}${end}`;
         } else {
           return `${start}${fcPadding}${lines.join(" ")}${fcPadding}${end}`;
@@ -4032,13 +4167,13 @@ var require_YAMLSeq = __commonJS({
           this.items[idx] = value2;
       }
       toJSON(_, ctx) {
-        const seq = [];
+        const seq2 = [];
         if (ctx?.onCreate)
-          ctx.onCreate(seq);
+          ctx.onCreate(seq2);
         let i = 0;
         for (const item of this.items)
-          seq.push(toJS.toJS(item, String(i++), ctx));
-        return seq;
+          seq2.push(toJS.toJS(item, String(i++), ctx));
+        return seq2;
       }
       toString(ctx, onComment, onChompKeep) {
         if (!ctx)
@@ -4053,7 +4188,7 @@ var require_YAMLSeq = __commonJS({
       }
       static from(schema, obj, ctx) {
         const { replacer } = ctx;
-        const seq = new this(schema);
+        const seq2 = new this(schema);
         if (obj && Symbol.iterator in Object(obj)) {
           let i = 0;
           for (let it of obj) {
@@ -4061,10 +4196,10 @@ var require_YAMLSeq = __commonJS({
               const key2 = obj instanceof Set ? it : String(i++);
               it = replacer.call(obj, key2, it);
             }
-            seq.items.push(createNode.createNode(it, void 0, ctx));
+            seq2.items.push(createNode.createNode(it, void 0, ctx));
           }
         }
-        return seq;
+        return seq2;
       }
     };
     function asItemIndex(key2) {
@@ -4083,19 +4218,19 @@ var require_seq = __commonJS({
     "use strict";
     var identity = require_identity();
     var YAMLSeq2 = require_YAMLSeq();
-    var seq = {
+    var seq2 = {
       collection: "seq",
       default: true,
       nodeClass: YAMLSeq2.YAMLSeq,
       tag: "tag:yaml.org,2002:seq",
-      resolve(seq2, onError) {
-        if (!identity.isSeq(seq2))
+      resolve(seq3, onError) {
+        if (!identity.isSeq(seq3))
           onError("Expected a sequence for this tag");
-        return seq2;
+        return seq3;
       },
       createNode: (schema, obj, ctx) => YAMLSeq2.YAMLSeq.from(schema, obj, ctx)
     };
-    exports.seq = seq;
+    exports.seq = seq2;
   }
 });
 
@@ -4108,7 +4243,7 @@ var require_string = __commonJS({
       identify: (value2) => typeof value2 === "string",
       default: true,
       tag: "tag:yaml.org,2002:str",
-      resolve: (str2) => str2,
+      resolve: (str3) => str3,
       stringify(item, ctx, onComment, onChompKeep) {
         ctx = Object.assign({ actualString: true }, ctx);
         return stringifyString.stringifyString(item, ctx, onComment, onChompKeep);
@@ -4146,7 +4281,7 @@ var require_bool = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:bool",
       test: /^(?:[Tt]rue|TRUE|[Ff]alse|FALSE)$/,
-      resolve: (str2) => new Scalar.Scalar(str2[0] === "t" || str2[0] === "T"),
+      resolve: (str3) => new Scalar.Scalar(str3[0] === "t" || str3[0] === "T"),
       stringify({ source, value: value2 }, ctx) {
         if (source && boolTag.test.test(source)) {
           const sv = source[0] === "t" || source[0] === "T";
@@ -4198,7 +4333,7 @@ var require_float = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:float",
       test: /^(?:[-+]?\.(?:inf|Inf|INF)|\.nan|\.NaN|\.NAN)$/,
-      resolve: (str2) => str2.slice(-3).toLowerCase() === "nan" ? NaN : str2[0] === "-" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
+      resolve: (str3) => str3.slice(-3).toLowerCase() === "nan" ? NaN : str3[0] === "-" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
       stringify: stringifyNumber.stringifyNumber
     };
     var floatExp = {
@@ -4207,7 +4342,7 @@ var require_float = __commonJS({
       tag: "tag:yaml.org,2002:float",
       format: "EXP",
       test: /^[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)[eE][-+]?[0-9]+$/,
-      resolve: (str2) => parseFloat(str2),
+      resolve: (str3) => parseFloat(str3),
       stringify(node) {
         const num = Number(node.value);
         return isFinite(num) ? num.toExponential() : stringifyNumber.stringifyNumber(node);
@@ -4218,11 +4353,11 @@ var require_float = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:float",
       test: /^[-+]?(?:\.[0-9]+|[0-9]+\.[0-9]*)$/,
-      resolve(str2) {
-        const node = new Scalar.Scalar(parseFloat(str2));
-        const dot = str2.indexOf(".");
-        if (dot !== -1 && str2[str2.length - 1] === "0")
-          node.minFractionDigits = str2.length - dot - 1;
+      resolve(str3) {
+        const node = new Scalar.Scalar(parseFloat(str3));
+        const dot = str3.indexOf(".");
+        if (dot !== -1 && str3[str3.length - 1] === "0")
+          node.minFractionDigits = str3.length - dot - 1;
         return node;
       },
       stringify: stringifyNumber.stringifyNumber
@@ -4239,7 +4374,7 @@ var require_int = __commonJS({
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value2) => typeof value2 === "bigint" || Number.isInteger(value2);
-    var intResolve = (str2, offset, radix, { intAsBigInt }) => intAsBigInt ? BigInt(str2) : parseInt(str2.substring(offset), radix);
+    var intResolve = (str3, offset, radix, { intAsBigInt }) => intAsBigInt ? BigInt(str3) : parseInt(str3.substring(offset), radix);
     function intStringify(node, radix, prefix) {
       const { value: value2 } = node;
       if (intIdentify(value2) && value2 >= 0)
@@ -4252,7 +4387,7 @@ var require_int = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "OCT",
       test: /^0o[0-7]+$/,
-      resolve: (str2, _onError, opt) => intResolve(str2, 2, 8, opt),
+      resolve: (str3, _onError, opt) => intResolve(str3, 2, 8, opt),
       stringify: (node) => intStringify(node, 8, "0o")
     };
     var int = {
@@ -4260,7 +4395,7 @@ var require_int = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:int",
       test: /^[-+]?[0-9]+$/,
-      resolve: (str2, _onError, opt) => intResolve(str2, 0, 10, opt),
+      resolve: (str3, _onError, opt) => intResolve(str3, 0, 10, opt),
       stringify: stringifyNumber.stringifyNumber
     };
     var intHex = {
@@ -4269,7 +4404,7 @@ var require_int = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "HEX",
       test: /^0x[0-9a-fA-F]+$/,
-      resolve: (str2, _onError, opt) => intResolve(str2, 2, 16, opt),
+      resolve: (str3, _onError, opt) => intResolve(str3, 2, 16, opt),
       stringify: (node) => intStringify(node, 16, "0x")
     };
     exports.int = int;
@@ -4284,14 +4419,14 @@ var require_schema = __commonJS({
     "use strict";
     var map = require_map();
     var _null = require_null();
-    var seq = require_seq();
+    var seq2 = require_seq();
     var string = require_string();
     var bool = require_bool();
     var float = require_float();
     var int = require_int();
     var schema = [
       map.map,
-      seq.seq,
+      seq2.seq,
       string.string,
       _null.nullTag,
       bool.boolTag,
@@ -4312,7 +4447,7 @@ var require_schema2 = __commonJS({
     "use strict";
     var Scalar = require_Scalar();
     var map = require_map();
-    var seq = require_seq();
+    var seq2 = require_seq();
     function intIdentify(value2) {
       return typeof value2 === "bigint" || Number.isInteger(value2);
     }
@@ -4322,7 +4457,7 @@ var require_schema2 = __commonJS({
         identify: (value2) => typeof value2 === "string",
         default: true,
         tag: "tag:yaml.org,2002:str",
-        resolve: (str2) => str2,
+        resolve: (str3) => str3,
         stringify: stringifyJSON
       },
       {
@@ -4339,7 +4474,7 @@ var require_schema2 = __commonJS({
         default: true,
         tag: "tag:yaml.org,2002:bool",
         test: /^true$|^false$/,
-        resolve: (str2) => str2 === "true",
+        resolve: (str3) => str3 === "true",
         stringify: stringifyJSON
       },
       {
@@ -4347,7 +4482,7 @@ var require_schema2 = __commonJS({
         default: true,
         tag: "tag:yaml.org,2002:int",
         test: /^-?(?:0|[1-9][0-9]*)$/,
-        resolve: (str2, _onError, { intAsBigInt }) => intAsBigInt ? BigInt(str2) : parseInt(str2, 10),
+        resolve: (str3, _onError, { intAsBigInt }) => intAsBigInt ? BigInt(str3) : parseInt(str3, 10),
         stringify: ({ value: value2 }) => intIdentify(value2) ? value2.toString() : JSON.stringify(value2)
       },
       {
@@ -4355,7 +4490,7 @@ var require_schema2 = __commonJS({
         default: true,
         tag: "tag:yaml.org,2002:float",
         test: /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?$/,
-        resolve: (str2) => parseFloat(str2),
+        resolve: (str3) => parseFloat(str3),
         stringify: stringifyJSON
       }
     ];
@@ -4363,12 +4498,12 @@ var require_schema2 = __commonJS({
       default: true,
       tag: "",
       test: /^/,
-      resolve(str2, onError) {
-        onError(`Unresolved plain scalar ${JSON.stringify(str2)}`);
-        return str2;
+      resolve(str3, onError) {
+        onError(`Unresolved plain scalar ${JSON.stringify(str3)}`);
+        return str3;
       }
     };
-    var schema = [map.map, seq.seq].concat(jsonScalars, jsonError);
+    var schema = [map.map, seq2.seq].concat(jsonScalars, jsonError);
     exports.schema = schema;
   }
 });
@@ -4397,10 +4532,10 @@ var require_binary = __commonJS({
         if (typeof node_buffer.Buffer === "function") {
           return node_buffer.Buffer.from(src, "base64");
         } else if (typeof atob === "function") {
-          const str2 = atob(src.replace(/[\n\r]/g, ""));
-          const buffer = new Uint8Array(str2.length);
-          for (let i = 0; i < str2.length; ++i)
-            buffer[i] = str2.charCodeAt(i);
+          const str3 = atob(src.replace(/[\n\r]/g, ""));
+          const buffer = new Uint8Array(str3.length);
+          for (let i = 0; i < str3.length; ++i)
+            buffer[i] = str3.charCodeAt(i);
           return buffer;
         } else {
           onError("This environment does not support reading binary tags; either Buffer or atob is required");
@@ -4411,28 +4546,28 @@ var require_binary = __commonJS({
         if (!value2)
           return "";
         const buf = value2;
-        let str2;
+        let str3;
         if (typeof node_buffer.Buffer === "function") {
-          str2 = buf instanceof node_buffer.Buffer ? buf.toString("base64") : node_buffer.Buffer.from(buf.buffer).toString("base64");
+          str3 = buf instanceof node_buffer.Buffer ? buf.toString("base64") : node_buffer.Buffer.from(buf.buffer).toString("base64");
         } else if (typeof btoa === "function") {
           let s = "";
           for (let i = 0; i < buf.length; ++i)
             s += String.fromCharCode(buf[i]);
-          str2 = btoa(s);
+          str3 = btoa(s);
         } else {
           throw new Error("This environment does not support writing binary tags; either Buffer or btoa is required");
         }
         type ?? (type = Scalar.Scalar.BLOCK_LITERAL);
         if (type !== Scalar.Scalar.QUOTE_DOUBLE) {
           const lineWidth = Math.max(ctx.options.lineWidth - ctx.indent.length, ctx.options.minContentWidth);
-          const n = Math.ceil(str2.length / lineWidth);
+          const n = Math.ceil(str3.length / lineWidth);
           const lines = new Array(n);
           for (let i = 0, o = 0; i < n; ++i, o += lineWidth) {
-            lines[i] = str2.substr(o, lineWidth);
+            lines[i] = str3.substr(o, lineWidth);
           }
-          str2 = lines.join(type === Scalar.Scalar.BLOCK_LITERAL ? "\n" : " ");
+          str3 = lines.join(type === Scalar.Scalar.BLOCK_LITERAL ? "\n" : " ");
         }
-        return stringifyString.stringifyString({ comment, type, value: str2 }, ctx, onComment, onChompKeep);
+        return stringifyString.stringifyString({ comment, type, value: str3 }, ctx, onComment, onChompKeep);
       }
     };
     exports.binary = binary;
@@ -4447,10 +4582,10 @@ var require_pairs = __commonJS({
     var Pair = require_Pair();
     var Scalar = require_Scalar();
     var YAMLSeq2 = require_YAMLSeq();
-    function resolvePairs(seq, onError) {
-      if (identity.isSeq(seq)) {
-        for (let i = 0; i < seq.items.length; ++i) {
-          let item = seq.items[i];
+    function resolvePairs(seq2, onError) {
+      if (identity.isSeq(seq2)) {
+        for (let i = 0; i < seq2.items.length; ++i) {
+          let item = seq2.items[i];
           if (identity.isPair(item))
             continue;
           else if (identity.isMap(item)) {
@@ -4467,11 +4602,11 @@ ${cn.comment}` : item.comment;
             }
             item = pair;
           }
-          seq.items[i] = identity.isPair(item) ? item : new Pair.Pair(item);
+          seq2.items[i] = identity.isPair(item) ? item : new Pair.Pair(item);
         }
       } else
         onError("Expected a sequence for this tag");
-      return seq;
+      return seq2;
     }
     function createPairs(schema, iterable, ctx) {
       const { replacer } = ctx;
@@ -4574,8 +4709,8 @@ var require_omap = __commonJS({
       nodeClass: YAMLOMap,
       default: false,
       tag: "tag:yaml.org,2002:omap",
-      resolve(seq, onError) {
-        const pairs$1 = pairs.resolvePairs(seq, onError);
+      resolve(seq2, onError) {
+        const pairs$1 = pairs.resolvePairs(seq2, onError);
         const seenKeys = [];
         for (const { key: key2 } of pairs$1.items) {
           if (identity.isScalar(key2)) {
@@ -4638,7 +4773,7 @@ var require_float2 = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:float",
       test: /^(?:[-+]?\.(?:inf|Inf|INF)|\.nan|\.NaN|\.NAN)$/,
-      resolve: (str2) => str2.slice(-3).toLowerCase() === "nan" ? NaN : str2[0] === "-" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
+      resolve: (str3) => str3.slice(-3).toLowerCase() === "nan" ? NaN : str3[0] === "-" ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY,
       stringify: stringifyNumber.stringifyNumber
     };
     var floatExp = {
@@ -4647,7 +4782,7 @@ var require_float2 = __commonJS({
       tag: "tag:yaml.org,2002:float",
       format: "EXP",
       test: /^[-+]?(?:[0-9][0-9_]*)?(?:\.[0-9_]*)?[eE][-+]?[0-9]+$/,
-      resolve: (str2) => parseFloat(str2.replace(/_/g, "")),
+      resolve: (str3) => parseFloat(str3.replace(/_/g, "")),
       stringify(node) {
         const num = Number(node.value);
         return isFinite(num) ? num.toExponential() : stringifyNumber.stringifyNumber(node);
@@ -4658,11 +4793,11 @@ var require_float2 = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:float",
       test: /^[-+]?(?:[0-9][0-9_]*)?\.[0-9_]*$/,
-      resolve(str2) {
-        const node = new Scalar.Scalar(parseFloat(str2.replace(/_/g, "")));
-        const dot = str2.indexOf(".");
+      resolve(str3) {
+        const node = new Scalar.Scalar(parseFloat(str3.replace(/_/g, "")));
+        const dot = str3.indexOf(".");
         if (dot !== -1) {
-          const f = str2.substring(dot + 1).replace(/_/g, "");
+          const f = str3.substring(dot + 1).replace(/_/g, "");
           if (f[f.length - 1] === "0")
             node.minFractionDigits = f.length;
         }
@@ -4682,34 +4817,34 @@ var require_int2 = __commonJS({
     "use strict";
     var stringifyNumber = require_stringifyNumber();
     var intIdentify = (value2) => typeof value2 === "bigint" || Number.isInteger(value2);
-    function intResolve(str2, offset, radix, { intAsBigInt }) {
-      const sign = str2[0];
+    function intResolve(str3, offset, radix, { intAsBigInt }) {
+      const sign = str3[0];
       if (sign === "-" || sign === "+")
         offset += 1;
-      str2 = str2.substring(offset).replace(/_/g, "");
+      str3 = str3.substring(offset).replace(/_/g, "");
       if (intAsBigInt) {
         switch (radix) {
           case 2:
-            str2 = `0b${str2}`;
+            str3 = `0b${str3}`;
             break;
           case 8:
-            str2 = `0o${str2}`;
+            str3 = `0o${str3}`;
             break;
           case 16:
-            str2 = `0x${str2}`;
+            str3 = `0x${str3}`;
             break;
         }
-        const n2 = BigInt(str2);
+        const n2 = BigInt(str3);
         return sign === "-" ? BigInt(-1) * n2 : n2;
       }
-      const n = parseInt(str2, radix);
+      const n = parseInt(str3, radix);
       return sign === "-" ? -1 * n : n;
     }
     function intStringify(node, radix, prefix) {
       const { value: value2 } = node;
       if (intIdentify(value2)) {
-        const str2 = value2.toString(radix);
-        return value2 < 0 ? "-" + prefix + str2.substr(1) : prefix + str2;
+        const str3 = value2.toString(radix);
+        return value2 < 0 ? "-" + prefix + str3.substr(1) : prefix + str3;
       }
       return stringifyNumber.stringifyNumber(node);
     }
@@ -4719,7 +4854,7 @@ var require_int2 = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "BIN",
       test: /^[-+]?0b[0-1_]+$/,
-      resolve: (str2, _onError, opt) => intResolve(str2, 2, 2, opt),
+      resolve: (str3, _onError, opt) => intResolve(str3, 2, 2, opt),
       stringify: (node) => intStringify(node, 2, "0b")
     };
     var intOct = {
@@ -4728,7 +4863,7 @@ var require_int2 = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "OCT",
       test: /^[-+]?0[0-7_]+$/,
-      resolve: (str2, _onError, opt) => intResolve(str2, 1, 8, opt),
+      resolve: (str3, _onError, opt) => intResolve(str3, 1, 8, opt),
       stringify: (node) => intStringify(node, 8, "0")
     };
     var int = {
@@ -4736,7 +4871,7 @@ var require_int2 = __commonJS({
       default: true,
       tag: "tag:yaml.org,2002:int",
       test: /^[-+]?[0-9][0-9_]*$/,
-      resolve: (str2, _onError, opt) => intResolve(str2, 0, 10, opt),
+      resolve: (str3, _onError, opt) => intResolve(str3, 0, 10, opt),
       stringify: stringifyNumber.stringifyNumber
     };
     var intHex = {
@@ -4745,7 +4880,7 @@ var require_int2 = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "HEX",
       test: /^[-+]?0x[0-9a-fA-F_]+$/,
-      resolve: (str2, _onError, opt) => intResolve(str2, 2, 16, opt),
+      resolve: (str3, _onError, opt) => intResolve(str3, 2, 16, opt),
       stringify: (node) => intStringify(node, 16, "0x")
     };
     exports.int = int;
@@ -4849,9 +4984,9 @@ var require_timestamp = __commonJS({
   "node_modules/yaml/dist/schema/yaml-1.1/timestamp.js"(exports) {
     "use strict";
     var stringifyNumber = require_stringifyNumber();
-    function parseSexagesimal(str2, asBigInt) {
-      const sign = str2[0];
-      const parts = sign === "-" || sign === "+" ? str2.substring(1) : str2;
+    function parseSexagesimal(str3, asBigInt) {
+      const sign = str3[0];
+      const parts = sign === "-" || sign === "+" ? str3.substring(1) : str3;
       const num = (n) => asBigInt ? BigInt(n) : Number(n);
       const res = parts.replace(/_/g, "").split(":").reduce((res2, p) => res2 * num(60) + num(p), num(0));
       return sign === "-" ? num(-1) * res : res;
@@ -4888,7 +5023,7 @@ var require_timestamp = __commonJS({
       tag: "tag:yaml.org,2002:int",
       format: "TIME",
       test: /^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+$/,
-      resolve: (str2, _onError, { intAsBigInt }) => parseSexagesimal(str2, intAsBigInt),
+      resolve: (str3, _onError, { intAsBigInt }) => parseSexagesimal(str3, intAsBigInt),
       stringify: stringifySexagesimal
     };
     var floatTime = {
@@ -4897,7 +5032,7 @@ var require_timestamp = __commonJS({
       tag: "tag:yaml.org,2002:float",
       format: "TIME",
       test: /^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*$/,
-      resolve: (str2) => parseSexagesimal(str2, false),
+      resolve: (str3) => parseSexagesimal(str3, false),
       stringify: stringifySexagesimal
     };
     var timestamp = {
@@ -4908,8 +5043,8 @@ var require_timestamp = __commonJS({
       // may be omitted altogether, resulting in a date format. In such a case, the time part is
       // assumed to be 00:00:00Z (start of day, UTC).
       test: RegExp("^([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})(?:(?:t|T|[ \\t]+)([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2}(\\.[0-9]+)?)(?:[ \\t]*(Z|[-+][012]?[0-9](?::[0-9]{2})?))?)?$"),
-      resolve(str2) {
-        const match = str2.match(timestamp.test);
+      resolve(str3) {
+        const match = str3.match(timestamp.test);
         if (!match)
           throw new Error("!!timestamp expects a date, starting with yyyy-mm-dd");
         const [, year, month, day, hour, minute, second] = match.map(Number);
@@ -4938,7 +5073,7 @@ var require_schema3 = __commonJS({
     "use strict";
     var map = require_map();
     var _null = require_null();
-    var seq = require_seq();
+    var seq2 = require_seq();
     var string = require_string();
     var binary = require_binary();
     var bool = require_bool2();
@@ -4951,7 +5086,7 @@ var require_schema3 = __commonJS({
     var timestamp = require_timestamp();
     var schema = [
       map.map,
-      seq.seq,
+      seq2.seq,
       string.string,
       _null.nullTag,
       bool.trueTag,
@@ -4982,7 +5117,7 @@ var require_tags = __commonJS({
     "use strict";
     var map = require_map();
     var _null = require_null();
-    var seq = require_seq();
+    var seq2 = require_seq();
     var string = require_string();
     var bool = require_bool();
     var float = require_float();
@@ -4998,7 +5133,7 @@ var require_tags = __commonJS({
     var timestamp = require_timestamp();
     var schemas = /* @__PURE__ */ new Map([
       ["core", schema.schema],
-      ["failsafe", [map.map, seq.seq, string.string]],
+      ["failsafe", [map.map, seq2.seq, string.string]],
       ["json", schema$1.schema],
       ["yaml11", schema$2.schema],
       ["yaml-1.1", schema$2.schema]
@@ -5019,7 +5154,7 @@ var require_tags = __commonJS({
       null: _null.nullTag,
       omap: omap.omap,
       pairs: pairs.pairs,
-      seq: seq.seq,
+      seq: seq2.seq,
       set: set.set,
       timestamp: timestamp.timestamp
     };
@@ -5076,7 +5211,7 @@ var require_Schema = __commonJS({
     "use strict";
     var identity = require_identity();
     var map = require_map();
-    var seq = require_seq();
+    var seq2 = require_seq();
     var string = require_string();
     var tags = require_tags();
     var sortMapEntriesByKey = (a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
@@ -5089,7 +5224,7 @@ var require_Schema = __commonJS({
         this.toStringOptions = toStringDefaults ?? null;
         Object.defineProperty(this, identity.MAP, { value: map.map });
         Object.defineProperty(this, identity.SCALAR, { value: string.string });
-        Object.defineProperty(this, identity.SEQ, { value: seq.seq });
+        Object.defineProperty(this, identity.SEQ, { value: seq2.seq });
         this.sortMapEntries = typeof sortMapEntries === "function" ? sortMapEntries : sortMapEntries === true ? sortMapEntriesByKey : null;
       }
       clone() {
@@ -5107,7 +5242,7 @@ var require_stringifyDocument = __commonJS({
   "node_modules/yaml/dist/stringify/stringifyDocument.js"(exports) {
     "use strict";
     var identity = require_identity();
-    var stringify5 = require_stringify();
+    var stringify6 = require_stringify();
     var stringifyComment = require_stringifyComment();
     function stringifyDocument(doc, options) {
       const lines = [];
@@ -5122,7 +5257,7 @@ var require_stringifyDocument = __commonJS({
       }
       if (hasDirectives)
         lines.push("---");
-      const ctx = stringify5.createStringifyContext(doc, options);
+      const ctx = stringify6.createStringifyContext(doc, options);
       const { commentString } = ctx.options;
       if (doc.commentBefore) {
         if (lines.length !== 1)
@@ -5144,7 +5279,7 @@ var require_stringifyDocument = __commonJS({
           contentComment = doc.contents.comment;
         }
         const onChompKeep = contentComment ? void 0 : () => chompKeep = true;
-        let body = stringify5.stringify(doc.contents, ctx, () => contentComment = null, onChompKeep);
+        let body = stringify6.stringify(doc.contents, ctx, () => contentComment = null, onChompKeep);
         if (contentComment)
           body += stringifyComment.lineComment(body, "", commentString(contentComment));
         if ((body[0] === "|" || body[0] === ">") && lines[lines.length - 1] === "---") {
@@ -5152,7 +5287,7 @@ var require_stringifyDocument = __commonJS({
         } else
           lines.push(body);
       } else {
-        lines.push(stringify5.stringify(doc.contents, ctx));
+        lines.push(stringify6.stringify(doc.contents, ctx));
       }
       if (doc.directives?.docEnd) {
         if (doc.comment) {
@@ -5883,7 +6018,7 @@ var require_resolve_block_seq = __commonJS({
     var utilFlowIndentCheck = require_util_flow_indent_check();
     function resolveBlockSeq({ composeNode, composeEmptyNode }, ctx, bs, onError, tag) {
       const NodeClass = tag?.nodeClass ?? YAMLSeq2.YAMLSeq;
-      const seq = new NodeClass(ctx.schema);
+      const seq2 = new NodeClass(ctx.schema);
       if (ctx.atRoot)
         ctx.atRoot = false;
       if (ctx.atKey)
@@ -5908,7 +6043,7 @@ var require_resolve_block_seq = __commonJS({
           } else {
             commentEnd = props.end;
             if (props.comment)
-              seq.comment = props.comment;
+              seq2.comment = props.comment;
             continue;
           }
         }
@@ -5916,10 +6051,10 @@ var require_resolve_block_seq = __commonJS({
         if (ctx.schema.compat)
           utilFlowIndentCheck.flowIndentCheck(bs.indent, value2, onError);
         offset = node.range[2];
-        seq.items.push(node);
+        seq2.items.push(node);
       }
-      seq.range = [bs.offset, offset, commentEnd ?? offset];
-      return seq;
+      seq2.range = [bs.offset, offset, commentEnd ?? offset];
+      return seq2;
     }
     exports.resolveBlockSeq = resolveBlockSeq;
   }
@@ -7141,10 +7276,10 @@ var require_cst_scalar = __commonJS({
         case "|":
         case ">": {
           const he = source.indexOf("\n");
-          const head = source.substring(0, he);
+          const head2 = source.substring(0, he);
           const body = source.substring(he + 1) + "\n";
           const props = [
-            { type: "block-scalar-header", offset, indent, source: head }
+            { type: "block-scalar-header", offset, indent, source: head2 }
           ];
           if (!addEndtoBlockProps(props, end))
             props.push({ type: "newline", offset: -1, indent, source: "\n" });
@@ -7204,19 +7339,19 @@ var require_cst_scalar = __commonJS({
     }
     function setBlockScalarValue(token, source) {
       const he = source.indexOf("\n");
-      const head = source.substring(0, he);
+      const head2 = source.substring(0, he);
       const body = source.substring(he + 1) + "\n";
       if (token.type === "block-scalar") {
         const header = token.props[0];
         if (header.type !== "block-scalar-header")
           throw new Error("Invalid block scalar header");
-        header.source = head;
+        header.source = head2;
         token.source = body;
       } else {
         const { offset } = token;
         const indent = "indent" in token ? token.indent : -1;
         const props = [
-          { type: "block-scalar-header", offset, indent, source: head }
+          { type: "block-scalar-header", offset, indent, source: head2 }
         ];
         if (!addEndtoBlockProps(props, "end" in token ? token.end : void 0))
           props.push({ type: "newline", offset: -1, indent, source: "\n" });
@@ -7287,7 +7422,7 @@ var require_cst_scalar = __commonJS({
 var require_cst_stringify = __commonJS({
   "node_modules/yaml/dist/parse/cst-stringify.js"(exports) {
     "use strict";
-    var stringify5 = (cst) => "type" in cst ? stringifyToken(cst) : stringifyItem(cst);
+    var stringify6 = (cst) => "type" in cst ? stringifyToken(cst) : stringifyItem(cst);
     function stringifyToken(token) {
       switch (token.type) {
         case "block-scalar": {
@@ -7340,7 +7475,7 @@ var require_cst_stringify = __commonJS({
         res += stringifyToken(value2);
       return res;
     }
-    exports.stringify = stringify5;
+    exports.stringify = stringify6;
   }
 });
 
@@ -8739,8 +8874,8 @@ var require_parser = __commonJS({
         yield* this.pop();
         yield* this.step();
       }
-      *blockSequence(seq) {
-        const it = seq.items[seq.items.length - 1];
+      *blockSequence(seq2) {
+        const it = seq2.items[seq2.items.length - 1];
         switch (this.type) {
           case "newline":
             if (it.value) {
@@ -8749,22 +8884,22 @@ var require_parser = __commonJS({
               if (last?.type === "comment")
                 end?.push(this.sourceToken);
               else
-                seq.items.push({ start: [this.sourceToken] });
+                seq2.items.push({ start: [this.sourceToken] });
             } else
               it.start.push(this.sourceToken);
             return;
           case "space":
           case "comment":
             if (it.value)
-              seq.items.push({ start: [this.sourceToken] });
+              seq2.items.push({ start: [this.sourceToken] });
             else {
-              if (this.atIndentedComment(it.start, seq.indent)) {
-                const prev = seq.items[seq.items.length - 2];
+              if (this.atIndentedComment(it.start, seq2.indent)) {
+                const prev = seq2.items[seq2.items.length - 2];
                 const end = prev?.value?.end;
                 if (Array.isArray(end)) {
                   arrayPushArray(end, it.start);
                   end.push(this.sourceToken);
-                  seq.items.pop();
+                  seq2.items.pop();
                   return;
                 }
               }
@@ -8773,21 +8908,21 @@ var require_parser = __commonJS({
             return;
           case "anchor":
           case "tag":
-            if (it.value || this.indent <= seq.indent)
+            if (it.value || this.indent <= seq2.indent)
               break;
             it.start.push(this.sourceToken);
             return;
           case "seq-item-ind":
-            if (this.indent !== seq.indent)
+            if (this.indent !== seq2.indent)
               break;
             if (it.value || includesToken(it.start, "seq-item-ind"))
-              seq.items.push({ start: [this.sourceToken] });
+              seq2.items.push({ start: [this.sourceToken] });
             else
               it.start.push(this.sourceToken);
             return;
         }
-        if (this.indent > seq.indent) {
-          const bv = this.startBlockValue(seq);
+        if (this.indent > seq2.indent) {
+          const bv = this.startBlockValue(seq2);
           if (bv) {
             this.stack.push(bv);
             return;
@@ -9070,7 +9205,7 @@ var require_public_api = __commonJS({
       }
       return doc.toJS(Object.assign({ reviver: _reviver }, options));
     }
-    function stringify5(value2, replacer, options) {
+    function stringify6(value2, replacer, options) {
       let _replacer = null;
       if (typeof replacer === "function" || Array.isArray(replacer)) {
         _replacer = replacer;
@@ -9095,7 +9230,7 @@ var require_public_api = __commonJS({
     exports.parse = parse2;
     exports.parseAllDocuments = parseAllDocuments;
     exports.parseDocument = parseDocument5;
-    exports.stringify = stringify5;
+    exports.stringify = stringify6;
   }
 });
 
@@ -10338,10 +10473,10 @@ async function pathRevision(root, path, runner, filesystem = nodeReadFileSystem)
   const index = await indexObjectId(runner, root, path);
   if (isRevisionError(index))
     return index;
-  const head = await headObjectId(runner, root, path);
-  if (isRevisionError(head))
-    return head;
-  const revision = { worktree, index, head };
+  const head2 = await headObjectId(runner, root, path);
+  if (isRevisionError(head2))
+    return head2;
+  const revision = { worktree, index, head: head2 };
   return { status: "ok", operation: "path_revision", path, revision };
 }
 async function inspectPathComponents(root, path, filesystem) {
@@ -12240,10 +12375,10 @@ function resolveThreadParent(attachment, roots, authoredPin) {
   }
   return matches2.length === 1 ? { status: "resolved", parent: matches2[0] } : { status: matches2.length ? "ambiguous" : "unresolved" };
 }
-function resolveThreadPostById(id, posts2) {
+function resolveThreadPostById(id, posts3) {
   if (!/^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id))
     return { status: "unresolved" };
-  const candidates = posts2.filter((post) => parseThreadAttachment(post.path)?.kind === "path");
+  const candidates = posts3.filter((post) => parseThreadAttachment(post.path)?.kind === "path");
   const exact = candidates.filter((post) => post.id === id);
   const matches2 = exact.length || !/^msg_[0-9a-f]{8}$/.test(id) ? exact : candidates.filter((post) => post.id.startsWith(`${id}-`));
   return matches2.length === 1 ? { status: "resolved", post: { ...matches2[0] } } : { status: matches2.length ? "ambiguous" : "unresolved" };
@@ -12426,7 +12561,7 @@ function parseThreadPost(content, path = "") {
 }
 function inspectThreadPosts(sources, legacyAgreement) {
   const sorted = sources.filter((source) => parseThreadAttachment(source.path)?.kind === "path").sort((a, b) => compareOrdinal(a.path, b.path));
-  const posts2 = [];
+  const posts3 = [];
   const unreadable = [];
   const warnings = [];
   for (const source of sorted) {
@@ -12435,27 +12570,27 @@ function inspectThreadPosts(sources, legacyAgreement) {
       unreadable.push({ path: source.path, issues: result.issues });
       warnings.push(...result.issues.map((warning) => ({ post: source.path, field: "frontmatter", warning })));
     } else {
-      posts2.push(result.post);
+      posts3.push(result.post);
       warnings.push(...(result.post.warnings ?? []).map((warning) => ({ post: source.path, ...warning })));
     }
   }
   if (legacyAgreement?.status === "absent" && legacyAgreement.warning) {
     warnings.push({ post: "_agent/agreement.md", field: "attached_to", warning: legacyAgreement.warning });
   }
-  const byId = new Map(posts2.map((post) => [post.id, post]));
-  for (const post of posts2) {
+  const byId = new Map(posts3.map((post) => [post.id, post]));
+  for (const post of posts3) {
     if (foldableMark(post) && (!byId.has(post.inReplyTo[0]) || byId.get(post.inReplyTo[0])?.kind === "mark")) {
       warnings.push({ post: post.path, field: "in_reply_to", warning: "mark_target_missing" });
     }
   }
   const opening = sorted[0];
   const openingUnreadable = Boolean(opening && unreadable.some((entry) => entry.path === opening.path));
-  const firstPost = posts2.find((post) => post.path === opening?.path);
+  const firstPost = posts3.find((post) => post.path === opening?.path);
   const parent = !opening ? null : openingUnreadable ? "unknown" : firstPost?.attachedTo ?? (legacyAgreement?.status === "valid" ? legacyAgreement.attachment : null);
-  const closed = posts2.some((post) => post.kind === "closure") ? true : unreadable.length ? "unknown" : false;
+  const closed = posts3.some((post) => post.kind === "closure") ? true : unreadable.length ? "unknown" : false;
   const writeRefusal = openingUnreadable ? `Opening post ${opening?.path ?? "(missing)"} is unreadable; writes refused. Any Thread writer may repair it with a commit explaining why.` : void 0;
   return {
-    posts: posts2,
+    posts: posts3,
     unreadable,
     warnings,
     parent,
@@ -12470,10 +12605,10 @@ function compareOrdinal(a, b) {
 function foldableMark(post) {
   return post.kind === "mark" && post.inReplyTo.length === 1 && typeof post.mark === "string" && post.mark.trim().length > 0;
 }
-function reconstructThreadTimeline(posts2) {
+function reconstructThreadTimeline(posts3) {
   const postsById = /* @__PURE__ */ new Map();
   const childrenByParentId = /* @__PURE__ */ new Map();
-  const projected = posts2.map((post) => {
+  const projected = posts3.map((post) => {
     const copy = { ...post };
     delete copy.marks;
     return copy;
@@ -12723,7 +12858,7 @@ async function assembleContentLook(opts) {
     target
   };
 }
-async function selectThreadPost(path, position, kind, postId) {
+async function selectThreadPost(path, position, kind, postId2) {
   if (kind !== "directory" || !(isThreadFolderPosition(position) || position === "." || position === "_threads")) {
     return { status: "invalid_post_scope", reason: "Select a Thread folder, _threads, or this repository root for a post id." };
   }
@@ -12748,8 +12883,8 @@ async function selectThreadPost(path, position, kind, postId) {
       }
     }
   }
-  const selected = resolveThreadPostById(postId, candidates);
-  return selected.status === "resolved" ? { status: "resolved", path: paths.get(selected.post.path) } : { status: selected.status, reason: selected.status === "ambiguous" ? `${postId} names several posts in the selected root; use a full id or narrower Thread folder.` : `${postId} is not a readable post in the selected root or Thread.` };
+  const selected = resolveThreadPostById(postId2, candidates);
+  return selected.status === "resolved" ? { status: "resolved", path: paths.get(selected.post.path) } : { status: selected.status, reason: selected.status === "ambiguous" ? `${postId2} names several posts in the selected root; use a full id or narrower Thread folder.` : `${postId2} is not a readable post in the selected root or Thread.` };
 }
 function pageNames(names, limit, cursor, order) {
   const ordered = order === "newer" ? [...names].reverse() : names;
@@ -13927,8 +14062,8 @@ function parseHistoryLogLine(line2) {
 }
 function getFileHistory(relPath, options) {
   const cwd = options?.cwd;
-  const head = git(["rev-parse", "--verify", "-q", "HEAD"], cwd);
-  if (!head.ok)
+  const head2 = git(["rev-parse", "--verify", "-q", "HEAD"], cwd);
+  if (!head2.ok)
     return [];
   const maxEntries = options?.maxEntries ?? 20;
   const r = git([
@@ -14040,6 +14175,8 @@ function cliInstallId(apiUrl) {
   return install_id;
 }
 async function sessionRequest(apiUrl, action, params) {
+  if (isHostAuth())
+    throw new HostAuthRefusal();
   let response;
   try {
     response = await fetch(`${serviceOrigin(apiUrl)}/auth/desktop/${action}`, {
@@ -14246,6 +14383,12 @@ function unreachableMessage(apiUrl, timedOut, call) {
   return process.env.CLAUDE_PLUGIN_ROOT?.trim() ? `${lead} If you're in Cowork, its sandbox blocks remote access \u2014 switch to Claude Code view to browse and sync (local capture still works).` : lead;
 }
 async function authHeaders(config, extra) {
+  if (isHostAuth()) {
+    const token = hostToken();
+    if (!(config.host && token && config.apiKey === token.accessToken && config.apiUrl === token.apiUrl && !config.sessionId)) {
+      throw new HostAuthRefusal();
+    }
+  }
   let apiKey;
   try {
     apiKey = (await resolveSessionConfig(config)).apiKey?.trim();
@@ -14274,7 +14417,7 @@ async function request(config, method, path, body, opts = {}) {
   const maxAttempts = method === "GET" && opts.retry !== false ? 2 : 1;
   let authRetried = false;
   for (let attempt = 1; ; attempt++) {
-    const headers = await authHeaders(config);
+    const headers = await authHeaders(config, opts.text ? { "Content-Type": "text/plain; charset=utf-8" } : void 0);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
@@ -14282,7 +14425,7 @@ async function request(config, method, path, body, opts = {}) {
         method,
         headers,
         redirect: "error",
-        body: body !== void 0 ? JSON.stringify(body) : void 0,
+        body: body === void 0 ? void 0 : opts.text ? String(body) : JSON.stringify(body),
         signal: ctrl.signal
       });
       if (!r.ok) {
@@ -14296,8 +14439,12 @@ async function request(config, method, path, body, opts = {}) {
             throw new UnauthorizedError("Your sign-in was renewed. Retry this command; its write was not replayed.");
           }
           await refuseSession(config, headers.Authorization?.slice(7));
+          if (opts.statusError)
+            throw new ApiStatusError(401, text, r.headers.get("Retry-After"));
           throw new UnauthorizedError(`${method} ${path} \u2192 401: ${text || r.statusText}`);
         }
+        if (opts.statusError)
+          throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"));
         if (r.status === 410) {
           throw new RetiredEndpointError(method, path, text);
         }
@@ -14422,6 +14569,39 @@ async function fetchThreadPosts(config, query, opts) {
   const queryString = params.toString();
   const path = `${API_V1}/threads/posts${queryString ? `?${queryString}` : ""}`;
   return request(config, "GET", path, void 0, opts);
+}
+async function fetchVaults(config, opts) {
+  return request(config, "GET", `${API_V1}/vaults`, void 0, { ...opts, ...HOSTED });
+}
+async function listHostedThreads(config, query, opts) {
+  const params = new URLSearchParams({ limit: String(query.limit) });
+  if (query.cursor)
+    params.set("cursor", query.cursor);
+  const queryString = params.toString();
+  const path = `${API_V1}/threads${queryString ? `?${queryString}` : ""}`;
+  return request(config, "GET", path, void 0, { ...opts, ...HOSTED });
+}
+async function fetchHostedThread(config, threadId, opts) {
+  return request(config, "GET", `${API_V1}/threads/${encodeURIComponent(threadId)}`, void 0, { ...opts, ...HOSTED });
+}
+async function fetchHostedThreadPosts(config, threadId, query, opts) {
+  const params = new URLSearchParams({ limit: String(query.limit) });
+  if (query.after_seq !== void 0)
+    params.set("after_seq", String(query.after_seq));
+  if (query.before_seq !== void 0)
+    params.set("before_seq", String(query.before_seq));
+  const queryString = params.toString();
+  const path = `${API_V1}/threads/${encodeURIComponent(threadId)}/posts${queryString ? `?${queryString}` : ""}`;
+  return request(config, "GET", path, void 0, { ...opts, ...HOSTED });
+}
+async function appendHostedThreadPost(config, threadId, note, opts) {
+  return request(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/posts`, note, { ...opts, ...HOSTED, text: true });
+}
+async function openHostedThread(config, note, opts) {
+  return request(config, "POST", `${API_V1}/threads`, { note }, { ...opts, ...HOSTED });
+}
+async function ackHostedThread(config, threadId, seq2, opts) {
+  return request(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/ack`, { seq: seq2 }, { ...opts, ...HOSTED });
 }
 async function fetchExchange(config, exchangeId, opts) {
   return request(config, "GET", `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}`, void 0, opts);
@@ -14666,13 +14846,29 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
     }
   }
 }
-var API_V1, DEFAULT_REQUEST_TIMEOUT_MS, UnauthorizedError, RetiredEndpointError, NetworkError, RequestTimeoutError, NODE_PUT_TIMEOUT_MS, NODE_PUT_VERIFY_TIMEOUT_MS, repoBase, nodeBase;
+var API_V1, DEFAULT_REQUEST_TIMEOUT_MS, ApiStatusError, UnauthorizedError, RetiredEndpointError, NetworkError, RequestTimeoutError, HOSTED, NODE_PUT_TIMEOUT_MS, NODE_PUT_VERIFY_TIMEOUT_MS, repoBase, nodeBase;
 var init_api = __esm({
   "dist/auth/api.js"() {
     "use strict";
     init_client_session();
+    init_credentials();
+    init_host_token();
     API_V1 = "/api/v1";
     DEFAULT_REQUEST_TIMEOUT_MS = 5e3;
+    ApiStatusError = class extends Error {
+      status;
+      body;
+      retryAfterMs;
+      constructor(status, body, retryAfter) {
+        super(`HTTP ${status}`);
+        this.status = status;
+        this.body = body;
+        this.name = "ApiStatusError";
+        const delay = retryAfter === null ? void 0 : /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1e3 : Date.parse(retryAfter) - Date.now();
+        if (delay !== void 0 && Number.isFinite(delay))
+          this.retryAfterMs = Math.max(0, delay);
+      }
+    };
     UnauthorizedError = class extends Error {
       constructor(message) {
         super(message);
@@ -14698,6 +14894,7 @@ This CLI is out of date. Update the ideaspaces CLI, or the plugin that bundles i
         this.name = "RequestTimeoutError";
       }
     };
+    HOSTED = { statusError: true };
     NODE_PUT_TIMEOUT_MS = 12e4;
     NODE_PUT_VERIFY_TIMEOUT_MS = 15e3;
     repoBase = (repoId) => `${API_V1}/repos/${encodeURIComponent(repoId)}`;
@@ -14743,11 +14940,11 @@ function folderKey(path) {
     return absolute;
   }
 }
-function isUnpublishedForkRecord(record) {
-  return record.kind === "unpublished_fork";
+function isUnpublishedForkRecord(record2) {
+  return record2.kind === "unpublished_fork";
 }
-function isHostedSpaceRecord(record) {
-  return record.kind !== "unpublished_fork";
+function isHostedSpaceRecord(record2) {
+  return record2.kind !== "unpublished_fork";
 }
 function nonEmptyString2(value2) {
   return typeof value2 === "string" && value2.trim().length > 0;
@@ -14755,8 +14952,8 @@ function nonEmptyString2(value2) {
 function parseSpaceRecord(value2) {
   if (!value2 || typeof value2 !== "object" || Array.isArray(value2))
     return null;
-  const record = value2;
-  if (record.kind === "unpublished_fork") {
+  const record2 = value2;
+  if (record2.kind === "unpublished_fork") {
     const forbidden = [
       "repo_id",
       "slug",
@@ -14766,21 +14963,21 @@ function parseSpaceRecord(value2) {
       "route_slug",
       "canonical_path"
     ];
-    if (forbidden.some((field) => field in record))
+    if (forbidden.some((field) => field in record2))
       return null;
-    if (!nonEmptyString2(record.name) || typeof record.root_node_id !== "string" || !CURRENT_ROOT_NODE_ID_PATTERN.test(record.root_node_id) || !isValidRootNodeId(record.source_root_node_id) || record.root_node_id === record.source_root_node_id || typeof record.source_head !== "string" || !/^[0-9a-f]{40}$/i.test(record.source_head) || typeof record.source_baseline_initialized !== "boolean") {
+    if (!nonEmptyString2(record2.name) || typeof record2.root_node_id !== "string" || !CURRENT_ROOT_NODE_ID_PATTERN.test(record2.root_node_id) || !isValidRootNodeId(record2.source_root_node_id) || record2.root_node_id === record2.source_root_node_id || typeof record2.source_head !== "string" || !/^[0-9a-f]{40}$/i.test(record2.source_head) || typeof record2.source_baseline_initialized !== "boolean") {
       return null;
     }
     return value2;
   }
-  if (record.kind !== void 0 && record.kind !== "hosted")
+  if (record2.kind !== void 0 && record2.kind !== "hosted")
     return null;
-  if (!nonEmptyString2(record.repo_id) || !nonEmptyString2(record.slug) || typeof record.namespace !== "string") {
+  if (!nonEmptyString2(record2.repo_id) || !nonEmptyString2(record2.slug) || typeof record2.namespace !== "string") {
     return null;
   }
-  if (record.root_node_id !== void 0 && !isValidRootNodeId(record.root_node_id))
+  if (record2.root_node_id !== void 0 && !isValidRootNodeId(record2.root_node_id))
     return null;
-  if (record.source_root_node_id !== void 0 && !isValidRootNodeId(record.source_root_node_id)) {
+  if (record2.source_root_node_id !== void 0 && !isValidRootNodeId(record2.source_root_node_id)) {
     return null;
   }
   return value2;
@@ -14796,9 +14993,9 @@ function loadSpaces() {
       return {};
     const parsed2 = {};
     for (const [path, value2] of Object.entries(data)) {
-      const record = parseSpaceRecord(value2);
-      if (record)
-        parsed2[path] = record;
+      const record2 = parseSpaceRecord(value2);
+      if (record2)
+        parsed2[path] = record2;
     }
     return parsed2;
   } catch {
@@ -14818,8 +15015,8 @@ function writeSpaces(map) {
     rmSync(temp, { force: true });
   }
 }
-function saveSpace(absolutePath, record) {
-  const parsed2 = parseSpaceRecord(record);
+function saveSpace(absolutePath, record2) {
+  const parsed2 = parseSpaceRecord(record2);
   if (!parsed2) {
     throw new Error("Refusing to save an invalid local Space registry record");
   }
@@ -14844,7 +15041,7 @@ function findSpaceFor(absolutePath) {
   return alias?.[1] ?? null;
 }
 function listClones() {
-  return Object.entries(loadSpaces()).map(([path, record]) => ({ path, record }));
+  return Object.entries(loadSpaces()).map(([path, record2]) => ({ path, record: record2 }));
 }
 function removeSpace(absolutePath) {
   const canonical = folderKey(absolutePath);
@@ -14950,10 +15147,10 @@ function repoKeys(repo, me, gitBase, apiUrl) {
         keys.push(normalized);
     }
   }
-  const namespace = repoRouteNamespace(repo, me.username);
+  const namespace2 = repoRouteNamespace(repo, me.username);
   const slug = repo.route_slug ?? repo.slug;
-  if (namespace && slug) {
-    const legacy = normalizeRepoUrl(`${gitBase}/${namespace}/${slug}.git`);
+  if (namespace2 && slug) {
+    const legacy = normalizeRepoUrl(`${gitBase}/${namespace2}/${slug}.git`);
     if (legacy)
       keys.push(legacy);
   }
@@ -15082,18 +15279,18 @@ function inspectLocalRootIdentity(cwd, apiUrl) {
       return declaration;
     return !agreementEstablished || content !== null ? fallbackIdentity : void 0;
   };
-  const head = withFallback(selectedHeadDeclaration, selectedHead);
+  const head2 = withFallback(selectedHeadDeclaration, selectedHead);
   const index = withFallback(selectedIndexDeclaration, selectedIndex);
   const worktree = withFallback(selectedWorktreeDeclaration, selectedWorktree);
   const identitySource = isValidRootNodeId(agreementHead) ? "agreement" : isValidRootNodeId(foundationHead) ? "foundation" : null;
-  const dirty = !sameDeclaration(head, index) || !sameDeclaration(head, worktree);
-  const record = findSpaceFor(cwd);
-  const localRegistry = record?.root_node_id;
+  const dirty = !sameDeclaration(head2, index) || !sameDeclaration(head2, worktree);
+  const record2 = findSpaceFor(cwd);
+  const localRegistry = record2?.root_node_id;
   const origin = originUrl(cwd);
-  const configuredApiUrl = apiUrl ?? loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const configuredApiUrl = apiUrl ?? peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const canonicalOrigin = origin ? rootNodeIdFromGitUrl(origin, configuredApiUrl) ?? void 0 : void 0;
   const evaluation = evaluateRootIdentity({
-    declaration: entrypointConflict ? INVALID_DECLARATION : head,
+    declaration: entrypointConflict ? INVALID_DECLARATION : head2,
     canonicalOrigin,
     localRegistry
   });
@@ -15104,7 +15301,7 @@ function inspectLocalRootIdentity(cwd, apiUrl) {
     identity_source: identitySource,
     entrypoint_conflict: entrypointConflict,
     declaration: {
-      head: head === void 0 ? null : head,
+      head: head2 === void 0 ? null : head2,
       index: index === void 0 ? null : index,
       worktree: worktree === void 0 ? null : worktree,
       dirty
@@ -15291,16 +15488,16 @@ function rootNodeIdFromRouteOrigin(dir, apiUrl, spaces) {
   } catch {
     return null;
   }
-  const [host, namespace, slug, ...rest] = key2.split("/");
-  if (host !== gitHost || !namespace || !slug || rest.length)
+  const [host, namespace2, slug, ...rest] = key2.split("/");
+  if (host !== gitHost || !namespace2 || !slug || rest.length)
     return null;
-  for (const record of Object.values(spaces)) {
-    if (!record || typeof record !== "object" || !isHostedSpaceRecord(record) || !record.root_node_id)
+  for (const record2 of Object.values(spaces)) {
+    if (!record2 || typeof record2 !== "object" || !isHostedSpaceRecord(record2) || !record2.root_node_id)
       continue;
-    const routed = record.route_namespace === namespace && record.route_slug === slug;
-    const legacy = !record.route_slug && record.namespace === namespace && record.slug === slug;
+    const routed = record2.route_namespace === namespace2 && record2.route_slug === slug;
+    const legacy = !record2.route_slug && record2.namespace === namespace2 && record2.slug === slug;
     if (routed || legacy)
-      return record.root_node_id;
+      return record2.root_node_id;
   }
   return null;
 }
@@ -15353,7 +15550,7 @@ function inspectSpaceMapRoots(roots, context) {
     return mapCheckouts;
   };
   let capped = false;
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const spaces = () => {
     if (!knownSpaces) {
       try {
@@ -15419,11 +15616,11 @@ function inspectSpaceMapRoots(roots, context) {
     if (!checkoutPath && rootNodeId)
       checkoutPath = findChild(rootNodeId);
     if (!checkoutPath) {
-      for (const [registeredPath, record] of Object.entries(spaces())) {
-        if (!record || typeof record !== "object")
+      for (const [registeredPath, record2] of Object.entries(spaces())) {
+        if (!record2 || typeof record2 !== "object")
           continue;
-        const matchesId = rootNodeId && (record.root_node_id === rootNodeId || record.canonical_path === `/repos/${rootNodeId}` || record.canonical_path === `/spaces/${rootNodeId}`);
-        const matchesRoute = routeInfo && isHostedSpaceRecord(record) && (record.route_namespace === routeInfo.namespace && record.route_slug === routeInfo.slug || record.namespace === routeInfo.namespace && record.slug === routeInfo.slug);
+        const matchesId = rootNodeId && (record2.root_node_id === rootNodeId || record2.canonical_path === `/repos/${rootNodeId}` || record2.canonical_path === `/spaces/${rootNodeId}`);
+        const matchesRoute = routeInfo && isHostedSpaceRecord(record2) && (record2.route_namespace === routeInfo.namespace && record2.route_slug === routeInfo.slug || record2.namespace === routeInfo.namespace && record2.slug === routeInfo.slug);
         if (matchesId || matchesRoute) {
           if (existsSync9(registeredPath)) {
             checkoutPath = registeredPath;
@@ -15440,19 +15637,19 @@ function inspectSpaceMapRoots(roots, context) {
         }
       }
     }
-    let head = null;
+    let head2 = null;
     if (checkoutPath) {
       try {
-        head = headSha(checkoutPath);
+        head2 = headSha(checkoutPath);
       } catch {
       }
     }
     let status = "unresolved";
     let drift = false;
-    if (head) {
+    if (head2) {
       if (!pinnedSha)
         status = "found";
-      else if (head === pinnedSha)
+      else if (head2 === pinnedSha)
         status = "pinned";
       else {
         status = "moved";
@@ -15467,14 +15664,14 @@ function inspectSpaceMapRoots(roots, context) {
       pinnedSha,
       status,
       drift,
-      headSha: head,
+      headSha: head2,
       checkoutPath,
       ...!checkoutPath && capped ? { searchCapped: true } : {}
     };
   });
 }
 function checkoutRootNodeId(dir) {
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   let spaces = null;
   return getRepoRootNodeId(dir, apiUrl, () => {
     if (!spaces) {
@@ -15686,12 +15883,12 @@ function defaultRootNames(located) {
   }
   return located.map((root) => {
     if (root.rootNodeId) {
-      for (const record of Object.values(spaces)) {
-        if (!record || typeof record !== "object" || !isHostedSpaceRecord(record))
+      for (const record2 of Object.values(spaces)) {
+        if (!record2 || typeof record2 !== "object" || !isHostedSpaceRecord(record2))
           continue;
-        if (record.root_node_id !== root.rootNodeId)
+        if (record2.root_node_id !== root.rootNodeId)
           continue;
-        const slug = record.route_slug ?? record.slug;
+        const slug = record2.route_slug ?? record2.slug;
         if (isMapRootName(slug))
           return slug;
       }
@@ -15750,6 +15947,7 @@ var init_map_resolve = __esm({
 // dist/local/threads.js
 var threads_exports = {};
 __export(threads_exports, {
+  NO_THREAD_AGREEMENT: () => NO_THREAD_AGREEMENT,
   NoAgreementError: () => NoAgreementError,
   acknowledge: () => acknowledge,
   activityAt: () => activityAt,
@@ -15773,7 +15971,7 @@ __export(threads_exports, {
   validateMarkOptions: () => validateMarkOptions,
   validateThreadMomentMap: () => validateThreadMomentMap
 });
-import { randomUUID as randomUUID8, createHash as createHash8 } from "node:crypto";
+import { randomUUID as randomUUID9, createHash as createHash8 } from "node:crypto";
 import { spawnSync as spawnSync14 } from "node:child_process";
 import { existsSync as existsSync19, lstatSync as lstatSync3, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync2, realpathSync as realpathSync14, renameSync as renameSync6, writeFileSync as writeFileSync9 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
@@ -15835,14 +16033,30 @@ function resolveLocalThread(input, cwd = process.cwd()) {
     throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
   return dir;
 }
+function threadAgreementContent(path) {
+  const agent = join29(path, "_agent");
+  if (!lexists(agent))
+    return null;
+  safeDirectory(agent);
+  const agreement = join29(agent, "agreement.md");
+  return lexists(agreement) ? safeFile(agreement) : null;
+}
+function lexists(path) {
+  try {
+    lstatSync3(path);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT")
+      return false;
+    throw error;
+  }
+}
 function loadThread(dir) {
   const path = safeDirectory(dir);
-  const agreement = join29(path, "_agent", "agreement.md");
   const readmePath = join29(path, "README.md");
-  if (!existsSync19(agreement) || !existsSync19(readmePath))
-    throw new Error(`Thread ${path} needs _agent/agreement.md and README.md.`);
-  safeDirectory(join29(path, "_agent"));
-  const agreementContent = safeFile(agreement);
+  if (!existsSync19(readmePath))
+    throw new Error(`Thread ${path} needs README.md.`);
+  const agreementContent = threadAgreementContent(path);
   const readme = safeFile(readmePath);
   const fm = parseFrontmatter(readme);
   if (!fm)
@@ -15856,7 +16070,7 @@ function loadThread(dir) {
       throw new Error(`Unexpected thread entry: ${entry.name}`);
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join29(path, entry.name)) });
   }
-  const legacy = parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
+  const legacy = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
   const inspection = inspectThreadPosts(sources, legacy);
   const allPosts = inspection.posts.map((post) => ({ ...post, path: basename14(post.path) }));
   const seen = /* @__PURE__ */ new Set();
@@ -15868,7 +16082,10 @@ function loadThread(dir) {
   const timeline = reconstructThreadTimeline(allPosts);
   const openingPath = [...sources].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.path;
   const opening = inspection.posts.find((post) => post.path === openingPath);
-  const warnings = inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`);
+  const warnings = [
+    ...agreementContent === null ? [NO_THREAD_AGREEMENT] : [],
+    ...inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`)
+  ];
   return {
     path,
     slug,
@@ -15919,14 +16136,14 @@ function createThread(slug, about, cwd = process.cwd(), attachedTo) {
   mkdirSync8(dir);
   mkdirSync8(join29(dir, "_agent"));
   writeFileSync9(join29(dir, "_agent", "agreement.md"), `---
-name: ${(0, import_yaml9.stringify)(`Agreement \u2014 ${about.trim()}`).trim()}
+name: ${(0, import_yaml10.stringify)(`Agreement \u2014 ${about.trim()}`).trim()}
 summary: Local Thread entry schema and immutable posts.
 ---
 # ${about.trim()}
 
 Posts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.
 `, { flag: "wx" });
-  writeFileSync9(join29(dir, "README.md"), (0, import_yaml9.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
+  writeFileSync9(join29(dir, "README.md"), (0, import_yaml10.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
   return loadThread(dir);
 }
 function references(parents) {
@@ -15941,8 +16158,8 @@ function activityAt(post) {
     return null;
   return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
 }
-function latestLocalActivity(posts2) {
-  return posts2.reduce((latest, post) => {
+function latestLocalActivity(posts3) {
+  return posts3.reduce((latest, post) => {
     const at = activityAt(post);
     const time = at ? Date.parse(at) : NaN;
     return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
@@ -15950,7 +16167,8 @@ function latestLocalActivity(posts2) {
 }
 function resolveThreadParent2(threadDir, knownThreads) {
   const agreementPath = join29(threadDir, "_agent", "agreement.md");
-  const parsedAgreement = parseThreadAgreementAttachment(safeFile(agreementPath), `_threads/${basename14(threadDir)}/_agent/agreement.md`);
+  const agreementContent = threadAgreementContent(safeDirectory(threadDir));
+  const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename14(threadDir)}/_agent/agreement.md`);
   const canonicalThreadDir = realpathSync14(threadDir);
   const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
   if (parsedAgreement.status === "invalid" && !thread.attachment) {
@@ -15967,11 +16185,11 @@ function resolveThreadParent2(threadDir, knownThreads) {
   }
   const spaceRoot = spaceForThread(threadDir);
   const siblings = knownThreads ?? listLocal(spaceRoot);
-  const posts2 = siblings.flatMap((sibling) => sibling.allPosts.map((post2) => ({
+  const posts3 = siblings.flatMap((sibling) => sibling.allPosts.map((post2) => ({
     path: `_threads/${sibling.slug}/${post2.path}`,
     id: post2.id
   })));
-  const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: posts2 }]);
+  const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: posts3 }]);
   if (resolved.status !== "resolved")
     return { attached_to: attachedTo, status: resolved.status };
   const parent = siblings.find((sibling) => sibling.slug === resolved.parent.path.split("/")[1]);
@@ -15985,7 +16203,7 @@ function resolveThreadParent2(threadDir, knownThreads) {
     summary: post?.frontmatter.summary ?? ""
   };
 }
-function findChildThreads(targetThreadDir, postId, onError) {
+function findChildThreads(targetThreadDir, postId2, onError) {
   const spaceRoot = spaceForThread(targetThreadDir);
   const targetSlug = basename14(targetThreadDir);
   const targetThread = loadThread(targetThreadDir);
@@ -16015,7 +16233,7 @@ function findChildThreads(targetThreadDir, postId, onError) {
     }
     const matchedPostId = parentInfo.slug === targetSlug && parentInfo.id && targetPostIds.has(parentInfo.id) ? parentInfo.id : null;
     if (matchedPostId) {
-      if (!postId || matchedPostId === postId) {
+      if (!postId2 || matchedPostId === postId2) {
         children.push({
           id: t.path,
           slug: t.slug,
@@ -16041,18 +16259,18 @@ function findChildThreads(targetThreadDir, postId, onError) {
   });
   return children;
 }
-function findNewestSnapshot(posts2) {
-  for (let i = posts2.length - 1; i >= 0; i--) {
-    if (posts2[i].kind === "snapshot" || posts2[i].kind === "reframe") {
-      return posts2[i];
+function findNewestSnapshot(posts3) {
+  for (let i = posts3.length - 1; i >= 0; i--) {
+    if (posts3[i].kind === "snapshot" || posts3[i].kind === "reframe") {
+      return posts3[i];
     }
   }
   return null;
 }
-function computeBranches(posts2) {
-  if (!posts2.length)
+function computeBranches(posts3) {
+  if (!posts3.length)
     return [];
-  const timeline = reconstructThreadTimeline(posts2);
+  const timeline = reconstructThreadTimeline(posts3);
   const order = new Map(timeline.posts.map((post, index) => [post.id, index]));
   const branches = [];
   for (const root of timeline.roots) {
@@ -16170,7 +16388,7 @@ function appendPost(dir, options) {
   if (options.map !== void 0)
     validateThreadMomentMap(options.map);
   options.verifyTarget?.(thread, parentIds, options.supersedes);
-  const id = `msg_${randomUUID8()}`;
+  const id = `msg_${randomUUID9()}`;
   const date = (/* @__PURE__ */ new Date()).toISOString();
   const stamp = date.replace(/[:.]/g, "-");
   const path = join29(thread.path, `${stamp}-${id}.md`);
@@ -16190,7 +16408,7 @@ function appendPost(dir, options) {
     ...options.map !== void 0 ? { map: options.map } : {}
   };
   const content = `---
-${(0, import_yaml9.stringify)(fields)}---
+${(0, import_yaml10.stringify)(fields)}---
 
 ${options.body.trim()}
 `;
@@ -16219,15 +16437,15 @@ function readCursor(thread) {
     throw new Error(`Invalid local Thread cursor: ${path}`);
   return new Set(data.seen);
 }
-function acknowledge(thread, posts2) {
+function acknowledge(thread, posts3) {
   const seen = readCursor(thread);
-  for (const post of posts2)
+  for (const post of posts3)
     seen.add(post.id);
   const path = cursorPath(thread);
   mkdirSync8(dirname18(path), { recursive: true, mode: 448 });
   if (lstatSync3(dirname18(path)).isSymbolicLink())
     throw new Error("Refusing symlink local cursor directory.");
-  const tmp = `${path}.${randomUUID8()}.tmp`;
+  const tmp = `${path}.${randomUUID9()}.tmp`;
   writeFileSync9(tmp, JSON.stringify({ seen: [...seen] }), { flag: "wx", mode: 384 });
   renameSync6(tmp, path);
 }
@@ -16302,12 +16520,12 @@ function pushWorktree(cwd = process.cwd(), remote) {
   git3(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
   return remote;
 }
-var import_yaml9, MAX_POST, SHA2, SLUG, NoAgreementError;
+var import_yaml10, MAX_POST, SHA2, SLUG, NoAgreementError, NO_THREAD_AGREEMENT;
 var init_threads2 = __esm({
   "dist/local/threads.js"() {
     "use strict";
     init_dist();
-    import_yaml9 = __toESM(require_dist(), 1);
+    import_yaml10 = __toESM(require_dist(), 1);
     init_git2();
     init_map_resolve();
     MAX_POST = 1024 * 1024;
@@ -16315,6 +16533,7 @@ var init_threads2 = __esm({
     SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
     NoAgreementError = class extends Error {
     };
+    NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
   }
 });
 
@@ -16511,7 +16730,7 @@ function buildDoctorReport(input) {
     version: null,
     detail: "Remote features are unavailable; local capture still works.",
     exit_code: null,
-    fix: "Run `ideaspaces login` to enable publish, sync, and sharing.",
+    fix: isHostAuth() ? "Remote work is coming through the IdeaSpaces tools; this `ideaspaces` runs with IDEASPACES_AUTH=host." : "Run `ideaspaces login` to enable publish, sync, and sharing.",
     api_url: null
   };
   return {
@@ -16546,7 +16765,7 @@ var defaultRuntime = {
   platform: process.platform,
   node: nodeAvailability,
   git: gitAvailability,
-  auth: loadConfig
+  auth: peekConfig
 };
 function makeDoctorCommand(runtime = defaultRuntime) {
   return {
@@ -17736,6 +17955,10 @@ var loginCommand = {
   examples: ["ideaspaces login              # Browser sign-in for this CLI install; saves a rotating session"],
   async run(_args, _flags, global3) {
     const output = createOutput(global3);
+    if (isHostAuth()) {
+      output.error(hostAuthMessage("Sign-in"));
+      return 1;
+    }
     const apiUrl = getDefaultApiUrl();
     try {
       const replacing = !!loadStoredCredentials();
@@ -17860,11 +18083,11 @@ function runGit4(cwd, args2) {
     stdout: (r.stdout || "").trim()
   };
 }
-function legacyGitUrl2(apiUrl, namespace, slug) {
-  return `${deriveGitBase(apiUrl)}/${namespace}/${slug}.git`;
+function legacyGitUrl2(apiUrl, namespace2, slug) {
+  return `${deriveGitBase(apiUrl)}/${namespace2}/${slug}.git`;
 }
-function legacyWebUrl(apiUrl, namespace, slug) {
-  return `${deriveWebBase(apiUrl)}/${namespace}/${slug}`;
+function legacyWebUrl(apiUrl, namespace2, slug) {
+  return `${deriveWebBase(apiUrl)}/${namespace2}/${slug}`;
 }
 var SIZE_CAP_BYTES = 2e5;
 var SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
@@ -18161,7 +18384,7 @@ var publishCommand = {
       return 0;
     }
     let repo;
-    let namespace;
+    let namespace2;
     if (hosted) {
       const stillVisible = me.repos.some((r) => r.repo_id === hosted.repo_id);
       if (!stillVisible) {
@@ -18189,14 +18412,14 @@ var publishCommand = {
         slug: hosted.slug,
         name: hosted.name ?? hosted.slug
       };
-      namespace = hosted.namespace;
+      namespace2 = hosted.namespace;
     } else {
       const naming = deriveFreshNaming(cwd, flags2, unpublished?.name, me.username);
       const { name, slug, slugInput, hostname: hostname2 } = naming;
       if (slug !== slugInput) {
         output.log(`Using slug: ${slug} (normalized from "${slugInput}")`);
       }
-      namespace = naming.namespace;
+      namespace2 = naming.namespace;
       const prescribedRootNodeId = typeof rootIdentity4.declaration.head === "string" ? rootIdentity4.declaration.head : void 0;
       try {
         repo = await createRepo(config, {
@@ -18247,7 +18470,7 @@ Git needs a \`user.name\` to commit. Run \`git config --local user.name "Your Na
         }
       }
     }
-    const remoteUrl = repo.root_node_id ? canonicalGitUrl(config.apiUrl, repo.root_node_id) : legacyGitUrl2(config.apiUrl, namespace, repo.slug);
+    const remoteUrl = repo.root_node_id ? canonicalGitUrl(config.apiUrl, repo.root_node_id) : legacyGitUrl2(config.apiUrl, namespace2, repo.slug);
     const existingRemote = runGit4(cwd, ["remote", "get-url", "origin"]);
     if (existingRemote.ok) {
       if (existingRemote.stdout && existingRemote.stdout !== remoteUrl) {
@@ -18286,7 +18509,7 @@ ${push2.stderr}${hint}`);
     const hostedRecord = projected ? spaceRecordForRepo(projected, me.username) : {
       repo_id: repo.repo_id,
       slug: repo.slug,
-      namespace,
+      namespace: namespace2,
       ...repo.root_node_id ? {
         root_node_id: repo.root_node_id,
         route_status: "unavailable",
@@ -18295,17 +18518,17 @@ ${push2.stderr}${hint}`);
         canonical_path: `/repos/${repo.root_node_id}`
       } : {}
     };
-    const record = withForkLineage(hostedRecord, existing);
-    saveSpace(cwd, record);
-    const webUrl = repo.root_node_id ? canonicalRepoUrl(config.apiUrl, repo.root_node_id) : legacyWebUrl(config.apiUrl, namespace, repo.slug);
+    const record2 = withForkLineage(hostedRecord, existing);
+    saveSpace(cwd, record2);
+    const webUrl = repo.root_node_id ? canonicalRepoUrl(config.apiUrl, repo.root_node_id) : legacyWebUrl(config.apiUrl, namespace2, repo.slug);
     output.result({
       repo_id: repo.repo_id,
-      root_node_id: repo.root_node_id ?? record.root_node_id ?? null,
+      root_node_id: repo.root_node_id ?? record2.root_node_id ?? null,
       slug: repo.slug,
-      namespace,
-      route_status: record.route_status ?? null,
-      route_namespace: record.route_namespace ?? null,
-      route_slug: record.route_slug ?? null,
+      namespace: namespace2,
+      route_status: record2.route_status ?? null,
+      route_namespace: record2.route_namespace ?? null,
+      route_slug: record2.route_slug ?? null,
       remote_url: remoteUrl,
       repo_url: webUrl,
       /** @deprecated Superseded by `repo_url`; still emitted for existing readers. */
@@ -18904,6 +19127,10 @@ function parseArgs(argv) {
           global3.repo = value2;
           continue;
         }
+        if (key3 === "token-fd") {
+          global3.tokenFd = value2;
+          continue;
+        }
         if (key3 === "git-bin") {
           global3.gitBin = normalizeGitBin(value2);
           continue;
@@ -18934,6 +19161,12 @@ function parseArgs(argv) {
       }
       if (key2 === "repo" && i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
         global3.repo = argv[++i];
+        continue;
+      }
+      if (key2 === "token-fd") {
+        if (i + 1 >= argv.length || argv[i + 1].startsWith("--"))
+          throw new Error("--token-fd requires a descriptor number");
+        global3.tokenFd = argv[++i];
         continue;
       }
       if (key2 === "git-bin") {
@@ -19478,7 +19711,7 @@ init_git2();
 init_repo_locator();
 init_root_identity2();
 function inspectPortableLocalRoot(repoRoot2, headSha2, observedPaths2) {
-  const apiUrl = loadConfig()?.apiUrl ?? getDefaultApiUrl();
+  const apiUrl = peekConfig()?.apiUrl ?? getDefaultApiUrl();
   const identity = inspectLocalRootIdentity(repoRoot2, apiUrl);
   const root = {
     local_path: repoRoot2,
@@ -19731,14 +19964,14 @@ async function lookAtAddress(note, address, options) {
     return { ok: false, text: "Name a post id in the address or with --post, not both.", data: { status: "invalid_address" } };
   }
   const selectedAddress = virtual?.threadAddress ?? address;
-  const postId = options.postId ?? virtual?.postId;
+  const postId2 = options.postId ?? virtual?.postId;
   return readAddress(note, address, options, (target) => lookAtCommit(target, {
     depth: options.depth,
     ...options.contractSource ? { contractSource: options.contractSource } : {},
     ...options.limit !== void 0 ? { limit: options.limit } : {},
     ...options.since !== void 0 ? { since: options.since } : {},
     ...options.order !== void 0 ? { order: options.order } : {},
-    ...postId ? { postId } : {}
+    ...postId2 ? { postId: postId2 } : {}
   }), selectedAddress);
 }
 async function focusAtAddress(note, address, options) {
@@ -19903,12 +20136,12 @@ var lookCommand = {
       return 1;
     }
     const since = typeof flags2.since === "string" && flags2.since.trim() ? flags2.since.trim() : void 0;
-    const postId = typeof flags2.post === "string" && flags2.post.trim() ? flags2.post.trim() : void 0;
+    const postId2 = typeof flags2.post === "string" && flags2.post.trim() ? flags2.post.trim() : void 0;
     if (flags2.since !== void 0 && !since) {
       output.error("--since needs the nextCursor value from the previous directory page.");
       return 1;
     }
-    if (flags2.post !== void 0 && !postId) {
+    if (flags2.post !== void 0 && !postId2) {
       output.error("--post needs a msg_ post id.");
       return 1;
     }
@@ -19917,7 +20150,7 @@ var lookCommand = {
       output.error("--order must be older or newer.");
       return 1;
     }
-    if (postId && (flags2.limit !== void 0 || since || order)) {
+    if (postId2 && (flags2.limit !== void 0 || since || order)) {
       output.error("--post selects one id; omit limit, since and order, which page a directory.");
       return 1;
     }
@@ -19969,7 +20202,7 @@ var lookCommand = {
           ...limit !== void 0 ? { limit } : {},
           ...since ? { since } : {},
           ...order ? { order } : {},
-          ...postId ? { postId } : {}
+          ...postId2 ? { postId: postId2 } : {}
         });
         return emit(output, global3.json, read2.ok, read2.data, read2.text);
       } catch (error) {
@@ -19989,7 +20222,7 @@ var lookCommand = {
         ...limit !== void 0 ? { limit } : {},
         ...since ? { since } : {},
         ...order ? { order } : {},
-        ...postId ? { postId } : {}
+        ...postId2 ? { postId: postId2 } : {}
       });
     }
     let looked;
@@ -20001,7 +20234,7 @@ var lookCommand = {
         ...limit !== void 0 ? { limit } : {},
         ...since ? { since } : {},
         ...order ? { order } : {},
-        ...postId ? { postId } : {}
+        ...postId2 ? { postId: postId2 } : {}
       };
       looked = await assembleContentLook(options);
       if (looked?.status === "contract_choice_required" && !selected.source) {
@@ -20955,7 +21188,7 @@ function healed(existing, rootNodeId) {
   return { ...existing, root_node_id: rootNodeId };
 }
 async function resolveSpaceBinding(dir, config) {
-  const record = findSpaceFor(dir);
+  const record2 = findSpaceFor(dir);
   let localIdentity;
   try {
     localIdentity = inspectLocalRootIdentity(dir, config?.apiUrl);
@@ -20973,7 +21206,7 @@ async function resolveSpaceBinding(dir, config) {
     return { failure: "identity-drift" };
   if (localIdentity.state === "ambiguous")
     return { failure: "identity-ambiguous" };
-  if (record && isUnpublishedForkRecord(record))
+  if (record2 && isUnpublishedForkRecord(record2))
     return { failure: "unpublished" };
   if (localIdentity.state === "local_only")
     return { failure: "local-only" };
@@ -20983,9 +21216,9 @@ async function resolveSpaceBinding(dir, config) {
   const origin = originUrl(dir);
   if (localIdentity.canonical_origin && localIdentity.root_node_id) {
     const fromOrigin = localIdentity.root_node_id;
-    if (record && !isUnpublishedForkRecord(record)) {
+    if (record2 && !isUnpublishedForkRecord(record2)) {
       try {
-        saveSpace(dir, healed(record, fromOrigin));
+        saveSpace(dir, healed(record2, fromOrigin));
       } catch {
       }
     }
@@ -21012,7 +21245,7 @@ async function resolveSpaceBinding(dir, config) {
   if (!repo.root_node_id)
     return { failure: "no-match" };
   try {
-    saveSpace(dir, withForkLineage(spaceRecordForRepo(repo, me.username), record));
+    saveSpace(dir, withForkLineage(spaceRecordForRepo(repo, me.username), record2));
   } catch {
   }
   return { rootNodeId: repo.root_node_id, via: "account" };
@@ -21428,17 +21661,17 @@ async function runMapSelection(args2, flags2, _global, output) {
             continue;
           }
           const checkout = located[index]?.checkoutPath;
-          const head = located[index]?.headSha;
-          if (!checkout || !head)
+          const head2 = located[index]?.headSha;
+          if (!checkout || !head2)
             throw new Error(`Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no reachable local HEAD to pin for sending.`);
           if (checkout !== repoRoot2) {
             const foreign = await gitState(checkout);
             const remote2 = originUrl(checkout);
-            if (!foreign.headSha || !foreign.branch || foreign.headSha !== head || foreign.dirty || !remote2 || rootNodeIdFromGitUrl(remote2, config.apiUrl) !== root.root_node_id || exactRemoteHead(checkout, foreign.branch) !== head) {
+            if (!foreign.headSha || !foreign.branch || foreign.headSha !== head2 || foreign.dirty || !remote2 || rootNodeIdFromGitUrl(remote2, config.apiUrl) !== root.root_node_id || exactRemoteHead(checkout, foreign.branch) !== head2) {
               throw new Error(`Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) is not published at its own origin. Push its HEAD, then retry.`);
             }
           }
-          momentRoots.push({ ...root, sha: head });
+          momentRoots.push({ ...root, sha: head2 });
         }
         roots = momentRoots;
         members = rawMembers.map((m) => {
@@ -21712,7 +21945,7 @@ function memberFrom(args2, flags2, roots) {
     ...value(flags2, "summary") ? { summary: value(flags2, "summary") } : {}
   } };
 }
-function removeEmptyRoot(doc, seq, map, id) {
+function removeEmptyRoot(doc, seq2, map, id) {
   const matches2 = map.roots.flatMap((root, i) => rootIdentity2(root) === id ? [i] : []);
   if (matches2.length !== 1)
     throw new Error(`Root ${id} is ${matches2.length ? "ambiguous" : "not in this Map"}; choose one valid identity.`);
@@ -21724,7 +21957,7 @@ function removeEmptyRoot(doc, seq, map, id) {
   if (!(roots instanceof import_yaml5.YAMLSeq))
     throw new Error("Map roots must be a sequence.");
   roots.items.splice(index, 1);
-  for (const entry of seq.items) {
+  for (const entry of seq2.items) {
     if (entry && typeof entry === "object" && "get" in entry && "set" in entry) {
       const node = entry;
       const old = node.get("root");
@@ -21780,20 +22013,20 @@ async function appendAddressMemberToMapFile(rawPath, address, depth2 = "summary"
     if (parsed2.status !== "valid") {
       throw new Error(`Invalid or missing Map in ${file2}: ${parsed2.status === "invalid" ? parsed2.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "no map block"}`);
     }
-    let seq = doc.getIn(["map", "members"], true);
-    if (!seq) {
+    let seq2 = doc.getIn(["map", "members"], true);
+    if (!seq2) {
       doc.setIn(["map", "members"], []);
-      seq = doc.getIn(["map", "members"], true);
+      seq2 = doc.getIn(["map", "members"], true);
     }
-    if (!(seq instanceof import_yaml5.YAMLSeq))
+    if (!(seq2 instanceof import_yaml5.YAMLSeq))
       throw new Error("Map members must be a sequence.");
     const member2 = { address, depth: depth2 };
     const candidate = parseMap({ roots: parsed2.map.roots, members: [...parsed2.map.members, member2] });
     if (candidate.status !== "valid") {
       throw new Error(`Invalid member: ${candidate.status === "invalid" ? candidate.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "missing map"}`);
     }
-    const index = seq.items.length;
-    seq.add(member2);
+    const index = seq2.items.length;
+    seq2.add(member2);
     const newline = front[0].startsWith("---\r\n") ? "\r\n" : "\n";
     const next = `---${newline}${doc.toString().replace(/\n/g, newline)}---${original.slice(front[0].length)}`;
     if (hash(await fs11.readFile(file2, "utf8")) !== hash(original))
@@ -21843,12 +22076,12 @@ ${(0, import_yaml5.stringify)({ name, summary, map: { roots: [], members: [] } }
       const parsed2 = parseMap(doc.toJS()?.map);
       if (parsed2.status !== "valid")
         throw new Error(`Invalid or missing Map in ${file2}: ${parsed2.status === "invalid" ? parsed2.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "no map block"}`);
-      let seq = doc.getIn(["map", "members"], true);
-      if (!seq) {
+      let seq2 = doc.getIn(["map", "members"], true);
+      if (!seq2) {
         doc.setIn(["map", "members"], []);
-        seq = doc.getIn(["map", "members"], true);
+        seq2 = doc.getIn(["map", "members"], true);
       }
-      if (!(seq instanceof import_yaml5.YAMLSeq))
+      if (!(seq2 instanceof import_yaml5.YAMLSeq))
         throw new Error("Map members must be a sequence.");
       let index;
       let registerCheckout;
@@ -21881,7 +22114,7 @@ ${(0, import_yaml5.stringify)({ name, summary, map: { roots: [], members: [] } }
           roots.add(root);
         }
         const existing = parsed2.map.members.findIndex((entry) => "address" in member2 ? "address" in entry && entry.address === member2.address : "root" in entry && entry.root === member2.root && entry.position === member2.position);
-        index = existing < 0 ? seq.items.length : existing;
+        index = existing < 0 ? seq2.items.length : existing;
         if (existing >= 0) {
           const previous = parsed2.map.members[existing];
           const fields = ["depth", "name", "summary", "attached_to"];
@@ -21890,12 +22123,12 @@ ${(0, import_yaml5.stringify)({ name, summary, map: { roots: [], members: [] } }
           }
           already = "already_present";
         } else
-          seq.add(member2);
+          seq2.add(member2);
       } else {
         const byPosition = value(flags2, "position");
         const id = value(flags2, "root-node-id");
         if (id && !byPosition && members.length === 0 && flags2.root === void 0 && flags2.checkout === void 0 && flags2.sha === void 0) {
-          index = removeEmptyRoot(doc, seq, parsed2.map, id);
+          index = removeEmptyRoot(doc, seq2, parsed2.map, id);
           removedRoot = true;
         } else {
           const requested2 = byPosition && id && members.length === 0 ? `@${id}//${byPosition === "." ? "" : byPosition}` : members[0];
@@ -21903,12 +22136,12 @@ ${(0, import_yaml5.stringify)({ name, summary, map: { roots: [], members: [] } }
             throw new Error("map remove needs one address, or --root-node-id <id> --position <path> (index requires --if-match).");
           }
           index = resolveRemoveTarget(requested2, parsed2.map, match, file2);
-          if (!Number.isSafeInteger(index) || index < 0 || index >= seq.items.length) {
+          if (!Number.isSafeInteger(index) || index < 0 || index >= seq2.items.length) {
             if (/^(0|[1-9]\d*)$/.test(requested2))
               throw new Error(`Member ${requested2} was not found; run map ${file2} --json to see indices.`);
             already = "already_absent";
           } else {
-            seq.items.splice(index, 1);
+            seq2.items.splice(index, 1);
           }
         }
       }
@@ -22704,12 +22937,12 @@ async function readSourceAwareness(config, rootNodeId, recordedHead) {
     unavailable: failures.length ? failures.join("; ") : null
   };
 }
-function sourceAwarenessFor(record, config) {
-  if (!record?.source_root_node_id)
+function sourceAwarenessFor(record2, config) {
+  if (!record2?.source_root_node_id)
     return Promise.resolve(null);
-  if (!record.source_head) {
+  if (!record2.source_head) {
     return Promise.resolve({
-      root_node_id: record.source_root_node_id,
+      root_node_id: record2.source_root_node_id,
       recorded_head: null,
       current_head: null,
       moved: null,
@@ -22721,8 +22954,8 @@ function sourceAwarenessFor(record, config) {
   }
   if (!config) {
     return Promise.resolve({
-      root_node_id: record.source_root_node_id,
-      recorded_head: record.source_head,
+      root_node_id: record2.source_root_node_id,
+      recorded_head: record2.source_head,
       current_head: null,
       moved: null,
       commits: null,
@@ -22731,7 +22964,7 @@ function sourceAwarenessFor(record, config) {
       unavailable: "Log in to read the source Space's trail: ideaspaces login"
     });
   }
-  return readSourceAwareness(config, record.source_root_node_id, record.source_head);
+  return readSourceAwareness(config, record2.source_root_node_id, record2.source_head);
 }
 function appendSourceAwareness(lines, source, limit) {
   lines.push("", "Fork source:");
@@ -22802,14 +23035,14 @@ var syncCommand = {
       return 1;
     }
     const config = loadConfig();
-    const record = findSpaceFor(root);
+    const record2 = findSpaceFor(root);
     const initialRemoteState = remoteState(root);
-    if (record && isUnpublishedForkRecord(record)) {
-      const source2 = await sourceAwarenessFor(record, config);
+    if (record2 && isUnpublishedForkRecord(record2)) {
+      const source2 = await sourceAwarenessFor(record2, config);
       const lines2 = [
         "Unpublished local fork \u2014 no destination upstream exists yet.",
-        `Local identity: ${record.root_node_id}`,
-        `Source: ${record.source_root_node_id} at ${record.source_head.slice(0, 12)}`,
+        `Local identity: ${record2.root_node_id}`,
+        `Source: ${record2.source_root_node_id} at ${record2.source_head.slice(0, 12)}`,
         "Publish it with: ideaspaces publish"
       ];
       if (initialRemoteState.upstream) {
@@ -22819,7 +23052,7 @@ var syncCommand = {
         appendSourceAwareness(lines2, source2, limit);
       output.result({
         publication_state: "unpublished_fork",
-        root_node_id: record.root_node_id,
+        root_node_id: record2.root_node_id,
         upstream: null,
         ahead: 0,
         behind: 0,
@@ -22850,7 +23083,7 @@ var syncCommand = {
     if (!fetched) {
       lines.push(`Could not reach the remote (${fetchError}) \u2014 position below is from the last fetch.`);
     }
-    const sourcePromise = sourceAwarenessFor(record, config);
+    const sourcePromise = sourceAwarenessFor(record2, config);
     if (!rs.upstream) {
       const source2 = await sourcePromise;
       output.result({
@@ -23397,6 +23630,12 @@ async function handleGet() {
   if (!isIdeaspacesHost(params.host)) {
     return 0;
   }
+  if (isHostAuth()) {
+    process.stderr.write(`IdeaSpaces credential helper: ${hostAuthMessage("Git access to IdeaSpaces")}
+`);
+    process.stdout.write("quit=true\n\n");
+    return 1;
+  }
   const loaded = loadConfig();
   if (!loaded) {
     return 0;
@@ -23497,6 +23736,364 @@ var reposCommand = {
   }
 };
 
+// dist/commands/hosted-threads.js
+init_dist();
+var import_yaml7 = __toESM(require_dist(), 1);
+init_api();
+init_credentials();
+import { randomUUID as randomUUID7 } from "node:crypto";
+var HOSTED_THREAD_32 = /^x_[0-9a-f]{32}$/;
+var POST_ID = /^msg_[a-zA-Z0-9_-]{1,60}$/;
+var MAX_NOTE_BYTES = 32 * 1024;
+function messages(state, subject) {
+  const host = isHostAuth();
+  const signIn = host ? "Sign in under Account settings in Idea Explorer" : "Run `ideaspaces login`";
+  const thread = subject === "thread";
+  switch (state) {
+    case "signed_out":
+      return `Not signed in to IdeaSpaces. ${signIn} to ${thread ? "read or reply to hosted Threads" : "list your Vaults"}.`;
+    case "expired":
+      return host ? "The app's IdeaSpaces sign-in was refused (401). Sign in again under Account settings in Idea Explorer; keep your reply draft." : "Your IdeaSpaces sign-in expired or was revoked (401). Run `ideaspaces login` again; keep your reply draft.";
+    case "forbidden":
+      return thread ? "You do not have access to this Thread or action." : "My Vaults is for a person's own sign-in; this credential was refused (403).";
+    case "not_found":
+      return "This hosted Thread could not be found, or this sign-in has no access to it (the service answers 404 for both).";
+    case "offline":
+      return "IdeaSpaces could not be reached. Check your connection and retry; keep the same reply id.";
+    case "rate_limited":
+      return "IdeaSpaces is busy. Wait before retrying; keep the same reply id.";
+    case "conflict":
+      return "This reply conflicts with the stored post, or the Thread is closed. Reopen the Thread before retrying.";
+    case "invalid_request":
+      return thread ? "The Thread request is invalid. Use a cursor from this command for this Thread, and a reply with an explicit parent." : "The Vaults request is invalid.";
+    case "invalid_response":
+      return `IdeaSpaces returned an unreadable ${thread ? "Thread" : "Vaults"} response. Retry, or update the ideaspaces CLI.`;
+    case "unavailable":
+      return "IdeaSpaces is unavailable. Try again later; keep the same reply id.";
+  }
+}
+var HostedError = class extends Error {
+  state;
+  retryAfterMs;
+  constructor(state, message, retryAfterMs) {
+    super(message ?? state);
+    this.state = state;
+    this.retryAfterMs = retryAfterMs;
+    this.name = "HostedError";
+  }
+};
+var STATUS = { 401: "expired", 403: "forbidden", 404: "not_found", 409: "conflict", 429: "rate_limited", 400: "invalid_request", 422: "invalid_request" };
+function failureOf(error, subject) {
+  if (error instanceof HostedError)
+    return error.message === error.state ? new HostedError(error.state, messages(error.state, subject), error.retryAfterMs) : error;
+  if (error instanceof ApiStatusError) {
+    const state = STATUS[error.status] ?? "unavailable";
+    return new HostedError(state, messages(state, subject), error.retryAfterMs);
+  }
+  if (error instanceof UnauthorizedError)
+    return new HostedError("expired", error.message);
+  if (error instanceof NetworkError)
+    return new HostedError("offline", messages("offline", subject));
+  if (error instanceof Error && /^Not logged in/.test(error.message))
+    return new HostedError("signed_out", messages("signed_out", subject));
+  return new HostedError("invalid_response", messages("invalid_response", subject));
+}
+function requireValue(ok, state = "invalid_response") {
+  if (!ok)
+    throw new HostedError(state);
+}
+var record = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+var seq = (x) => Number.isSafeInteger(x) && x >= 0;
+function pageLimit(raw, dflt = 50) {
+  if (raw === void 0)
+    return dflt;
+  const limit = typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (!(Number.isInteger(limit) && limit >= 1 && limit <= 200))
+    throw new HostedError("invalid_request", "--limit must be a whole number from 1 to 200.");
+  return limit;
+}
+function namespace(config) {
+  return new URL(config.apiUrl).origin;
+}
+function encode(config, kind, value2, thread) {
+  return Buffer.from(JSON.stringify({ source: namespace(config), kind, value: value2, thread })).toString("base64url");
+}
+function decode(config, cursor, kinds, thread) {
+  const refused = new HostedError("invalid_request", "That cursor is not from this command for this Thread and service. Use the cursor the last page printed.");
+  try {
+    if (cursor.length > 8192)
+      throw refused;
+    const parsed2 = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (!(record(parsed2) && parsed2.source === namespace(config) && kinds.includes(parsed2.kind) && parsed2.thread === thread && (parsed2.kind === "list" ? typeof parsed2.value === "string" : seq(parsed2.value))))
+      throw refused;
+    return { kind: parsed2.kind, value: parsed2.value };
+  } catch {
+    throw refused;
+  }
+}
+function postOf(raw, thread) {
+  requireValue(record(raw) && raw.thread_id === thread && seq(raw.seq) && raw.seq > 0 && typeof raw.post_id === "string" && POST_ID.test(raw.post_id) && typeof raw.note === "string" && record(raw.fields) && typeof raw.actor === "string" && typeof raw.actor_label === "string" && typeof raw.surface === "string" && typeof raw.received_at === "string" && (raw.marks === void 0 || Array.isArray(raw.marks)) && (raw.principal_ref === void 0 || raw.principal_ref === null || typeof raw.principal_ref === "string") && (raw.principal_label === void 0 || raw.principal_label === null || typeof raw.principal_label === "string"));
+  return {
+    id: raw.post_id,
+    seq: raw.seq,
+    author: raw.principal_label || raw.actor_label,
+    author_ref: raw.principal_ref || raw.actor,
+    actor: raw.actor,
+    actor_label: raw.actor_label,
+    surface: raw.surface,
+    date: raw.received_at,
+    edited_at: typeof raw.edited_at === "string" ? raw.edited_at : null,
+    note: raw.note,
+    fields: raw.fields,
+    marks: raw.marks ?? []
+  };
+}
+async function head(config, id) {
+  const h = await fetchHostedThread(config, id);
+  requireValue(record(h) && h.thread_id === id && typeof h.name === "string" && typeof h.closed === "boolean" && seq(h.last_seq) && ["Editor", "Commenter", "Viewer"].includes(h.grade));
+  return { thread: { id, name: h.name, closed: h.closed, grade: h.grade, can_reply: !h.closed && h.grade !== "Viewer" }, lastSeq: h.last_seq };
+}
+async function posts(config, id, query) {
+  const raw = await fetchHostedThreadPosts(config, id, query);
+  requireValue(record(raw) && Array.isArray(raw.posts) && raw.posts.length <= query.limit);
+  const page = raw.posts.map((p) => postOf(p, id));
+  requireValue(page.every((p, i) => (!i || p.seq > page[i - 1].seq) && (query.after_seq === void 0 || p.seq > query.after_seq) && (query.before_seq === void 0 || p.seq < query.before_seq)));
+  return page;
+}
+function bodyOf(note) {
+  const match = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(note);
+  return (match ? note.slice(match[0].length) : note).trim();
+}
+function postText(post) {
+  const name = typeof post.fields.name === "string" ? `  ${post.fields.name}` : "";
+  const via = post.author_ref !== post.actor ? ` (via ${post.actor_label})` : "";
+  return `[${post.seq}] ${post.id}${name}
+  ${post.author}${via} \xB7 ${post.date} \xB7 ${post.surface}
+
+${bodyOf(post.note)}`;
+}
+function str(flags2, key2) {
+  const value2 = flags2[key2];
+  if (value2 === true)
+    throw new HostedError("invalid_request", `--${key2} requires a value.`);
+  return typeof value2 === "string" ? value2 : void 0;
+}
+function postId(flags2) {
+  const given = str(flags2, "post-id");
+  if (given === void 0)
+    return `msg_${randomUUID7()}`;
+  if (!POST_ID.test(given))
+    throw new HostedError("invalid_request", "--post-id must be a msg_ id (letters, digits, _ and -, at most 64 characters).");
+  return given;
+}
+function singleLine2(flags2, key2, required) {
+  const value2 = str(flags2, key2);
+  if (value2 === void 0 || !value2.trim()) {
+    if (required)
+      throw new HostedError("invalid_request", `--${key2} is required.`);
+    return void 0;
+  }
+  if (/[\r\n]/.test(value2) || value2.length > 1e3)
+    throw new HostedError("invalid_request", `--${key2} must be one line of at most 1,000 characters.`);
+  return value2.trim();
+}
+function buildNote(fields, body) {
+  const note = `---
+${(0, import_yaml7.stringify)(fields)}---
+
+${body.trim()}
+`;
+  if (Buffer.byteLength(note) > MAX_NOTE_BYTES)
+    throw new HostedError("invalid_request", `The Note is larger than the service accepts (${MAX_NOTE_BYTES / 1024} KiB). Shorten --message.`);
+  return note;
+}
+function messageBody(flags2) {
+  const body = str(flags2, "message");
+  if (body === void 0 || !body.trim())
+    throw new HostedError("invalid_request", "--message is required.");
+  return body;
+}
+var AMBIGUOUS = /* @__PURE__ */ new Set(["offline", "unavailable", "rate_limited", "invalid_response"]);
+async function runHosted(output, json, what, subject, work, retry) {
+  try {
+    const config = hostedConfig(what);
+    const { data, text } = await work(config);
+    output.result(data, text);
+    return 0;
+  } catch (error) {
+    if (error instanceof HostAuthRefusal)
+      throw error;
+    const failure = failureOf(error, subject);
+    const resend = retry && AMBIGUOUS.has(failure.state) ? ` The post may or may not have landed: resend with --post-id ${retry.postId} and the same arguments; the service accepts an exact resend once.` : "";
+    if (json) {
+      process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: {
+        state: failure.state,
+        message: failure.message + resend,
+        ...failure.retryAfterMs !== void 0 ? { retry_after_ms: failure.retryAfterMs } : {},
+        ...retry ? { post_id: retry.postId } : {}
+      } }, null, 2) + "\n");
+    }
+    output.error(`Error (${failure.state}): ${failure.message}${resend}`);
+    return 1;
+  }
+}
+async function vaultsVerb(output, json) {
+  return runHosted(output, json, "Listing your Vaults", "vaults", async (config) => {
+    const raw = await fetchVaults(config);
+    const roots = (x) => Array.isArray(x) && x.every((r) => record(r) && typeof r.root_node_id === "string" && typeof r.name === "string");
+    requireValue(record(raw) && record(raw.personal) && roots(raw.personal.roots) && Array.isArray(raw.orgs) && raw.orgs.every((o) => record(o) && typeof o.hostname === "string" && roots(o.roots)) && roots(raw.shared_with_me));
+    const line2 = (r) => `  ${r.root_node_id}  ${r.name}${r.level ? ` \xB7 ${r.level}` : ""}${r.archived ? " \xB7 archived" : ""}`;
+    const text = [
+      `Personal${raw.personal.handle ? ` (@${raw.personal.handle})` : ""}: ${raw.personal.roots.length} root(s)`,
+      ...raw.personal.roots.map(line2),
+      ...raw.orgs.flatMap((o) => [`${o.hostname}${o.my_role ? ` \xB7 ${o.my_role}` : ""}: ${o.roots.length} root(s)`, ...o.roots.map(line2)]),
+      `Shared with you: ${raw.shared_with_me.length} root(s)`,
+      ...raw.shared_with_me.map(line2)
+    ].join("\n");
+    return { data: { schema: "ideaspaces.vaults.v1", ...raw }, text };
+  });
+}
+async function listVerb(output, json, flags2) {
+  return runHosted(output, json, "Listing hosted Threads", "thread", async (config) => {
+    const limit = pageLimit(flags2.limit);
+    const given = str(flags2, "cursor");
+    const cursor = given === void 0 ? void 0 : String(decode(config, given, ["list"]).value);
+    const raw = await listHostedThreads(config, { limit, ...cursor ? { cursor } : {} });
+    requireValue(record(raw) && Array.isArray(raw.threads) && raw.threads.length <= limit && (raw.next_cursor === null || typeof raw.next_cursor === "string"));
+    const threads = raw.threads.map((t) => {
+      requireValue(record(t) && typeof t.thread_id === "string" && HOSTED_THREAD_32.test(t.thread_id) && typeof t.name === "string" && typeof t.closed === "boolean" && seq(t.unread_count));
+      return {
+        id: t.thread_id,
+        name: t.name,
+        closed: t.closed,
+        unread_count: t.unread_count,
+        ...typeof t.last_post_at === "string" ? { last_post_at: t.last_post_at } : {}
+      };
+    });
+    const next = raw.next_cursor ? encode(config, "list", raw.next_cursor) : null;
+    const text = threads.length ? threads.map((t) => `${t.id}  ${t.name}${t.closed ? " \xB7 closed" : ""}${t.unread_count ? ` \xB7 ${t.unread_count} unread` : ""}`).join("\n") + (next ? `
+
+More: ideaspaces threads list --hosted --cursor ${next}` : "") : "No hosted Threads.";
+    return { data: { schema: "ideaspaces.hosted-threads.list.v1", threads, cursor: next }, text };
+  });
+}
+async function openVerb(output, json, id, flags2) {
+  return runHosted(output, json, "Reading hosted Threads", "thread", async (config) => {
+    const limit = pageLimit(flags2.limit);
+    const given = str(flags2, "cursor");
+    const cursor = given === void 0 ? void 0 : decode(config, given, ["older", "follow"], id);
+    const h = await head(config, id);
+    let rows;
+    let next;
+    let refresh = false;
+    let hasMore = false;
+    if (cursor?.kind === "follow") {
+      const after = Number(cursor.value);
+      rows = await posts(config, id, { limit, after_seq: after });
+      next = rows.length === limit ? rows.at(-1).seq : Math.max(after, h.lastSeq, rows.at(-1)?.seq ?? 0);
+      refresh = h.lastSeq > after || rows.length > 0;
+      hasMore = rows.length === limit;
+    } else {
+      const before = cursor ? Number(cursor.value) : void 0;
+      rows = await posts(config, id, { limit, ...before !== void 0 ? { before_seq: before } : {} });
+      next = Math.max(h.lastSeq, rows.at(-1)?.seq ?? 0);
+    }
+    const older = rows.length === limit && rows[0].seq > 1 ? encode(config, "older", rows[0].seq, id) : null;
+    const follow2 = encode(config, "follow", next, id);
+    const status = `${h.thread.closed ? "closed" : "open"} \xB7 ${h.thread.grade}${h.thread.can_reply ? "" : " \xB7 read only"}`;
+    const text = [
+      `${id}  ${h.thread.name}
+${status}`,
+      ...rows.map(postText),
+      [older && `Older: ideaspaces threads open ${id} --cursor ${older}`, `Newer: ideaspaces threads open ${id} --cursor ${follow2}`, `Mark read: ideaspaces threads ack ${id} --cursor ${follow2}`].filter(Boolean).join("\n")
+    ].join("\n\n");
+    return { data: { schema: "ideaspaces.hosted-thread.page.v1", thread: h.thread, posts: rows, older_cursor: older, cursor: follow2, refresh, has_more: hasMore }, text };
+  });
+}
+async function postVerb(output, json, id, flags2) {
+  const parents = str(flags2, "reply-to")?.split(",").map((p) => p.trim());
+  if (!parents?.length || parents.some((p) => !POST_ID.test(p)) || new Set(parents).size !== parents.length || parents.length > 16) {
+    throw new HostedError("invalid_request", "--reply-to must name one to 16 distinct msg_ post ids in this Thread, separated by commas.");
+  }
+  const body = messageBody(flags2);
+  const name = singleLine2(flags2, "name", false);
+  const summary = singleLine2(flags2, "summary", false);
+  const msgId = postId(flags2);
+  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...name ? { name } : {}, ...summary ? { summary } : {} }, body);
+  const parsed2 = parseThreadPost(note, "reply.md");
+  if (!(parsed2.status === "valid" && parsed2.post.id === msgId && parsed2.post.kind === "post" && parsed2.post.inReplyTo.length > 0 && parsed2.post.body.trim())) {
+    throw new HostedError("invalid_request", "The reply Note did not validate; check --reply-to, --name, --summary and --message.");
+  }
+  return runHosted(output, json, "Posting to hosted Threads", "thread", async (config) => {
+    const posted = postOf(await appendHostedThreadPost(config, id, note), id);
+    requireValue(posted.id === msgId);
+    return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `Posted ${posted.id} as seq ${posted.seq} in ${id} (${posted.author}).` };
+  }, { postId: msgId, verb: "post" });
+}
+async function newVerb(output, json, flags2) {
+  const name = singleLine2(flags2, "name", true);
+  const summary = singleLine2(flags2, "summary", true);
+  const body = messageBody(flags2);
+  const msgId = postId(flags2);
+  const note = buildNote({ id: msgId, kind: "post", name, summary }, body);
+  const parsed2 = parseThreadPost(note, "opening.md");
+  if (!(parsed2.status === "valid" && parsed2.post.id === msgId && parsed2.post.inReplyTo.length === 0)) {
+    throw new HostedError("invalid_request", "The opening Note did not validate; check --name, --summary and --message.");
+  }
+  return runHosted(output, json, "Opening hosted Threads", "thread", async (config) => {
+    const raw = await openHostedThread(config, note);
+    requireValue(record(raw) && typeof raw.thread_id === "string" && HOSTED_THREAD_32.test(raw.thread_id));
+    const opening = postOf(raw, raw.thread_id);
+    requireValue(opening.id === msgId && opening.seq === 1);
+    return { data: { schema: "ideaspaces.hosted-thread.new.v1", thread_id: raw.thread_id, post: opening }, text: `Opened ${raw.thread_id}: ${name}` };
+  }, { postId: msgId, verb: "new" });
+}
+async function ackVerb(output, json, id, flags2) {
+  const given = str(flags2, "cursor");
+  const rawSeq = str(flags2, "seq");
+  if (given === void 0 === (rawSeq === void 0)) {
+    throw new HostedError("invalid_request", "threads ack needs exactly one of --cursor <cursor from threads open> or --seq <n>.");
+  }
+  if (rawSeq !== void 0 && !/^\d+$/.test(rawSeq))
+    throw new HostedError("invalid_request", "--seq must be a whole number.");
+  return runHosted(output, json, "Marking hosted Threads read", "thread", async (config) => {
+    const target = given !== void 0 ? Number(decode(config, given, ["follow"], id).value) : Number(rawSeq);
+    requireValue(seq(target), "invalid_request");
+    const raw = await ackHostedThread(config, id, target);
+    requireValue(record(raw) && raw.thread_id === id && seq(raw.read_seq));
+    return { data: { schema: "ideaspaces.hosted-thread.ack.v1", thread_id: id, read_seq: raw.read_seq }, text: `Read up to seq ${raw.read_seq} in ${id}.` };
+  });
+}
+function reportHostedRefusal(error, output, json) {
+  if (!(error instanceof HostedError))
+    return void 0;
+  const message = error.message === error.state ? messages(error.state, "thread") : error.message;
+  if (json)
+    process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: { state: error.state, message } }, null, 2) + "\n");
+  output.error(`Error (${error.state}): ${message}`);
+  return 1;
+}
+
+// dist/commands/vaults.js
+var vaultsCommand = {
+  name: "vaults",
+  description: "List your Vaults: your own, each organization's, and roots shared with you (GET /vaults)",
+  usage: "ideaspaces vaults [--json]",
+  examples: [
+    "ideaspaces vaults",
+    "ideaspaces vaults --json  # the service's answer unchanged: personal, orgs, shared_with_me"
+  ],
+  async run(args2, flags2, global3) {
+    const output = createOutput(global3);
+    const unknown = Object.keys(flags2)[0];
+    if (args2.length || unknown) {
+      output.error(unknown ? `Unknown flag for vaults: --${unknown}. Usage: ideaspaces vaults [--json]` : "Usage: ideaspaces vaults [--json]");
+      return 1;
+    }
+    return vaultsVerb(output, global3.json);
+  }
+};
+
 // dist/commands/catalog.js
 init_dist();
 init_api();
@@ -23514,18 +24111,18 @@ function deriveCatalog(me, clones, statusByPath) {
     return { sync: { branch: st.branch, ahead: st.ahead, behind: st.behind, dirty: st.dirty } };
   };
   const localEntry = (clone, hostedLocation) => {
-    const { record, path } = clone;
-    if (isUnpublishedForkRecord(record)) {
+    const { record: record2, path } = clone;
+    if (isUnpublishedForkRecord(record2)) {
       return {
         state: "unpublished_fork",
         repo_id: null,
-        root_node_id: record.root_node_id,
+        root_node_id: record2.root_node_id,
         slug: null,
-        display_name: record.name,
+        display_name: record2.name,
         hostname: null,
         namespace: "",
-        source_root_node_id: record.source_root_node_id,
-        source_head: record.source_head,
+        source_root_node_id: record2.source_root_node_id,
+        source_head: record2.source_head,
         location: "local-only",
         clone: { path },
         ...syncOf(path)
@@ -23533,12 +24130,12 @@ function deriveCatalog(me, clones, statusByPath) {
     }
     return {
       state: "hosted",
-      repo_id: record.repo_id,
-      root_node_id: record.root_node_id ?? null,
-      slug: record.slug,
-      display_name: record.slug,
+      repo_id: record2.repo_id,
+      root_node_id: record2.root_node_id ?? null,
+      slug: record2.slug,
+      display_name: record2.slug,
       hostname: null,
-      namespace: record.namespace,
+      namespace: record2.namespace,
       location: hostedLocation,
       clone: { path },
       ...syncOf(path)
@@ -23557,7 +24154,7 @@ function deriveCatalog(me, clones, statusByPath) {
   const entries = [];
   const used = /* @__PURE__ */ new Set();
   for (const repo of me.repos) {
-    const namespace = repoRouteNamespace(repo, me.username) ?? "";
+    const namespace2 = repoRouteNamespace(repo, me.username) ?? "";
     const slug = repoDisplaySlug(repo);
     const relationship = rootRelationshipLabel(repo);
     const matching = clonesByRepo.get(repo.repo_id) ?? [];
@@ -23569,7 +24166,7 @@ function deriveCatalog(me, clones, statusByPath) {
         slug,
         display_name: repo.name ?? slug,
         hostname: repo.hostname ?? null,
-        namespace,
+        namespace: namespace2,
         relationship,
         receipt_classes: repo.receipt_classes ?? [],
         actions: availableRootActions(repo),
@@ -23586,7 +24183,7 @@ function deriveCatalog(me, clones, statusByPath) {
         slug,
         display_name: repo.name ?? slug,
         hostname: repo.hostname ?? null,
-        namespace,
+        namespace: namespace2,
         relationship,
         receipt_classes: repo.receipt_classes ?? [],
         actions: availableRootActions(repo),
@@ -23663,7 +24260,7 @@ var catalogCommand = {
   ],
   async run(_args, flags2, global3) {
     const output = createOutput(global3);
-    const config = loadConfig();
+    const config = peekConfig();
     let me = null;
     const notes = [];
     if (config) {
@@ -23673,7 +24270,7 @@ var catalogCommand = {
         notes.push(err instanceof UnauthorizedError ? "Session expired \u2014 showing local clones only. Run `ideaspaces login`." : `Could not reach the server (${err instanceof Error ? err.message : String(err)}) \u2014 showing local clones only.`);
       }
     } else {
-      notes.push("Not logged in \u2014 showing local clones only. `ideaspaces login` adds the remote tier.");
+      notes.push(isHostAuth() ? "Showing local clones only: remote work is coming through the IdeaSpaces tools." : "Not logged in \u2014 showing local clones only. `ideaspaces login` adds the remote tier.");
     }
     const clones = listClones();
     if (flags2.fetch) {
@@ -23757,9 +24354,9 @@ var cloneCommand = {
     const matches2 = me.repos.filter((r) => {
       if (rootNodeId)
         return r.root_node_id === rootNodeId;
-      const namespace2 = repoRouteNamespace(r, me.username);
+      const namespace3 = repoRouteNamespace(r, me.username);
       const slug2 = repoDisplaySlug(r);
-      return r.repo_id === target || slug2 === target || `${namespace2}/${slug2}` === target;
+      return r.repo_id === target || slug2 === target || `${namespace3}/${slug2}` === target;
     });
     if (!rootNodeId && matches2.length === 0) {
       output.error(`No space matches "${target}" in your account catalog. Run \`ideaspaces repos\` to list yours.`);
@@ -23774,17 +24371,17 @@ var cloneCommand = {
       output.error(`Space "${target}" is in your account catalog but does not allow clone.`);
       return 1;
     }
-    const namespace = repo ? repoRouteNamespace(repo, me.username) : null;
+    const namespace2 = repo ? repoRouteNamespace(repo, me.username) : null;
     const slug = repo ? repoDisplaySlug(repo) : rootNodeId;
     const stableRoot = rootNodeId ?? repo?.root_node_id;
-    if (!stableRoot && !namespace) {
+    if (!stableRoot && !namespace2) {
       output.error("Could not resolve stable Space identity or a compatibility route.");
       return 1;
     }
-    const url = stableRoot ? canonicalGitUrl(config.apiUrl, stableRoot) : `${deriveGitBase(config.apiUrl)}/${namespace}/${slug}.git`;
+    const url = stableRoot ? canonicalGitUrl(config.apiUrl, stableRoot) : `${deriveGitBase(config.apiUrl)}/${namespace2}/${slug}.git`;
     const dir = resolve23(args2[1] ?? slug);
     await registerGitCredentialHelper();
-    output.progress(`Cloning ${stableRoot ? canonicalRepoUrl(config.apiUrl, stableRoot) : `${namespace}/${slug}`}\u2026`);
+    output.progress(`Cloning ${stableRoot ? canonicalRepoUrl(config.apiUrl, stableRoot) : `${namespace2}/${slug}`}\u2026`);
     try {
       cloneRepo(url, dir);
     } catch (err) {
@@ -23825,14 +24422,14 @@ var cloneCommand = {
       repo_id: repo?.repo_id ?? null,
       root_node_id: stableRoot ?? null,
       slug: repo ? slug : null,
-      namespace,
+      namespace: namespace2,
       repo_url: repoUrl,
       /** @deprecated Superseded by `repo_url`; still emitted for existing readers. */
       space_url: repoUrl,
       remote_url: url,
       path: dir,
       identity_state: rootIdentity4.state
-    }, `Cloned ${repoUrl ?? `${namespace}/${slug}`} \u2192 ${dir}`);
+    }, `Cloned ${repoUrl ?? `${namespace2}/${slug}`} \u2192 ${dir}`);
     return 0;
   }
 };
@@ -23855,10 +24452,10 @@ import { basename as basename13, dirname as dirname14, join as join27, resolve a
 
 // dist/fork-update.js
 init_dist();
-var import_yaml7 = __toESM(require_dist(), 1);
+var import_yaml8 = __toESM(require_dist(), 1);
 init_config_dir();
 import { spawnSync as spawnSync12 } from "node:child_process";
-import { createHash as createHash7, randomUUID as randomUUID7 } from "node:crypto";
+import { createHash as createHash7, randomUUID as randomUUID8 } from "node:crypto";
 import { existsSync as existsSync14, lstatSync, mkdirSync as mkdirSync6, mkdtempSync as mkdtempSync2, readFileSync as readFileSync9, realpathSync as realpathSync11, renameSync as renameSync4, rmSync as rmSync4, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { dirname as dirname13, isAbsolute as isAbsolute9, join as join26, relative as relative15, resolve as resolve24, sep as sep11 } from "node:path";
@@ -23930,7 +24527,7 @@ function nodeId(content) {
   if (end < 0)
     return null;
   try {
-    const metadata = (0, import_yaml7.parse)(content.slice(4, end));
+    const metadata = (0, import_yaml8.parse)(content.slice(4, end));
     const value2 = metadata?.node_id;
     return typeof value2 === "string" && /^n_[0-9a-f]{12}(?:[0-9a-f]{12})?$/.test(value2) ? value2 : null;
   } catch {
@@ -23957,7 +24554,7 @@ function rootIdentity3(content) {
   if (end < 0)
     return null;
   try {
-    const value2 = (0, import_yaml7.parse)(content.slice(4, end))?.root_node_id;
+    const value2 = (0, import_yaml8.parse)(content.slice(4, end))?.root_node_id;
     return isValidRootNodeId(value2) ? value2 : null;
   } catch {
     return null;
@@ -24206,7 +24803,7 @@ function loadForkBaseline(root) {
 function saveForkBaseline(root, baseline) {
   const path = baselinePaths(root)[0];
   mkdirSync6(dirname13(path), { recursive: true, mode: 448 });
-  const temp = `${path}.${process.pid}.${randomUUID7()}.tmp`;
+  const temp = `${path}.${process.pid}.${randomUUID8()}.tmp`;
   try {
     writeFileSync7(temp, JSON.stringify(baseline) + "\n", { mode: 384 });
     renameSync4(temp, path);
@@ -24557,7 +25154,7 @@ function installLocalFork(opts) {
     };
     saveForkBaseline(destination, baseline);
     baselineSaved = true;
-    const record = {
+    const record2 = {
       kind: "unpublished_fork",
       root_node_id: rootNodeId,
       name,
@@ -24565,7 +25162,7 @@ function installLocalFork(opts) {
       source_head: sourceHead,
       source_baseline_initialized: true
     };
-    saveSpace(destination, record);
+    saveSpace(destination, record2);
   } catch (err) {
     if (baselineSaved) {
       try {
@@ -24762,9 +25359,9 @@ var linkCommand = {
     let repo;
     if (target) {
       const matches2 = me.repos.filter((r) => {
-        const namespace2 = repoRouteNamespace(r, me.username);
+        const namespace3 = repoRouteNamespace(r, me.username);
         const slug = repoDisplaySlug(r);
-        return r.repo_id === target || r.root_node_id === target || slug === target || `${namespace2}/${slug}` === target;
+        return r.repo_id === target || r.root_node_id === target || slug === target || `${namespace3}/${slug}` === target;
       });
       if (matches2.length === 0) {
         output.error(`No space matches "${target}". Run \`ideaspaces repos\` to list yours.`);
@@ -24795,8 +25392,8 @@ Run \`ideaspaces repos\` to see them, or pass the space explicitly.`);
       }
       repo = matches2[0];
     }
-    const namespace = repoRouteNamespace(repo, me.username) ?? repo.hostname ?? me.username;
-    if (!namespace) {
+    const namespace2 = repoRouteNamespace(repo, me.username) ?? repo.hostname ?? me.username;
+    if (!namespace2) {
       output.error("Could not resolve the Space route for display.");
       return 1;
     }
@@ -24819,7 +25416,7 @@ Run \`ideaspaces repos\` to see them, or pass the space explicitly.`);
       }
     }
     const displaySlug = repoDisplaySlug(repo);
-    output.result({ repo_id: repo.repo_id, root_node_id: repo.root_node_id ?? null, slug: displaySlug, namespace, path: dir }, `Linked ${namespace}/${displaySlug} \u2192 ${dir}`);
+    output.result({ repo_id: repo.repo_id, root_node_id: repo.root_node_id ?? null, slug: displaySlug, namespace: namespace2, path: dir }, `Linked ${namespace2}/${displaySlug} \u2192 ${dir}`);
     return 0;
   }
 };
@@ -24839,7 +25436,7 @@ function planFolder(dir) {
     modes: {
       link: inside ? origin ? { available: true, origin } : { available: false, origin: null, reason: "no `origin` remote \u2014 cannot tell which Space it belongs to" } : { available: false, origin: null, reason: "not a git repository" }
     },
-    logged_in: loadConfig() !== null
+    logged_in: peekConfig() !== null
   };
 }
 async function planSpace(address, output) {
@@ -25047,8 +25644,8 @@ var updateCommand = {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
-    const record = findSpaceFor(root);
-    if (!record?.source_root_node_id) {
+    const record2 = findSpaceFor(root);
+    if (!record2?.source_root_node_id) {
       output.error("This Space is not recorded as a fork with a maintained source.");
       return 1;
     }
@@ -25057,17 +25654,17 @@ var updateCommand = {
     let baselineMigrated = false;
     try {
       const loaded = loadForkBaseline(root);
-      if (loaded && loaded.source_root_node_id !== record.source_root_node_id) {
+      if (loaded && loaded.source_root_node_id !== record2.source_root_node_id) {
         throw new Error("The local fork baseline names a different source; no files were changed.");
       }
       if (!loaded) {
-        if (record.source_baseline_initialized) {
+        if (record2.source_baseline_initialized) {
           throw new Error("The local fork update baseline is missing; no files were changed.");
         }
-        if (!record.source_head) {
+        if (!record2.source_head) {
           throw new Error("This fork has no pinned source head; no files were changed.");
         }
-        baseline = initialForkBaseline(root, record.source_root_node_id, record.source_head);
+        baseline = initialForkBaseline(root, record2.source_root_node_id, record2.source_head);
         baselineCreated = true;
       } else {
         const hydrated = withForkAssetBaseline(root, loaded);
@@ -25081,7 +25678,7 @@ var updateCommand = {
     output.progress("Reading the maintained source projection\u2026");
     let snapshot;
     try {
-      const read2 = await optionalAuthRead(loadOptionalAuthConfig(), (config) => getSpaceCopySnapshot(config, record.source_root_node_id, { timeoutMs: 12e4 }));
+      const read2 = await optionalAuthRead(loadOptionalAuthConfig(), (config) => getSpaceCopySnapshot(config, record2.source_root_node_id, { timeoutMs: 12e4 }));
       snapshot = read2.value;
     } catch (err) {
       output.error(sourceUpdateError(err));
@@ -25104,7 +25701,7 @@ var updateCommand = {
     const changes = describeChanges(plan);
     const worktreeNeeded = writes.length > 0 || assetWrites.length > 0 || plan.deletes.length > 0;
     const baselineNeeded = baselineCreated || baselineMigrated || baseline.source_head !== prepared.sourceHead || !recordsEqual(baseline.files, plan.incoming) || !recordsEqual(baseline.assets ?? {}, plan.incoming_assets) || !conflictsEqual(baseline.conflicts, plan.conflicts);
-    const registryNeeded = record.source_head !== prepared.sourceHead || !record.source_baseline_initialized;
+    const registryNeeded = record2.source_head !== prepared.sourceHead || !record2.source_baseline_initialized;
     const changed = worktreeNeeded || baselineNeeded || registryNeeded;
     const result = {
       apply: global3.yes,
@@ -25135,7 +25732,7 @@ var updateCommand = {
     if (baselineNeeded) {
       try {
         saveForkBaseline(root, {
-          source_root_node_id: record.source_root_node_id,
+          source_root_node_id: record2.source_root_node_id,
           source_head: prepared.sourceHead,
           files: plan.incoming,
           assets: plan.incoming_assets,
@@ -25149,7 +25746,7 @@ var updateCommand = {
     if (registryNeeded) {
       try {
         saveSpace(root, {
-          ...record,
+          ...record2,
           source_head: prepared.sourceHead,
           source_baseline_initialized: true
         });
@@ -25169,9 +25766,9 @@ var updateCommand = {
 
 // dist/commands/integrate.js
 var USAGE6 = "ideaspaces integrate [--yes] [--from remote|source] [--rebase=false  (remote only)] [--json]";
-function planIntegrate(record, upstream, requested) {
-  const hasSource = Boolean(record?.source_root_node_id);
-  const unpublished = record ? isUnpublishedForkRecord(record) : false;
+function planIntegrate(record2, upstream, requested) {
+  const hasSource = Boolean(record2?.source_root_node_id);
+  const unpublished = record2 ? isUnpublishedForkRecord(record2) : false;
   if (requested === "source") {
     if (!hasSource)
       return { error: "This checkout has no maintained source; nothing to integrate from source." };
@@ -25244,21 +25841,21 @@ var clonesCommand = {
   ],
   async run(_args, _flags, global3) {
     const output = createOutput(global3);
-    const clones = Object.entries(loadSpaces()).map(([path, record]) => isUnpublishedForkRecord(record) ? {
+    const clones = Object.entries(loadSpaces()).map(([path, record2]) => isUnpublishedForkRecord(record2) ? {
       path,
       state: "unpublished_fork",
       repo_id: null,
-      root_node_id: record.root_node_id,
-      name: record.name,
-      source_root_node_id: record.source_root_node_id,
-      source_head: record.source_head
+      root_node_id: record2.root_node_id,
+      name: record2.name,
+      source_root_node_id: record2.source_root_node_id,
+      source_head: record2.source_head
     } : {
       path,
       state: "hosted",
-      repo_id: record.repo_id,
-      root_node_id: record.root_node_id ?? null,
-      slug: record.slug,
-      namespace: record.namespace
+      repo_id: record2.repo_id,
+      root_node_id: record2.root_node_id ?? null,
+      slug: record2.slug,
+      namespace: record2.namespace
     });
     output.result({ clones }, clones.length ? clones.map((clone) => clone.state === "unpublished_fork" ? `${clone.name}  unpublished local fork  ${clone.path}` : `${clone.namespace}/${clone.slug}  ${clone.path}`).join("\n") : "No local clones or forks yet. `ideaspaces clone <space>` to make one.");
     return 0;
@@ -25545,7 +26142,7 @@ function makeConversationCommand(local) {
 // dist/commands/agent.js
 init_dist();
 init_config_dir();
-import { randomUUID as randomUUID9 } from "node:crypto";
+import { randomUUID as randomUUID10 } from "node:crypto";
 import { existsSync as existsSync23, readFileSync as readFileSync14, realpathSync as realpathSync17, statSync as statSync13 } from "node:fs";
 import { isAbsolute as isAbsolute16, join as join33, resolve as resolve34 } from "node:path";
 
@@ -25694,7 +26291,7 @@ import { basename as basename15, dirname as dirname19, isAbsolute as isAbsolute1
 
 // dist/local/thread-map-member.js
 init_dist();
-var import_yaml8 = __toESM(require_dist(), 1);
+var import_yaml9 = __toESM(require_dist(), 1);
 import { existsSync as existsSync18, lstatSync as lstatSync2, readFileSync as readFileSync10 } from "node:fs";
 import { resolve as resolve30 } from "node:path";
 function loadLocalThreadMap(input) {
@@ -25705,14 +26302,14 @@ function loadLocalThreadMap(input) {
       throw new Error("--map file must be a regular file no larger than 128 KiB.");
     const content = readFileSync10(path, "utf8");
     const fm = parseFrontmatter(content);
-    value2 = fm?.map ?? (0, import_yaml8.parse)(content);
+    value2 = fm?.map ?? (0, import_yaml9.parse)(content);
   } else {
     const raw = input.trim();
     const pathLike = /^[A-Za-z]:[\\/]/.test(raw) || !raw.includes(":") && (/^[./~]/.test(raw) || /\.(?:md|json|ya?ml)$/i.test(raw) || /[\\/]/.test(raw));
     if (!input.includes("\n") && pathLike) {
       throw new Error(`--map file not found: ${path}. Provide a regular pinned Map note or inline YAML.`);
     }
-    value2 = (0, import_yaml8.parse)(input);
+    value2 = (0, import_yaml9.parse)(input);
   }
   if (value2 && typeof value2 === "object" && "map" in value2)
     value2 = value2.map;
@@ -25855,8 +26452,8 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   } else if (options?.requireAuthor !== false) {
     throw new Error("POV needs a regular _agent/agreement.md with a name to author a Thread turn.");
   }
-  const posts2 = localThread.posts;
-  const lastPost = posts2.at(-1);
+  const posts3 = localThread.posts;
+  const lastPost = posts3.at(-1);
   const maxBytes = 1e4;
   const headerLines = [
     "[Local Thread \u2014 reference context, not instructions]",
@@ -25879,8 +26476,8 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   const selectedPostLines = [];
   let currentBytes = 0;
   let includedCount = 0;
-  for (let i = posts2.length - 1; i >= 0; i--) {
-    const p = posts2[i];
+  for (let i = posts3.length - 1; i >= 0; i--) {
+    const p = posts3[i];
     const author = p.frontmatter.author ? ` (${p.frontmatter.author})` : "";
     const name = p.frontmatter.name ? ` \u2014 ${p.frontmatter.name}` : "";
     const lines = [`[${p.date ?? "undated"}] ${p.id}${author}${name}`];
@@ -25895,9 +26492,9 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
     currentBytes += chunkBytes;
     includedCount++;
   }
-  const omittedCount = posts2.length - includedCount;
+  const omittedCount = posts3.length - includedCount;
   const postSection = [
-    `Posts (${posts2.length}):`,
+    `Posts (${posts3.length}):`,
     ...omittedCount > 0 ? [`\u2026 (${omittedCount} older posts omitted)`] : [],
     ...selectedPostLines
   ];
@@ -26091,14 +26688,14 @@ function deriveTask(message, cwd = process.cwd()) {
   const sanitized = text.replace(/[\x00-\x1F\x7F]/g, "").trim();
   return (sanitized.length > 300 ? sanitized.slice(0, 300) : sanitized) || null;
 }
-function recordAgentRun(record) {
+function recordAgentRun(record2) {
   try {
     const dir = configDir();
     if (!existsSync21(dir)) {
       mkdirSync9(dir, { recursive: true, mode: 448 });
     }
     const file2 = join31(dir, "agent-runs.jsonl");
-    appendFileSync(file2, `${JSON.stringify(record)}
+    appendFileSync(file2, `${JSON.stringify(record2)}
 `, { mode: 384, encoding: "utf8" });
     return true;
   } catch {
@@ -26675,7 +27272,7 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
   };
   const parentId = resolveParentId(flagString2(flags2, "parent"), process.cwd());
   const parentToolUseId = flagString2(flags2, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
-  const runId = flagString2(flags2, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID9()}`;
+  const runId = flagString2(flags2, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID10()}`;
   const task = flagString2(flags2, "task") ?? deriveTask(message, process.cwd());
   const runRecord = {
     run_id: runId,
@@ -26924,7 +27521,7 @@ Usage: ${RECORD_USAGE}`);
     output.error("End timestamp cannot be earlier than start timestamp");
     return 1;
   }
-  const record = {
+  const record2 = {
     run_id: runId,
     parent_id: parentId ?? null,
     parent_tool_use_id: parentToolUseId ?? null,
@@ -26939,12 +27536,12 @@ Usage: ${RECORD_USAGE}`);
     started_at: startedAt,
     ended_at: endedAt
   };
-  const ok = recordAgentRun(record);
+  const ok = recordAgentRun(record2);
   if (!ok) {
-    output.error(`Failed to record agent run ${record.run_id} to ${join33(configDir(), "agent-runs.jsonl")}`);
+    output.error(`Failed to record agent run ${record2.run_id} to ${join33(configDir(), "agent-runs.jsonl")}`);
     return 1;
   }
-  output.result(record, `Recorded run ${record.run_id} (${record.status}) for ${agentDisplayName(record.agent)}`);
+  output.result(record2, `Recorded run ${record2.run_id} (${record2.status}) for ${agentDisplayName(record2.agent)}`);
   return 0;
 }
 function cmdList(flags2, global3, output) {
@@ -27538,9 +28135,9 @@ ${searchMapLine(projection)}`);
     }
     const lines = results.map((r) => {
       const where = r.line ? `:${r.line}` : "";
-      const head = `${r.path}${where}`;
-      return r.snippet ? `${head}
-    ${r.snippet}` : head;
+      const head2 = `${r.path}${where}`;
+      return r.snippet ? `${head2}
+    ${r.snippet}` : head2;
     });
     output.result(data, `${lines.join("\n")}
 
@@ -27574,8 +28171,8 @@ function listEntries(root, opts = {}) {
   const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
   const entries = [];
   const queue = [{ abs: root, depth: 0 }];
-  for (let head = 0; head < queue.length; head++) {
-    const { abs, depth: depth2 } = queue[head];
+  for (let head2 = 0; head2 < queue.length; head2++) {
+    const { abs, depth: depth2 } = queue[head2];
     let dirents;
     try {
       dirents = readdirSync3(abs, { withFileTypes: true });
@@ -27727,6 +28324,18 @@ function threadFlagError(verb, flags2) {
   const known = THREAD_FLAGS[verb];
   const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
   return unknown ? `Unknown flag for threads ${verb}: --${unknown}. Run ideaspaces threads --help for supported flags.` : void 0;
+}
+var HOSTED_VERB_FLAGS = {
+  list: /* @__PURE__ */ new Set(["hosted", "limit", "cursor"]),
+  open: /* @__PURE__ */ new Set(["limit", "cursor"]),
+  post: /* @__PURE__ */ new Set(["reply-to", "message", "name", "summary", "post-id"]),
+  new: /* @__PURE__ */ new Set(["hosted", "name", "summary", "message", "post-id"]),
+  ack: /* @__PURE__ */ new Set(["seq", "cursor"])
+};
+function hostedVerbFlagError(verb, flags2) {
+  const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb];
+  const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
+  return unknown ? `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.` : void 0;
 }
 
 // dist/commands/share.js
@@ -28640,7 +29249,7 @@ var spacesCommand = {
 // dist/commands/inbox.js
 init_api();
 init_credentials();
-import { randomUUID as randomUUID10 } from "node:crypto";
+import { randomUUID as randomUUID11 } from "node:crypto";
 import { readFileSync as readFileSync17, statSync as statSync16 } from "node:fs";
 init_dist();
 var USAGE13 = "ideaspaces threads <list|posts|read|send|reply|add|close|rename|expand> ...";
@@ -28696,7 +29305,7 @@ async function writeBody(flags2, output) {
     return null;
   }
   return {
-    send_id: flagString5(flags2, "send-id")?.trim() || `cli_${randomUUID10()}`,
+    send_id: flagString5(flags2, "send-id")?.trim() || `cli_${randomUUID11()}`,
     name,
     summary,
     markdown
@@ -28766,8 +29375,8 @@ function effectiveInReplyTo(message, openingId) {
 function isInferredParent(message, openingId) {
   return !!openingId && message.note_node_id !== openingId && !message.in_reply_to?.length;
 }
-function hostedToThreadPosts(messages, openingId) {
-  return messages.map((m) => ({
+function hostedToThreadPosts(messages2, openingId) {
+  return messages2.map((m) => ({
     id: m.note_node_id,
     // ThreadPost is used only for the protocol timeline; hosted actions are not local Thread kinds.
     kind: "post",
@@ -28779,14 +29388,14 @@ function hostedToThreadPosts(messages, openingId) {
     path: `${String(m.position).padStart(8, "0")}-${m.note_node_id}`
   }));
 }
-function hostedChildTree(messages, openingId) {
-  const posts2 = hostedToThreadPosts(messages, openingId);
-  const byId = new Map(messages.map((message) => [message.note_node_id, message]));
+function hostedChildTree(messages2, openingId) {
+  const posts3 = hostedToThreadPosts(messages2, openingId);
+  const byId = new Map(messages2.map((message) => [message.note_node_id, message]));
   const nodeMap = /* @__PURE__ */ new Map();
-  for (const post of posts2) {
+  for (const post of posts3) {
     nodeMap.set(post.id, { post, parents: [...post.inReplyTo], children: [] });
   }
-  for (const post of posts2) {
+  for (const post of posts3) {
     const childNode = nodeMap.get(post.id);
     for (const pId of post.inReplyTo) {
       const parentNode = nodeMap.get(pId);
@@ -28815,7 +29424,7 @@ function hostedChildTree(messages, openingId) {
       children
     };
   }
-  const timeline = reconstructThreadTimeline(posts2);
+  const timeline = reconstructThreadTimeline(posts3);
   const roots = [];
   for (const rootNode of timeline.roots) {
     if (!seen.has(rootNode.post.id)) {
@@ -28844,7 +29453,7 @@ function formatHostedChildrenText(roots) {
   visit(roots, 0);
   return lines.join("\n");
 }
-function exchangeText(exchange, messages = exchange.messages, depth2 = "full") {
+function exchangeText(exchange, messages2 = exchange.messages, depth2 = "full") {
   const current = exchange.messages.find((message) => message.note_node_id === exchange.subject?.current_note_id) ?? exchange.messages.at(-1);
   if (depth2 === "name")
     return `${exchange.exchange_id}  ${exchange.name ?? current?.name ?? "Thread"}${threadBadges(exchange.your_grade, exchange.closed)}`;
@@ -28855,7 +29464,7 @@ function exchangeText(exchange, messages = exchange.messages, depth2 = "full") {
     `Participants: ${participantsText2(exchange.participants)}`,
     `Cursor: ${exchange.cursor ?? "not followed"} \xB7 Latest: ${exchange.latest_position}`
   ];
-  for (const message of messages) {
+  for (const message of messages2) {
     const author = exchange.participants.find((participant) => participant.participant === message.author_ref);
     const actor = message.actor_ref === message.author_ref ? "" : ` via ${message.actor_ref}`;
     lines.push("", `[${message.position}] ${message.note_node_id} \xB7 ${message.action} \xB7 ${message.created_at} \xB7 ${author ? participantLabel2(author) : message.author_ref}${actor} \u2014 ${message.name}`, message.summary);
@@ -29038,8 +29647,8 @@ async function list2(rest, flags2, output) {
           return inboxItemText(item);
         const exchange = await fetchExchange(config, item.exchange_id);
         const noteIds = reframeNoteIds?.get(item.exchange_id);
-        const messages = noteIds ? exchange.messages.filter((message) => noteIds.has(message.note_node_id)) : exchange.messages;
-        return exchangeText(exchange, messages, "full");
+        const messages2 = noteIds ? exchange.messages.filter((message) => noteIds.has(message.note_node_id)) : exchange.messages;
+        return exchangeText(exchange, messages2, "full");
       }));
       text = blocks.join("\n\n");
     } else {
@@ -29123,13 +29732,13 @@ async function read(rest, flags2, output) {
     }
     const after = flags2.new ? exchange.cursor ?? void 0 : since;
     const sincePost = sinceValue && /^n_/.test(sinceValue) ? exchange.messages.find((message) => message.note_node_id === sinceValue) : void 0;
-    let messages = exchange.messages.filter((message) => (after === void 0 || message.position > after) && (sincePost === void 0 || message.position > sincePost.position) && (sinceDate === void 0 || Date.parse(message.created_at) > sinceDate));
+    let messages2 = exchange.messages.filter((message) => (after === void 0 || message.position > after) && (sincePost === void 0 || message.position > sincePost.position) && (sinceDate === void 0 || Date.parse(message.created_at) > sinceDate));
     if (post) {
       if (!exchange.messages.some((message) => message.note_node_id === post)) {
         output.error(`Post ${post} is not in Thread ${exchangeId}.`);
         return 1;
       }
-      messages = messages.filter((message) => message.note_node_id === post);
+      messages2 = messages2.filter((message) => message.note_node_id === post);
     }
     let events = [];
     if (kind === "reframe") {
@@ -29139,7 +29748,7 @@ async function read(rest, flags2, output) {
       }
       events = (await boundedSubscriptionEvents(config)).filter((event) => event.exchange_id === exchangeId && event.action === "thread.reframed" && (after === void 0 || event.position > after));
       const noteIds = new Set(events.map((event) => event.note_node_id));
-      messages = exchange.messages.filter((message) => noteIds.has(message.note_node_id));
+      messages2 = exchange.messages.filter((message) => noteIds.has(message.note_node_id));
     }
     let acknowledged;
     if (flags2.ack) {
@@ -29152,7 +29761,7 @@ async function read(rest, flags2, output) {
       acknowledged = await acknowledgeSubscription(config, row.id, exchange.latest_position);
     }
     const openingId = exchange.subject?.opening_note_id ?? exchange.messages[0]?.note_node_id;
-    const projected = post || depth2 === "surface" || depth2 === "full" ? messages : depth2 === "name" ? [] : depth2 === "children" ? hostedChildTree(messages, openingId) : messages.map((message) => ({
+    const projected = post || depth2 === "surface" || depth2 === "full" ? messages2 : depth2 === "name" ? [] : depth2 === "children" ? hostedChildTree(messages2, openingId) : messages2.map((message) => ({
       id: message.note_node_id,
       note_node_id: message.note_node_id,
       kind: message.action,
@@ -29172,8 +29781,8 @@ async function read(rest, flags2, output) {
       ...acknowledged ? { acknowledged_cursor: acknowledged.cursor } : {}
     };
     const empty = kind === "reframe" ? "No new reframe events." : "No messages after that position.";
-    const text = depth2 === "children" && !post ? formatHostedChildrenText(projected) : exchangeText(exchange, messages, post ? "full" : depth2);
-    output.result(data, messages.length ? text : empty);
+    const text = depth2 === "children" && !post ? formatHostedChildrenText(projected) : exchangeText(exchange, messages2, post ? "full" : depth2);
+    output.result(data, messages2.length ? text : empty);
     return 0;
   });
 }
@@ -29539,7 +30148,7 @@ function nextPostsCommand(opts) {
   parts.push(`--cursor ${opts.cursor}`);
   return parts.join(" ");
 }
-async function posts(rest, flags2, output) {
+async function posts2(rest, flags2, output) {
   if (rest.length > 1) {
     output.error(`Usage: ${POSTS_USAGE}`);
     return 1;
@@ -29748,7 +30357,7 @@ var hostedThreadsCommand = {
       case "list":
         return list2(rest, flags2, output);
       case "posts":
-        return posts(rest, flags2, output);
+        return posts2(rest, flags2, output);
       case "read":
         return read(rest, flags2, output);
       case "send":
@@ -29833,7 +30442,7 @@ function locate(root, hint) {
   if (hint) {
     return validatedCheckout(hint, id);
   }
-  const matches2 = listClones().filter(({ record }) => record.root_node_id === id);
+  const matches2 = listClones().filter(({ record: record2 }) => record2.root_node_id === id);
   const paths = new Set(matches2.map(({ path }) => physical(path)));
   if (paths.size === 0) {
     const caller = threadBase();
@@ -29916,7 +30525,7 @@ init_git2();
 init_threads2();
 var SURFACE_BODY_BYTES = 800;
 var KNOWN_POST_KINDS = /* @__PURE__ */ new Set(["post", "snapshot", "reframe", "correction", "closure", "mark"]);
-function str(flags2, key2) {
+function str2(flags2, key2) {
   return typeof flags2[key2] === "string" ? flags2[key2] : void 0;
 }
 function yes(flags2, key2) {
@@ -30014,7 +30623,7 @@ function threadFrame(thread) {
     done_when: threadSection(agreement, "Done when")
   };
 }
-function localText(thread, posts2, rung, options) {
+function localText(thread, posts3, rung, options) {
   const header = `${thread.slug}  ${thread.name}`;
   if (rung === "name") {
     const lens = options?.frame ?? threadFrame(thread);
@@ -30042,8 +30651,8 @@ ${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "
       parts.push(`Latest snapshot: ${s.id} \xB7 ${s.kind} \xB7 ${s.date ?? "undated"} \xB7 ${clip(s.frontmatter.name ?? s.id, 200)} \xB7 ${s.frontmatter.author ?? "unknown author"}
   ${clip(s.frontmatter.summary ?? "(no summary)", 400)}`);
     }
-    if (options?.filtered && posts2.length) {
-      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${p.frontmatter.author ?? "unknown author"}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}
+    if (options?.filtered && posts3.length) {
+      parts.push(posts3.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${p.frontmatter.author ?? "unknown author"}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}
   ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`).join("\n\n"));
     }
     return parts.join("\n\n");
@@ -30071,7 +30680,7 @@ ${childLines.join("\n")}`);
   }
   return [
     context,
-    ...posts2.map((p) => `
+    ...posts3.map((p) => `
 ${p.id} \xB7 ${p.frontmatter.author ?? "unknown author"} \xB7 ${p.kind}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
 ${p.frontmatter.name ?? ""}
 ${p.body}${p.marks?.length ? `
@@ -30133,8 +30742,13 @@ function writerName(explicit) {
 var threadsCommand = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ...",
+  usage: "ideaspaces threads <list|posts|locate|open|new|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ... | threads <list|new> --hosted | threads <open|post|ack> x_<32hex> ...",
   examples: [
+    "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>]  # hosted Threads (x_<32hex>) this sign-in can read",
+    "ideaspaces threads open x_<32hex> [--limit 50] [--cursor <older or newer cursor>]  # head + one page; author and date come from the service",
+    "ideaspaces threads post x_<32hex> --reply-to msg_<id> --message '\u2026' [--name '\u2026'] [--summary '\u2026'] [--post-id msg_\u2026]  # never retried; resend with the same --post-id",
+    "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening'  # a hosted Thread with just you in it",
+    "ideaspaces threads ack x_<32hex> --cursor <cursor from threads open>  # or --seq <n>; moves your read cursor forward only",
     "ideaspaces threads list [<dir>] [--new] [--space n_\u2026]",
     "ideaspaces threads posts [--space n_\u2026] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary] [--order newer|older]",
     "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
@@ -30171,6 +30785,28 @@ var threadsCommand = {
     const output = createOutput(global3);
     const [sub, ...rest] = args2;
     try {
+      const hostedTarget = HOSTED_THREAD_32.test(rest[0] ?? "");
+      const hostedFlag = flags2.hosted !== void 0;
+      if (hostedFlag && flags2.hosted !== true)
+        throw new HostedError("invalid_request", "--hosted takes no value.");
+      if ((sub === "list" || sub === "new") && hostedFlag || hostedTarget && (sub === "open" || sub === "read" || sub === "post") || sub === "ack") {
+        const hostedFlagError = hostedVerbFlagError(sub, flags2);
+        if (hostedFlagError)
+          throw new HostedError("invalid_request", hostedFlagError);
+        if (sub === "list" || sub === "new") {
+          if (rest.length)
+            throw new HostedError("invalid_request", `Usage: threads ${sub} --hosted ${sub === "new" ? "--name <title> --summary <one line> --message <opening> [--post-id msg_\u2026]" : "[--limit <1-200>] [--cursor <cursor>]"}`);
+          return sub === "list" ? await listVerb(output, global3.json, flags2) : await newVerb(output, global3.json, flags2);
+        }
+        if (rest.length !== 1 || !hostedTarget) {
+          throw new HostedError("invalid_request", `Usage: threads ${sub} x_<32 hex> ${sub === "ack" ? "--cursor <cursor from threads open> | --seq <n>" : sub === "post" ? "--reply-to msg_\u2026 --message <body> [--name] [--summary] [--post-id msg_\u2026]" : "[--limit <1-200>] [--cursor <cursor>]"}`);
+        }
+        if (sub === "post")
+          return await postVerb(output, global3.json, rest[0], flags2);
+        if (sub === "ack")
+          return await ackVerb(output, global3.json, rest[0], flags2);
+        return await openVerb(output, global3.json, rest[0], flags2);
+      }
       const flagError = threadFlagError(sub ?? "", flags2);
       if (flagError)
         throw new Error(flagError);
@@ -30204,11 +30840,11 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
       if (sub === "list") {
         if (flags2.depth === "children" || flags2.depth === "surface")
           throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
-        if (rest.length > 1 || rest.length && str(flags2, "space"))
+        if (rest.length > 1 || rest.length && str2(flags2, "space"))
           throw new Error("Usage: threads list [<dir>] [--space n_\u2026] [--new]");
         const newOnly = yes(flags2, "new");
         const rung = depth(flags2, "summary");
-        const space = str(flags2, "space");
+        const space = str2(flags2, "space");
         if (space && newOnly)
           throw new Error("--space and --new cannot be combined (hosted Space listing has no per-reader cursor).");
         if (flags2.kind === "request")
@@ -30239,7 +30875,9 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
               throw error;
           }
         }
-        const config = loadConfig();
+        if (space && isHostAuth())
+          throw new HostAuthRefusal("Listing hosted Space Threads");
+        const config = peekConfig();
         if (space && !config)
           throw new Error("Not logged in. Run `ideaspaces login` to list hosted Space Threads.");
         let hosted = [];
@@ -30296,26 +30934,26 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
           return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : void 0, "closed" in row && typeof row.closed === "boolean" ? row.closed : void 0)}${"closed" in row && row.closed === "unknown" ? " \xB7 closed: unknown" : ""}
   ${"summary" in row ? row.summary : ""} \xB7 ${row.source}`;
         }).join("\n\n");
-        const hint = !config && !rest.length ? "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
+        const hint = !config && !rest.length ? isHostAuth() ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools." : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
         output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `
 Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
       if (sub === "new") {
-        if (rest.length !== 1 || !str(flags2, "about"))
+        if (rest.length !== 1 || !str2(flags2, "about"))
           throw new Error("Usage: threads new <slug> --about <title> [--attached-to <type>:<id>] [--map <pinned-note>]");
-        const attachedTo = str(flags2, "attached-to");
+        const attachedTo = str2(flags2, "attached-to");
         if (flags2["attached-to"] === true)
           throw new Error("--attached-to requires a <type>:<id> value. No Thread created.");
-        if (flags2.map !== void 0 && !str(flags2, "map")?.trim())
+        if (flags2.map !== void 0 && !str2(flags2, "map")?.trim())
           throw new Error("--map requires a pinned moment Map note; no Thread created.");
-        const openingMap = str(flags2, "map") ? loadLocalThreadMap(str(flags2, "map")) : void 0;
+        const openingMap = str2(flags2, "map") ? loadLocalThreadMap(str2(flags2, "map")) : void 0;
         if (openingMap !== void 0)
           validateThreadMomentMap(openingMap);
-        const thread = createThread(rest[0], str(flags2, "about"), process.cwd(), attachedTo);
+        const thread = createThread(rest[0], str2(flags2, "about"), process.cwd(), attachedTo);
         let opening;
         try {
-          opening = appendPost(thread.path, { body: str(flags2, "about"), name: thread.name, summary: thread.summary, attachedTo, map: openingMap });
+          opening = appendPost(thread.path, { body: str2(flags2, "about"), name: thread.name, summary: thread.summary, attachedTo, map: openingMap });
         } catch (err) {
           throw new Error(`Thread created at ${thread.path}, but opening post was not written: ${err instanceof Error ? err.message : String(err)}. Use threads post ${thread.slug} --message <opening-text> to complete it; do not rerun threads new.`);
         }
@@ -30346,13 +30984,13 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
             throw new Error("Use either --map with --member or --pin with --position, not both.");
           if (flags2.new !== void 0 || flags2.ack !== void 0)
             throw new Error("Selected pinned reads cannot use live --new or --ack.");
-          const { root, member: member2 } = selectPinnedThreadMember(loadLocalThreadMap(str(flags2, "map") ?? ""), str(flags2, "member") ?? "");
-          const target = selectLocalThreadTarget(rest[0], root, member2, str(flags2, "checkout"));
+          const { root, member: member2 } = selectPinnedThreadMember(loadLocalThreadMap(str2(flags2, "map") ?? ""), str2(flags2, "member") ?? "");
+          const target = selectLocalThreadTarget(rest[0], root, member2, str2(flags2, "checkout"));
           const rung2 = depth(flags2, "summary");
           const post = target.post;
           const postName = post.frontmatter.name ?? post.id;
           const postSummary = post.frontmatter.summary ?? "";
-          const posts3 = rung2 === "name" ? [] : rung2 === "summary" || rung2 === "children" ? [{
+          const posts4 = rung2 === "name" ? [] : rung2 === "summary" || rung2 === "children" ? [{
             id: post.id,
             path: post.path,
             kind: post.kind,
@@ -30366,7 +31004,7 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
               output.log(`Post ${target.position}: ${warning.field}: ${warning.warning}`);
           output.result({
             thread: { path: target.thread.path, name: target.name, summary: rung2 === "name" ? void 0 : target.summary },
-            posts: posts3,
+            posts: posts4,
             ...post.warnings?.length ? { warnings: post.warnings.map((warning) => ({ post: target.position, ...warning })) } : {},
             ...rung2 === "full" ? { pinned: target.pinned } : {},
             pin: target.pin,
@@ -30381,10 +31019,10 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         const thread = loadThread(resolveLocalThread(rest[0]));
         reportThreadWarnings(thread, output);
         const rung = depth(flags2, "surface");
-        const postId = str(flags2, "post");
-        if (flags2.post !== void 0 && !postId)
+        const postId2 = str2(flags2, "post");
+        if (flags2.post !== void 0 && !postId2)
           throw new Error("--post requires a post id.");
-        const limitStr = str(flags2, "limit");
+        const limitStr = str2(flags2, "limit");
         let limit;
         if (flags2.limit !== void 0) {
           if (!limitStr || !/^\d+$/.test(limitStr) || parseInt(limitStr, 10) <= 0) {
@@ -30392,12 +31030,12 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           }
           limit = parseInt(limitStr, 10);
         }
-        const order = str(flags2, "order");
+        const order = str2(flags2, "order");
         if (flags2.order !== void 0 && order !== "newer" && order !== "older")
           throw new Error("--order must be newer or older.");
         if (rung === "name" && (limit !== void 0 || order))
           throw new Error("Name reads one frame; omit --limit and --order.");
-        const since = str(flags2, "since");
+        const since = str2(flags2, "since");
         if (flags2.since !== void 0 && !since)
           throw new Error("--since requires an ISO date or post id.");
         const newOnly = yes(flags2, "new");
@@ -30405,60 +31043,60 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           throw new Error("Use either --new or --since, not both.");
         if (since && order === "newer")
           throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
-        if (postId && (newOnly || since || limit !== void 0 || order))
+        if (postId2 && (newOnly || since || limit !== void 0 || order))
           throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
         const seen = newOnly ? readCursor(thread) : /* @__PURE__ */ new Set();
-        let posts2 = thread.posts.filter((p) => !seen.has(p.id));
+        let posts3 = thread.posts.filter((p) => !seen.has(p.id));
         if (since) {
           const at = thread.posts.findIndex((p) => p.id === since);
           if (at !== -1)
-            posts2 = thread.posts.slice(at + 1);
+            posts3 = thread.posts.slice(at + 1);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
-            const undated = posts2.filter((p) => !p.date).length;
+            const undated = posts3.filter((p) => !p.date).length;
             if (undated)
               output.log(`${undated} undated post(s) in Thread ${thread.slug} cannot be compared to --since ${since}; omitted.`);
-            posts2 = posts2.filter((p) => p.date && Date.parse(p.date) > Date.parse(since));
+            posts3 = posts3.filter((p) => p.date && Date.parse(p.date) > Date.parse(since));
           } else
             throw new Error(`--since needs a post id in this Thread or a valid ISO date: ${since}`);
         }
-        const rangeCount = posts2.length;
-        if (postId) {
-          const exact = thread.allPosts.find((p) => p.id === postId);
+        const rangeCount = posts3.length;
+        if (postId2) {
+          const exact = thread.allPosts.find((p) => p.id === postId2);
           if (!exact)
-            throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
-          posts2 = [thread.posts.find((p) => p.id === postId) ?? exact];
+            throw new Error(`Post ${postId2} is not in Thread ${thread.slug}.`);
+          posts3 = [thread.posts.find((p) => p.id === postId2) ?? exact];
         } else if (rung === "surface") {
-          const snapshot2 = findNewestSnapshot(posts2);
+          const snapshot2 = findNewestSnapshot(posts3);
           if (snapshot2) {
-            const at = posts2.findIndex((p) => p.id === snapshot2.id);
+            const at = posts3.findIndex((p) => p.id === snapshot2.id);
             if (at !== -1)
-              posts2 = posts2.slice(at);
+              posts3 = posts3.slice(at);
           }
         }
         const filtered = Boolean(since || newOnly || limit !== void 0 || order);
-        const totalMatching = postId ? 1 : rangeCount;
-        if (rung === "summary" && !filtered && !postId)
-          posts2 = [];
-        else if (!postId && rung !== "name" && rung !== "children") {
+        const totalMatching = postId2 ? 1 : rangeCount;
+        if (rung === "summary" && !filtered && !postId2)
+          posts3 = [];
+        else if (!postId2 && rung !== "name" && rung !== "children") {
           if (rung === "surface") {
-            const head = posts2.find((p) => p.kind === "snapshot" || p.kind === "reframe");
-            const tailLimit = (limit ?? 5) - (head ? 1 : 0);
-            const tail = tailLimit > 0 ? posts2.slice(-tailLimit) : [];
-            posts2 = head ? [head, ...tail.filter((p) => p.id !== head.id)] : tail;
+            const head2 = posts3.find((p) => p.kind === "snapshot" || p.kind === "reframe");
+            const tailLimit = (limit ?? 5) - (head2 ? 1 : 0);
+            const tail = tailLimit > 0 ? posts3.slice(-tailLimit) : [];
+            posts3 = head2 ? [head2, ...tail.filter((p) => p.id !== head2.id)] : tail;
             if (order === "newer")
-              posts2.reverse();
+              posts3.reverse();
           } else {
             if (order === "newer")
-              posts2 = [...posts2].reverse();
-            posts2 = posts2.slice(0, limit ?? 10);
+              posts3 = [...posts3].reverse();
+            posts3 = posts3.slice(0, limit ?? 10);
           }
         }
         const ack = yes(flags2, "ack");
-        const bodyClipped = rung === "surface" && posts2.some((p) => Buffer.byteLength(p.body) > SURFACE_BODY_BYTES);
-        if (ack && (rung === "name" || rung === "children" || postId || since || posts2.length < totalMatching || bodyClipped))
+        const bodyClipped = rung === "surface" && posts3.some((p) => Buffer.byteLength(p.body) > SURFACE_BODY_BYTES);
+        if (ack && (rung === "name" || rung === "children" || postId2 || since || posts3.length < totalMatching || bodyClipped))
           throw new Error("Cannot --ack an incomplete Thread read (name/children, --post, --since, bounded page or shortened body). Use: threads open <slug> --depth full --new --ack when the complete unread range fits one page.");
-        const pin = str(flags2, "pin");
-        const position = str(flags2, "position");
+        const pin = str2(flags2, "pin");
+        const position = str2(flags2, "position");
         if (flags2.pin === true || flags2.position === true)
           throw new Error("--pin and --position require values.");
         if (!!pin !== !!position)
@@ -30472,8 +31110,8 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md"))
           throw new Error("Pinned post is invalid.");
         if (ack)
-          acknowledge(thread, posts2);
-        const effectiveRung = postId ? "full" : rung;
+          acknowledge(thread, posts3);
+        const effectiveRung = postId2 ? "full" : rung;
         let parent = null;
         let parentWarning;
         try {
@@ -30488,9 +31126,9 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           childWarnings++;
         };
         let allChildThreads = [];
-        if (postId || effectiveRung === "children") {
+        if (postId2 || effectiveRung === "children") {
           try {
-            allChildThreads = findChildThreads(thread.path, postId, warnChild);
+            allChildThreads = findChildThreads(thread.path, postId2, warnChild);
           } catch (error) {
             warnChild(`Thread ${thread.slug} child lookup incomplete: ${error instanceof Error ? error.message : String(error)}`);
           }
@@ -30503,7 +31141,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         const childThreads = allChildThreads.slice(0, limit ?? 10);
         const branches = allBranches.slice(0, limit ?? 10);
         const snapshot = findNewestSnapshot(thread.posts);
-        const boundedPosts = !postId && effectiveRung === "surface" ? posts2.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES, body: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES ? clip(p.body, SURFACE_BODY_BYTES, `\u2026 [body truncated; use --post ${p.id} for the complete post]`) : p.body })) : posts2;
+        const boundedPosts = !postId2 && effectiveRung === "surface" ? posts3.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES, body: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES ? clip(p.body, SURFACE_BODY_BYTES, `\u2026 [body truncated; use --post ${p.id} for the complete post]`) : p.body })) : posts3;
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary" ? {
           id: p.id,
           path: p.path,
@@ -30517,12 +31155,12 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
         } : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
-        const rawPost = postId && posts2.length ? readFileSync19(join38(thread.path, posts2[0].path), "utf8") : void 0;
+        const rawPost = postId2 && posts3.length ? readFileSync19(join38(thread.path, posts3[0].path), "utf8") : void 0;
         let humanText;
         if (pinned && effectiveRung === "full") {
           humanText = pinned;
         } else if (rawPost) {
-          const marks = posts2[0]?.marks;
+          const marks = posts3[0]?.marks;
           humanText = rawPost + (marks?.length ? `
 Marks: ${marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : "");
           if (childThreads.length > 0) {
@@ -30551,11 +31189,11 @@ Child Thread lookup incomplete: ${childWarnings} unreadable sibling(s).`;
         if (parentWarning)
           humanText += `
 Parent lookup incomplete: ${parentWarning}`;
-        if (effectiveRung === "full" && !postId && posts2.length < totalMatching) {
-          const cursor = posts2.at(-1)?.id;
+        if (effectiveRung === "full" && !postId2 && posts3.length < totalMatching) {
+          const cursor = posts3.at(-1)?.id;
           humanText += `
 
-Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
+Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
         }
         output.result({
           schema: "ideaspaces.local-thread.open.v3",
@@ -30573,11 +31211,11 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
             ...frame ? { frame } : {}
           },
           posts: projected,
-          ...effectiveRung === "children" || postId ? { child_threads: childThreads, child_threads_total: allChildThreads.length, child_threads_complete: childWarnings === 0 } : {},
+          ...effectiveRung === "children" || postId2 ? { child_threads: childThreads, child_threads_total: allChildThreads.length, child_threads_complete: childWarnings === 0 } : {},
           ...effectiveRung === "children" ? { branches, branches_total: allBranches.length } : {},
           ...rawPost ? { raw_post: rawPost } : {},
           ...pinned ? { pinned: effectiveRung === "full" ? pinned : void 0, pin, position } : {},
-          shown: posts2.length,
+          shown: posts3.length,
           matching: totalMatching,
           acknowledged: ack
         }, humanText);
@@ -30593,7 +31231,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         if (sub === "close" && flags2.kind !== void 0 && flags2.kind !== "closure")
           throw new Error("threads close always appends a closure post; omit --kind.");
         selectionFlags(flags2);
-        const kind = sub === "close" ? "closure" : str(flags2, "kind") ?? "post";
+        const kind = sub === "close" ? "closure" : str2(flags2, "kind") ?? "post";
         if (!kind.trim() || /[\r\n]/.test(kind))
           throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");
         if (!KNOWN_POST_KINDS.has(kind)) {
@@ -30603,32 +31241,32 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         }
         if (sub === "close" && (flags2.member !== void 0 || flags2.checkout !== void 0))
           throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
-        const map = str(flags2, "map") ? loadLocalThreadMap(str(flags2, "map")) : void 0;
-        const selected = flags2.member !== void 0 ? selectPinnedThreadMember(map, str(flags2, "member") ?? "") : void 0;
+        const map = str2(flags2, "map") ? loadLocalThreadMap(str2(flags2, "map")) : void 0;
+        const selected = flags2.member !== void 0 ? selectPinnedThreadMember(map, str2(flags2, "member") ?? "") : void 0;
         if (!selected && flags2.checkout !== void 0)
           throw new Error("--checkout requires --map and --member.");
         if (selected && flags2.author !== void 0)
           throw new Error("Selected Thread posts use the caller's Agreement name; omit --author.");
         if (selected && kind === "closure")
           throw new Error("Selected cross-Space closure is not supported; use the local Space's close verb.");
-        const parents = str(flags2, "reply-to")?.split(",").map((id) => id.trim());
+        const parents = str2(flags2, "reply-to")?.split(",").map((id) => id.trim());
         if (parents?.some((id) => !id))
           throw new Error("--reply-to must name non-empty post ids, separated by commas.");
-        validateMarkOptions(kind, str(flags2, "mark"), parents);
+        validateMarkOptions(kind, str2(flags2, "mark"), parents);
         if (selected && !parents?.length)
           throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
-        const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags2, "checkout")) : void 0;
+        const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str2(flags2, "checkout")) : void 0;
         const tags = typeof flags2.tags === "string" ? flags2.tags.split(",").map((t) => t.trim()) : void 0;
-        const body = str(flags2, "message") ?? await stdin();
+        const body = str2(flags2, "message") ?? await stdin();
         const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), {
           body,
-          name: str(flags2, "name"),
-          summary: str(flags2, "summary"),
-          author: target ? selectedWriterName() : writerName(str(flags2, "author")),
+          name: str2(flags2, "name"),
+          summary: str2(flags2, "summary"),
+          author: target ? selectedWriterName() : writerName(str2(flags2, "author")),
           replyTo: parents,
           kind,
-          mark: str(flags2, "mark"),
-          supersedes: str(flags2, "supersedes"),
+          mark: str2(flags2, "mark"),
+          supersedes: str2(flags2, "supersedes"),
           map,
           tags,
           rejectEscapedNewlines: typeof flags2.message === "string",
@@ -30667,12 +31305,15 @@ ${timeline.map((p) => `- ${p.name} (${p.kind}) ${p.path}${p.in_reply_to.length ?
       if (sub === "push") {
         if (rest.length)
           throw new Error("Usage: threads push --remote <team-remote>");
-        const remote = pushWorktree(process.cwd(), str(flags2, "remote"));
+        const remote = pushWorktree(process.cwd(), str2(flags2, "remote"));
         output.result({ remote }, `Pushed threads branch to ${remote}.`);
         return 0;
       }
       throw new Error(`Usage: ${threadsCommand.usage}`);
     } catch (error) {
+      const refused = reportHostedRefusal(error, output, global3.json);
+      if (refused !== void 0)
+        return refused;
       output.error(error instanceof Error ? error.message : String(error));
       return 1;
     }
@@ -30809,6 +31450,7 @@ var unfollowCommand = {
 
 // dist/commands/power/logout.js
 init_client_session();
+init_credentials();
 
 // dist/auth/session-state.js
 import { existsSync as existsSync28, unlinkSync as unlinkSync3 } from "node:fs";
@@ -30830,6 +31472,10 @@ var logoutCommand = {
   usage: "ideaspaces power logout",
   async run(_args, _flags, global3) {
     const output = createOutput(global3);
+    if (isHostAuth()) {
+      output.error(hostAuthMessage("Sign-out"));
+      return 1;
+    }
     try {
       await signOut();
       clearSessionState();
@@ -31216,10 +31862,10 @@ function zeroUsage(modelTier) {
 }
 
 // node_modules/@ideaspaces/sdk/dist/agent-to-keeper.js
-function sumPiUsage(messages, modelTier) {
-  if (!messages || messages.length === 0)
+function sumPiUsage(messages2, modelTier) {
+  if (!messages2 || messages2.length === 0)
     return void 0;
-  const assistantMessages = messages.filter((m) => m.role === "assistant" && m.usage);
+  const assistantMessages = messages2.filter((m) => m.role === "assistant" && m.usage);
   if (assistantMessages.length === 0)
     return void 0;
   let input_tokens = 0;
@@ -32007,8 +32653,8 @@ async function* runLocalTurn(opts) {
       }
       const type = typeof msg.type === "string" ? msg.type : "";
       if (type === "agent_end" && msg.willRetry === true) {
-        const messages = Array.isArray(msg.messages) ? msg.messages : [];
-        const lastAssistant = [...messages].reverse().find((m) => m && typeof m === "object" && m.role === "assistant");
+        const messages2 = Array.isArray(msg.messages) ? msg.messages : [];
+        const lastAssistant = [...messages2].reverse().find((m) => m && typeof m === "object" && m.role === "assistant");
         retryError = typeof lastAssistant?.errorMessage === "string" ? lastAssistant.errorMessage : "provider request failed";
         continue;
       }
@@ -32111,7 +32757,7 @@ async function* runLocalTurn(opts) {
 
 // dist/pi/local-conversations.js
 import { existsSync as existsSync33, readdirSync as readdirSync4, readFileSync as readFileSync22, realpathSync as realpathSync22, statSync as statSync18 } from "node:fs";
-import { randomUUID as randomUUID11 } from "node:crypto";
+import { randomUUID as randomUUID12 } from "node:crypto";
 import { join as join43 } from "node:path";
 
 // dist/local/task-notification.js
@@ -32125,7 +32771,7 @@ function localSessionDir(contextRoot) {
   return join43(contextRoot, ".pi", "sessions");
 }
 function mintConversationId() {
-  return `local-${randomUUID11()}`;
+  return `local-${randomUUID12()}`;
 }
 function textOf(content) {
   if (typeof content === "string")
@@ -32137,7 +32783,7 @@ function textOf(content) {
 function parseSessionJsonl(text, fallbackTs) {
   let id = "";
   let name = null;
-  const messages = [];
+  const messages2 = [];
   let preview = "";
   let count = 0;
   let lastTs = fallbackTs;
@@ -32172,7 +32818,7 @@ function parseSessionJsonl(text, fallbackTs) {
       if (role === "user") {
         const content = textOf(m.content);
         const isNotification = isTaskNotification(content);
-        messages.push({ role: "user", content, created_at: created });
+        messages2.push({ role: "user", content, created_at: created });
         if (!isNotification) {
           if (!preview)
             preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
@@ -32191,7 +32837,7 @@ function parseSessionJsonl(text, fallbackTs) {
           name: String(c.name ?? ""),
           args: c.arguments ?? {}
         }));
-        messages.push({
+        messages2.push({
           role: "assistant",
           content: textOf(m.content),
           created_at: created,
@@ -32200,7 +32846,7 @@ function parseSessionJsonl(text, fallbackTs) {
         });
         count += 1;
       } else if (role === "toolResult") {
-        messages.push({
+        messages2.push({
           role: "tool",
           content: textOf(m.content),
           tool_call_id: typeof m.toolCallId === "string" ? m.toolCallId : void 0,
@@ -32211,7 +32857,7 @@ function parseSessionJsonl(text, fallbackTs) {
       }
     }
   }
-  return { id, name, messages, messageCount: count, preview, updatedAt: lastTs, modelTier };
+  return { id, name, messages: messages2, messageCount: count, preview, updatedAt: lastTs, modelTier };
 }
 function findSessionFile(dir, convId) {
   if (!existsSync33(dir))
@@ -32571,7 +33217,7 @@ import { spawn as spawn4 } from "node:child_process";
 
 // dist/claude/local-conversations.js
 import { existsSync as existsSync34, readdirSync as readdirSync5, readFileSync as readFileSync23, realpathSync as realpathSync24, statSync as statSync20 } from "node:fs";
-import { randomUUID as randomUUID12 } from "node:crypto";
+import { randomUUID as randomUUID13 } from "node:crypto";
 import { homedir as homedir6 } from "node:os";
 import { basename as basename19, dirname as dirname25, join as join45, resolve as resolve40 } from "node:path";
 function claudeConfigDir(env = process.env) {
@@ -32595,7 +33241,7 @@ function legacyClaudeProjectDir(cwd, env = process.env) {
   return join45(claudeConfigDir(env), "projects", slugOf(resolve40(cwd)));
 }
 function mintClaudeConversationId() {
-  return randomUUID12();
+  return randomUUID13();
 }
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 var CMD_NAME = /<command-name>([\s\S]*?)<\/command-name>/u;
@@ -32629,7 +33275,7 @@ function textOf2(content) {
 function parseClaudeSessionJsonl(text, fallbackTs) {
   let id = "";
   let name = null;
-  const messages = [];
+  const messages2 = [];
   let preview = "";
   let count = 0;
   let lastTs = fallbackTs;
@@ -32675,7 +33321,7 @@ function parseClaudeSessionJsonl(text, fallbackTs) {
           if (nameMatch) {
             const cmdName = nameMatch[1]?.trim() ?? "";
             const cmdArgs = CMD_ARGS.exec(content)?.[1]?.trim() ?? "";
-            messages.push({
+            messages2.push({
               role: "user",
               content: cmdName + (cmdArgs ? ` ${cmdArgs}` : ""),
               kind: "command",
@@ -32691,7 +33337,7 @@ function parseClaudeSessionJsonl(text, fallbackTs) {
           const outMatch = CMD_OUTPUT.exec(content);
           if (outMatch) {
             const outText = outMatch[1]?.trim() ?? "";
-            messages.push({
+            messages2.push({
               role: "user",
               content: outText,
               kind: "command-output",
@@ -32702,7 +33348,7 @@ function parseClaudeSessionJsonl(text, fallbackTs) {
           }
         }
         const isNotification = isTaskNotification(content, e.origin);
-        messages.push({ role: "user", content, created_at: created });
+        messages2.push({ role: "user", content, created_at: created });
         if (!isNotification) {
           if (!preview)
             preview = content.replace(/\s+/g, " ").trim().slice(0, 120);
@@ -32716,7 +33362,7 @@ function parseClaudeSessionJsonl(text, fallbackTs) {
         if (block.type !== "tool_result")
           continue;
         const callId = typeof block.tool_use_id === "string" ? block.tool_use_id : void 0;
-        messages.push({
+        messages2.push({
           role: "tool",
           content: textOf2(block.content),
           tool_call_id: callId,
@@ -32732,7 +33378,7 @@ function parseClaudeSessionJsonl(text, fallbackTs) {
       modelTier = m.model;
     if (!openAssistant || openAssistant.messageId !== messageId) {
       openAssistant = { messageId, entry: { role: "assistant", content: "", created_at: created } };
-      messages.push(openAssistant.entry);
+      messages2.push(openAssistant.entry);
       count += 1;
     }
     const entry = openAssistant.entry;
@@ -32751,7 +33397,7 @@ function parseClaudeSessionJsonl(text, fallbackTs) {
       (entry.tool_calls ??= []).push(call);
     }
   }
-  return { id, name, messages, messageCount: count, preview, updatedAt: lastTs, modelTier };
+  return { id, name, messages: messages2, messageCount: count, preview, updatedAt: lastTs, modelTier };
 }
 function canResumeClaudeConversation(contextRoot, convId) {
   const file2 = claudeSessionFile(contextRoot, convId);
@@ -32945,8 +33591,8 @@ function buildClaudeEnv(auth, base = process.env, mapPath) {
       delete env[key2];
   return env;
 }
-function claudeRecordModel(record) {
-  const r = record;
+function claudeRecordModel(record2) {
+  const r = record2;
   if (r?.type === "system" && r.subtype === "init")
     return reportedModel(r.model);
   if (r?.type === "assistant")
@@ -33023,11 +33669,11 @@ async function* runClaudeTurn(opts) {
   let observedModel = null;
   try {
     for await (const line2 of readJsonLines(claude.stdout)) {
-      const record = parseClaudeStreamLine(line2);
-      if (!record)
+      const record2 = parseClaudeStreamLine(line2);
+      if (!record2)
         continue;
-      observedModel ??= claudeRecordModel(record);
-      for (const ke of translator.translate(record)) {
+      observedModel ??= claudeRecordModel(record2);
+      for (const ke of translator.translate(record2)) {
         if (ke.type === "message_start") {
           yield discloseLaunch(ke, {
             cwd: opts.repoPath,
@@ -33597,6 +34243,7 @@ var topLevel = [
   loginCommand,
   whoamiCommand,
   reposCommand,
+  vaultsCommand,
   catalogCommand,
   piStatusCommand,
   piModelsCommand,
@@ -33664,6 +34311,7 @@ function printHelp() {
   lines.push("  --quiet          Suppress non-essential output");
   lines.push("  --yes            Apply the plan (create, publish, share visibility)");
   lines.push("  --help           Show help");
+  lines.push("  --token-fd <n>   Host-run only (IDEASPACES_AUTH=host): read the app's {api_url, access_token} once from inherited fd n");
   lines.push("", "Run: ideaspaces <command> --help for command-specific help.");
   process.stderr.write(lines.join("\n") + "\n");
 }
@@ -33681,7 +34329,46 @@ function printPowerHelp() {
 }
 
 // dist/errors.js
-function handleError(err, output) {
+init_credentials();
+init_host_token();
+
+// dist/host-token-flag.js
+init_credentials();
+init_host_token();
+import { closeSync as closeSync2 } from "node:fs";
+var HOST_TOKEN_COMMANDS = /* @__PURE__ */ new Set(["vaults", "threads"]);
+function closeQuietly(raw) {
+  if (/^\d+$/.test(raw) && Number(raw) >= 3)
+    try {
+      closeSync2(Number(raw));
+    } catch {
+    }
+}
+function takeTokenFd(raw, command2) {
+  if (raw === void 0)
+    return;
+  if (!isHostAuth()) {
+    closeQuietly(raw);
+    throw new HostTokenError(`--token-fd is read only under ${HOST_AUTH_ENV}=host, where an app passes its own sign-in. In a terminal, sign in with \`ideaspaces login\`.`);
+  }
+  if (!command2 || !HOST_TOKEN_COMMANDS.has(command2)) {
+    closeQuietly(raw);
+    throw new HostTokenError(`--token-fd is accepted only by \`ideaspaces vaults\` and the hosted \`ideaspaces threads\` verbs, not by ${command2 ?? "this command"}.`);
+  }
+  if (!/^\d+$/.test(raw))
+    throw new HostTokenError("--token-fd needs an inherited descriptor number of 3 or more.");
+  readHostToken(Number(raw));
+}
+
+// dist/errors.js
+function handleError(err, output, context = {}) {
+  if (err instanceof HostAuthRefusal || err instanceof HostTokenError) {
+    if (context.json && context.command && HOST_TOKEN_COMMANDS.has(context.command)) {
+      process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: { state: "signed_out", message: err.message } }, null, 2) + "\n");
+    }
+    output.error(err instanceof HostAuthRefusal ? err.message : `Error: ${err.message}`);
+    return 1;
+  }
   if (err instanceof Error) {
     if (err.message.includes("Not logged in")) {
       output.error(`Error: ${err.message}
@@ -33765,10 +34452,11 @@ if (global2.help) {
   process.exit(0);
 }
 try {
+  takeTokenFd(global2.tokenFd, cmd.name);
   const exitCode = await cmd.run(resolvedArgs, flags, global2);
   process.exit(exitCode);
 } catch (err) {
   const output = createOutput(global2);
-  const exitCode = handleError(err, output);
+  const exitCode = handleError(err, output, { json: global2.json, command: cmd.name });
   process.exit(exitCode);
 }

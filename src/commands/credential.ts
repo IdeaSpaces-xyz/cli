@@ -16,7 +16,7 @@
  * See: git-credential(1), `gitcredentials` manpage.
  */
 
-import { loadConfig } from "../auth/credentials.js";
+import { hostAuthMessage, isHostAuth, loadConfig } from "../auth/credentials.js";
 import { resolveSessionConfig } from "../auth/client-session.js";
 import type { CommandDef } from "../types.js";
 
@@ -52,6 +52,13 @@ async function handleGet(): Promise<number> {
   if (!isIdeaspacesHost(params.host)) {
     // Not our domain — silent no-op. Git will try other helpers / prompt.
     return 0;
+  }
+
+  if (isHostAuth()) {
+    // Stop Git's helper/prompt chain: in host mode this CLI never hands out a sign-in.
+    process.stderr.write(`IdeaSpaces credential helper: ${hostAuthMessage("Git access to IdeaSpaces")}\n`);
+    process.stdout.write("quit=true\n\n");
+    return 1;
   }
 
   const loaded = loadConfig();
