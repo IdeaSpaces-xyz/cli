@@ -1,17 +1,19 @@
 /**
- * Local, repo-level full-text search — pure BM25 over Markdown, plus a filename
- * signal. No index, no native deps, no network: the corpus is the files already
- * on disk, scored in a single streaming pass.
+ * Local full-text search — pure BM25 over Markdown, plus a filename signal.
+ * No index, no native deps, no network: the corpus is the files already on
+ * disk, scored in a single streaming pass. One pass can span several roots;
+ * n, df and avgdl are then shared, so hits from different repos rank against
+ * each other.
  *
  * Why streaming, not an in-memory inverted index: this runs as a short-lived
  * verb (CLI invoke → answer → exit, or one sidecar call per desktop search).
  * We only care about the query's terms, so we never materialise the full corpus
- * — {@link searchDocs} consumes a *lazy* iterable, holding one document at a
+ * — {@link rankDocs} consumes a *lazy* iterable, holding one document at a
  * time and retaining only the docs that actually hit. Peak memory scales with
- * the largest single file + the number of matches, not the repo size.
+ * the largest single file + the number of matches, not the corpus size.
  *
  * Deferred (qmd has these; out of scope for v1): a persisted/incremental index,
- * porter stemming, phrase/negation query syntax, and any vector / LLM layer.
+ * porter stemming, phrase queries, and any vector / LLM layer.
  */
 
 // BM25 free parameters — the textbook defaults. k1 controls term-frequency
@@ -26,11 +28,15 @@ const B = 0.75;
 const NAME_BOOST = 2.0;
 
 const SNIPPET_MAX = 200;
+// Frontmatter kept per hit for its title and tags; a block past this is not a header.
+const FRONTMATTER_MAX = 16_384;
 
-/** A document to score: a repo-relative path and its raw text. */
+/** A document to score: a root-relative path and its raw text. */
 export interface SearchDoc {
   path: string;
   content: string;
+  /** Absolute root the path is relative to, when the corpus spans several. */
+  root?: string;
 }
 
 export interface SearchResult {
@@ -47,13 +53,57 @@ export interface SearchResult {
   line: number | null;
 }
 
+/** A ranked hit with what the pass saw of its header, for titles and filters. */
+export interface RankedHit extends SearchResult {
+  root?: string;
+  /** The raw leading `---` block, delimiters included, or null. */
+  frontmatter: string | null;
+  /** Text of the first `# ` heading, or null. */
+  heading: string | null;
+}
+
+export interface RankOptions {
+  limit?: number;
+  /** Folded terms; a document containing any of them is dropped (it still counts in the corpus). */
+  exclude?: string[];
+  /**
+   * Decides a document that hit (or, with no terms, every document). Called
+   * once per candidate with its leading frontmatter block.
+   */
+  accept?: (doc: SearchDoc, frontmatter: string | null) => boolean;
+  /** With no terms, return every accepted document at score 0 instead of nothing. */
+  listWhenNoTerms?: boolean;
+}
+
+export interface RankOutcome {
+  hits: RankedHit[];
+  /** Documents read. */
+  scanned: number;
+  /** Documents that matched before the limit was applied. */
+  matched: number;
+}
+
+const ASCII_ONLY = /^[\x00-\x7f]*$/;
+const MARKS = /\p{M}+/gu;
+
 /**
- * Split text into lowercased alphanumeric terms. Hyphenated/punctuated tokens
- * break apart (`multi-agent` → `multi`, `agent`), matching how the body is
- * tokenised so a query term lines up with body terms. No stemming (v1).
+ * Fold for matching: compatibility-decompose, lowercase, drop combining marks.
+ * `Pēteris` → `peteris`, `ﬁle` → `file`. Shared by terms, tags and authors.
+ */
+export function fold(text: string): string {
+  if (ASCII_ONLY.test(text)) return text.toLowerCase();
+  return text.normalize("NFKD").toLowerCase().replace(MARKS, "").normalize("NFC");
+}
+
+/**
+ * Split text into folded letter/number terms. Punctuation breaks a token
+ * (`multi-agent` → `multi`, `agent`), matching how the body is tokenised so a
+ * query term lines up with body terms. Letters are Unicode (`\p{L}`): accents
+ * fold away, so `Pēteris` and `peteris` are one term. No stemming (v1).
  */
 export function tokenize(text: string): string[] {
-  return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  if (ASCII_ONLY.test(text)) return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return fold(text).match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 /** Non-negative BM25 idf — the `ln(1 + …)` form, so common terms never go negative. */
@@ -68,30 +118,43 @@ function nameTokens(path: string): Set<string> {
   return new Set(tokenize(base));
 }
 
+/** The leading frontmatter block, delimiters included, or null. */
+export function leadingFrontmatter(lines: string[]): string | null {
+  if (lines[0]?.replace(/\r$/, "") !== "---") return null;
+  let size = 0;
+  for (let i = 1; i < lines.length; i++) {
+    size += lines[i].length + 1;
+    if (size > FRONTMATTER_MAX) return null;
+    if (lines[i].replace(/\r$/, "") === "---") return lines.slice(0, i + 1).join("\n");
+  }
+  return null;
+}
+
 interface Hit {
-  path: string;
+  doc: SearchDoc;
   length: number;
   tf: Map<string, number>;
   nameHits: number;
   snippet: string;
   line: number | null;
+  frontmatter: string | null;
+  heading: string | null;
 }
 
 /**
- * Score `docs` against `query`, returning the top `limit` by relevance.
+ * Score `docs` against folded `terms`, returning the top `limit` by relevance.
  *
  * `docs` is consumed lazily — pass a generator to keep peak memory at one file.
- * A document surfaces if it contains any query term in its body OR its filename;
+ * A document surfaces if it contains any term in its body OR its filename;
  * the two signals add, so a pure title match still ranks.
  */
-export function searchDocs(
-  docs: Iterable<SearchDoc>,
-  query: string,
-  limit = 20,
-): SearchResult[] {
-  const terms = [...new Set(tokenize(query))];
-  if (terms.length === 0) return [];
-  const termSet = new Set(terms);
+export function rankDocs(docs: Iterable<SearchDoc>, terms: string[], options: RankOptions = {}): RankOutcome {
+  const limit = options.limit ?? 20;
+  const unique = [...new Set(terms)];
+  const termSet = new Set(unique);
+  const excludeSet = new Set(options.exclude ?? []);
+  const listAll = unique.length === 0 && options.listWhenNoTerms === true;
+  if (unique.length === 0 && !listAll) return { hits: [], scanned: 0, matched: 0 };
 
   // Corpus-wide stats accumulated over every doc (matching or not), so avgdl and
   // df are exact. Only matching docs are retained.
@@ -108,21 +171,27 @@ export function searchDocs(
     let bestLine = "";
     let bestLineNo: number | null = null;
     let bestLineHits = 0;
+    let excluded = false;
+    let heading: string | null = null;
 
     for (let i = 0; i < lines.length; i++) {
-      const lineTokens = tokenize(lines[i]);
+      const raw = lines[i];
+      if (heading === null && raw.startsWith("# ")) heading = raw.slice(2).trim() || null;
+      const lineTokens = tokenize(raw);
       length += lineTokens.length;
       let lineHits = 0;
       for (const tok of lineTokens) {
         if (termSet.has(tok)) {
           tf.set(tok, (tf.get(tok) ?? 0) + 1);
           lineHits++;
+        } else if (excludeSet.has(tok)) {
+          excluded = true;
         }
       }
       // The line with the most query-term occurrences becomes the snippet.
       if (lineHits > bestLineHits) {
         bestLineHits = lineHits;
-        bestLine = lines[i].trim();
+        bestLine = raw.trim();
         bestLineNo = i + 1;
       }
     }
@@ -132,35 +201,59 @@ export function searchDocs(
 
     const nameHitSet = nameTokens(doc.path);
     let nameHits = 0;
-    for (const term of terms) if (nameHitSet.has(term)) nameHits++;
+    for (const term of unique) if (nameHitSet.has(term)) nameHits++;
 
-    if (tf.size > 0 || nameHits > 0) {
+    if ((tf.size > 0 || nameHits > 0 || listAll) && !excluded) {
+      const frontmatter = leadingFrontmatter(lines);
+      if (options.accept && !options.accept(doc, frontmatter)) continue;
       const snippet =
         bestLine.length > SNIPPET_MAX ? `${bestLine.slice(0, SNIPPET_MAX - 1)}…` : bestLine;
-      hits.push({ path: doc.path, length, tf, nameHits, snippet, line: bestLineNo });
+      hits.push({ doc, length, tf, nameHits, snippet, line: bestLineNo, frontmatter, heading });
     }
   }
 
-  if (n === 0) return [];
+  if (n === 0) return { hits: [], scanned: 0, matched: 0 };
   const avgdl = totalLen / n || 1;
 
-  const scored: SearchResult[] = hits.map((h) => {
+  const scored: RankedHit[] = hits.map((h) => {
     let bm25 = 0;
     for (const [term, freq] of h.tf) {
       const norm = freq + K1 * (1 - B + (B * h.length) / avgdl);
       bm25 += idf(n, df.get(term) ?? 0) * ((freq * (K1 + 1)) / norm);
     }
     return {
-      path: h.path,
+      path: h.doc.path,
+      ...(h.doc.root !== undefined ? { root: h.doc.root } : {}),
       score: bm25 + h.nameHits * NAME_BOOST,
       body_hits: h.tf.size,
       name_hits: h.nameHits,
       snippet: h.snippet,
       line: h.line,
+      frontmatter: h.frontmatter,
+      heading: h.heading,
     };
   });
 
-  // Highest score first; ties broken by path for a stable, deterministic order.
-  scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-  return scored.slice(0, Math.max(0, limit));
+  // Highest score first; ties broken by root then path for a stable, deterministic order.
+  scored.sort((a, b) => b.score - a.score || (a.root ?? "").localeCompare(b.root ?? "") || a.path.localeCompare(b.path));
+  return { hits: scored.slice(0, Math.max(0, limit)), scanned: n, matched: scored.length };
+}
+
+/**
+ * Score `docs` against `query`, returning the top `limit` by relevance — the
+ * single-repo form, kept for callers that pass plain words.
+ */
+export function searchDocs(
+  docs: Iterable<SearchDoc>,
+  query: string,
+  limit = 20,
+): SearchResult[] {
+  return rankDocs(docs, tokenize(query), { limit }).hits.map((hit) => ({
+    path: hit.path,
+    score: hit.score,
+    body_hits: hit.body_hits,
+    name_hits: hit.name_hits,
+    snippet: hit.snippet,
+    line: hit.line,
+  }));
 }

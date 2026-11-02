@@ -2,9 +2,15 @@ import { normalizeGitBin } from "./git.js";
 import type { GlobalFlags } from "./types.js";
 
 // Flags that take no argument on any command (e.g. `ideaspaces map --orientation`).
-const BOOLEAN_COMMAND_FLAGS = new Set(["read-only", "orientation"]);
-function setFlag(flags: Record<string, string | boolean>, key: string, value: string): void {
-  if (key === "reach") {
+const BOOLEAN_COMMAND_FLAGS = new Set(["read-only", "orientation", "threads"]);
+// Flags one command repeats to give a list. Elsewhere the same name keeps its
+// single value (`map add --root <index>` is not `search --root <dir>`).
+const LIST_FLAGS: Record<string, string> = { root: "search" };
+function setFlag(flags: Record<string, string | boolean>, key: string, value: string, command?: string): void {
+  if (LIST_FLAGS[key] !== undefined && LIST_FLAGS[key] === command) {
+    const previous: unknown = flags[key];
+    (flags as Record<string, unknown>)[key] = [...(Array.isArray(previous) ? previous : []), value];
+  } else if (key === "reach") {
     // Only agent run consumes this array; keep paths with commas intact.
     const previous: unknown = flags.reach;
     (flags as Record<string, unknown>).reach = [...(Array.isArray(previous) ? previous : []), value];
@@ -63,7 +69,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
           continue;
         }
 
-        setFlag(flags, key, value);
+        setFlag(flags, key, value, positional[0]);
         continue;
       }
 
@@ -96,7 +102,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       }
       // Command-specific flag with value
       if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
-        setFlag(flags, key, argv[++i]);
+        setFlag(flags, key, argv[++i], positional[0]);
       } else {
         flags[key] = true;
       }
