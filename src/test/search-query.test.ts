@@ -103,4 +103,16 @@ describe("filters", () => {
     expect(frontmatterTextDecision(parseQuery("-tag:friction"), block)).toBe("parse");
     expect(frontmatterTextDecision(parseQuery("author:scout"), block)).toBe("no");
   });
+
+  it("finds the tags key bare, quoted, as a flow list, a block list or a one-line string", () => {
+    const q = parseQuery("tag:friction");
+    for (const block of [
+      "---\ntags: [friction, ux]\n---",
+      "---\ntags:\n  - friction\n---",
+      "---\n\"tags\": [friction]\n---",
+      "---\n'tags': friction, ux\n---",
+    ]) {
+      expect(frontmatterTextDecision(q, block)).toBe("parse");
+    }
+  });
 });

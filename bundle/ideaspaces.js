@@ -27653,8 +27653,8 @@ function frontmatterTextDecision(q, block) {
   if (block === null)
     return required ? "no" : "yes";
   const text = fold(block);
-  const hasTags = /^tags\s*:/m.test(text);
-  const hasAuthor = /^author\s*:/m.test(text);
+  const hasTags = /(^|[{,])\s*["']?tags["']?\s*:/m.test(text);
+  const hasAuthor = /(^|[{,])\s*["']?author["']?\s*:/m.test(text);
   if (q.tags.length > 0) {
     if (!hasTags)
       return "no";
@@ -27741,15 +27741,23 @@ function commonBase(roots) {
 function toPosix(path) {
   return sep14 === "/" ? path : path.split(sep14).join("/");
 }
+function threadSlugIndex(parts) {
+  return parts.lastIndexOf("_threads");
+}
 function isThreadPath(path) {
-  return path.split("/").includes("_threads");
+  return threadSlugIndex(path.split("/")) !== -1;
 }
 function hitKind(path) {
   const parts = path.split("/");
-  if (parts.length === 3 && parts[0] === "_threads") {
-    return parts[2] === "README.md" ? "thread_readme" : "thread_post";
+  const at = threadSlugIndex(parts);
+  if (at !== -1 && at === parts.length - 3) {
+    return parts[parts.length - 1] === "README.md" ? "thread_readme" : "thread_post";
   }
   return "note";
+}
+function threadSlug(path) {
+  const parts = path.split("/");
+  return parts[threadSlugIndex(parts) + 1];
 }
 function gitListFiles(root) {
   return new Promise((done) => {
@@ -27772,6 +27780,7 @@ function gitListFiles(root) {
 function walkMarkdown2(root) {
   const files = [];
   let truncated = false;
+  let unreadable = 0;
   const visit = (dir, depth2) => {
     if (truncated)
       return;
@@ -27779,6 +27788,7 @@ function walkMarkdown2(root) {
     try {
       entries = readdirSync3(dir, { withFileTypes: true });
     } catch {
+      unreadable++;
       return;
     }
     entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
@@ -27800,7 +27810,7 @@ function walkMarkdown2(root) {
     }
   };
   visit(root, 0);
-  return { files, truncated };
+  return { files, truncated, unreadable };
 }
 function ownThreadFiles(root, warnings) {
   if (!existsSync25(join34(root, "_agent", "agreement.md")))
@@ -27851,6 +27861,9 @@ async function listRoot(root, threads) {
     const walked = walkMarkdown2(root);
     paths = walked.files;
     truncated = walked.truncated;
+    if (walked.unreadable > 0) {
+      warnings.push(`${walked.unreadable} folder${walked.unreadable === 1 ? "" : "s"} could not be read and ${walked.unreadable === 1 ? "was" : "were"} skipped`);
+    }
   } else {
     return { root, listing: "git", files: [], error: `Could not list files: ${listed.message}` };
   }
@@ -28049,7 +28062,7 @@ function describe3(hit, root, withRoot) {
   };
   if (kind !== "note") {
     out.thread = {
-      slug: hit.path.split("/")[1],
+      slug: threadSlug(hit.path),
       post_id: kind === "thread_post" ? stringField2(fm, "id") : null,
       author: stringField2(fm, "author"),
       date: stringField2(fm, "date")
@@ -28181,6 +28194,8 @@ ${QUERY_HELP}`);
       output.error(listing.error);
       return 1;
     }
+    for (const warning of listing.warnings ?? [])
+      output.error(`Warning: ${warning}`);
     const files = selectFiles([listing], root, query);
     const outcome = rank(files, query, limit, false);
     const results = finish(outcome.hits, root, listAll, limit);
@@ -28209,6 +28224,7 @@ ${QUERY_HELP}`);
       root: projection.root,
       dirty: projection.dirty,
       local_only_paths: projection.local_only_paths,
+      ...listing.warnings ? { warnings: listing.warnings } : {},
       ...projection.map_issues ? { map_issues: projection.map_issues } : {},
       ...projection.portability_issue ? { portability_issue: projection.portability_issue } : {}
     };
@@ -28291,6 +28307,10 @@ ${hint}`);
     ..."error" in row && row.error ? [`Could not search ${row.root}: ${row.error}`] : [],
     ..."truncated" in row && row.truncated ? [`Stopped early in ${row.root}: too many files to walk`] : []
   ]);
+  for (const row of rootRows) {
+    for (const warning of "warnings" in row && row.warnings || [])
+      output.error(`Warning: ${row.root}: ${warning}`);
+  }
   const footer = `${files.length} files in ${rootRows.length - failed.length} root${rootRows.length - failed.length === 1 ? "" : "s"}` + (notes.length ? `
 ${notes.join("\n")}` : "");
   if (results.length === 0) {

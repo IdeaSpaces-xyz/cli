@@ -27,7 +27,7 @@ import {
   parseQuery, QueryError, wantsThreads, type HitKind, type ParsedQuery,
 } from "../search-query.js";
 import {
-  commonBase, hitKind, listRoots, modifiedAt, readCorpus, resolveRoots, toPosix,
+  commonBase, hitKind, listRoots, modifiedAt, readCorpus, resolveRoots, threadSlug, toPosix,
   type RootListing,
 } from "../search-corpus.js";
 import { fold } from "../search.js";
@@ -112,7 +112,7 @@ function describe(hit: RankedHit, root: string, withRoot: boolean): SearchHit {
   };
   if (kind !== "note") {
     out.thread = {
-      slug: hit.path.split("/")[1],
+      slug: threadSlug(hit.path),
       post_id: kind === "thread_post" ? stringField(fm, "id") : null,
       author: stringField(fm, "author"),
       date: stringField(fm, "date"),
@@ -257,6 +257,8 @@ export const searchCommand: CommandDef = {
       output.error(listing.error);
       return 1;
     }
+    // Warnings go to stderr in every mode (and into JSON), so missing Threads are never silent.
+    for (const warning of listing.warnings ?? []) output.error(`Warning: ${warning}`);
     const files = selectFiles([listing], root, query);
     const outcome = rank(files, query, limit, false);
     const results = finish(outcome.hits, root, listAll, limit);
@@ -288,6 +290,7 @@ export const searchCommand: CommandDef = {
       root: projection.root,
       dirty: projection.dirty,
       local_only_paths: projection.local_only_paths,
+      ...(listing.warnings ? { warnings: listing.warnings } : {}),
       ...(projection.map_issues ? { map_issues: projection.map_issues } : {}),
       ...(projection.portability_issue ? { portability_issue: projection.portability_issue } : {}),
     };
@@ -371,6 +374,10 @@ async function searchRoots(
     ...("error" in row && row.error ? [`Could not search ${row.root}: ${row.error}`] : []),
     ...("truncated" in row && row.truncated ? [`Stopped early in ${row.root}: too many files to walk`] : []),
   ]);
+  // Warnings go to stderr in every mode (JSON keeps them in roots[]), so missing Threads are never silent.
+  for (const row of rootRows) {
+    for (const warning of ("warnings" in row && row.warnings) || []) output.error(`Warning: ${row.root}: ${warning}`);
+  }
   const footer = `${files.length} files in ${rootRows.length - failed.length} root${rootRows.length - failed.length === 1 ? "" : "s"}` +
     (notes.length ? `\n${notes.join("\n")}` : "");
   if (results.length === 0) {

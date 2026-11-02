@@ -86,17 +86,37 @@ export function toPosix(path: string): string {
   return sep === "/" ? path : path.split(sep).join("/");
 }
 
+/**
+ * Thread files, as both predicates below read them: anything under a
+ * `_threads/` folder at any depth is Thread material (left out unless Threads
+ * are asked for, as single-repo search always has), and a file directly in
+ * `<…>/_threads/<slug>/` is that Thread's README or one of its posts. Other
+ * files under `_threads/` (a Thread's own `_agent/`, stray folders) are Thread
+ * material but kind `note`. The layout is the protocol's Thread layout
+ * (`_threads/<slug>/README.md` plus posts beside it); search only reads it.
+ */
+function threadSlugIndex(parts: string[]): number {
+  return parts.lastIndexOf("_threads");
+}
+
 export function isThreadPath(path: string): boolean {
-  return path.split("/").includes("_threads");
+  return threadSlugIndex(path.split("/")) !== -1;
 }
 
 /** A file's kind inside its root: a local Thread's README, one of its posts, or a Note. */
 export function hitKind(path: string): HitKind {
   const parts = path.split("/");
-  if (parts.length === 3 && parts[0] === "_threads") {
-    return parts[2] === "README.md" ? "thread_readme" : "thread_post";
+  const at = threadSlugIndex(parts);
+  if (at !== -1 && at === parts.length - 3) {
+    return parts[parts.length - 1] === "README.md" ? "thread_readme" : "thread_post";
   }
   return "note";
+}
+
+/** The slug of the Thread a README or post belongs to. */
+export function threadSlug(path: string): string {
+  const parts = path.split("/");
+  return parts[threadSlugIndex(parts) + 1];
 }
 
 interface GitList { ok: true; paths: string[] }
@@ -127,15 +147,17 @@ function gitListFiles(root: string): Promise<GitList | GitFail> {
 }
 
 /** A bounded walk of a plain folder. Nested repositories are their own roots and are not entered. */
-function walkMarkdown(root: string): { files: string[]; truncated: boolean } {
+function walkMarkdown(root: string): { files: string[]; truncated: boolean; unreadable: number } {
   const files: string[] = [];
   let truncated = false;
+  let unreadable = 0;
   const visit = (dir: string, depth: number) => {
     if (truncated) return;
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
     } catch {
+      unreadable++;
       return;
     }
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -155,7 +177,7 @@ function walkMarkdown(root: string): { files: string[]; truncated: boolean } {
     }
   };
   visit(root, 0);
-  return { files, truncated };
+  return { files, truncated, unreadable };
 }
 
 /**
@@ -209,6 +231,9 @@ async function listRoot(root: string, threads: boolean): Promise<RootListing> {
     const walked = walkMarkdown(root);
     paths = walked.files;
     truncated = walked.truncated;
+    if (walked.unreadable > 0) {
+      warnings.push(`${walked.unreadable} folder${walked.unreadable === 1 ? "" : "s"} could not be read and ${walked.unreadable === 1 ? "was" : "were"} skipped`);
+    }
   } else {
     return { root, listing: "git", files: [], error: `Could not list files: ${listed.message}` };
   }

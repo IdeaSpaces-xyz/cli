@@ -204,6 +204,10 @@ describe("search --root: one corpus across several roots", () => {
       const data = await search("loopback", [space], { threads: true });
       expect(data.total).toBe(0);
       expect(data.roots[0].warnings).toEqual(["_threads is a symlink; its Threads were not searched"]);
+      const human = await captureStdoutAndErr(["loopback"], { root: [space], threads: true });
+      expect(human.exit).toBe(0);
+      expect(human.stderr).toContain("Warning:");
+      expect(human.stderr).toContain("_threads is a symlink; its Threads were not searched");
     } finally {
       await rm(elsewhere, { recursive: true, force: true });
     }
@@ -245,6 +249,37 @@ describe("query filters through the command", () => {
     expect(fromRoot.results.map((r: { path: string }) => r.path)).toEqual(["memory/pēteris.md"]);
     const excluded = await search("loopback -in:agents", roots);
     expect(excluded.results.map((r: { path: string }) => r.path)).toEqual(["notes/plan.md"]);
+  });
+
+  it("in: matches either reading of a path when they differ", async () => {
+    const scout = join(vault, "agents", "scout");
+    write(join(vault, "memory", "home-loopback.md"), "# Home\n\nloopback at home\n");
+    const roots = [vault, scout];
+    const rootRelative = await search("loopback in:memory", roots);
+    expect(rootRelative.results.map((r: { root: string; path: string }) => `${r.root === scout ? "scout" : "home"}:${r.path}`).sort())
+      .toEqual(["home:memory/home-loopback.md", "scout:memory/pēteris.md"]);
+    const baseRelative = await search("loopback in:agents/scout/memory", roots);
+    expect(baseRelative.results.map((r: { path: string }) => r.path)).toEqual(["memory/pēteris.md"]);
+    const neither = await search("loopback in:scout/memory", roots);
+    expect(neither.total).toBe(0);
+  });
+
+  it("Thread material at any depth is left out by default and typed the same way when included", async () => {
+    write(join(vault, "docs", "_threads", "deep", "README.md"), "---\nname: Deep\n---\nloopback\n");
+    write(join(vault, "docs", "_threads", "deep", "2026-11-02T11-00-00-000Z-msg_b.md"), "---\nid: msg_b\nauthor: UI/UX\n---\nloopback\n");
+    write(join(vault, "docs", "_threads", "stray.md"), "loopback\n");
+    const plain = await search("loopback", [vault]);
+    expect(plain.results.map((r: { path: string }) => r.path)).toEqual(["notes/plan.md"]);
+    const all = await search("loopback", [vault], { threads: true });
+    const byPath = new Map(all.results.map((r: { path: string; kind: string; thread?: { slug: string } }) => [r.path, r]));
+    expect(byPath.get("docs/_threads/deep/README.md")).toMatchObject({ kind: "thread_readme", thread: { slug: "deep" } });
+    expect(byPath.get("docs/_threads/deep/2026-11-02T11-00-00-000Z-msg_b.md")).toMatchObject({ kind: "thread_post", thread: { slug: "deep", author: "UI/UX" } });
+    expect(byPath.get("docs/_threads/stray.md")).toMatchObject({ kind: "note" });
+    const posts = await search("loopback kind:post", [vault]);
+    expect(posts.results.map((r: { path: string }) => r.path).sort()).toEqual([
+      "_threads/onboard/2026-11-02T10-00-00-000Z-msg_a.md",
+      "docs/_threads/deep/2026-11-02T11-00-00-000Z-msg_b.md",
+    ]);
   });
 
   it("author: and -word narrow, and a bad filter is refused with what to write", async () => {

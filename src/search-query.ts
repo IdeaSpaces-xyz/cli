@@ -209,8 +209,9 @@ export function frontmatterTextDecision(q: ParsedQuery, block: string | null): "
   const required = q.tags.length > 0 || q.authors.length > 0;
   if (block === null) return required ? "no" : "yes";
   const text = fold(block);
-  const hasTags = /^tags\s*:/m.test(text);
-  const hasAuthor = /^author\s*:/m.test(text);
+  // A key may be bare, quoted, or inside a flow mapping; when unsure, the answer is "parse".
+  const hasTags = /(^|[{,])\s*["']?tags["']?\s*:/m.test(text);
+  const hasAuthor = /(^|[{,])\s*["']?author["']?\s*:/m.test(text);
   if (q.tags.length > 0) {
     if (!hasTags) return "no";
     if (!q.tags.every((group) => group.some((tag) => text.includes(tag)))) return "no";
