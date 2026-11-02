@@ -828,6 +828,60 @@ describe("ideaspaces create — git author identity", () => {
       expect(navData.text).toContain("space: home.map.md");
     });
 
+    it("scaffolds a neutral Home: three goal prompts, a neutral Map summary and the first-conversation skill", async () => {
+      const target = join(tmp, "fresh-home");
+      const plan = await captureStdout(() => createCommand.run([], { home: target }, baseGlobal));
+      expect(JSON.parse(plan.out).plan.some((step: { path?: string }) =>
+        step.path?.endsWith(join("_agent", "skills", "first-conversation.md")))).toBe(true);
+
+      const { createCommand: cc } = await import("../commands/create.js");
+      const applied = await captureStdout(() => cc.run([], { home: target }, { ...baseGlobal, yes: true }));
+      expect(applied.exit).toBe(0);
+      const result = JSON.parse(applied.out);
+      expect(result.root_node_id).toMatch(/^n_[0-9a-f]{24}$/);
+
+      const agreement = await fs.readFile(join(target, "_agent", "agreement.md"), "utf-8");
+      const fields = parseFrontmatter(agreement)!;
+      expect(fields.root_node_id).toBe(result.root_node_id);
+      expect(String(fields.summary)).toContain("A prompt");
+      for (const heading of ["What this place is", "What we hold here", "What we want to accomplish"]) {
+        expect(agreement).toMatch(new RegExp(`^## ${heading}\\n\\n_A prompt\\.`, "m"));
+      }
+      const homeMap = await fs.readFile(join(target, "home.map.md"), "utf-8");
+      // Nobody's team purpose ships in a stranger's Home: not in the Agreement, the Map or CLAUDE.md.
+      for (const text of [agreement, homeMap, await fs.readFile(join(target, "CLAUDE.md"), "utf-8")]) {
+        for (const team of ["explore how to explore", "old shell", "from the Desktop", "ports out", "code repos", "Tier"]) {
+          expect(text).not.toContain(team);
+        }
+      }
+      expect(parseFrontmatter(homeMap)!.summary).toBe("Everything this folder holds. Each space here is its own repo, pinned by identity and commit, never copied in.");
+
+      const skill = await fs.readFile(join(target, "_agent", "skills", "first-conversation.md"), "utf-8");
+      const skillFields = parseFrontmatter(skill)!;
+      expect(skillFields.name).toBe("first-conversation");
+      expect(String(skillFields.description)).toMatch(/^A fresh Space's first conversation, with no agent\./);
+      expect(skill).toContain("ideaspaces create agents/<name> --agent --yes");
+      expect(skill).toContain("ideaspaces create <name> --yes");
+      expect(skill).toContain("Write nothing until the person\nsays yes in words.");
+
+      // The skill is committed with the scaffold, so a fresh Home starts clean.
+      const status = spawnSync("git", ["-C", target, "status", "--porcelain"], { encoding: "utf-8" });
+      expect(status.stdout.trim()).toBe("");
+      const tracked = spawnSync("git", ["-C", target, "ls-files"], { encoding: "utf-8" }).stdout.split("\n");
+      expect(tracked).toContain("_agent/skills/first-conversation.md");
+    });
+
+    it("keeps an existing first-conversation skill on create --home", async () => {
+      const target = join(tmp, "home-with-skill");
+      await fs.mkdir(join(target, "_agent", "skills"), { recursive: true });
+      await fs.writeFile(join(target, "_agent", "skills", "first-conversation.md"), "mine\n");
+      const plan = await captureStdout(() => createCommand.run([], { home: target }, baseGlobal));
+      expect(JSON.parse(plan.out).plan.some((step: { path?: string }) => step.path?.endsWith("first-conversation.md"))).toBe(false);
+      const { createCommand: cc } = await import("../commands/create.js");
+      expect(await cc.run([], { home: target }, { ...baseGlobal, yes: true })).toBe(0);
+      expect(await fs.readFile(join(target, "_agent", "skills", "first-conversation.md"), "utf-8")).toBe("mine\n");
+    });
+
     it("refuses to scaffold Home in a code repo", async () => {
       const target = join(tmp, "repo");
       await fs.mkdir(target);
