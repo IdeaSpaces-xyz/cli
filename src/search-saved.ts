@@ -14,12 +14,17 @@
  * any other; readers that do not know `search` ignore it. Roots are stored
  * relative to the Note, never as machine paths, so the same Note opens the
  * same folders on another checkout of the same tree. Opening it runs the query
- * again over what is on disk now: the same files give the same results. A
- * hand-written Note may name an absolute root; it is honoured, but is not
- * portable.
+ * again over what is on disk now: the same files give the same results.
+ *
+ * A saved search can only look inside its own Vault: every root, after
+ * symlinks, must lie within the boundary of the Note (see {@link searchBoundary}).
+ * A Note from a clone or from someone else therefore cannot make `--open`
+ * read `/`, a home folder, or any folder outside the tree it was saved in.
+ * `--save` refuses such a root too, so whatever is saved can be opened.
  *
  * The CLI owns this `search:` shape until the protocol adopts it; then the
- * validation in readSavedSearch moves there.
+ * validation in readSavedSearch moves there. Tracking:
+ * https://github.com/IdeaSpaces-xyz/ideaspace-protocol/issues/85
  */
 
 import { parseFrontmatter } from "@ideaspaces/protocol";
@@ -47,9 +52,44 @@ export interface SavedSearchNote {
 
 export class SavedSearchError extends Error {}
 
+/** A saved search is a few lines of frontmatter; a Note this large is not one. */
 const MAX_NOTE_BYTES = 64 * 1024;
-/** The largest existing file `--force` reads to see whether it is a saved search. */
+/** The most `--force` reads of an existing file to see whether it is a saved search (any Note is read as large as search itself reads one). */
 const MAX_CHECK_BYTES = 4 * 1024 * 1024;
+
+/**
+ * The folder a saved search may not look beyond: the Vault the Note lives in
+ * (the nearest ancestor holding `home.map.md`), else its enclosing Git
+ * repository, else the Note's own folder. `dir` is the Note's canonical folder.
+ */
+export function searchBoundary(dir: string): string {
+  let repo: string | null = null;
+  for (let at = dir; ; at = dirname(at)) {
+    if (existsSync(resolve(at, "home.map.md"))) return at;
+    if (repo === null && existsSync(resolve(at, ".git"))) repo = at;
+    if (dirname(at) === at) break;
+  }
+  return repo ?? dir;
+}
+
+function within(boundary: string, path: string): boolean {
+  const rel = relative(boundary, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** A root's real location: its realpath when it exists, else the path as resolved. */
+function realRoot(path: string): string {
+  try { return realpathSync(path); } catch { return resolve(path); }
+}
+
+/** Refuse a root that resolves outside the boundary, naming it and the boundary. */
+function checkInside(boundary: string, root: string, what: string): void {
+  if (!within(boundary, realRoot(root))) {
+    throw new SavedSearchError(
+      `${what} ${root} lies outside the Vault this saved search belongs to (${boundary}). A saved search only looks inside its own Vault; save it in a folder that contains what it searches.`,
+    );
+  }
+}
 
 function toPosix(path: string): string {
   return sep === "/" ? path : path.split(sep).join("/");
@@ -142,6 +182,9 @@ export function writeSavedSearch(
   const { path, dir } = checkSaveTarget(notePath, options.force === true);
   const name = oneLine(options.name);
   if (!name) throw new SavedSearchError("--name needs text.");
+  // Whatever is saved must open again: refuse a root --open would refuse.
+  const boundary = searchBoundary(dir);
+  for (const root of options.roots) checkInside(boundary, root, "The folder");
   const search: SavedSearch = {
     query: options.query,
     roots: options.roots.map((root) => storedRoot(dir, root)),
@@ -204,6 +247,9 @@ export function readSavedSearch(notePath: string): SavedSearchNote {
   let dir: string;
   try { dir = realpathSync(dirname(path)); } catch { dir = dirname(path); }
   const roots = (rootsValue as string[]).map((r) => r.trim());
+  const absoluteRoots = roots.map((r) => (isAbsolute(r) ? r : resolve(dir, r)));
+  const boundary = searchBoundary(dir);
+  roots.forEach((stored, i) => checkInside(boundary, absoluteRoots[i], `${notePath}: search.roots entry '${stored}' resolves to`));
   return {
     path,
     name: typeof fm.name === "string" && fm.name.trim() ? fm.name.trim() : relative(dir, path),
@@ -214,6 +260,6 @@ export function readSavedSearch(notePath: string): SavedSearchNote {
       threads: block.threads === true,
       ...(block.limit !== undefined ? { limit: block.limit as number } : {}),
     },
-    absoluteRoots: roots.map((r) => (isAbsolute(r) ? r : resolve(dir, r))),
+    absoluteRoots,
   };
 }

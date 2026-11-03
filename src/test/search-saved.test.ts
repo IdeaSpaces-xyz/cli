@@ -270,6 +270,58 @@ describe("saved searches", () => {
     }
   });
 
+  describe("a saved search only looks inside its own Vault", () => {
+    let outside: string;
+    beforeEach(async () => {
+      outside = `${vault}-outside`;
+      write(join(outside, "secret.md"), "loopback secret outside\n");
+    });
+    afterEach(async () => { await rm(outside, { recursive: true, force: true }); });
+
+    it("refuses an absolute root, a .. root and the filesystem root on --open, naming the root and the boundary", async () => {
+      for (const root of [outside, "../../" + outside.split("/").pop(), "/"]) {
+        write(join(vault, "searches", "evil.search.md"), `---\nname: Evil\nsearch:\n  query: loopback\n  roots: [${JSON.stringify(root)}]\n---\n`);
+        const opened = await runErr([], { open: "searches/evil.search.md" });
+        expect(opened.exit).toBe(1);
+        expect(opened.stderr).toContain("lies outside the Vault this saved search belongs to");
+        expect(opened.stderr).toContain(vault);
+        expect(opened.stderr).not.toContain("secret outside");
+      }
+    });
+
+    it.skipIf(process.platform === "win32")("refuses a root that is inside by name but a symlink to outside", async () => {
+      symlinkSync(outside, join(vault, "notes", "escape"));
+      write(join(vault, "searches", "link.search.md"), "---\nsearch:\n  query: loopback\n  roots: [../notes/escape]\n---\n");
+      const opened = await runErr([], { open: "searches/link.search.md" });
+      expect(opened.exit).toBe(1);
+      expect(opened.stderr).toContain("lies outside");
+    });
+
+    it("lets a root go up to the Vault's top: home.map.md marks it, even from a nested repository", async () => {
+      write(join(vault, "home.map.md"), "---\nname: Home\n---\n");
+      const scout = join(vault, "agents", "scout");
+      write(join(scout, "notes", "n.search.md"), "---\nsearch:\n  query: loopback\n  roots: [../../.., .]\n---\n");
+      const opened = await run([], { open: join(scout, "notes", "n.search.md") });
+      expect(opened.exit).toBe(0);
+      expect(opened.json.roots.map((r: { root: string }) => r.root).sort()).toEqual([join(scout, "notes"), vault].sort());
+    });
+
+    it("without a home.map.md, stops at the enclosing repository", async () => {
+      const scout = join(vault, "agents", "scout");
+      write(join(scout, "n.search.md"), "---\nsearch:\n  query: loopback\n  roots: [../..]\n---\n");
+      const opened = await runErr([], { open: join(scout, "n.search.md") });
+      expect(opened.exit).toBe(1);
+      expect(opened.stderr).toContain(scout);
+    });
+
+    it("refuses to save a root --open would refuse, and writes nothing", async () => {
+      const saved = await runErr(["loopback"], { root: [vault, outside], save: "searches/out.search.md" });
+      expect(saved.exit).toBe(1);
+      expect(saved.stderr).toContain("lies outside the Vault this saved search belongs to");
+      expect(() => readFileSync(join(vault, "searches", "out.search.md"), "utf8")).toThrow();
+    });
+  });
+
   it("a hand-written saved search with no roots searches the Note's own folder", async () => {
     write(join(vault, "notes", "mine.search.md"), "---\nname: Mine\nsearch:\n  query: loopback\n---\n");
     const opened = await run([], { open: "notes/mine.search.md" });

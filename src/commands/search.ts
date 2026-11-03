@@ -80,7 +80,11 @@ Saved searches:
                    --root form: roots[] and per-hit root, no Map.
   --open <note.md> run a saved search again over what is on disk now.
                    Only --limit and --json may be added. The Note is an
-                   ordinary Note: commit it, link it, or name it in a Map.`;
+                   ordinary Note: commit it, link it, or name it in a Map.
+                   Its roots must lie inside its own Vault (the folder
+                   holding home.map.md above it, else its Git repository):
+                   a Note naming / or a folder elsewhere is refused, on
+                   --open and on --save. Answers in the --root form.`;
 
 export interface SearchHit {
   path: string;
@@ -183,7 +187,7 @@ interface Corpus {
   base: string;
 }
 
-/** Path-level filters decide what is read at all. */
+/** A file's canonical path, or the path as given when it can't be resolved. */
 function canonicalFile(path: string): string {
   try {
     return realpathSync.native(path);
@@ -192,6 +196,7 @@ function canonicalFile(path: string): string {
   }
 }
 
+/** Path-level filters decide what is read at all; `skip` is one canonical file to leave out (an opened saved search's own Note). */
 function selectFiles(listings: RootListing[], base: string, query: ParsedQuery, skip?: string): Corpus["files"] {
   const files: Corpus["files"] = [];
   const filtering = query.inPaths.length > 0 || query.excludeIn.length > 0 ||

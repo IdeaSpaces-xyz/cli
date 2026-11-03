@@ -27729,6 +27729,34 @@ var SavedSearchError = class extends Error {
 };
 var MAX_NOTE_BYTES2 = 64 * 1024;
 var MAX_CHECK_BYTES = 4 * 1024 * 1024;
+function searchBoundary(dir) {
+  let repo = null;
+  for (let at = dir; ; at = dirname21(at)) {
+    if (existsSync25(resolve36(at, "home.map.md")))
+      return at;
+    if (repo === null && existsSync25(resolve36(at, ".git")))
+      repo = at;
+    if (dirname21(at) === at)
+      break;
+  }
+  return repo ?? dir;
+}
+function within(boundary, path) {
+  const rel = relative19(boundary, path);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute18(rel);
+}
+function realRoot(path) {
+  try {
+    return realpathSync19(path);
+  } catch {
+    return resolve36(path);
+  }
+}
+function checkInside(boundary, root, what) {
+  if (!within(boundary, realRoot(root))) {
+    throw new SavedSearchError(`${what} ${root} lies outside the Vault this saved search belongs to (${boundary}). A saved search only looks inside its own Vault; save it in a folder that contains what it searches.`);
+  }
+}
 function toPosix(path) {
   return sep14 === "/" ? path : path.split(sep14).join("/");
 }
@@ -27802,6 +27830,9 @@ function writeSavedSearch(notePath, options) {
   const name = oneLine(options.name);
   if (!name)
     throw new SavedSearchError("--name needs text.");
+  const boundary = searchBoundary(dir);
+  for (const root of options.roots)
+    checkInside(boundary, root, "The folder");
   const search = {
     query: options.query,
     roots: options.roots.map((root) => storedRoot(dir, root)),
@@ -27873,6 +27904,9 @@ function readSavedSearch(notePath) {
     dir = dirname21(path);
   }
   const roots = rootsValue.map((r) => r.trim());
+  const absoluteRoots = roots.map((r) => isAbsolute18(r) ? r : resolve36(dir, r));
+  const boundary = searchBoundary(dir);
+  roots.forEach((stored, i) => checkInside(boundary, absoluteRoots[i], `${notePath}: search.roots entry '${stored}' resolves to`));
   return {
     path,
     name: typeof fm.name === "string" && fm.name.trim() ? fm.name.trim() : relative19(dir, path),
@@ -27883,7 +27917,7 @@ function readSavedSearch(notePath) {
       threads: block.threads === true,
       ...block.limit !== void 0 ? { limit: block.limit } : {}
     },
-    absoluteRoots: roots.map((r) => isAbsolute18(r) ? r : resolve36(dir, r))
+    absoluteRoots
   };
 }
 
@@ -28423,7 +28457,7 @@ async function listRoots(roots, threads) {
   }
   return listings;
 }
-function within(root, path) {
+function within2(root, path) {
   return path === root || path.startsWith(root.endsWith(sep15) ? root : root + sep15);
 }
 function* readCorpus(files, withRoot, readCounts, outsideLinks) {
@@ -28435,10 +28469,10 @@ function* readCorpus(files, withRoot, readCounts, outsideLinks) {
       const key2 = `${root}\0${folder}`;
       let inside = folderInside.get(key2);
       if (inside === void 0) {
-        inside = within(root, realpathSync20(folder));
+        inside = within2(root, realpathSync20(folder));
         folderInside.set(key2, inside);
       }
-      if (!inside || lstatSync6(abs).isSymbolicLink() && !within(root, realpathSync20(abs))) {
+      if (!inside || lstatSync6(abs).isSymbolicLink() && !within2(root, realpathSync20(abs))) {
         outsideLinks?.set(root, (outsideLinks.get(root) ?? 0) + 1);
         continue;
       }
@@ -28582,7 +28616,11 @@ Saved searches:
                    --root form: roots[] and per-hit root, no Map.
   --open <note.md> run a saved search again over what is on disk now.
                    Only --limit and --json may be added. The Note is an
-                   ordinary Note: commit it, link it, or name it in a Map.`;
+                   ordinary Note: commit it, link it, or name it in a Map.
+                   Its roots must lie inside its own Vault (the folder
+                   holding home.map.md above it, else its Git repository):
+                   a Note naming / or a folder elsewhere is refused, on
+                   --open and on --save. Answers in the --root form.`;
 function stem(path) {
   return basename19(path).replace(/\.md$/i, "");
 }
