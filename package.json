@@ -33,7 +33,7 @@
     "prepare": "npm run build"
   },
   "devDependencies": {
-    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#f5a0f9e13e04e88bd670f45de9819789b5e650db",
+    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#fa7ac7816b350dfa24d6f5d8b9ced48baa5d99b7",
     "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#96f51f660eb05dc6eb4a222b670efb066994c93b",
     "@types/node": "^22.0.0",
     "@types/proper-lockfile": "^4.1.4",

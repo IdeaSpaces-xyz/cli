@@ -1,5 +1,5 @@
 import { isAbsolute } from "node:path";
-import { formatMapPositionAddress, parseMapPositionAddress, parseThreadAttachment, type ContractSource, type MapDepth } from "@ideaspaces/protocol";
+import { formatMapPositionAddress, parseMapPositionAddress, parseThreadAttachment, type ContentRepresentation, type ContractSource, type MapDepth } from "@ideaspaces/protocol";
 import { loadMapNote, type LoadedMapNote } from "./map-note.js";
 import { focusAtCommit, lookAtCommit, type CommitFocus, type CommitLook } from "./map-look.js";
 import { defaultRootNames, resolveMapAddress, type MapReadAt, type MapReadResult } from "./map-resolve.js";
@@ -69,6 +69,8 @@ export interface AddressRead {
 interface AddressReadOptions {
   at?: MapReadAt;
   contractSource?: ContractSource;
+  /** Reference Agreement representation; the protocol default is summary. */
+  agreement?: ContentRepresentation;
 }
 
 /** Look at a Map member by address, at the pin or HEAD, without a filesystem path. */
@@ -87,6 +89,7 @@ export async function lookAtAddress(
     lookAtCommit(target, {
       depth: options.depth,
       ...(options.contractSource ? { contractSource: options.contractSource } : {}),
+      ...(options.agreement ? { agreement: options.agreement } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
       ...(options.since !== undefined ? { since: options.since } : {}),
       ...(options.order !== undefined ? { order: options.order } : {}),
@@ -98,7 +101,7 @@ export async function lookAtAddress(
 
 /** Focus on a Map member directory by address: its contract, depth-one tree and skills, as reference. */
 export async function focusAtAddress(note: LoadedMapNote, address: string, options: AddressReadOptions): Promise<AddressRead> {
-  return readAddress(note, address, options, (target) => focusAtCommit(target, options.contractSource));
+  return readAddress(note, address, options, (target) => focusAtCommit(target, options.contractSource, options.agreement));
 }
 
 async function readAddress(
