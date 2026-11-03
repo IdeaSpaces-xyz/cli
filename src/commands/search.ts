@@ -21,7 +21,9 @@
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { realpathSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
-import { readSavedSearch, SavedSearchError, writeSavedSearch, type SavedSearchNote } from "../search-saved.js";
+import {
+  checkSaveTarget, readSavedSearch, SavedSearchError, shellWord, writeSavedSearch, type SavedSearchNote,
+} from "../search-saved.js";
 import { GitError, headSha, repoRoot } from "../git.js";
 import { rankDocs, type RankedHit } from "../search.js";
 import {
@@ -73,7 +75,9 @@ Saved searches:
                    --summary title it; --force replaces an existing saved
                    search (never an ordinary Note). Roots on another drive
                    than the Note are refused.
-                   Without --root it saves the current repository.
+                   Without --root it saves the current repository. A
+                   search with --save (and every --open) answers in the
+                   --root form: roots[] and per-hit root, no Map.
   --open <note.md> run a saved search again over what is on disk now.
                    Only --limit and --json may be added. The Note is an
                    ordinary Note: commit it, link it, or name it in a Map.`;
@@ -292,6 +296,15 @@ export const searchCommand: CommandDef = {
       output.error(save);
       return 1;
     }
+    if (save) {
+      // Refuse a bad target before reading anything, so a refusal never costs a search.
+      try {
+        checkSaveTarget(save.path, save.force);
+      } catch (error) {
+        output.error(error instanceof SavedSearchError ? error.message : String(error));
+        return 1;
+      }
+    }
 
     const raw = saved ? saved.search.query : args.join(" ").trim();
     if (!raw) {
@@ -506,7 +519,7 @@ async function searchRoots(
         force: options.save.force,
       });
       data.saved = { path: note.path, name: note.name, summary: note.summary, search: note.search };
-      savedLine.push(`Saved as ${note.path} — open it again with: ideaspaces search --open ${options.save.path}`);
+      savedLine.push(`Saved as ${note.path} — open it again with: ideaspaces search --open ${shellWord(options.save.path)}`);
     } catch (error) {
       output.error(error instanceof SavedSearchError ? error.message : `Could not save the search: ${String(error)}`);
       return 1;

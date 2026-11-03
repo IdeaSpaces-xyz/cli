@@ -27467,16 +27467,17 @@ var nodeCommand = {
 };
 
 // dist/commands/search.js
-import { realpathSync as realpathSync20 } from "node:fs";
-import { basename as basename18, join as join36, relative as relative21, resolve as resolve38 } from "node:path";
+import { realpathSync as realpathSync21 } from "node:fs";
+import { basename as basename19, join as join36, relative as relative21, resolve as resolve38 } from "node:path";
 
 // dist/search-saved.js
 var import_yaml11 = __toESM(require_dist(), 1);
-import { existsSync as existsSync25, readFileSync as readFileSync15, statSync as statSync15, writeFileSync as writeFileSync10 } from "node:fs";
-import { dirname as dirname21, isAbsolute as isAbsolute18, relative as relative19, resolve as resolve36, sep as sep14 } from "node:path";
+import { existsSync as existsSync25, readFileSync as readFileSync15, realpathSync as realpathSync19, statSync as statSync15, writeFileSync as writeFileSync10 } from "node:fs";
+import { basename as basename16, dirname as dirname21, isAbsolute as isAbsolute18, relative as relative19, resolve as resolve36, sep as sep14 } from "node:path";
 var SavedSearchError = class extends Error {
 };
 var MAX_NOTE_BYTES2 = 64 * 1024;
+var MAX_CHECK_BYTES = 4 * 1024 * 1024;
 function toPosix(path) {
   return sep14 === "/" ? path : path.split(sep14).join("/");
 }
@@ -27488,12 +27489,15 @@ function storedRoot(noteDir, root) {
   const posix2 = toPosix(rel);
   return posix2 === "" ? "." : posix2;
 }
+function shellWord(text) {
+  return /^[\w./@:+-]+$/.test(text) ? text : `'${text.replace(/'/g, `'\\''`)}'`;
+}
 function oneLine(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 function describeQuery(search) {
   const lines = [
-    `- **Query:** \`${search.query.replace(/`/g, "'")}\``,
+    `- **Query:** \`${oneLine(search.query).replace(/`/g, "'")}\``,
     `- **Roots:** ${search.roots.map((r) => `\`${r}\``).join(", ")}`,
     `- **Threads:** ${search.threads ? "included" : "left out"}`
   ];
@@ -27501,25 +27505,52 @@ function describeQuery(search) {
     lines.push(`- **Limit:** ${search.limit}`);
   return lines.join("\n");
 }
-function writeSavedSearch(notePath, options) {
+function existingIsSavedSearch(path, notePath) {
+  let stat2;
+  try {
+    stat2 = statSync15(path);
+  } catch (error) {
+    throw new SavedSearchError(`Cannot check ${notePath} before replacing it: ${error.code ?? String(error)}`);
+  }
+  if (!stat2.isFile())
+    throw new SavedSearchError(`${notePath} is not a file, so --force will not replace it.`);
+  if (stat2.size > MAX_CHECK_BYTES)
+    throw new SavedSearchError(`${notePath} is too large to check before replacing it; choose another name.`);
+  let content;
+  try {
+    content = readFileSync15(path, "utf8");
+  } catch (error) {
+    throw new SavedSearchError(`Cannot read ${notePath} before replacing it: ${error.code ?? String(error)}`);
+  }
+  const block = parseFrontmatter(content)?.search;
+  return !!block && typeof block === "object" && !Array.isArray(block);
+}
+function checkSaveTarget(notePath, force) {
   const path = resolve36(notePath);
   if (!path.endsWith(".md"))
     throw new SavedSearchError(`A saved search is a Note: give a path ending in .md (for example ${notePath}.search.md).`);
+  let dir;
+  try {
+    dir = realpathSync19(dirname21(path));
+    if (!statSync15(dir).isDirectory())
+      throw new Error("not a folder");
+  } catch {
+    throw new SavedSearchError(`No such folder for the saved search: ${dirname21(notePath)}`);
+  }
   if (existsSync25(path)) {
-    if (!options.force)
+    if (!force)
       throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
-    try {
-      readSavedSearch(path);
-    } catch {
+    if (!existingIsSavedSearch(path, notePath)) {
       throw new SavedSearchError(`${notePath} is a Note that is not a saved search; --force only replaces saved searches. Choose another name.`);
     }
   }
+  return { path, dir };
+}
+function writeSavedSearch(notePath, options) {
+  const { path, dir } = checkSaveTarget(notePath, options.force === true);
   const name = oneLine(options.name);
   if (!name)
     throw new SavedSearchError("--name needs text.");
-  const dir = dirname21(path);
-  if (!existsSync25(dir) || !statSync15(dir).isDirectory())
-    throw new SavedSearchError(`No such folder for the saved search: ${dirname21(notePath)}`);
   const search = {
     query: options.query,
     roots: options.roots.map((root) => storedRoot(dir, root)),
@@ -27537,7 +27568,8 @@ function writeSavedSearch(notePath, options) {
     "",
     describeQuery(search),
     "",
-    `Open it with \`ideaspaces search --open ${toPosix(relative19(process.cwd(), path)) || path}\`.`,
+    // No machine or working-directory path: the Note reads the same wherever it is opened.
+    `Open it again with \`ideaspaces search --open ${shellWord(basename16(path))}\` from this folder, or give its path from anywhere.`,
     ""
   ].join("\n");
   writeFileSync10(path, `---
@@ -27926,8 +27958,8 @@ function acceptsFrontmatter(q, frontmatter) {
 
 // dist/search-corpus.js
 import { execFile as execFile3 } from "node:child_process";
-import { existsSync as existsSync26, lstatSync as lstatSync6, readdirSync as readdirSync3, readFileSync as readFileSync16, realpathSync as realpathSync19, statSync as statSync16 } from "node:fs";
-import { basename as basename16, dirname as dirname22, isAbsolute as isAbsolute19, join as join34, relative as relative20, resolve as resolve37, sep as sep15 } from "node:path";
+import { existsSync as existsSync26, lstatSync as lstatSync6, readdirSync as readdirSync3, readFileSync as readFileSync16, realpathSync as realpathSync20, statSync as statSync16 } from "node:fs";
+import { basename as basename17, dirname as dirname22, isAbsolute as isAbsolute19, join as join34, relative as relative20, resolve as resolve37, sep as sep15 } from "node:path";
 var WALK_SKIP = /* @__PURE__ */ new Set(["node_modules", "_assets", "target", "dist"]);
 var WALK_MAX_DEPTH = 12;
 var WALK_MAX_FILES = 5e4;
@@ -27941,7 +27973,7 @@ function resolveRoots(inputs, cwd = process.cwd()) {
     const abs = isAbsolute19(input) ? input : resolve37(cwd, input);
     let root;
     try {
-      root = realpathSync19.native(abs);
+      root = realpathSync20.native(abs);
       if (!statSync16(root).isDirectory()) {
         out.push({ input, root: null, error: `Not a folder: ${input}` });
         continue;
@@ -28160,7 +28192,7 @@ function modifiedAt(root, path) {
 
 // dist/search-map.js
 import { readFileSync as readFileSync17 } from "node:fs";
-import { basename as basename17, extname as extname2, join as join35 } from "node:path";
+import { basename as basename18, extname as extname2, join as join35 } from "node:path";
 function safeHead(repoRoot2) {
   try {
     return headSha(repoRoot2);
@@ -28171,7 +28203,7 @@ function safeHead(repoRoot2) {
 function member(path, source) {
   const frontmatter = parseFrontmatter(source);
   const rawName = frontmatter?.name;
-  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename17(path, extname2(path));
+  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename18(path, extname2(path));
   const summary = summarizeMarkdown(source);
   return {
     root: 0,
@@ -28274,12 +28306,14 @@ Saved searches:
                    --summary title it; --force replaces an existing saved
                    search (never an ordinary Note). Roots on another drive
                    than the Note are refused.
-                   Without --root it saves the current repository.
+                   Without --root it saves the current repository. A
+                   search with --save (and every --open) answers in the
+                   --root form: roots[] and per-hit root, no Map.
   --open <note.md> run a saved search again over what is on disk now.
                    Only --limit and --json may be added. The Note is an
                    ordinary Note: commit it, link it, or name it in a Map.`;
 function stem(path) {
-  return basename18(path).replace(/\.md$/i, "");
+  return basename19(path).replace(/\.md$/i, "");
 }
 function stringField2(fm, key2) {
   const value2 = fm?.[key2];
@@ -28355,7 +28389,7 @@ function rootFlags(flags2) {
 }
 function canonicalFile(path) {
   try {
-    return realpathSync20.native(path);
+    return realpathSync21.native(path);
   } catch {
     return path;
   }
@@ -28373,7 +28407,7 @@ function selectFiles(listings, base, query, skip) {
         if (!acceptsPath(query, locations, hitKind(path)))
           continue;
       }
-      if (skip !== void 0 && basename18(path) === basename18(skip) && canonicalFile(join36(listing.root, path)) === skip)
+      if (skip !== void 0 && basename19(path) === basename19(skip) && canonicalFile(join36(listing.root, path)) === skip)
         continue;
       files.push({ root: listing.root, path });
     }
@@ -28445,6 +28479,14 @@ var searchCommand = {
     if (typeof save === "string") {
       output.error(save);
       return 1;
+    }
+    if (save) {
+      try {
+        checkSaveTarget(save.path, save.force);
+      } catch (error) {
+        output.error(error instanceof SavedSearchError ? error.message : String(error));
+        return 1;
+      }
     }
     const raw = saved ? saved.search.query : args2.join(" ").trim();
     if (!raw) {
@@ -28641,7 +28683,7 @@ ${hint}`);
         force: options.save.force
       });
       data.saved = { path: note.path, name: note.name, summary: note.summary, search: note.search };
-      savedLine.push(`Saved as ${note.path} \u2014 open it again with: ideaspaces search --open ${options.save.path}`);
+      savedLine.push(`Saved as ${note.path} \u2014 open it again with: ideaspaces search --open ${shellWord(options.save.path)}`);
     } catch (error) {
       output.error(error instanceof SavedSearchError ? error.message : `Could not save the search: ${String(error)}`);
       return 1;
@@ -30904,21 +30946,21 @@ var inboxCommand = {
 };
 
 // dist/commands/threads.js
-import { existsSync as existsSync29, lstatSync as lstatSync8, readFileSync as readFileSync20, realpathSync as realpathSync22 } from "node:fs";
+import { existsSync as existsSync29, lstatSync as lstatSync8, readFileSync as readFileSync20, realpathSync as realpathSync23 } from "node:fs";
 import { spawnSync as spawnSync16 } from "node:child_process";
 import { dirname as dirname23, isAbsolute as isAbsolute21, join as join39, relative as relative23, resolve as resolve40, sep as sep16 } from "node:path";
 
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync15 } from "node:child_process";
-import { existsSync as existsSync28, lstatSync as lstatSync7, readFileSync as readFileSync19, realpathSync as realpathSync21 } from "node:fs";
-import { basename as basename19, isAbsolute as isAbsolute20, join as join38 } from "node:path";
+import { existsSync as existsSync28, lstatSync as lstatSync7, readFileSync as readFileSync19, realpathSync as realpathSync22 } from "node:fs";
+import { basename as basename20, isAbsolute as isAbsolute20, join as join38 } from "node:path";
 function physical(path) {
   if (!isAbsolute20(path))
     throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
   try {
     const entry = lstatSync7(path);
     if (!entry.isSymbolicLink() && entry.isDirectory())
-      return realpathSync21.native(path);
+      return realpathSync22.native(path);
   } catch {
   }
   throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
@@ -30991,7 +31033,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   }
   const thread = loadThread(directory);
   const pinned = readPinnedThreadMember(checkout, pin, position);
-  const parsed2 = parseThreadPost(pinned, basename19(position));
+  const parsed2 = parseThreadPost(pinned, basename20(position));
   if (parsed2.status !== "valid")
     throw new Error("Selected authored Thread post is invalid.");
   const prefix = `_threads/${slug}/`;
@@ -31005,14 +31047,14 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   const verifyWrite = (live, parents, supersedes) => {
     if (live.path !== directory || live.slug !== slug || live.closed)
       throw new Error("Selected live Thread changed or closed; refusing append.");
-    const selectedPath = join38(directory, basename19(position));
+    const selectedPath = join38(directory, basename20(position));
     const safeEqual = (path, content) => {
       if (!existsSync28(path))
         return false;
       const entry = lstatSync7(path);
       return !entry.isSymbolicLink() && entry.isFile() && readFileSync19(path, "utf8") === content;
     };
-    if (!safeEqual(join38(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join38(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename19(position))) {
+    if (!safeEqual(join38(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join38(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename20(position))) {
       throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
     }
     if (!parents.length || new Set(parents).size !== parents.length)
@@ -31193,7 +31235,7 @@ Marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")
   ].join("\n");
 }
 function selectedWriterName() {
-  const cwd = realpathSync22(process.cwd());
+  const cwd = realpathSync23(process.cwd());
   const prefix = spawnSync16(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname23(at2), cwd) : cwd;
   let at = cwd;
@@ -31332,7 +31374,7 @@ var threadsCommand = {
             throw new Error(`Space root not found: ${root}. Supply an existing folder with _agent/agreement.md.`);
           if (lstatSync8(resolve40(root)).isSymbolicLink())
             throw new Error(`Refusing symlink Space root: ${root}`);
-          const requested = realpathSync22(resolve40(root));
+          const requested = realpathSync23(resolve40(root));
           if (threadBase(requested) !== requested)
             throw new Error(`Not a Space root: ${root}. Supply the folder with _agent/agreement.md.`);
           return listLocal(requested);
@@ -31991,7 +32033,7 @@ var logoutCommand = {
 
 // dist/pi/pi-status.js
 import { existsSync as existsSync32, readFileSync as readFileSync22 } from "node:fs";
-import { basename as basename20, join as join42 } from "node:path";
+import { basename as basename21, join as join42 } from "node:path";
 
 // dist/local/probe-binary.js
 import { spawnSync as spawnSync17 } from "node:child_process";
@@ -32073,7 +32115,7 @@ function derivePiStatus(input) {
   };
 }
 function resolveExtension(path) {
-  const name = basename20(path.replace(/[/\\]+$/, "")) || path;
+  const name = basename21(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
   if (!existsSync32(path))
     return check(false);
@@ -32339,7 +32381,7 @@ function joinLocalOrientation(...parts) {
 }
 
 // dist/local/workspace-files.js
-import { existsSync as existsSync33, lstatSync as lstatSync9, statSync as statSync19, realpathSync as realpathSync23 } from "node:fs";
+import { existsSync as existsSync33, lstatSync as lstatSync9, statSync as statSync19, realpathSync as realpathSync24 } from "node:fs";
 import { dirname as dirname25, isAbsolute as isAbsolute22, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
 
 // node_modules/@ideaspaces/sdk/dist/keeper-events.js
@@ -32821,7 +32863,7 @@ function writtenThreadPost(tool, cwd) {
     const file2 = lstatSync9(path);
     if (!file2.isFile() || file2.isSymbolicLink())
       return void 0;
-    const actual = realpathSync23.native(path);
+    const actual = realpathSync24.native(path);
     if (dirname25(actual) !== resolveLocalThread(tool.args.path, cwd) || !actual.endsWith(`-${id}.md`))
       return void 0;
     return actual;
@@ -32848,7 +32890,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
   const roots = /* @__PURE__ */ new Map();
   const knownFolderRoots = [...new Set([workingRoot, launchCwd].map((root) => {
     try {
-      return realpathSync23.native(root);
+      return realpathSync24.native(root);
     } catch {
       return resolve41(root);
     }
@@ -32932,7 +32974,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
       while (!existsSync33(ancestor) && dirname25(ancestor) !== ancestor)
         ancestor = dirname25(ancestor);
       try {
-        absolute = resolve41(realpathSync23.native(ancestor), relative24(ancestor, absolute));
+        absolute = resolve41(realpathSync24.native(ancestor), relative24(ancestor, absolute));
       } catch {
         continue;
       }
@@ -32950,7 +32992,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
           let explicitRoot;
           if (knowledgeTool && (typeof tool.args.cwd === "string" || typeof tool.args.root === "string")) {
             try {
-              explicitRoot = realpathSync23.native(cwd);
+              explicitRoot = realpathSync24.native(cwd);
             } catch {
             }
           }
@@ -33253,7 +33295,7 @@ async function* runLocalTurn(opts) {
 }
 
 // dist/pi/local-conversations.js
-import { existsSync as existsSync35, readdirSync as readdirSync5, readFileSync as readFileSync23, realpathSync as realpathSync24, statSync as statSync20 } from "node:fs";
+import { existsSync as existsSync35, readdirSync as readdirSync5, readFileSync as readFileSync23, realpathSync as realpathSync25, statSync as statSync20 } from "node:fs";
 import { randomUUID as randomUUID12 } from "node:crypto";
 import { join as join44 } from "node:path";
 
@@ -33381,11 +33423,11 @@ function canResumePiConversation(contextRoot, convId) {
   if (!file2)
     return false;
   try {
-    if (!isContained(realpathSync24(contextRoot), realpathSync24(dir)) || !isContained(realpathSync24(dir), realpathSync24(file2)))
+    if (!isContained(realpathSync25(contextRoot), realpathSync25(dir)) || !isContained(realpathSync25(dir), realpathSync25(file2)))
       return false;
     const text = readFileSync23(file2, "utf8");
     const header = JSON.parse(text.split("\n", 1)[0] ?? "");
-    if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync24(header.cwd) !== realpathSync24(contextRoot))
+    if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync25(header.cwd) !== realpathSync25(contextRoot))
       return false;
     return getLocalConversation(contextRoot, convId).history.some((m) => m.role === "user" && !isTaskNotification(m.content));
   } catch {
@@ -33441,19 +33483,19 @@ function listLocalConversations(contextRoot) {
 }
 
 // dist/local/launch-orientation.js
-import { realpathSync as realpathSync25, statSync as statSync21 } from "node:fs";
+import { realpathSync as realpathSync26, statSync as statSync21 } from "node:fs";
 import { dirname as dirname26, isAbsolute as isAbsolute23, relative as relative25, resolve as resolve42, sep as sep18 } from "node:path";
 function spaceMapLaunchPosition(povRoot, mapPath, firstRoot, suppliedRoot, focus) {
   let supplied;
   if (suppliedRoot) {
     try {
-      supplied = realpathSync25(suppliedRoot);
+      supplied = realpathSync26(suppliedRoot);
     } catch {
       throw new Error(`--working-root ${suppliedRoot} does not exist as a local directory. Omit it for this Space Map or connect its first root.`);
     }
   }
-  const first = firstRoot ? realpathSync25(firstRoot) : void 0;
-  const storage = realpathSync25(dirname26(mapPath));
+  const first = firstRoot ? realpathSync26(firstRoot) : void 0;
+  const storage = realpathSync26(dirname26(mapPath));
   if (supplied && supplied !== storage && supplied !== first) {
     throw new Error(`--working-root ${supplied} conflicts with this Space Map: its first root is ${first ?? "unavailable here"}. Omit --working-root or choose the first Map root.`);
   }
@@ -33473,16 +33515,16 @@ function localLaunchOrientation(povRoot, workingRoot, focus = "") {
   if (isAbsolute23(focus) || focus.split(/[\\/]/u).includes("..")) {
     throw new Error("--focus must be a path inside --working-root");
   }
-  const working = realpathSync25(workingRoot);
+  const working = realpathSync26(workingRoot);
   if (!statSync21(working).isDirectory())
     throw new Error("--working-root must be a directory");
-  const target = realpathSync25(resolve42(working, focus || "."));
+  const target = realpathSync26(resolve42(working, focus || "."));
   const position = relative25(working, target);
   if (isAbsolute23(position) || position === ".." || position.startsWith(`..${sep18}`)) {
     throw new Error("--focus resolves outside --working-root");
   }
   return "[Local session position]\n" + JSON.stringify({
-    povRoot: realpathSync25(povRoot),
+    povRoot: realpathSync26(povRoot),
     workingRoot: working,
     focus: position.split(sep18).join("/")
   }) + "\nThe launch folder supplies the chosen POV. The workingRoot is the material to work on, not a read-only reference mount. Orient there without replacing the chosen POV. Focus is relative to workingRoot (empty means the folder itself). Inspect the selected material before answering; use absolute paths for tools. File @mentions in the user question are relative to workingRoot. These coordinates do not grant additional OS permissions or request changes to the POV folder.";
@@ -33710,10 +33752,10 @@ import { spawnSync as spawnSync18 } from "node:child_process";
 import { spawn as spawn4 } from "node:child_process";
 
 // dist/claude/local-conversations.js
-import { existsSync as existsSync36, readdirSync as readdirSync6, readFileSync as readFileSync24, realpathSync as realpathSync26, statSync as statSync22 } from "node:fs";
+import { existsSync as existsSync36, readdirSync as readdirSync6, readFileSync as readFileSync24, realpathSync as realpathSync27, statSync as statSync22 } from "node:fs";
 import { randomUUID as randomUUID13 } from "node:crypto";
 import { homedir as homedir6 } from "node:os";
-import { basename as basename21, dirname as dirname27, join as join46, resolve as resolve43 } from "node:path";
+import { basename as basename22, dirname as dirname27, join as join46, resolve as resolve43 } from "node:path";
 function claudeConfigDir(env = process.env) {
   return env.CLAUDE_CONFIG_DIR?.trim() || join46(homedir6(), ".claude");
 }
@@ -33723,7 +33765,7 @@ function slugOf(path) {
 function claudeProjectSlug(cwd) {
   let resolved = resolve43(cwd);
   try {
-    resolved = realpathSync26(resolved);
+    resolved = realpathSync27(resolved);
   } catch {
   }
   return slugOf(resolved);
@@ -33898,12 +33940,12 @@ function canResumeClaudeConversation(contextRoot, convId) {
   if (!file2)
     return false;
   try {
-    if (!isContained(realpathSync26(dirname27(file2)), realpathSync26(file2)))
+    if (!isContained(realpathSync27(dirname27(file2)), realpathSync27(file2)))
       return false;
     const text = readFileSync24(file2, "utf8");
     let sawIdentity = false;
     let sawRoot = false;
-    const root = realpathSync26(contextRoot);
+    const root = realpathSync27(contextRoot);
     const lines = text.split("\n").filter((line2) => line2.trim());
     for (const [index, line2] of lines.entries()) {
       let entry;
@@ -33917,7 +33959,7 @@ function canResumeClaudeConversation(contextRoot, convId) {
       if (entry.sessionId && entry.sessionId !== convId)
         return false;
       if (entry.cwd) {
-        const cwd = realpathSync26(entry.cwd);
+        const cwd = realpathSync27(entry.cwd);
         if (!isContained(root, cwd))
           return false;
         if (cwd === root)
@@ -33956,7 +33998,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
   const seen = /* @__PURE__ */ new Set();
   const files = dirs.flatMap((folder) => readdirSync6(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join46(folder, f)));
   for (const path of files) {
-    const fileId = basename21(path, ".jsonl");
+    const fileId = basename22(path, ".jsonl");
     if (seen.has(fileId))
       continue;
     seen.add(fileId);

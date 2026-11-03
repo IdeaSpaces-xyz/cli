@@ -215,6 +215,44 @@ describe("saved searches", () => {
     expect(opened.json.results.map((r: { path: string }) => r.path)).not.toContain("searches/self.search.md");
   });
 
+  it("writes no working-directory path into the Note, and quotes the path it prints", async () => {
+    mkdirSync(join(vault, "deep", "er"), { recursive: true });
+    process.chdir(join(vault, "deep", "er"));
+    const saved = await run(["loopback"], { root: [vault], save: "../../searches/my loop.search.md" });
+    expect(saved.exit).toBe(0);
+    const note = readFileSync(join(vault, "searches", "my loop.search.md"), "utf8");
+    expect(note).not.toContain("../../searches");
+    expect(note).toContain("ideaspaces search --open 'my loop.search.md'");
+    const human = await runErr(["plan"], { root: [vault], save: "../../searches/other one.search.md" });
+    expect(human.exit).toBe(0);
+  });
+
+  it("answers --save in the --root form, so a script sees one shape", async () => {
+    const plain = await run(["loopback"], {});
+    expect(plain.json.map_status).toBeDefined();
+    const saved = await run(["loopback"], { save: "searches/shape.search.md" });
+    expect(saved.json.roots).toEqual([expect.objectContaining({ root: vault })]);
+    expect(saved.json.map_status).toBeUndefined();
+    expect(saved.json.results[0].root).toBe(vault);
+  });
+
+  it("--force replaces a large saved search, and names a target it cannot check", async () => {
+    write(join(vault, "searches", "big.search.md"), `---\nname: Big\nsearch:\n  query: loopback\n---\n${"x".repeat(70 * 1024)}\n`);
+    const replaced = await run(["plan"], { root: [vault], save: "searches/big.search.md", force: true });
+    expect(replaced.exit).toBe(0);
+    expect(readSavedSearch(join(vault, "searches", "big.search.md")).search.query).toBe("plan");
+    mkdirSync(join(vault, "searches", "dir.md"));
+    const folder = await runErr(["plan"], { root: [vault], save: "searches/dir.md", force: true });
+    expect(folder.exit).toBe(1);
+    expect(folder.stderr).toContain("is not a file");
+  });
+
+  it.skipIf(process.platform === "win32")("stores roots relative to the Note's real folder, even when saved through a symlink", async () => {
+    symlinkSync(join(vault, "searches"), join(vault, "via"));
+    const saved = await run(["loopback"], { root: [vault], save: "via/s.search.md" });
+    expect(saved.json.saved.search.roots).toEqual([".."]);
+  });
+
   it("a hand-written saved search with no roots searches the Note's own folder", async () => {
     write(join(vault, "notes", "mine.search.md"), "---\nname: Mine\nsearch:\n  query: loopback\n---\n");
     const opened = await run([], { open: "notes/mine.search.md" });

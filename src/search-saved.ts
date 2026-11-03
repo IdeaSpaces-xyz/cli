@@ -23,8 +23,8 @@
  */
 
 import { parseFrontmatter } from "@ideaspaces/protocol";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { stringify } from "yaml";
 
 export interface SavedSearch {
@@ -48,6 +48,8 @@ export interface SavedSearchNote {
 export class SavedSearchError extends Error {}
 
 const MAX_NOTE_BYTES = 64 * 1024;
+/** The largest existing file `--force` reads to see whether it is a saved search. */
+const MAX_CHECK_BYTES = 4 * 1024 * 1024;
 
 function toPosix(path: string): string {
   return sep === "/" ? path : path.split(sep).join("/");
@@ -67,6 +69,11 @@ export function storedRoot(noteDir: string, root: string): string {
   return posix === "" ? "." : posix;
 }
 
+/** A path as one shell word: bare when it is plain, single-quoted otherwise. */
+export function shellWord(text: string): string {
+  return /^[\w./@:+-]+$/.test(text) ? text : `'${text.replace(/'/g, `'\\''`)}'`;
+}
+
 /** One line of title text: a --name with newlines or runs of spaces becomes one line. */
 function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -74,7 +81,7 @@ function oneLine(text: string): string {
 
 function describeQuery(search: SavedSearch): string {
   const lines = [
-    `- **Query:** \`${search.query.replace(/`/g, "'")}\``,
+    `- **Query:** \`${oneLine(search.query).replace(/`/g, "'")}\``,
     `- **Roots:** ${search.roots.map((r) => `\`${r}\``).join(", ")}`,
     `- **Threads:** ${search.threads ? "included" : "left out"}`,
   ];
@@ -82,26 +89,59 @@ function describeQuery(search: SavedSearch): string {
   return lines.join("\n");
 }
 
+/** Whether an existing file is a saved search: its frontmatter has a `search:` block. */
+function existingIsSavedSearch(path: string, notePath: string): boolean {
+  let stat;
+  try {
+    stat = statSync(path);
+  } catch (error) {
+    throw new SavedSearchError(`Cannot check ${notePath} before replacing it: ${(error as NodeJS.ErrnoException).code ?? String(error)}`);
+  }
+  if (!stat.isFile()) throw new SavedSearchError(`${notePath} is not a file, so --force will not replace it.`);
+  if (stat.size > MAX_CHECK_BYTES) throw new SavedSearchError(`${notePath} is too large to check before replacing it; choose another name.`);
+  let content: string;
+  try {
+    content = readFileSync(path, "utf8");
+  } catch (error) {
+    throw new SavedSearchError(`Cannot read ${notePath} before replacing it: ${(error as NodeJS.ErrnoException).code ?? String(error)}`);
+  }
+  const block = parseFrontmatter(content)?.search;
+  return !!block && typeof block === "object" && !Array.isArray(block);
+}
+
+/**
+ * Check where a saved search would be written, before any search runs: a `.md` path in an
+ * existing folder, and no existing file unless `force` and that file is a saved search.
+ * Returns the absolute path and the Note's canonical folder.
+ */
+export function checkSaveTarget(notePath: string, force: boolean): { path: string; dir: string } {
+  const path = resolve(notePath);
+  if (!path.endsWith(".md")) throw new SavedSearchError(`A saved search is a Note: give a path ending in .md (for example ${notePath}.search.md).`);
+  let dir: string;
+  try {
+    dir = realpathSync(dirname(path));
+    if (!statSync(dir).isDirectory()) throw new Error("not a folder");
+  } catch {
+    throw new SavedSearchError(`No such folder for the saved search: ${dirname(notePath)}`);
+  }
+  if (existsSync(path)) {
+    if (!force) throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
+    // --force replaces a saved search, never an ordinary Note that happens to share the name.
+    if (!existingIsSavedSearch(path, notePath)) {
+      throw new SavedSearchError(`${notePath} is a Note that is not a saved search; --force only replaces saved searches. Choose another name.`);
+    }
+  }
+  return { path, dir };
+}
+
 /** Write a saved-search Note. Refuses to replace an existing file unless `force`. */
 export function writeSavedSearch(
   notePath: string,
   options: { name: string; summary?: string; query: string; roots: string[]; threads: boolean; limit?: number; force?: boolean },
 ): SavedSearchNote {
-  const path = resolve(notePath);
-  if (!path.endsWith(".md")) throw new SavedSearchError(`A saved search is a Note: give a path ending in .md (for example ${notePath}.search.md).`);
-  if (existsSync(path)) {
-    if (!options.force) throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
-    // --force replaces a saved search, never an ordinary Note that happens to share the name.
-    try {
-      readSavedSearch(path);
-    } catch {
-      throw new SavedSearchError(`${notePath} is a Note that is not a saved search; --force only replaces saved searches. Choose another name.`);
-    }
-  }
+  const { path, dir } = checkSaveTarget(notePath, options.force === true);
   const name = oneLine(options.name);
   if (!name) throw new SavedSearchError("--name needs text.");
-  const dir = dirname(path);
-  if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new SavedSearchError(`No such folder for the saved search: ${dirname(notePath)}`);
   const search: SavedSearch = {
     query: options.query,
     roots: options.roots.map((root) => storedRoot(dir, root)),
@@ -118,7 +158,8 @@ export function writeSavedSearch(
     "",
     describeQuery(search),
     "",
-    `Open it with \`ideaspaces search --open ${toPosix(relative(process.cwd(), path)) || path}\`.`,
+    // No machine or working-directory path: the Note reads the same wherever it is opened.
+    `Open it again with \`ideaspaces search --open ${shellWord(basename(path))}\` from this folder, or give its path from anywhere.`,
     "",
   ].join("\n");
   writeFileSync(path, `---\n${stringify(frontmatter).trimEnd()}\n---\n\n${body}`, { flag: options.force ? "w" : "wx" });
