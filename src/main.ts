@@ -90,6 +90,7 @@ if (!cmd) {
 
 if (global.help) {
   const lines = [`Usage: ${cmd.usage}`, "", cmd.description];
+  if (cmd.help) lines.push("", cmd.help);
   if (cmd.examples?.length) {
     lines.push("", "Examples:");
     for (const ex of cmd.examples) lines.push(`  ${ex}`);

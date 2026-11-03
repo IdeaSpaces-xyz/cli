@@ -44,6 +44,7 @@ import {
   agreementContractTemplates,
   HOME_AGREEMENT_MD,
   HOME_CLAUDE_MD,
+  HOME_FIRST_CONVERSATION_SKILL_MD,
   HOME_MAP_MD,
   isSafeAgentName,
   CLAUDE_MD,
@@ -63,6 +64,9 @@ const CONVENTION_READMES: Record<string, string> = {
 };
 
 type ContractShape = "agreement" | "foundation";
+
+/** Home's first-conversation procedure, beside its Agreement. */
+const HOME_SKILL_PATH = join("_agent", "skills", "first-conversation.md");
 
 type Shape = "greenfield" | "content-existing" | "code-repo" | "old-shape" | "complete";
 
@@ -107,7 +111,7 @@ export const createCommand: CommandDef = {
     "ideaspaces create --yes                # scaffold in current directory",
     "ideaspaces create --yes --shared       # in a code repo, opt into shared (committed) _agent/",
     "ideaspaces create scribe --yes --agent # an agent: the folder IS the agent",
-    "ideaspaces create --home ~/IdeaSpaces --yes  # scaffold Home with Agreement + empty home.map.md",
+    "ideaspaces create --home ~/IdeaSpaces --yes  # scaffold Home: Agreement with three goal prompts, empty home.map.md, first-conversation skill",
     "ideaspaces create --yes --foundation   # the older foundation.md + guide.md shape (one more release)",
   ],
   async run(args, flags, global) {
@@ -245,6 +249,7 @@ export const createCommand: CommandDef = {
         contractShape,
         claudeMd,
         homeMapMd: homeMode ? HOME_MAP_MD : undefined,
+        homeSkillMd: homeMode ? HOME_FIRST_CONVERSATION_SKILL_MD : undefined,
       }));
     } catch (err) {
       // A genuine filesystem failure — the files themselves couldn't be written.
@@ -269,7 +274,7 @@ export const createCommand: CommandDef = {
     }
     if (homeMode) {
       lines.push(
-        `Next: open a session in ${where} — Home is scaffolded with an Agreement and ${existingHomeMap ? "your existing" : "an empty"} home.map.md as the curated Space Map.`,
+        `Next: open a session in ${where} — Home is scaffolded with an Agreement and ${existingHomeMap ? "your existing" : "an empty"} home.map.md as the curated Space Map. The Agreement's first three sections are prompts: the first conversation asks what this place is, what it holds and what it should accomplish (_agent/skills/first-conversation.md).`,
       );
     } else if (contractShape === "agreement") {
       lines.push(
@@ -416,6 +421,9 @@ function buildPlan(opts: {
   if (homeMode && !existsSync(join(targetDir, "home.map.md"))) {
     steps.push({ op: "write", path: join(targetDir, "home.map.md"), detail: "empty Space Map" });
   }
+  if (homeMode && !existsSync(join(targetDir, HOME_SKILL_PATH))) {
+    steps.push({ op: "write", path: join(targetDir, HOME_SKILL_PATH), detail: "first-conversation skill" });
+  }
 
   if (contractShape === "foundation") {
     for (const dim of Object.keys(CONVENTION_READMES)) {
@@ -498,13 +506,14 @@ async function applyPlan(opts: {
   contractShape: ContractShape;
   claudeMd: string;
   homeMapMd?: string;
+  homeSkillMd?: string;
 }): Promise<{
   versioned: boolean;
   gitNote?: string;
   commitPaths: string[];
   rootNodeId: string | null;
 }> {
-  const { targetDir, inspection, privateAgent, contract, contractShape, claudeMd, homeMapMd } = opts;
+  const { targetDir, inspection, privateAgent, contract, contractShape, claudeMd, homeMapMd, homeSkillMd } = opts;
   let rootNodeId: string | null = null;
   let materializedContract = contract;
   if (!privateAgent) {
@@ -537,6 +546,12 @@ async function applyPlan(opts: {
       await fs.writeFile(mapAbs, homeMapMd, "utf-8");
       commitPaths.push(mapRel);
     }
+  }
+
+  if (homeSkillMd && !existsSync(join(targetDir, HOME_SKILL_PATH))) {
+    await fs.mkdir(join(targetDir, "_agent", "skills"), { recursive: true });
+    await fs.writeFile(join(targetDir, HOME_SKILL_PATH), homeSkillMd, "utf-8");
+    commitPaths.push(HOME_SKILL_PATH);
   }
 
   if (contractShape === "foundation") {
