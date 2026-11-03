@@ -28167,10 +28167,25 @@ async function listRoots(roots, threads) {
   }
   return listings;
 }
-function* readCorpus(files, withRoot, readCounts) {
+function within(root, path) {
+  return path === root || path.startsWith(root.endsWith(sep15) ? root : root + sep15);
+}
+function* readCorpus(files, withRoot, readCounts, outsideLinks) {
+  const folderInside = /* @__PURE__ */ new Map();
   for (const { root, path } of files) {
     const abs = join34(root, path);
     try {
+      const folder = dirname22(abs);
+      const key2 = `${root}\0${folder}`;
+      let inside = folderInside.get(key2);
+      if (inside === void 0) {
+        inside = within(root, realpathSync20(folder));
+        folderInside.set(key2, inside);
+      }
+      if (!inside || lstatSync6(abs).isSymbolicLink() && !within(root, realpathSync20(abs))) {
+        outsideLinks?.set(root, (outsideLinks.get(root) ?? 0) + 1);
+        continue;
+      }
       const stat2 = statSync16(abs);
       if (!stat2.isFile() || stat2.size > MAX_DOC_BYTES)
         continue;
@@ -28414,10 +28429,19 @@ function selectFiles(listings, base, query, skip) {
   }
   return files;
 }
-function rank(files, query, limit, withRoot, readCounts) {
+function noteOutsideLinks(listings, outsideLinks) {
+  for (const listing of listings) {
+    const count = outsideLinks.get(listing.root);
+    if (!count)
+      continue;
+    const warning = `${count} file${count === 1 ? "" : "s"} resolve${count === 1 ? "s" : ""} outside this folder through a symlink and ${count === 1 ? "was" : "were"} not read`;
+    listing.warnings = [...listing.warnings ?? [], warning];
+  }
+}
+function rank(files, query, limit, withRoot, readCounts, outsideLinks) {
   const listAll = query.terms.length === 0;
   const readsFrontmatter = needsFrontmatter(query);
-  const outcome = rankDocs(readCorpus(files, withRoot, readCounts), query.terms, {
+  const outcome = rankDocs(readCorpus(files, withRoot, readCounts, outsideLinks), query.terms, {
     limit: listAll ? Number.MAX_SAFE_INTEGER : limit,
     exclude: query.excludeTerms,
     listWhenNoTerms: listAll,
@@ -28555,10 +28579,12 @@ ${QUERY_HELP}`);
       output.error(listing.error);
       return 1;
     }
+    const files = selectFiles([listing], root, query);
+    const outsideLinks = /* @__PURE__ */ new Map();
+    const outcome = rank(files, query, limit, false, void 0, outsideLinks);
+    noteOutsideLinks([listing], outsideLinks);
     for (const warning of listing.warnings ?? [])
       output.error(`Warning: ${warning}`);
-    const files = selectFiles([listing], root, query);
-    const outcome = rank(files, query, limit, false);
     const results = finish(outcome.hits, root, listAll, limit);
     let projection;
     try {
@@ -28622,7 +28648,9 @@ async function searchRoots(inputs, query, options, output) {
   const ownNote = options.saved ? canonicalFile(options.saved.path) : void 0;
   const files = selectFiles(listings.filter((l) => !l.error), base, query, ownNote);
   const readCounts = /* @__PURE__ */ new Map();
-  const outcome = rank(files, query, options.limit, true, readCounts);
+  const outsideLinks = /* @__PURE__ */ new Map();
+  const outcome = rank(files, query, options.limit, true, readCounts, outsideLinks);
+  noteOutsideLinks(listings, outsideLinks);
   const results = finish(outcome.hits, null, options.listAll, options.limit);
   const listed = /* @__PURE__ */ new Map();
   for (const file2 of files)
