@@ -278,21 +278,43 @@ export async function listRoots(roots: string[], threads: boolean): Promise<Root
   return listings;
 }
 
+/** Whether a canonical path is the root itself or inside it. */
+function within(root: string, path: string): boolean {
+  return path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
 /**
  * Read lazily, one file at a time. Unreadable, oversized or non-regular files
  * are skipped — a search should degrade, not abort. A Git-listed symlink is
- * followed, as single-repo search always has; walks and Thread listings never
- * yield one.
+ * read only when it resolves inside its root, and so is a file whose folder
+ * does (an index can still list `dir/x.md` after `dir` became a link): search
+ * never reads, or quotes in a snippet, a file outside the folders it was
+ * given. Folders are resolved once each. Roots must be canonical; each file
+ * left out is counted in `outsideLinks`.
  */
 export function* readCorpus(
   files: Array<{ root: string; path: string }>,
   withRoot: boolean,
   /** Incremented per root for each file actually read. */
   readCounts?: Map<string, number>,
+  /** Incremented per root for each symlink that points outside it. */
+  outsideLinks?: Map<string, number>,
 ): Generator<SearchDoc> {
+  const folderInside = new Map<string, boolean>();
   for (const { root, path } of files) {
     const abs = join(root, path);
     try {
+      const folder = dirname(abs);
+      const key = `${root}\0${folder}`;
+      let inside = folderInside.get(key);
+      if (inside === undefined) {
+        inside = within(root, realpathSync(folder));
+        folderInside.set(key, inside);
+      }
+      if (!inside || (lstatSync(abs).isSymbolicLink() && !within(root, realpathSync(abs)))) {
+        outsideLinks?.set(root, (outsideLinks.get(root) ?? 0) + 1);
+        continue;
+      }
       const stat = statSync(abs);
       if (!stat.isFile() || stat.size > MAX_DOC_BYTES) continue;
       const content = readFileSync(abs, "utf-8");

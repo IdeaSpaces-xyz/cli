@@ -159,10 +159,23 @@ function selectFiles(listings: RootListing[], base: string, query: ParsedQuery):
   return files;
 }
 
-function rank(files: Corpus["files"], query: ParsedQuery, limit: number, withRoot: boolean, readCounts?: Map<string, number>) {
+/** Name, on each listing, the files left out because they resolve outside their root. */
+function noteOutsideLinks(listings: RootListing[], outsideLinks: Map<string, number>): void {
+  for (const listing of listings) {
+    const count = outsideLinks.get(listing.root);
+    if (!count) continue;
+    const warning = `${count} file${count === 1 ? "" : "s"} resolve${count === 1 ? "s" : ""} outside this folder through a symlink and ${count === 1 ? "was" : "were"} not read`;
+    listing.warnings = [...(listing.warnings ?? []), warning];
+  }
+}
+
+function rank(
+  files: Corpus["files"], query: ParsedQuery, limit: number, withRoot: boolean,
+  readCounts?: Map<string, number>, outsideLinks?: Map<string, number>,
+) {
   const listAll = query.terms.length === 0;
   const readsFrontmatter = needsFrontmatter(query);
-  const outcome = rankDocs(readCorpus(files, withRoot, readCounts), query.terms, {
+  const outcome = rankDocs(readCorpus(files, withRoot, readCounts, outsideLinks), query.terms, {
     limit: listAll ? Number.MAX_SAFE_INTEGER : limit,
     exclude: query.excludeTerms,
     listWhenNoTerms: listAll,
@@ -257,10 +270,12 @@ export const searchCommand: CommandDef = {
       output.error(listing.error);
       return 1;
     }
-    // Warnings go to stderr in every mode (and into JSON), so missing Threads are never silent.
-    for (const warning of listing.warnings ?? []) output.error(`Warning: ${warning}`);
     const files = selectFiles([listing], root, query);
-    const outcome = rank(files, query, limit, false);
+    const outsideLinks = new Map<string, number>();
+    const outcome = rank(files, query, limit, false, undefined, outsideLinks);
+    noteOutsideLinks([listing], outsideLinks);
+    // Warnings go to stderr in every mode (and into JSON), so missing files are never silent.
+    for (const warning of listing.warnings ?? []) output.error(`Warning: ${warning}`);
     const results = finish(outcome.hits, root, listAll, limit);
 
     let projection: SearchMapProjection;
@@ -329,7 +344,9 @@ async function searchRoots(
   const base = commonBase(usable);
   const files = selectFiles(listings.filter((l) => !l.error), base, query);
   const readCounts = new Map<string, number>();
-  const outcome = rank(files, query, options.limit, true, readCounts);
+  const outsideLinks = new Map<string, number>();
+  const outcome = rank(files, query, options.limit, true, readCounts, outsideLinks);
+  noteOutsideLinks(listings, outsideLinks);
   const results = finish(outcome.hits, null, options.listAll, options.limit);
 
   const listed = new Map<string, number>();

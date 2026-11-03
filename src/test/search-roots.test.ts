@@ -194,6 +194,33 @@ describe("search --root: one corpus across several roots", () => {
     }
   });
 
+  it.skipIf(process.platform === "win32")("never reads a file outside its root through a symlink, and says so", async () => {
+    const outside = `${vault}-outside`;
+    try {
+      write(join(outside, "secret.md"), "loopback secret outside\n");
+      write(join(outside, "folder", "deep.md"), "loopback deep outside\n");
+      symlinkSync(join(outside, "secret.md"), join(vault, "notes", "escape.md"));
+      symlinkSync(join(vault, "notes", "plan.md"), join(vault, "notes", "alias.md"));
+      // A tracked folder later replaced by a link to somewhere else.
+      write(join(vault, "moved", "deep.md"), "loopback inside\n");
+      git(vault, ["add", "notes/escape.md", "notes/alias.md", "moved/deep.md"]);
+      await rm(join(vault, "moved"), { recursive: true });
+      symlinkSync(join(outside, "folder"), join(vault, "moved"));
+
+      const data = await search("loopback", [vault]);
+      const paths = data.results.map((r: { path: string }) => r.path).sort();
+      expect(paths).toEqual(["notes/alias.md", "notes/plan.md"]);
+      expect(data.results.some((r: { snippet: string }) => r.snippet.includes("outside"))).toBe(false);
+      expect(data.roots[0].warnings).toEqual(["2 files resolve outside this folder through a symlink and were not read"]);
+
+      const single = await run(["loopback"], {});
+      expect(single.json.results.map((r: { path: string }) => r.path).sort()).toEqual(["notes/alias.md", "notes/plan.md"]);
+      expect(single.json.warnings).toEqual(["2 files resolve outside this folder through a symlink and were not read"]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(process.platform === "win32")("does not list a symlinked _threads folder", async () => {
     const elsewhere = `${vault}-elsewhere`;
     try {
