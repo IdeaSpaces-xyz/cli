@@ -656,6 +656,9 @@ export const threadsCommand: CommandDef = {
         const message = str(flags, "message") ?? "";
         if (!message.trim()) throw new Error(`--message is required: say why the Thread moves. ${usage}`);
         const result = attachThread(resolveLocalThread(rest[0]), rest[1], { message, author: writerName(str(flags, "author")) });
+        if (result.cycleCheckSkipped.length) {
+          output.log(`Cycle check skipped ${result.cycleCheckSkipped.length} Thread(s) whose parent cannot be read: ${result.cycleCheckSkipped.join(", ")}. A cycle through them is not ruled out; once they read again, \`threads open <slug> --depth summary\` shows each parent.`);
+        }
         const previous = result.previous ? `${result.previous.id ?? result.previous.attached_to}${result.previous.slug ? ` (${result.previous.slug})` : ""}` : "none";
         output.result({
           path: result.thread.path, slug: result.thread.slug,
@@ -664,6 +667,7 @@ export const threadsCommand: CommandDef = {
           origin: result.thread.origin === null ? null : result.thread.origin === "unknown" ? "unknown" : result.thread.origin.raw ?? result.thread.origin.value,
           agreement_path: result.agreementPath, agreement_created: result.agreementCreated,
           reframe: { id: result.post.id, path: result.postPath, in_reply_to: result.post.inReplyTo },
+          cycle_check_skipped: result.cycleCheckSkipped,
         }, [
           `Attached ${result.thread.slug} under ${result.parent.id} · ${result.parent.name} (${result.parent.slug}).`,
           `  previous parent: ${previous}`,

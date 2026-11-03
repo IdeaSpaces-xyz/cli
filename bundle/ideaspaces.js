@@ -16588,6 +16588,11 @@ function pushWorktree(cwd = process.cwd(), remote) {
   git3(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
   return remote;
 }
+function writeAgreementFile(path, content) {
+  const temporary = `${path}.${randomUUID9()}.tmp`;
+  writeFileSync9(temporary, content, { flag: "wx" });
+  renameSync6(temporary, path);
+}
 function withAttachedTo(content, value2) {
   const block = FRONTMATTER.exec(content);
   if (!block)
@@ -16611,7 +16616,7 @@ ${content}`;
   const close = `---${block[2]}`;
   return open2 + lines.join("") + close + content.slice(block[0].length);
 }
-function attachThread(dir, target, options) {
+function attachThread(dir, target, options, writes = { appendPost, writeAgreement: writeAgreementFile }) {
   const thread = loadThread(dir);
   if (thread.writeRefusal)
     throw new Error(thread.writeRefusal);
@@ -16621,6 +16626,9 @@ function attachThread(dir, target, options) {
     throw new Error(`Thread ${thread.slug} has no opening post yet; attach after its first post.`);
   if (!options.message.trim())
     throw new Error("--message is required: say why the Thread moves.");
+  if (!options.message.includes("\n") && (options.message.match(/\\n/g) ?? []).length >= 2) {
+    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'). Nothing changed.");
+  }
   const attachment = parseThreadAttachment(target);
   if (!attachment)
     throw new Error(`Not a post target: ${target}. Use post:msg_\u2026, msg_\u2026 or _threads/<thread>/<post>.md.`);
@@ -16644,12 +16652,18 @@ function attachThread(dir, target, options) {
   if (parentSlug === thread.slug)
     throw new Error(`${target} is a post in ${thread.slug} itself; a Thread cannot be its own parent.`);
   const parentOf = /* @__PURE__ */ new Map();
+  const cycleCheckSkipped = [];
   for (const sibling of siblings) {
+    if (sibling.slug === thread.slug)
+      continue;
     try {
       const info = resolveThreadParent2(sibling.path, siblings);
-      if (info?.slug)
+      if (info?.status === "unknown")
+        cycleCheckSkipped.push(sibling.slug);
+      else if (info?.slug)
         parentOf.set(sibling.slug, info.slug);
     } catch {
+      cycleCheckSkipped.push(sibling.slug);
     }
   }
   const descendants = /* @__PURE__ */ new Set([thread.slug]);
@@ -16689,19 +16703,14 @@ function attachThread(dir, target, options) {
   }
   if (createdDir)
     mkdirSync8(agentDir);
-  const replace2 = (content) => {
-    const temporary = `${agreementPath}.${randomUUID9()}.tmp`;
-    writeFileSync9(temporary, content, { flag: "wx" });
-    renameSync6(temporary, agreementPath);
-  };
-  replace2(after);
+  writes.writeAgreement(agreementPath, after);
   const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
   const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
   const parentName = parentPost?.frontmatter.name ?? resolved.parent.id;
   const previousText = previous ? `${previous.id ?? previous.attached_to}${previous.slug ? ` (${previous.slug})` : ""}` : "none";
   const originText = thread.origin === null ? "none" : attachmentText(thread.origin);
   try {
-    const { post, path } = appendPost(thread.path, {
+    const { post, path } = writes.appendPost(thread.path, {
       kind: "reframe",
       replyTo: ["latest"],
       author: options.author,
@@ -16723,7 +16732,8 @@ Why: ${options.message.trim()}
       agreementPath,
       agreementCreated: before === null,
       post,
-      postPath: path
+      postPath: path,
+      cycleCheckSkipped
     };
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
@@ -16731,7 +16741,7 @@ Why: ${options.message.trim()}
       if (before === null)
         rmSync7(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
       else
-        replace2(before);
+        writes.writeAgreement(agreementPath, before);
     } catch (restoreError) {
       throw new Error(`The reframe post could not be written (${cause}), and restoring ${agreementPath} also failed (${restoreError instanceof Error ? restoreError.message : String(restoreError)}). Its attached_to now says ${value2}, with no reframe post: restore the file from Git or run attach again.`);
     }
@@ -31522,6 +31532,9 @@ Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer"
         if (!message.trim())
           throw new Error(`--message is required: say why the Thread moves. ${usage}`);
         const result = attachThread(resolveLocalThread(rest[0]), rest[1], { message, author: writerName(str2(flags2, "author")) });
+        if (result.cycleCheckSkipped.length) {
+          output.log(`Cycle check skipped ${result.cycleCheckSkipped.length} Thread(s) whose parent cannot be read: ${result.cycleCheckSkipped.join(", ")}. A cycle through them is not ruled out; once they read again, \`threads open <slug> --depth summary\` shows each parent.`);
+        }
         const previous = result.previous ? `${result.previous.id ?? result.previous.attached_to}${result.previous.slug ? ` (${result.previous.slug})` : ""}` : "none";
         output.result({
           path: result.thread.path,
@@ -31531,7 +31544,8 @@ Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer"
           origin: result.thread.origin === null ? null : result.thread.origin === "unknown" ? "unknown" : result.thread.origin.raw ?? result.thread.origin.value,
           agreement_path: result.agreementPath,
           agreement_created: result.agreementCreated,
-          reframe: { id: result.post.id, path: result.postPath, in_reply_to: result.post.inReplyTo }
+          reframe: { id: result.post.id, path: result.postPath, in_reply_to: result.post.inReplyTo },
+          cycle_check_skipped: result.cycleCheckSkipped
         }, [
           `Attached ${result.thread.slug} under ${result.parent.id} \xB7 ${result.parent.name} (${result.parent.slug}).`,
           `  previous parent: ${previous}`,

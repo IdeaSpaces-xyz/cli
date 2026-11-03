@@ -622,6 +622,21 @@ export interface AttachResult {
   agreementCreated: boolean;
   post: ThreadPost;
   postPath: string;
+  /** Threads whose parent could not be read, so the cycle check could not follow them. */
+  cycleCheckSkipped: string[];
+}
+
+/** The two writes attach makes. Tests replace them to prove the restore paths; callers never need to. */
+export interface AttachWrites {
+  appendPost: typeof appendPost;
+  /** Replace the Agreement file in full (temp file, then rename). */
+  writeAgreement: (path: string, content: string) => void;
+}
+
+function writeAgreementFile(path: string, content: string): void {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, content, { flag: "wx" });
+  renameSync(temporary, path);
 }
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?\r?\n)?---(\r?\n|$)/;
@@ -654,12 +669,21 @@ function withAttachedTo(content: string, value: string): string {
  * The opening post, its origin, is never touched. If the reframe cannot be written,
  * the Agreement is restored, so no post claims a move that did not happen.
  */
-export function attachThread(dir: string, target: string, options: { message: string; author: string }): AttachResult {
+export function attachThread(
+  dir: string,
+  target: string,
+  options: { message: string; author: string },
+  writes: AttachWrites = { appendPost, writeAgreement: writeAgreementFile },
+): AttachResult {
   const thread = loadThread(dir);
   if (thread.writeRefusal) throw new Error(thread.writeRefusal);
   if (thread.closed === true) throw new Error(`Thread ${thread.slug} is closed; a closed Thread is not moved.`);
   if (!thread.posts.length) throw new Error(`Thread ${thread.slug} has no opening post yet; attach after its first post.`);
   if (!options.message.trim()) throw new Error("--message is required: say why the Thread moves.");
+  // The reason lands in an immutable post: refuse shell-escaped newlines before anything is written.
+  if (!options.message.includes("\n") && (options.message.match(/\\n/g) ?? []).length >= 2) {
+    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'). Nothing changed.");
+  }
   const attachment = parseThreadAttachment(target);
   if (!attachment) throw new Error(`Not a post target: ${target}. Use post:msg_…, msg_… or _threads/<thread>/<post>.md.`);
   if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
@@ -679,14 +703,18 @@ export function attachThread(dir: string, target: string, options: { message: st
   if (parentSlug === thread.slug) throw new Error(`${target} is a post in ${thread.slug} itself; a Thread cannot be its own parent.`);
 
   // A post in a descendant Thread would close a cycle. Walk child links from this Thread.
+  // An unreadable parent proves no edge, so the check is partial whenever one is skipped:
+  // a Thread whose parent cannot be read could hide a real descendant. Callers report the skips.
   const parentOf = new Map<string, string>();
+  const cycleCheckSkipped: string[] = [];
   for (const sibling of siblings) {
+    if (sibling.slug === thread.slug) continue;
     try {
       const info = resolveThreadParent(sibling.path, siblings);
-      if (info?.slug) parentOf.set(sibling.slug, info.slug);
+      if (info?.status === "unknown") cycleCheckSkipped.push(sibling.slug);
+      else if (info?.slug) parentOf.set(sibling.slug, info.slug);
     } catch {
-      // An unreadable parent proves no edge. The trade-off: a Thread whose parent cannot be read
-      // could hide a real descendant, so such a cycle is only prevented once it is readable again.
+      cycleCheckSkipped.push(sibling.slug);
     }
   }
   const descendants = new Set<string>([thread.slug]);
@@ -719,12 +747,7 @@ export function attachThread(dir: string, target: string, options: { message: st
     if (strip(before) !== strip(after)) throw new Error(`Writing attached_to would change other fields of ${agreementPath}; nothing changed.`);
   }
   if (createdDir) mkdirSync(agentDir);
-  const replace = (content: string) => {
-    const temporary = `${agreementPath}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, content, { flag: "wx" });
-    renameSync(temporary, agreementPath);
-  };
-  replace(after);
+  writes.writeAgreement(agreementPath, after);
 
   const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
   const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
@@ -732,7 +755,7 @@ export function attachThread(dir: string, target: string, options: { message: st
   const previousText = previous ? `${previous.id ?? previous.attached_to}${previous.slug ? ` (${previous.slug})` : ""}` : "none";
   const originText = thread.origin === null ? "none" : attachmentText(thread.origin);
   try {
-    const { post, path } = appendPost(thread.path, {
+    const { post, path } = writes.appendPost(thread.path, {
       kind: "reframe",
       replyTo: ["latest"],
       author: options.author,
@@ -743,13 +766,13 @@ export function attachThread(dir: string, target: string, options: { message: st
     return {
       thread: loadThread(thread.path), previous,
       parent: { id: resolved.parent.id, slug: parentSlug, path: resolved.parent.path, name: parentName, attached_to: value },
-      agreementPath, agreementCreated: before === null, post, postPath: path,
+      agreementPath, agreementCreated: before === null, post, postPath: path, cycleCheckSkipped,
     };
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     try {
       if (before === null) rmSync(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
-      else replace(before);
+      else writes.writeAgreement(agreementPath, before);
     } catch (restoreError) {
       // Never let a failed restore hide either failure: the Agreement now names a parent no post explains.
       throw new Error(`The reframe post could not be written (${cause}), and restoring ${agreementPath} also failed (${restoreError instanceof Error ? restoreError.message : String(restoreError)}). Its attached_to now says ${value}, with no reframe post: restore the file from Git or run attach again.`);

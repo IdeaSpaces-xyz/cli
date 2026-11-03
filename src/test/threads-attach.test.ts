@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadThread, resolveThreadParent } from "../local/threads.js";
+import { attachThread, loadThread, resolveThreadParent } from "../local/threads.js";
 import { threadsCommand } from "../commands/threads.js";
 
 // One Space, four Threads: two possible parents, a child started under parent-a,
@@ -288,5 +288,65 @@ describe("--agreement on look and navigate", () => {
     const refused = await command("navigate", [root], { agreement: "full" }, root);
     expect(refused.code).toBe(1);
     expect(refused.err).toContain("use it with --focus or an address");
+  });
+});
+
+describe("threads attach after the Agreement is written", () => {
+  const failingPost = () => { throw new Error("INJECTED_POST_FAILURE"); };
+  const realWrite = (path: string, content: string) => writeFileSync(path, content);
+
+  it("restores the Agreement when appendPost fails after the write", () => {
+    const fixture = space();
+    const before = snapshot(fixture.root);
+    let writes = 0;
+    expect(() => attachThread(fixture.child, B, { message: "Moving.", author: "Tester" }, {
+      appendPost: failingPost as never,
+      writeAgreement: (path, content) => { writes++; realWrite(path, content); },
+    })).toThrow(/could not be written, so the Agreement was restored and the Thread did not move: INJECTED_POST_FAILURE/);
+    expect(writes).toBe(2); // the move, then the restore
+    expect(snapshot(fixture.root)).toEqual(before);
+  });
+
+  it("names both failures, the file and the parent it now says when the restore fails too", () => {
+    const fixture = space();
+    const agreementPath = join(fixture.child, "_agent", "agreement.md");
+    let writes = 0;
+    let message = "";
+    try {
+      attachThread(fixture.child, B, { message: "Moving.", author: "Tester" }, {
+        appendPost: failingPost as never,
+        writeAgreement: (path, content) => {
+          if (++writes === 2) throw new Error("INJECTED_RESTORE_FAILURE");
+          realWrite(path, content);
+        },
+      });
+    } catch (error) { message = (error as Error).message; }
+    expect(message).toContain("INJECTED_POST_FAILURE");
+    expect(message).toContain("INJECTED_RESTORE_FAILURE");
+    expect(message).toContain(agreementPath);
+    expect(message).toContain(`attached_to now says ${B}, with no reframe post`);
+    expect(readFileSync(agreementPath, "utf8")).toContain(`attached_to: ${B}`);
+    expect(loadThread(fixture.child).allPosts).toHaveLength(2);
+  });
+
+  it("refuses a --message of shell-escaped newlines before writing", async () => {
+    const fixture = space();
+    const before = snapshot(fixture.root);
+    const refused = await run(["attach", fixture.child, B], { message: "first\\nsecond\\nthird", author: "Tester" }, fixture.root);
+    expect(refused.code).toBe(1);
+    expect(refused.err).toContain("repeated literal \\n sequences");
+    expect(snapshot(fixture.root)).toEqual(before);
+  });
+
+  it("names the Threads its cycle check could not follow", async () => {
+    const fixture = space();
+    const broken = thread(fixture.root, "broken", "---\nname: Agreement — Broken\nsummary: B.\n---\n");
+    writeFileSync(join(broken, "01-open.md"), "---\nid: [\n---\nBroken\n");
+    const attached = await run(["attach", fixture.child, B], { message: "Moving.", author: "Tester" }, fixture.root);
+    expect(attached.code).toBe(0);
+    expect(JSON.parse(attached.out).cycle_check_skipped).toEqual(["broken"]);
+    const clean = space();
+    const quiet = await run(["attach", clean.child, B], { message: "Moving.", author: "Tester" }, clean.root);
+    expect(JSON.parse(quiet.out).cycle_check_skipped).toEqual([]);
   });
 });
