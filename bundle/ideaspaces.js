@@ -1532,12 +1532,12 @@ var require_adapter = __commonJS({
       return newFs;
     }
     function toPromise(method) {
-      return (...args2) => new Promise((resolve42, reject) => {
+      return (...args2) => new Promise((resolve43, reject) => {
         args2.push((err, result) => {
           if (err) {
             reject(err);
           } else {
-            resolve42(result);
+            resolve43(result);
           }
         });
         method(...args2);
@@ -5571,10 +5571,10 @@ var require_resolve_block_map = __commonJS({
       let offset = bm.offset;
       let commentEnd = null;
       for (const collItem of bm.items) {
-        const { start, key: key2, sep: sep18, value: value2 } = collItem;
+        const { start, key: key2, sep: sep19, value: value2 } = collItem;
         const keyProps = resolveProps.resolveProps(start, {
           indicator: "explicit-key-ind",
-          next: key2 ?? sep18?.[0],
+          next: key2 ?? sep19?.[0],
           offset,
           onError,
           parentIndent: bm.indent,
@@ -5588,7 +5588,7 @@ var require_resolve_block_map = __commonJS({
             else if ("indent" in key2 && key2.indent !== bm.indent)
               onError(offset, "BAD_INDENT", startColMsg);
           }
-          if (!keyProps.anchor && !keyProps.tag && !sep18) {
+          if (!keyProps.anchor && !keyProps.tag && !sep19) {
             commentEnd = keyProps.end;
             if (keyProps.comment) {
               if (map.comment)
@@ -5612,7 +5612,7 @@ var require_resolve_block_map = __commonJS({
         ctx.atKey = false;
         if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
           onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-        const valueProps = resolveProps.resolveProps(sep18 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep19 ?? [], {
           indicator: "map-value-ind",
           next: value2,
           offset: keyNode.range[2],
@@ -5628,7 +5628,7 @@ var require_resolve_block_map = __commonJS({
             if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
               onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
           }
-          const valueNode = value2 ? composeNode(ctx, value2, valueProps, onError) : composeEmptyNode(ctx, offset, sep18, null, valueProps, onError);
+          const valueNode = value2 ? composeNode(ctx, value2, valueProps, onError) : composeEmptyNode(ctx, offset, sep19, null, valueProps, onError);
           if (ctx.schema.compat)
             utilFlowIndentCheck.flowIndentCheck(bm.indent, value2, onError);
           offset = valueNode.range[2];
@@ -5719,7 +5719,7 @@ var require_resolve_end = __commonJS({
       let comment = "";
       if (end) {
         let hasSpace = false;
-        let sep18 = "";
+        let sep19 = "";
         for (const token of end) {
           const { source, type } = token;
           switch (type) {
@@ -5733,13 +5733,13 @@ var require_resolve_end = __commonJS({
               if (!comment)
                 comment = cb;
               else
-                comment += sep18 + cb;
-              sep18 = "";
+                comment += sep19 + cb;
+              sep19 = "";
               break;
             }
             case "newline":
               if (comment)
-                sep18 += source;
+                sep19 += source;
               hasSpace = true;
               break;
             default:
@@ -5782,18 +5782,18 @@ var require_resolve_flow_collection = __commonJS({
       let offset = fc.offset + fc.start.source.length;
       for (let i = 0; i < fc.items.length; ++i) {
         const collItem = fc.items[i];
-        const { start, key: key2, sep: sep18, value: value2 } = collItem;
+        const { start, key: key2, sep: sep19, value: value2 } = collItem;
         const props = resolveProps.resolveProps(start, {
           flow: fcName,
           indicator: "explicit-key-ind",
-          next: key2 ?? sep18?.[0],
+          next: key2 ?? sep19?.[0],
           offset,
           onError,
           parentIndent: fc.indent,
           startOnNewline: false
         });
         if (!props.found) {
-          if (!props.anchor && !props.tag && !sep18 && !value2) {
+          if (!props.anchor && !props.tag && !sep19 && !value2) {
             if (i === 0 && props.comma)
               onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
             else if (i < fc.items.length - 1)
@@ -5847,8 +5847,8 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep18 && !props.found) {
-          const valueNode = value2 ? composeNode(ctx, value2, props, onError) : composeEmptyNode(ctx, props.end, sep18, null, props, onError);
+        if (!isMap && !sep19 && !props.found) {
+          const valueNode = value2 ? composeNode(ctx, value2, props, onError) : composeEmptyNode(ctx, props.end, sep19, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
           if (isBlock(value2))
@@ -5860,7 +5860,7 @@ var require_resolve_flow_collection = __commonJS({
           if (isBlock(key2))
             onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
           ctx.atKey = false;
-          const valueProps = resolveProps.resolveProps(sep18 ?? [], {
+          const valueProps = resolveProps.resolveProps(sep19 ?? [], {
             flow: fcName,
             indicator: "map-value-ind",
             next: value2,
@@ -5871,8 +5871,8 @@ var require_resolve_flow_collection = __commonJS({
           });
           if (valueProps.found) {
             if (!isMap && !props.found && ctx.options.strict) {
-              if (sep18)
-                for (const st of sep18) {
+              if (sep19)
+                for (const st of sep19) {
                   if (st === valueProps.found)
                     break;
                   if (st.type === "newline") {
@@ -5889,7 +5889,7 @@ var require_resolve_flow_collection = __commonJS({
             else
               onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
           }
-          const valueNode = value2 ? composeNode(ctx, value2, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep18, null, valueProps, onError) : null;
+          const valueNode = value2 ? composeNode(ctx, value2, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep19, null, valueProps, onError) : null;
           if (valueNode) {
             if (isBlock(value2))
               onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -6069,7 +6069,7 @@ var require_resolve_block_scalar = __commonJS({
           chompStart = i + 1;
       }
       let value2 = "";
-      let sep18 = "";
+      let sep19 = "";
       let prevMoreIndented = false;
       for (let i = 0; i < contentStart; ++i)
         value2 += lines[i][0].slice(trimIndent) + "\n";
@@ -6086,24 +6086,24 @@ var require_resolve_block_scalar = __commonJS({
           indent = "";
         }
         if (type === Scalar.Scalar.BLOCK_LITERAL) {
-          value2 += sep18 + indent.slice(trimIndent) + content;
-          sep18 = "\n";
+          value2 += sep19 + indent.slice(trimIndent) + content;
+          sep19 = "\n";
         } else if (indent.length > trimIndent || content[0] === "	") {
-          if (sep18 === " ")
-            sep18 = "\n";
-          else if (!prevMoreIndented && sep18 === "\n")
-            sep18 = "\n\n";
-          value2 += sep18 + indent.slice(trimIndent) + content;
-          sep18 = "\n";
+          if (sep19 === " ")
+            sep19 = "\n";
+          else if (!prevMoreIndented && sep19 === "\n")
+            sep19 = "\n\n";
+          value2 += sep19 + indent.slice(trimIndent) + content;
+          sep19 = "\n";
           prevMoreIndented = true;
         } else if (content === "") {
-          if (sep18 === "\n")
+          if (sep19 === "\n")
             value2 += "\n";
           else
-            sep18 = "\n";
+            sep19 = "\n";
         } else {
-          value2 += sep18 + content;
-          sep18 = " ";
+          value2 += sep19 + content;
+          sep19 = " ";
           prevMoreIndented = false;
         }
       }
@@ -6285,25 +6285,25 @@ var require_resolve_flow_scalar = __commonJS({
       if (!match)
         return source;
       let res = match[1];
-      let sep18 = " ";
+      let sep19 = " ";
       let pos = first.lastIndex;
       line2.lastIndex = pos;
       while (match = line2.exec(source)) {
         if (match[1] === "") {
-          if (sep18 === "\n")
-            res += sep18;
+          if (sep19 === "\n")
+            res += sep19;
           else
-            sep18 = "\n";
+            sep19 = "\n";
         } else {
-          res += sep18 + match[1];
-          sep18 = " ";
+          res += sep19 + match[1];
+          sep19 = " ";
         }
         pos = line2.lastIndex;
       }
       const last = /[ \t]*(.*)/sy;
       last.lastIndex = pos;
       match = last.exec(source);
-      return res + sep18 + (match?.[1] ?? "");
+      return res + sep19 + (match?.[1] ?? "");
     }
     function doubleQuotedValue(source, onError) {
       let res = "";
@@ -7113,14 +7113,14 @@ var require_cst_stringify = __commonJS({
         }
       }
     }
-    function stringifyItem({ start, key: key2, sep: sep18, value: value2 }) {
+    function stringifyItem({ start, key: key2, sep: sep19, value: value2 }) {
       let res = "";
       for (const st of start)
         res += st.source;
       if (key2)
         res += stringifyToken(key2);
-      if (sep18)
-        for (const st of sep18)
+      if (sep19)
+        for (const st of sep19)
           res += st.source;
       if (value2)
         res += stringifyToken(value2);
@@ -8287,18 +8287,18 @@ var require_parser = __commonJS({
         if (this.type === "map-value-ind") {
           const prev = getPrevProps(this.peek(2));
           const start = getFirstKeyStartProps(prev);
-          let sep18;
+          let sep19;
           if (scalar3.end) {
-            sep18 = scalar3.end;
-            sep18.push(this.sourceToken);
+            sep19 = scalar3.end;
+            sep19.push(this.sourceToken);
             delete scalar3.end;
           } else
-            sep18 = [this.sourceToken];
+            sep19 = [this.sourceToken];
           const map = {
             type: "block-map",
             offset: scalar3.offset,
             indent: scalar3.indent,
-            items: [{ start, key: scalar3, sep: sep18 }]
+            items: [{ start, key: scalar3, sep: sep19 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map;
@@ -8451,15 +8451,15 @@ var require_parser = __commonJS({
                 } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                   const start2 = getFirstKeyStartProps(it.start);
                   const key2 = it.key;
-                  const sep18 = it.sep;
-                  sep18.push(this.sourceToken);
+                  const sep19 = it.sep;
+                  sep19.push(this.sourceToken);
                   delete it.key;
                   delete it.sep;
                   this.stack.push({
                     type: "block-map",
                     offset: this.offset,
                     indent: this.indent,
-                    items: [{ start: start2, key: key2, sep: sep18 }]
+                    items: [{ start: start2, key: key2, sep: sep19 }]
                   });
                 } else if (start.length > 0) {
                   it.sep = it.sep.concat(start, this.sourceToken);
@@ -8653,13 +8653,13 @@ var require_parser = __commonJS({
             const prev = getPrevProps(parent);
             const start = getFirstKeyStartProps(prev);
             fixFlowSeqItems(fc);
-            const sep18 = fc.end.splice(1, fc.end.length);
-            sep18.push(this.sourceToken);
+            const sep19 = fc.end.splice(1, fc.end.length);
+            sep19.push(this.sourceToken);
             const map = {
               type: "block-map",
               offset: fc.offset,
               indent: fc.indent,
-              items: [{ start, key: fc, sep: sep18 }]
+              items: [{ start, key: fc, sep: sep19 }]
             };
             this.onKeyLine = true;
             this.stack[this.stack.length - 1] = map;
@@ -10012,8 +10012,8 @@ function appendTrailers(message, add) {
   while (end >= 0 && lines[end].trim() === "")
     end--;
   const body = lines.slice(0, end + 1);
-  const sep18 = body.length > 0 ? [""] : [];
-  return [...body, ...sep18, ...additions].join("\n");
+  const sep19 = body.length > 0 ? [""] : [];
+  return [...body, ...sep19, ...additions].join("\n");
 }
 function findTrailerBlock(rawLines) {
   let end = rawLines.length - 1;
@@ -10382,14 +10382,14 @@ var FS = "";
 var REC = "";
 var DEFAULT_COMMIT_LIMIT = 20;
 function runGit(repoRoot2, args2) {
-  return new Promise((resolve42) => {
+  return new Promise((resolve43) => {
     const proc = spawn("git", ["-C", repoRoot2, ...args2], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let out = "";
     proc.stdout.on("data", (d) => out += d);
-    proc.on("close", (code) => resolve42({ ok: code === 0, out, code }));
-    proc.on("error", () => resolve42({ ok: false, out: "", code: null }));
+    proc.on("close", (code) => resolve43({ ok: code === 0, out, code }));
+    proc.on("error", () => resolve43({ ok: false, out: "", code: null }));
   });
 }
 async function resolveRepoRoot(cwd) {
@@ -16478,7 +16478,7 @@ function matches(actual, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 function startCallbackServer(expectedState) {
-  return new Promise((resolve42, reject) => {
+  return new Promise((resolve43, reject) => {
     let settled = false;
     let timer;
     let accept;
@@ -16540,7 +16540,7 @@ function startCallbackServer(expectedState) {
         reject(new Error("Could not open the local sign-in callback."));
         return;
       }
-      resolve42({
+      resolve43({
         port: address.port,
         waitForCallback(timeoutMs = 12e4) {
           if (!settled && !timer)
@@ -16610,7 +16610,7 @@ function buildCliLoginUrl(apiUrl, request2) {
 }
 function openBrowser(url) {
   const [command2, args2] = platform() === "win32" ? ["rundll32.exe", ["url.dll,FileProtocolHandler", url]] : platform() === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-  return new Promise((resolve42, reject) => execFile2(command2, args2, (error) => error ? reject(new Error("Could not open a browser. Open the sign-in URL manually.")) : resolve42()));
+  return new Promise((resolve43, reject) => execFile2(command2, args2, (error) => error ? reject(new Error("Could not open a browser. Open the sign-in URL manually.")) : resolve43()));
 }
 async function cliSignIn(apiUrl, deviceName, browser, timeoutMs = 12e4) {
   apiUrl = serviceOrigin(apiUrl);
@@ -25286,8 +25286,8 @@ function makeConversationCommand(local) {
 
 // dist/commands/agent.js
 import { randomUUID as randomUUID10 } from "node:crypto";
-import { existsSync as existsSync23, readFileSync as readFileSync14, realpathSync as realpathSync17, statSync as statSync13 } from "node:fs";
-import { isAbsolute as isAbsolute16, join as join33, resolve as resolve34 } from "node:path";
+import { existsSync as existsSync24, readFileSync as readFileSync14, realpathSync as realpathSync18, statSync as statSync13 } from "node:fs";
+import { isAbsolute as isAbsolute17, join as join33, resolve as resolve35 } from "node:path";
 
 // dist/local/agent-reach.js
 import { existsSync as existsSync17, realpathSync as realpathSync12, statSync as statSync11 } from "node:fs";
@@ -25420,8 +25420,8 @@ function enteredThroughRoot(root, path) {
 }
 
 // dist/local/thread-launch.js
-import { existsSync as existsSync20, lstatSync as lstatSync4, readFileSync as readFileSync12 } from "node:fs";
-import { basename as basename15, dirname as dirname19, isAbsolute as isAbsolute13, join as join30 } from "node:path";
+import { existsSync as existsSync21, lstatSync as lstatSync4, readFileSync as readFileSync12 } from "node:fs";
+import { basename as basename15, dirname as dirname20, isAbsolute as isAbsolute14, join as join30 } from "node:path";
 
 // dist/local/thread-map-member.js
 import { existsSync as existsSync18, lstatSync as lstatSync2, readFileSync as readFileSync10 } from "node:fs";
@@ -25470,10 +25470,71 @@ function selectPinnedThreadMember(value2, ordinal) {
 // dist/local/threads.js
 import { randomUUID as randomUUID9, createHash as createHash8 } from "node:crypto";
 import { spawnSync as spawnSync14 } from "node:child_process";
-import { existsSync as existsSync19, lstatSync as lstatSync3, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync2, realpathSync as realpathSync14, renameSync as renameSync6, rmSync as rmSync7, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync20, lstatSync as lstatSync3, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync2, realpathSync as realpathSync15, renameSync as renameSync6, rmSync as rmSync7, writeFileSync as writeFileSync9 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { basename as basename14, dirname as dirname18, isAbsolute as isAbsolute12, join as join29, resolve as resolve31 } from "node:path";
+import { basename as basename14, dirname as dirname19, isAbsolute as isAbsolute13, join as join29, resolve as resolve32 } from "node:path";
 var import_yaml10 = __toESM(require_dist(), 1);
+
+// dist/local/post-links.js
+import { existsSync as existsSync19, realpathSync as realpathSync14 } from "node:fs";
+import { dirname as dirname18, isAbsolute as isAbsolute12, relative as relative17, resolve as resolve31, sep as sep13 } from "node:path";
+var SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+var POST_FILE = /^(\d{4}-\d{2}-\d{2}T[\d-]+Z-)?(.*-)?msg_[0-9a-f-]+\.md$/i;
+function withoutCode(body) {
+  return body.replace(/(^|\n)(```|~~~)[^\n]*\n[\s\S]*?(\n\2[^\n]*(?=\n|$)|$)/g, (m) => m.replace(/[^\n]/g, " ")).replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length));
+}
+function destinations(text) {
+  const found = [];
+  const pattern = /!?\[(?:[^\]\\]|\\.)*\]\(\s*(<[^>\n]*>|[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+  for (const match of text.matchAll(pattern)) {
+    const raw = match[1];
+    found.push(raw.startsWith("<") ? raw.slice(1, -1) : raw);
+  }
+  return found;
+}
+function checkPostLinks(body, postDir, spaceRoot) {
+  const report = { errors: [], warnings: [] };
+  const seen = /* @__PURE__ */ new Set();
+  for (const raw of destinations(withoutCode(body))) {
+    if (seen.has(raw))
+      continue;
+    seen.add(raw);
+    if (!raw || raw.startsWith("#") || raw.startsWith("//") || SCHEME.test(raw))
+      continue;
+    const path = raw.split(/[?#]/)[0];
+    if (!path)
+      continue;
+    let decoded;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      decoded = path;
+    }
+    if (isAbsolute12(decoded) || decoded.includes("\\")) {
+      report.errors.push(`${raw}: a link in a post is relative to the post file; an absolute or backslash path breaks on any other machine.`);
+      continue;
+    }
+    const target = resolve31(postDir, decoded);
+    const inside = relative17(realpathSync14(spaceRoot), target);
+    if (inside === ".." || inside.startsWith(`..${sep13}`) || isAbsolute12(inside)) {
+      report.errors.push(`${raw}: resolves outside the Space (${target}). Links are relative to the post file, which sits in ${postDir}.`);
+      continue;
+    }
+    if (existsSync19(target))
+      continue;
+    const name = target.split(sep13).pop() ?? "";
+    if (dirname18(target) === postDir.replace(/[\\/]+$/, "") || /(^|[\\/])_threads[\\/]/.test(target)) {
+      if (POST_FILE.test(name)) {
+        report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
+        continue;
+      }
+    }
+    report.errors.push(`${raw}: no file at ${target}. Links are relative to the post file, which sits in ${postDir}.`);
+  }
+  return report;
+}
+
+// dist/local/threads.js
 var MAX_POST = 1024 * 1024;
 var SHA2 = /^[0-9a-f]{40}$/;
 var SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
@@ -25501,12 +25562,12 @@ function git3(cwd, args2) {
   return result.stdout.trim();
 }
 function safeDirectory(path) {
-  const abs = resolve31(path);
-  if (existsSync19(abs) && lstatSync3(abs).isSymbolicLink())
+  const abs = resolve32(path);
+  if (existsSync20(abs) && lstatSync3(abs).isSymbolicLink())
     throw new Error(`Refusing symlink: ${abs}`);
-  if (!existsSync19(abs) || !lstatSync3(abs).isDirectory())
+  if (!existsSync20(abs) || !lstatSync3(abs).isDirectory())
     throw new Error(`Thread directory not found: ${abs}`);
-  return realpathSync14(abs);
+  return realpathSync15(abs);
 }
 function safeFile(path) {
   if (lstatSync3(path).isSymbolicLink() || !lstatSync3(path).isFile())
@@ -25518,9 +25579,9 @@ function safeFile(path) {
 function threadBase(cwd = process.cwd()) {
   let at = safeDirectory(cwd);
   while (true) {
-    if (existsSync19(join29(at, "_agent", "agreement.md")))
+    if (existsSync20(join29(at, "_agent", "agreement.md")))
       return at;
-    const parent = dirname18(at);
+    const parent = dirname19(at);
     if (parent === at)
       throw new NoAgreementError("No enclosing Agreement; run from an ideaspace with _agent/agreement.md.");
     at = parent;
@@ -25528,11 +25589,11 @@ function threadBase(cwd = process.cwd()) {
 }
 function spaceForThread(threadDir) {
   const dir = safeDirectory(threadDir);
-  const threads = dirname18(dir);
+  const threads = dirname19(dir);
   if (basename14(threads) !== "_threads")
     throw new Error("Thread must be an immediate child of _threads/.");
-  const space = dirname18(threads);
-  if (!existsSync19(join29(space, "_agent", "agreement.md")))
+  const space = dirname19(threads);
+  if (!existsSync20(join29(space, "_agent", "agreement.md")))
     throw new NoAgreementError("No Space Agreement above this Thread.");
   return space;
 }
@@ -25542,9 +25603,9 @@ function threadsDirectory(cwd = process.cwd()) {
 function resolveLocalThread(input, cwd = process.cwd()) {
   const base = threadsDirectory(cwd);
   safeDirectory(base);
-  const path = input.includes("/") || input.startsWith(".") || isAbsolute12(input) ? resolve31(cwd, input) : join29(base, input);
+  const path = input.includes("/") || input.startsWith(".") || isAbsolute13(input) ? resolve32(cwd, input) : join29(base, input);
   const dir = safeDirectory(path);
-  if (dirname18(dir) !== base)
+  if (dirname19(dir) !== base)
     throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
   return dir;
 }
@@ -25570,7 +25631,7 @@ var NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
 function loadThread(dir) {
   const path = safeDirectory(dir);
   const readmePath = join29(path, "README.md");
-  if (!existsSync19(readmePath))
+  if (!existsSync20(readmePath))
     throw new Error(`Thread ${path} needs README.md.`);
   const agreementContent = threadAgreementContent(path);
   const readme = safeFile(readmePath);
@@ -25621,7 +25682,7 @@ function loadThread(dir) {
 }
 function listLocal(cwd = process.cwd(), onError) {
   const base = threadsDirectory(cwd);
-  if (!existsSync19(base))
+  if (!existsSync20(base))
     return [];
   safeDirectory(base);
   const rows = [];
@@ -25656,7 +25717,7 @@ function createThread(slug, about, cwd = process.cwd(), attachedTo) {
     throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
   }
   const base = threadsDirectory(cwd);
-  if (existsSync19(base))
+  if (existsSync20(base))
     safeDirectory(base);
   else
     mkdirSync8(base);
@@ -25690,7 +25751,7 @@ function resolveThreadParent2(threadDir, knownThreads) {
   const agreementPath = join29(threadDir, "_agent", "agreement.md");
   const agreementContent = threadAgreementContent(safeDirectory(threadDir));
   const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename14(threadDir)}/_agent/agreement.md`);
-  const canonicalThreadDir = realpathSync14(threadDir);
+  const canonicalThreadDir = realpathSync15(threadDir);
   const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
   if (parsedAgreement.status === "invalid" && !thread.attachment) {
     throw new Error(`Malformed Thread Agreement frontmatter: ${agreementPath} (${parsedAgreement.issue}).`);
@@ -25909,6 +25970,16 @@ function appendPost(dir, options) {
     throw new Error("--supersedes requires --kind correction.");
   if (options.map !== void 0)
     validateThreadMomentMap(options.map);
+  const warnings = [];
+  if (options.checkLinks) {
+    const links = checkPostLinks(options.body, thread.path, dirname19(dirname19(thread.path)));
+    if (links.errors.length) {
+      throw new Error(`Post not written: ${links.errors.length === 1 ? "a link does" : `${links.errors.length} links do`} not resolve.
+${links.errors.map((e) => `  - ${e}`).join("\n")}
+Fix the path (it is relative to the post file) or remove the link. Map positions are not checked here.`);
+    }
+    warnings.push(...links.warnings);
+  }
   options.verifyTarget?.(thread, parentIds, options.supersedes);
   const id = `msg_${randomUUID9()}`;
   const date = (/* @__PURE__ */ new Date()).toISOString();
@@ -25942,7 +26013,7 @@ ${options.body.trim()}
   writeFileSync9(path, content, { flag: "wx", mode: 384 });
   if (defaultParentId)
     options.onDefaultReplyTo?.(defaultParentId);
-  return { post: parsed2.post, path };
+  return { post: parsed2.post, path, warnings };
 }
 function cursorPath(thread) {
   const key2 = createHash8("sha256").update(thread.path).digest("hex");
@@ -25950,9 +26021,9 @@ function cursorPath(thread) {
 }
 function readCursor(thread) {
   const path = cursorPath(thread);
-  if (existsSync19(dirname18(path)) && lstatSync3(dirname18(path)).isSymbolicLink())
+  if (existsSync20(dirname19(path)) && lstatSync3(dirname19(path)).isSymbolicLink())
     throw new Error("Refusing symlink local cursor directory.");
-  if (!existsSync19(path))
+  if (!existsSync20(path))
     return /* @__PURE__ */ new Set();
   const data = JSON.parse(safeFile(path));
   if (!data || typeof data !== "object" || !Array.isArray(data.seen) || !data.seen.every((id) => typeof id === "string"))
@@ -25964,8 +26035,8 @@ function acknowledge(thread, posts3) {
   for (const post of posts3)
     seen.add(post.id);
   const path = cursorPath(thread);
-  mkdirSync8(dirname18(path), { recursive: true, mode: 448 });
-  if (lstatSync3(dirname18(path)).isSymbolicLink())
+  mkdirSync8(dirname19(path), { recursive: true, mode: 448 });
+  if (lstatSync3(dirname19(path)).isSymbolicLink())
     throw new Error("Refusing symlink local cursor directory.");
   const tmp = `${path}.${randomUUID9()}.tmp`;
   writeFileSync9(tmp, JSON.stringify({ seen: [...seen] }), { flag: "wx", mode: 384 });
@@ -26003,11 +26074,11 @@ function readPinnedThreadAgreement(repo, pin, position) {
 function initWorktree(cwd = process.cwd()) {
   const root = threadBase(cwd);
   const dir = join29(root, "_threads");
-  if (existsSync19(dir))
+  if (existsSync20(dir))
     throw new Error("_threads/ already exists; refusing to replace it.");
   const origin = git3(root, ["rev-parse", "--show-toplevel"]);
   const canonical = (path) => {
-    const value2 = realpathSync14.native(path);
+    const value2 = realpathSync15.native(path);
     return process.platform === "win32" ? value2.toLowerCase() : value2;
   };
   if (canonical(origin) !== canonical(root))
@@ -26015,11 +26086,11 @@ function initWorktree(cwd = process.cwd()) {
   if (git3(root, ["branch", "--list", "threads"]))
     throw new Error("Local threads branch already exists; refusing to replace it.");
   const ignore = join29(root, ".gitignore");
-  if (existsSync19(ignore) && lstatSync3(ignore).isSymbolicLink())
+  if (existsSync20(ignore) && lstatSync3(ignore).isSymbolicLink())
     throw new Error("Refusing symlink .gitignore.");
   git3(root, ["worktree", "add", "--orphan", "-b", "threads", dir]);
   markPrivateThreadsWorktree(dir);
-  const old = existsSync19(ignore) ? readFileSync11(ignore, "utf8") : "";
+  const old = existsSync20(ignore) ? readFileSync11(ignore, "utf8") : "";
   if (!old.split("\n").includes("/_threads/"))
     writeFileSync9(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/
 `);
@@ -26036,7 +26107,7 @@ function pushWorktree(cwd = process.cwd(), remote) {
     throw new Error("Refusing to push private Threads to origin; configure a separate team remote.");
   const scp = /^[^@\s]+@([^:/\s]+):/.exec(url);
   const host = scp?.[1] ?? (url.includes("://") ? new URL(url).hostname : null);
-  if (host !== "git.ideaspaces.xyz" && !(url.startsWith("file://") || isAbsolute12(url))) {
+  if (host !== "git.ideaspaces.xyz" && !(url.startsWith("file://") || isAbsolute13(url))) {
     throw new Error("Private Threads may push only to git.ideaspaces.xyz or a local file remote; GitHub and unknown hosts are refused.");
   }
   git3(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
@@ -26218,16 +26289,16 @@ function referenceBody(body) {
   return JSON.stringify(body).replaceAll("[", "\\u005b").replaceAll("]", "\\u005d");
 }
 function threadContext(threadPath, pov) {
-  if (isAbsolute13(threadPath)) {
-    const parent = dirname19(threadPath);
+  if (isAbsolute14(threadPath)) {
+    const parent = dirname20(threadPath);
     if (basename15(parent) === "_threads")
-      return dirname19(parent);
-    return dirname19(threadPath);
+      return dirname20(parent);
+    return dirname20(threadPath);
   }
   return pov;
 }
 function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
-  if (!existsSync20(mapPath) || !lstatSync4(mapPath).isFile() || lstatSync4(mapPath).isSymbolicLink()) {
+  if (!existsSync21(mapPath) || !lstatSync4(mapPath).isFile() || lstatSync4(mapPath).isSymbolicLink()) {
     throw new Error("--thread-map must name a regular authored Map file; inline YAML is not a launch coordinate.");
   }
   const { root, member: member2 } = selectPinnedThreadMember(loadLocalThreadMap(mapPath), ordinal);
@@ -26240,7 +26311,7 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   const localThread = loadThread(directory);
   if (localThread.closed)
     throw new Error("Thread is closed; no agent was launched or snapshot written.");
-  const base = threadBase(dirname19(dirname19(directory)));
+  const base = threadBase(dirname20(dirname20(directory)));
   const rootId2 = inspectLocalRootIdentity(base).root_node_id;
   const authoredId = root.root_node_id ?? /\/repos\/(n_[0-9a-f]{12}(?:[0-9a-f]{12})?)(?:\/|$)/.exec(root.repo ?? "")?.[1];
   if (authoredId && rootId2 !== authoredId)
@@ -26260,7 +26331,7 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
     throw new Error("Pinned Thread Agreement or README is invalid.");
   let agentName = "Agent";
   const agentAgreement = join30(pov, "_agent", "agreement.md");
-  if (existsSync20(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
+  if (existsSync21(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
     const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
@@ -26310,7 +26381,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   let agentName = "Agent";
   const agentAgreement = join30(pov, "_agent", "agreement.md");
-  if (existsSync20(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
+  if (existsSync21(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
     const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
@@ -26393,7 +26464,7 @@ async function prepareHostedThreadLaunch(pov, exchangeId, options) {
   }
   let agentName = "Agent";
   const agentAgreement = join30(pov, "_agent", "agreement.md");
-  if (existsSync20(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
+  if (existsSync21(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
     const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
@@ -26503,9 +26574,9 @@ function formatAgentRunCapabilities(caps) {
 }
 
 // dist/local/agent-runs.js
-import { appendFileSync, existsSync as existsSync21, mkdirSync as mkdirSync9, readFileSync as readFileSync13, realpathSync as realpathSync15 } from "node:fs";
+import { appendFileSync, existsSync as existsSync22, mkdirSync as mkdirSync9, readFileSync as readFileSync13, realpathSync as realpathSync16 } from "node:fs";
 import { createHash as createHash9 } from "node:crypto";
-import { dirname as dirname20, isAbsolute as isAbsolute14, join as join31, resolve as resolve32, win32 } from "node:path";
+import { dirname as dirname21, isAbsolute as isAbsolute15, join as join31, resolve as resolve33, win32 } from "node:path";
 function agentDisplayName(agentPath) {
   const trimmed = agentPath.replace(/[\\/]+$/, "");
   return win32.basename(trimmed) || agentPath;
@@ -26525,7 +26596,7 @@ function deriveTask(message, cwd = process.cwd()) {
   }
   candidatePath = candidatePath.replace(/^["']|["']$/g, "");
   if (candidatePath.endsWith(".md") || candidatePath.endsWith(".markdown")) {
-    const resolvedPath = isAbsolute14(candidatePath) ? candidatePath : resolve32(cwd, candidatePath);
+    const resolvedPath = isAbsolute15(candidatePath) ? candidatePath : resolve33(cwd, candidatePath);
     try {
       const content = readFileSync13(resolvedPath, "utf8");
       const fm = parseFrontmatter(content);
@@ -26552,7 +26623,7 @@ function deriveTask(message, cwd = process.cwd()) {
 function recordAgentRun(record2) {
   try {
     const dir = configDir();
-    if (!existsSync21(dir)) {
+    if (!existsSync22(dir)) {
       mkdirSync9(dir, { recursive: true, mode: 448 });
     }
     const file2 = join31(dir, "agent-runs.jsonl");
@@ -26565,7 +26636,7 @@ function recordAgentRun(record2) {
 }
 function listAgentRuns(options = {}) {
   const file2 = join31(configDir(), "agent-runs.jsonl");
-  if (!existsSync21(file2))
+  if (!existsSync22(file2))
     return [];
   let content;
   try {
@@ -26626,15 +26697,15 @@ function getAgentRun(runId) {
 }
 function cachedClaudeSessionId(projectDir) {
   try {
-    let resolved = resolve32(projectDir);
+    let resolved = resolve33(projectDir);
     try {
-      resolved = realpathSync15(resolved);
+      resolved = realpathSync16(resolved);
     } catch {
     }
     const key2 = createHash9("sha256").update(resolved).digest("hex").slice(0, 16);
     const sessionsDir = join31(configDir(), "sessions");
     const file2 = join31(sessionsDir, key2);
-    if (existsSync21(file2)) {
+    if (existsSync22(file2)) {
       const id = readFileSync13(file2, "utf8").trim();
       if (id)
         return id;
@@ -26644,15 +26715,15 @@ function cachedClaudeSessionId(projectDir) {
   return null;
 }
 function findActiveClaudeSessionId(cwd = process.cwd()) {
-  let cur = resolve32(cwd);
+  let cur = resolve33(cwd);
   while (true) {
     const id = cachedClaudeSessionId(cur);
     if (id)
       return id;
-    if (existsSync21(join31(cur, ".git")) || existsSync21(join31(cur, "_agent"))) {
+    if (existsSync22(join31(cur, ".git")) || existsSync22(join31(cur, "_agent"))) {
       break;
     }
-    const parent = dirname20(cur);
+    const parent = dirname21(cur);
     if (parent === cur)
       break;
     cur = parent;
@@ -26666,11 +26737,11 @@ function resolveParentId(explicitParent, cwd = process.cwd()) {
 }
 
 // dist/local/agent-pov.js
-import { existsSync as existsSync22, lstatSync as lstatSync5, realpathSync as realpathSync16, statSync as statSync12 } from "node:fs";
-import { isAbsolute as isAbsolute15, join as join32, relative as relative17, resolve as resolve33 } from "node:path";
+import { existsSync as existsSync23, lstatSync as lstatSync5, realpathSync as realpathSync17, statSync as statSync12 } from "node:fs";
+import { isAbsolute as isAbsolute16, join as join32, relative as relative18, resolve as resolve34 } from "node:path";
 function isWithin2(parent, child) {
-  const rel = relative17(parent, child);
-  return !rel.startsWith("..") && !isAbsolute15(rel);
+  const rel = relative18(parent, child);
+  return !rel.startsWith("..") && !isAbsolute16(rel);
 }
 function validateAgentPov(pov, options = {}) {
   const trimmed = pov.trim();
@@ -26683,8 +26754,8 @@ function validateAgentPov(pov, options = {}) {
   }
   const cwd = options.cwd ?? process.cwd();
   let candidatePath = null;
-  const directCandidate = resolve33(cwd, trimmed);
-  if (existsSync22(directCandidate)) {
+  const directCandidate = resolve34(cwd, trimmed);
+  if (existsSync23(directCandidate)) {
     try {
       if (statSync12(directCandidate).isDirectory()) {
         candidatePath = directCandidate;
@@ -26716,7 +26787,7 @@ function validateAgentPov(pov, options = {}) {
           return true;
         return false;
       });
-      if (found && existsSync22(found.path)) {
+      if (found && existsSync23(found.path)) {
         if (statSync12(found.path).isDirectory()) {
           candidatePath = found.path;
         }
@@ -26733,7 +26804,7 @@ function validateAgentPov(pov, options = {}) {
   }
   let canonicalDir;
   try {
-    canonicalDir = realpathSync16.native(candidatePath);
+    canonicalDir = realpathSync17.native(candidatePath);
     const stat2 = statSync12(canonicalDir);
     if (!stat2.isDirectory()) {
       return {
@@ -26751,9 +26822,9 @@ function validateAgentPov(pov, options = {}) {
   }
   const agreementPath = join32(canonicalDir, "_agent", "agreement.md");
   const foundationPath = join32(canonicalDir, "_agent", "foundation.md");
-  const hasAgreement = existsSync22(agreementPath);
+  const hasAgreement = existsSync23(agreementPath);
   const allowFoundation = options.allowFoundation ?? true;
-  const hasFoundation = allowFoundation && existsSync22(foundationPath);
+  const hasFoundation = allowFoundation && existsSync23(foundationPath);
   if (!hasAgreement && !hasFoundation) {
     return {
       valid: false,
@@ -26765,7 +26836,7 @@ function validateAgentPov(pov, options = {}) {
   const contractFile = hasAgreement ? agreementPath : foundationPath;
   try {
     const stat2 = lstatSync5(contractFile);
-    const canonicalContract = realpathSync16.native(contractFile);
+    const canonicalContract = realpathSync17.native(contractFile);
     const targetStat = statSync12(canonicalContract);
     if (!targetStat.isFile()) {
       return {
@@ -26858,8 +26929,8 @@ var LIST_USAGE = "ideaspaces agent list --map <file> [--json]";
 var USAGE8 = `ideaspaces agent <run|runs|record|list|capabilities> \u2026 (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; record ${RECORD_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 function readAgentDefaults(povPath) {
   const available = [
-    ...existsSync23(join33(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
-    ...existsSync23(join33(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
+    ...existsSync24(join33(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
+    ...existsSync24(join33(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
   ];
   const source = preferredContractSource(available);
   if (!source)
@@ -27030,13 +27101,13 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
       if (typeof flags2[key2] !== "string")
         continue;
       for (const raw of flags2[key2].split(",").map((s) => s.trim()).filter(Boolean)) {
-        const path = isAbsolute16(raw) ? raw : resolve34(povPath, raw);
-        if (!existsSync23(path)) {
+        const path = isAbsolute17(raw) ? raw : resolve35(povPath, raw);
+        if (!existsSync24(path)) {
           output.error(`Refusing ${key2} path ${raw}: path not found. Select an installed, reviewed path before launch.`);
           return 1;
         }
         try {
-          const canonical = realpathSync17(path);
+          const canonical = realpathSync18(path);
           if (enteredThroughRoot(povPath, path) && !isContained(povPath, canonical)) {
             throw new Error("escapes the selected POV");
           }
@@ -27313,7 +27384,7 @@ Usage: ${RECORD_USAGE}`);
   }
   const parentToolUseId = flagString2(flags2, "parent-tool-use-id") ?? (existing ? existing.parent_tool_use_id : process.env.PARENT_TOOL_USE_ID ?? null);
   const agentRaw = flagString2(flags2, "agent");
-  const agentPath = agentRaw ? isAbsolute16(agentRaw) ? agentRaw : resolve34(process.cwd(), agentRaw) : existing?.agent ?? process.cwd();
+  const agentPath = agentRaw ? isAbsolute17(agentRaw) ? agentRaw : resolve35(process.cwd(), agentRaw) : existing?.agent ?? process.cwd();
   const message = flagString2(flags2, "message");
   let task = flagString2(flags2, "task");
   if (!task && message) {
@@ -27411,7 +27482,7 @@ function cmdList(flags2, global3, output) {
 Usage: ${LIST_USAGE}`);
     return 1;
   }
-  const callerRoot = global3.repo ? resolve34(global3.repo) : process.cwd();
+  const callerRoot = global3.repo ? resolve35(global3.repo) : process.cwd();
   let loadedMap;
   try {
     loadedMap = loadMapNote(mapPath, callerRoot);
@@ -27514,21 +27585,21 @@ var agentsCommand = {
 };
 
 // dist/commands/node.js
-import { existsSync as existsSync24, realpathSync as realpathSync18, statSync as statSync14 } from "node:fs";
-import { isAbsolute as isAbsolute17, relative as relative18, resolve as resolve35, sep as sep13 } from "node:path";
+import { existsSync as existsSync25, realpathSync as realpathSync19, statSync as statSync14 } from "node:fs";
+import { isAbsolute as isAbsolute18, relative as relative19, resolve as resolve36, sep as sep14 } from "node:path";
 var USAGE9 = "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ... | history <path> [--limit N] | history <repo_id> <node_id>>";
 var USAGE_GET = "ideaspaces node get <repo_id> <node_id>";
 var USAGE_PUT = "ideaspaces node put <repo_id> <path> [--content TEXT]  (else reads stdin)";
 var USAGE_HISTORY = "ideaspaces node history <path> [--limit N]  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
 function toRepoRelativePath(repoRootPath, inputPath, cwd = process.cwd()) {
-  const realCwd = existsSync24(cwd) ? realpathSync18.native(cwd) : cwd;
-  const absPath = resolve35(realCwd, inputPath);
-  const realAbsPath = existsSync24(absPath) ? realpathSync18.native(absPath) : absPath;
-  const rel = relative18(repoRootPath, realAbsPath);
-  if (rel === ".." || rel.startsWith(`..${sep13}`) || isAbsolute17(rel)) {
+  const realCwd = existsSync25(cwd) ? realpathSync19.native(cwd) : cwd;
+  const absPath = resolve36(realCwd, inputPath);
+  const realAbsPath = existsSync25(absPath) ? realpathSync19.native(absPath) : absPath;
+  const rel = relative19(repoRootPath, realAbsPath);
+  if (rel === ".." || rel.startsWith(`..${sep14}`) || isAbsolute18(rel)) {
     throw new Error(`Path is outside repository: ${inputPath}`);
   }
-  return rel.split(sep13).join("/");
+  return rel.split(sep14).join("/");
 }
 function formatHistoryHuman(data) {
   const countLabel = data.total > data.history.length ? `showing ${data.history.length} of ${data.total} commits` : `${data.total} commit${data.total === 1 ? "" : "s"}`;
@@ -27613,7 +27684,7 @@ async function cmdHistory(args2, flags2, output) {
       output.error(`Usage: ${USAGE_HISTORY}`);
       return 1;
     }
-    const probeDir = typeof flags2.cwd === "string" ? resolve35(process.cwd(), flags2.cwd) : process.cwd();
+    const probeDir = typeof flags2.cwd === "string" ? resolve36(process.cwd(), flags2.cwd) : process.cwd();
     let root;
     try {
       root = repoRoot(probeDir);
@@ -27628,8 +27699,8 @@ async function cmdHistory(args2, flags2, output) {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
-    const fullPath = resolve35(root, relPath);
-    if (relPath === "" || existsSync24(fullPath) && statSync14(fullPath).isDirectory()) {
+    const fullPath = resolve36(root, relPath);
+    if (relPath === "" || existsSync25(fullPath) && statSync14(fullPath).isDirectory()) {
       output.error("node history requires a file path, not a directory.");
       return 1;
     }
@@ -27644,7 +27715,7 @@ async function cmdHistory(args2, flags2, output) {
     }
     try {
       const details = getFileHistoryDetails(relPath, { cwd: root, maxEntries });
-      if (details.total === 0 && !existsSync24(fullPath)) {
+      if (details.total === 0 && !existsSync25(fullPath)) {
         output.error(`Note not found: ${targetPath}`);
         return 1;
       }
@@ -27718,7 +27789,7 @@ var nodeCommand = {
 };
 
 // dist/commands/search.js
-import { basename as basename18, relative as relative20 } from "node:path";
+import { basename as basename18, relative as relative21 } from "node:path";
 
 // dist/search.js
 var K1 = 1.2;
@@ -28047,8 +28118,8 @@ function acceptsFrontmatter(q, frontmatter) {
 
 // dist/search-corpus.js
 import { execFile as execFile3 } from "node:child_process";
-import { existsSync as existsSync25, lstatSync as lstatSync6, readdirSync as readdirSync3, readFileSync as readFileSync15, realpathSync as realpathSync19, statSync as statSync15 } from "node:fs";
-import { basename as basename16, dirname as dirname21, isAbsolute as isAbsolute18, join as join34, relative as relative19, resolve as resolve36, sep as sep14 } from "node:path";
+import { existsSync as existsSync26, lstatSync as lstatSync6, readdirSync as readdirSync3, readFileSync as readFileSync15, realpathSync as realpathSync20, statSync as statSync15 } from "node:fs";
+import { basename as basename16, dirname as dirname22, isAbsolute as isAbsolute19, join as join34, relative as relative20, resolve as resolve37, sep as sep15 } from "node:path";
 var WALK_SKIP = /* @__PURE__ */ new Set(["node_modules", "_assets", "target", "dist"]);
 var WALK_MAX_DEPTH = 12;
 var WALK_MAX_FILES = 5e4;
@@ -28059,10 +28130,10 @@ function resolveRoots(inputs, cwd = process.cwd()) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const input of inputs) {
-    const abs = isAbsolute18(input) ? input : resolve36(cwd, input);
+    const abs = isAbsolute19(input) ? input : resolve37(cwd, input);
     let root;
     try {
-      root = realpathSync19.native(abs);
+      root = realpathSync20.native(abs);
       if (!statSync15(root).isDirectory()) {
         out.push({ input, root: null, error: `Not a folder: ${input}` });
         continue;
@@ -28083,8 +28154,8 @@ function commonBase(roots) {
     return "";
   let base = roots[0];
   for (const root of roots.slice(1)) {
-    while (base !== root && !root.startsWith(base.endsWith(sep14) ? base : base + sep14)) {
-      const parent = dirname21(base);
+    while (base !== root && !root.startsWith(base.endsWith(sep15) ? base : base + sep15)) {
+      const parent = dirname22(base);
       if (parent === base)
         return base;
       base = parent;
@@ -28093,7 +28164,7 @@ function commonBase(roots) {
   return base;
 }
 function toPosix(path) {
-  return sep14 === "/" ? path : path.split(sep14).join("/");
+  return sep15 === "/" ? path : path.split(sep15).join("/");
 }
 function threadSlugIndex(parts) {
   return parts.lastIndexOf("_threads");
@@ -28155,9 +28226,9 @@ function walkMarkdown2(root) {
           truncated = true;
           return;
         }
-        files.push(toPosix(relative19(root, abs)));
+        files.push(toPosix(relative20(root, abs)));
       } else if (entry.isDirectory() && depth2 < WALK_MAX_DEPTH && !WALK_SKIP.has(entry.name)) {
-        if (existsSync25(join34(abs, ".git")))
+        if (existsSync26(join34(abs, ".git")))
           continue;
         visit(abs, depth2 + 1);
       }
@@ -28167,7 +28238,7 @@ function walkMarkdown2(root) {
   return { files, truncated, unreadable };
 }
 function ownThreadFiles(root, warnings) {
-  if (!existsSync25(join34(root, "_agent", "agreement.md")))
+  if (!existsSync26(join34(root, "_agent", "agreement.md")))
     return [];
   const base = join34(root, "_threads");
   let stat2;
@@ -28257,21 +28328,21 @@ async function listRoots(roots, threads) {
   return listings;
 }
 function within(root, path) {
-  return path === root || path.startsWith(root.endsWith(sep14) ? root : root + sep14);
+  return path === root || path.startsWith(root.endsWith(sep15) ? root : root + sep15);
 }
 function* readCorpus(files, withRoot, readCounts, outsideLinks) {
   const folderInside = /* @__PURE__ */ new Map();
   for (const { root, path } of files) {
     const abs = join34(root, path);
     try {
-      const folder = dirname21(abs);
+      const folder = dirname22(abs);
       const key2 = `${root}\0${folder}`;
       let inside = folderInside.get(key2);
       if (inside === void 0) {
-        inside = within(root, realpathSync19(folder));
+        inside = within(root, realpathSync20(folder));
         folderInside.set(key2, inside);
       }
-      if (!inside || lstatSync6(abs).isSymbolicLink() && !within(root, realpathSync19(abs))) {
+      if (!inside || lstatSync6(abs).isSymbolicLink() && !within(root, realpathSync20(abs))) {
         outsideLinks?.set(root, (outsideLinks.get(root) ?? 0) + 1);
         continue;
       }
@@ -28458,7 +28529,7 @@ function selectFiles(listings, base, query) {
   const files = [];
   const filtering = query.inPaths.length > 0 || query.excludeIn.length > 0 || query.kinds.length > 0 || query.excludeKinds.length > 0;
   for (const listing of listings) {
-    const prefix = toPosix(relative20(base, listing.root));
+    const prefix = toPosix(relative21(base, listing.root));
     for (const path of listing.files) {
       if (filtering) {
         const locations = [fold(path)];
@@ -28701,7 +28772,7 @@ ${footer}`);
     return 0;
   }
   const lines = results.map((r) => {
-    const where = toPosix(relative20(base, `${r.root}/${r.path}`)) || r.path;
+    const where = toPosix(relative21(base, `${r.root}/${r.path}`)) || r.path;
     const head2 = `${where}${r.line ? `:${r.line}` : ""}  ${r.title}`;
     return r.snippet ? `${head2}
     ${r.snippet}` : head2;
@@ -28714,18 +28785,18 @@ ${footer}`);
 
 // dist/commands/ls.js
 import { statSync as statSync16 } from "node:fs";
-import { resolve as resolve37 } from "node:path";
+import { resolve as resolve38 } from "node:path";
 
 // dist/file-listing.js
-import { existsSync as existsSync26, readdirSync as readdirSync4 } from "node:fs";
-import { join as join36, relative as relative21 } from "node:path";
+import { existsSync as existsSync27, readdirSync as readdirSync4 } from "node:fs";
+import { join as join36, relative as relative22 } from "node:path";
 var EXCLUDES = new Set(AUTOCOMPLETE_EXCLUDES);
 var DEFAULT_MAX_SCAN = 5e3;
 var DEFAULT_MAX_DEPTH = 10;
 function folderKind(abs) {
-  if (existsSync26(join36(abs, "_agent")))
+  if (existsSync27(join36(abs, "_agent")))
     return "ideaspace-repo";
-  if (existsSync26(join36(abs, ".git")))
+  if (existsSync27(join36(abs, ".git")))
     return "code-repo";
   return "folder";
 }
@@ -28752,7 +28823,7 @@ function listEntries(root, opts = {}) {
       if (entries.length >= maxScan)
         return { entries, truncated: true };
       const childAbs = join36(abs, dirent.name);
-      const path = toPosix2(relative21(root, childAbs));
+      const path = toPosix2(relative22(root, childAbs));
       if (dirent.isDirectory()) {
         entries.push({ path, name: dirent.name, kind: folderKind(childAbs) });
         if (depth2 + 1 <= maxDepth)
@@ -28809,7 +28880,7 @@ var lsCommand = {
   ],
   async run(args2, flags2, global3) {
     const output = createOutput(global3);
-    const root = resolve37(args2[0] ?? ".");
+    const root = resolve38(args2[0] ?? ".");
     try {
       if (!statSync16(root).isDirectory()) {
         output.error(`Not a directory: ${root}`);
@@ -30942,21 +31013,21 @@ var inboxCommand = {
 };
 
 // dist/commands/threads.js
-import { existsSync as existsSync28, lstatSync as lstatSync8, readFileSync as readFileSync19, realpathSync as realpathSync21 } from "node:fs";
+import { existsSync as existsSync29, lstatSync as lstatSync8, readFileSync as readFileSync19, realpathSync as realpathSync22 } from "node:fs";
 import { spawnSync as spawnSync16 } from "node:child_process";
-import { dirname as dirname22, isAbsolute as isAbsolute20, join as join38, relative as relative22, resolve as resolve38, sep as sep15 } from "node:path";
+import { dirname as dirname23, isAbsolute as isAbsolute21, join as join38, relative as relative23, resolve as resolve39, sep as sep16 } from "node:path";
 
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync15 } from "node:child_process";
-import { existsSync as existsSync27, lstatSync as lstatSync7, readFileSync as readFileSync18, realpathSync as realpathSync20 } from "node:fs";
-import { basename as basename19, isAbsolute as isAbsolute19, join as join37 } from "node:path";
+import { existsSync as existsSync28, lstatSync as lstatSync7, readFileSync as readFileSync18, realpathSync as realpathSync21 } from "node:fs";
+import { basename as basename19, isAbsolute as isAbsolute20, join as join37 } from "node:path";
 function physical(path) {
-  if (!isAbsolute19(path))
+  if (!isAbsolute20(path))
     throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
   try {
     const entry = lstatSync7(path);
     if (!entry.isSymbolicLink() && entry.isDirectory())
-      return realpathSync20.native(path);
+      return realpathSync21.native(path);
   } catch {
   }
   throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
@@ -31045,7 +31116,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
       throw new Error("Selected live Thread changed or closed; refusing append.");
     const selectedPath = join37(directory, basename19(position));
     const safeEqual = (path, content) => {
-      if (!existsSync27(path))
+      if (!existsSync28(path))
         return false;
       const entry = lstatSync7(path);
       return !entry.isSymbolicLink() && entry.isFile() && readFileSync18(path, "utf8") === content;
@@ -31251,19 +31322,19 @@ Marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")
   ].join("\n");
 }
 function selectedWriterName() {
-  const cwd = realpathSync21(process.cwd());
+  const cwd = realpathSync22(process.cwd());
   const prefix = spawnSync16(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
-  const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname22(at2), cwd) : cwd;
+  const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname23(at2), cwd) : cwd;
   let at = cwd;
   while (true) {
-    const pathFromRoot = relative22(boundary, at);
-    const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep15}`) || isAbsolute20(pathFromRoot);
+    const pathFromRoot = relative23(boundary, at);
+    const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep16}`) || isAbsolute21(pathFromRoot);
     if (outsideRoot)
       break;
     const agentDir = join38(at, "_agent");
     const agreement = join38(agentDir, "agreement.md");
-    if (existsSync28(agentDir) || existsSync28(agreement)) {
-      if (!existsSync28(agentDir) || lstatSync8(agentDir).isSymbolicLink() || !lstatSync8(agentDir).isDirectory() || !existsSync28(agreement) || lstatSync8(agreement).isSymbolicLink() || !lstatSync8(agreement).isFile()) {
+    if (existsSync29(agentDir) || existsSync29(agreement)) {
+      if (!existsSync29(agentDir) || lstatSync8(agentDir).isSymbolicLink() || !lstatSync8(agentDir).isDirectory() || !existsSync29(agreement) || lstatSync8(agreement).isSymbolicLink() || !lstatSync8(agreement).isFile()) {
         throw new Error("Caller POV needs a regular _agent/agreement.md with a name to author a selected Thread post.");
       }
       const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
@@ -31277,25 +31348,25 @@ function selectedWriterName() {
     }
     if (at === boundary)
       break;
-    at = dirname22(at);
+    at = dirname23(at);
   }
   throw new Error("Selected Thread posts require the caller's own _agent/agreement.md with a name; no git-author fallback.");
 }
 function writerName(explicit) {
   if (explicit)
     return explicit;
-  let at = resolve38(process.cwd());
+  let at = resolve39(process.cwd());
   while (true) {
     const agreement = join38(at, "_agent", "agreement.md");
-    if (existsSync28(agreement)) {
+    if (existsSync29(agreement)) {
       const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
       }
     }
-    if (dirname22(at) === at)
+    if (dirname23(at) === at)
       break;
-    at = dirname22(at);
+    at = dirname23(at);
   }
   const result = spawnSync16(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim())
@@ -31387,11 +31458,11 @@ var threadsCommand = {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0]))
           throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
         const matches2 = [...new Map(rest.slice(1).flatMap((root) => {
-          if (!existsSync28(resolve38(root)))
+          if (!existsSync29(resolve39(root)))
             throw new Error(`Space root not found: ${root}. Supply an existing folder with _agent/agreement.md.`);
-          if (lstatSync8(resolve38(root)).isSymbolicLink())
+          if (lstatSync8(resolve39(root)).isSymbolicLink())
             throw new Error(`Refusing symlink Space root: ${root}`);
-          const requested = realpathSync21(resolve38(root));
+          const requested = realpathSync22(resolve39(root));
           if (threadBase(requested) !== requested)
             throw new Error(`Not a Space root: ${root}. Supply the folder with _agent/agreement.md.`);
           return listLocal(requested);
@@ -31418,7 +31489,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
             throw new Error("Hosted filters cannot be combined with a local directory.");
           return hostedThreadsCommand.run(args2, flags2, global3);
         }
-        const cwd = rest[0] ? resolve38(rest[0]) : process.cwd();
+        const cwd = rest[0] ? resolve39(rest[0]) : process.cwd();
         let local = [];
         let localThreads = [];
         let localWarnings = 0;
@@ -31878,8 +31949,9 @@ Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer"
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str2(flags2, "checkout")) : void 0;
         const tags = typeof flags2.tags === "string" ? flags2.tags.split(",").map((t) => t.trim()) : void 0;
         const body = str2(flags2, "message") ?? await stdin();
-        const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), {
+        const { post, path, warnings } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), {
           body,
+          checkLinks: true,
           name: str2(flags2, "name"),
           summary: str2(flags2, "summary"),
           author: target ? selectedWriterName() : writerName(str2(flags2, "author")),
@@ -31893,7 +31965,9 @@ Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer"
           verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`)
         });
-        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo }, `Appended ${post.kind}: ${path}`);
+        for (const warning of warnings)
+          output.log(`Link warning: ${warning}`);
+        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}`);
         return 0;
       }
       if (sub === "render") {
@@ -32067,13 +32141,13 @@ var unfollowCommand = {
 };
 
 // dist/auth/session-state.js
-import { existsSync as existsSync29, unlinkSync as unlinkSync3 } from "node:fs";
+import { existsSync as existsSync30, unlinkSync as unlinkSync3 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
 import { join as join39 } from "node:path";
 var SESSION_FILE = join39(homedir4(), ".ideaspaces", "session.json");
 function clearSessionState() {
   try {
-    if (existsSync29(SESSION_FILE))
+    if (existsSync30(SESSION_FILE))
       unlinkSync3(SESSION_FILE);
   } catch {
   }
@@ -32105,7 +32179,7 @@ var logoutCommand = {
 };
 
 // dist/pi/pi-status.js
-import { existsSync as existsSync31, readFileSync as readFileSync21 } from "node:fs";
+import { existsSync as existsSync32, readFileSync as readFileSync21 } from "node:fs";
 import { basename as basename20, join as join41 } from "node:path";
 
 // dist/local/probe-binary.js
@@ -32123,9 +32197,9 @@ function probeBinary(bin, env = process.env) {
 }
 
 // dist/pi/pi-auth.js
-import { chmodSync, existsSync as existsSync30, mkdirSync as mkdirSync10, readFileSync as readFileSync20, writeFileSync as writeFileSync10 } from "node:fs";
+import { chmodSync, existsSync as existsSync31, mkdirSync as mkdirSync10, readFileSync as readFileSync20, writeFileSync as writeFileSync10 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname23, join as join40 } from "node:path";
+import { dirname as dirname24, join as join40 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
   const override = env.PI_CODING_AGENT_DIR?.trim();
   if (override)
@@ -32156,13 +32230,13 @@ function removeProvider(current, provider) {
   return { next, removed: true };
 }
 function readAuthFile(path) {
-  if (!existsSync30(path))
+  if (!existsSync31(path))
     return {};
   return parseAuth(readFileSync20(path, "utf8"));
 }
 function writeAuthFile(path, auth) {
-  const dir = dirname23(path);
-  if (!existsSync30(dir))
+  const dir = dirname24(path);
+  if (!existsSync31(dir))
     mkdirSync10(dir, { recursive: true, mode: 448 });
   writeFileSync10(path, `${JSON.stringify(auth, null, 2)}
 `, { encoding: "utf8", mode: 384 });
@@ -32190,12 +32264,12 @@ function derivePiStatus(input) {
 function resolveExtension(path) {
   const name = basename20(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
-  if (!existsSync31(path))
+  if (!existsSync32(path))
     return check(false);
   if (/\.[cm]?[jt]s$/.test(path))
     return check(true);
   const pkgPath = join41(path, "package.json");
-  if (existsSync31(pkgPath)) {
+  if (existsSync32(pkgPath)) {
     try {
       const pkg = JSON.parse(readFileSync21(pkgPath, "utf8"));
       const exts = pkg.pi?.extensions;
@@ -32204,7 +32278,7 @@ function resolveExtension(path) {
     } catch {
     }
   }
-  return check(existsSync31(join41(path, "index.ts")) || existsSync31(join41(path, "index.js")));
+  return check(existsSync32(join41(path, "index.ts")) || existsSync32(join41(path, "index.js")));
 }
 function formatHuman3(s) {
   const out = [];
@@ -32330,7 +32404,7 @@ function trimModel(m) {
 var QUERY_ID = "__models";
 var TIMEOUT_MS = 2e4;
 function queryPiModels(piBin) {
-  return new Promise((resolve42, reject) => {
+  return new Promise((resolve43, reject) => {
     const pi = spawn2(piBin, ["--mode", "rpc", "--no-extensions"], {
       cwd: process.cwd(),
       stdio: ["pipe", "pipe", "pipe"]
@@ -32376,7 +32450,7 @@ function queryPiModels(piBin) {
         }
         const data = msg.data;
         const models = (data?.models ?? []).map(trimModel);
-        finish2(() => resolve42({ models }));
+        finish2(() => resolve43({ models }));
       }
     });
     try {
@@ -32454,8 +32528,8 @@ function joinLocalOrientation(...parts) {
 }
 
 // dist/local/workspace-files.js
-import { existsSync as existsSync32, lstatSync as lstatSync9, statSync as statSync18, realpathSync as realpathSync22 } from "node:fs";
-import { dirname as dirname24, isAbsolute as isAbsolute21, relative as relative23, resolve as resolve39, sep as sep16 } from "node:path";
+import { existsSync as existsSync33, lstatSync as lstatSync9, statSync as statSync18, realpathSync as realpathSync23 } from "node:fs";
+import { dirname as dirname25, isAbsolute as isAbsolute22, relative as relative24, resolve as resolve40, sep as sep17 } from "node:path";
 
 // node_modules/@ideaspaces/sdk/dist/keeper-events.js
 function emptyWorkspaceSurface() {
@@ -32911,7 +32985,7 @@ function toolJson(tool) {
 function observedThread(path) {
   try {
     const thread = loadThread(path);
-    if (dirname24(thread.path).split(sep16).at(-1) !== "_threads")
+    if (dirname25(thread.path).split(sep17).at(-1) !== "_threads")
       return void 0;
     return thread.thread_id ? { thread_id: thread.thread_id, path: thread.path } : void 0;
   } catch {
@@ -32919,8 +32993,8 @@ function observedThread(path) {
   }
 }
 function threadForFile(file2, observe = observedThread) {
-  const parent = dirname24(file2);
-  const directory = dirname24(parent).endsWith(`${sep16}_threads`) ? parent : parent.endsWith(`${sep16}_agent`) && dirname24(dirname24(parent)).endsWith(`${sep16}_threads`) ? dirname24(parent) : null;
+  const parent = dirname25(file2);
+  const directory = dirname25(parent).endsWith(`${sep17}_threads`) ? parent : parent.endsWith(`${sep17}_agent`) && dirname25(dirname25(parent)).endsWith(`${sep17}_threads`) ? dirname25(parent) : null;
   return directory ? observe(directory) : void 0;
 }
 function writtenThreadPost(tool, cwd) {
@@ -32931,13 +33005,13 @@ function writtenThreadPost(tool, cwd) {
     if (!post || typeof post !== "object")
       return void 0;
     const { id, path, kind } = post;
-    if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) || typeof path !== "string" || !isAbsolute21(path) || typeof kind !== "string" || !THREAD_POST_KINDS.has(kind) || typeof tool.args.path !== "string" || !tool.args.path.trim())
+    if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) || typeof path !== "string" || !isAbsolute22(path) || typeof kind !== "string" || !THREAD_POST_KINDS.has(kind) || typeof tool.args.path !== "string" || !tool.args.path.trim())
       return void 0;
     const file2 = lstatSync9(path);
     if (!file2.isFile() || file2.isSymbolicLink())
       return void 0;
-    const actual = realpathSync22.native(path);
-    if (dirname24(actual) !== resolveLocalThread(tool.args.path, cwd) || !actual.endsWith(`-${id}.md`))
+    const actual = realpathSync23.native(path);
+    if (dirname25(actual) !== resolveLocalThread(tool.args.path, cwd) || !actual.endsWith(`-${id}.md`))
       return void 0;
     return actual;
   } catch {
@@ -32963,14 +33037,14 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
   const roots = /* @__PURE__ */ new Map();
   const knownFolderRoots = [...new Set([workingRoot, launchCwd].map((root) => {
     try {
-      return realpathSync22.native(root);
+      return realpathSync23.native(root);
     } catch {
-      return resolve39(root);
+      return resolve40(root);
     }
   }))];
   const contains = (root, target) => {
-    const path = relative23(root, target);
-    return path === "" || !isAbsolute21(path) && path !== ".." && !path.startsWith(`..${sep16}`);
+    const path = relative24(root, target);
+    return path === "" || !isAbsolute22(path) && path !== ".." && !path.startsWith(`..${sep17}`);
   };
   for (const tool of tools) {
     if (tool.isError)
@@ -32978,9 +33052,9 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
     const knowledgeTool = tool.name.startsWith("is_");
     let cwd = launchCwd;
     if (knowledgeTool && typeof tool.args.cwd === "string" && tool.args.cwd.trim() !== "") {
-      cwd = resolve39(launchCwd, tool.args.cwd);
+      cwd = resolve40(launchCwd, tool.args.cwd);
     } else if (knowledgeTool && typeof tool.args.root === "string" && tool.args.root.trim() !== "" && tool.args.root !== "home") {
-      cwd = isAbsolute21(tool.args.root) ? resolve39(tool.args.root) : resolve39(launchCwd, tool.args.root);
+      cwd = isAbsolute22(tool.args.root) ? resolve40(tool.args.root) : resolve40(launchCwd, tool.args.root);
     }
     const postPath = writtenThreadPost(tool, cwd);
     if (tool.name === "is_threads") {
@@ -32992,7 +33066,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
           if (!row || typeof row !== "object")
             continue;
           const target = row;
-          if (typeof target.path !== "string" || !isAbsolute21(target.path) || target.source !== void 0 && target.source !== "local")
+          if (typeof target.path !== "string" || !isAbsolute22(target.path) || target.source !== void 0 && target.source !== "local")
             continue;
           const match = observe(target.path);
           if (match && match.thread_id === target.thread_id)
@@ -33023,7 +33097,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
     for (const input of paths) {
       if (typeof input !== "string" || !input || /[\x00-\x1f]/u.test(input))
         continue;
-      let absolute = isAbsolute21(input) ? resolve39(input) : resolve39(cwd, input);
+      let absolute = isAbsolute22(input) ? resolve40(input) : resolve40(cwd, input);
       let present = true;
       let isDir = false;
       try {
@@ -33043,20 +33117,20 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
       }
       if (!present && kind === "read")
         continue;
-      let ancestor = present ? absolute : dirname24(absolute);
-      while (!existsSync32(ancestor) && dirname24(ancestor) !== ancestor)
-        ancestor = dirname24(ancestor);
+      let ancestor = present ? absolute : dirname25(absolute);
+      while (!existsSync33(ancestor) && dirname25(ancestor) !== ancestor)
+        ancestor = dirname25(ancestor);
       try {
-        absolute = resolve39(realpathSync22.native(ancestor), relative23(ancestor, absolute));
+        absolute = resolve40(realpathSync23.native(ancestor), relative24(ancestor, absolute));
       } catch {
         continue;
       }
       const bucket = present ? kind : "deleted";
       if (!ws[bucket].includes(absolute))
         ws[bucket].push(absolute);
-      let directory = isDir ? absolute : dirname24(absolute);
-      while (!existsSync32(directory) && dirname24(directory) !== directory)
-        directory = dirname24(directory);
+      let directory = isDir ? absolute : dirname25(absolute);
+      while (!existsSync33(directory) && dirname25(directory) !== directory)
+        directory = dirname25(directory);
       let scope = roots.get(directory);
       if (!scope) {
         try {
@@ -33065,7 +33139,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
           let explicitRoot;
           if (knowledgeTool && (typeof tool.args.cwd === "string" || typeof tool.args.root === "string")) {
             try {
-              explicitRoot = realpathSync22.native(cwd);
+              explicitRoot = realpathSync23.native(cwd);
             } catch {
             }
           }
@@ -33078,7 +33152,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
         addThread(threadForFile(absolute, observe), bucket === "read" ? "read" : "write");
       ws.file_coordinates[absolute] = {
         ...scope,
-        path: relative23(scope.root, absolute).split("\\").join("/"),
+        path: relative24(scope.root, absolute).split("\\").join("/"),
         kind: isDir ? "directory" : "file"
       };
     }
@@ -33114,7 +33188,7 @@ async function* readJsonLines(input) {
 
 // dist/pi/local-agent.js
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync33, mkdirSync as mkdirSync11, writeFileSync as writeFileSync11 } from "node:fs";
+import { existsSync as existsSync34, mkdirSync as mkdirSync11, writeFileSync as writeFileSync11 } from "node:fs";
 import { join as join42 } from "node:path";
 var NON_AGENT_TYPES = /* @__PURE__ */ new Set(["response", "extension_ui_request"]);
 function lastPosition(tools) {
@@ -33141,7 +33215,7 @@ function deriveConversationName(message) {
 function ensureSessionDir(dir) {
   mkdirSync11(dir, { recursive: true });
   const ignore = join42(dir, ".gitignore");
-  if (!existsSync33(ignore))
+  if (!existsSync34(ignore))
     writeFileSync11(ignore, "*\n");
 }
 function buildPiArgs(opts) {
@@ -33368,7 +33442,7 @@ async function* runLocalTurn(opts) {
 }
 
 // dist/pi/local-conversations.js
-import { existsSync as existsSync34, readdirSync as readdirSync5, readFileSync as readFileSync22, realpathSync as realpathSync23, statSync as statSync19 } from "node:fs";
+import { existsSync as existsSync35, readdirSync as readdirSync5, readFileSync as readFileSync22, realpathSync as realpathSync24, statSync as statSync19 } from "node:fs";
 import { randomUUID as randomUUID12 } from "node:crypto";
 import { join as join43 } from "node:path";
 
@@ -33472,7 +33546,7 @@ function parseSessionJsonl(text, fallbackTs) {
   return { id, name, messages: messages2, messageCount: count, preview, updatedAt: lastTs, modelTier };
 }
 function findSessionFile(dir, convId) {
-  if (!existsSync34(dir))
+  if (!existsSync35(dir))
     return null;
   const files = readdirSync5(dir).filter((f) => f.endsWith(".jsonl"));
   const bySuffix = files.find((f) => f.endsWith(`_${convId}.jsonl`));
@@ -33496,11 +33570,11 @@ function canResumePiConversation(contextRoot, convId) {
   if (!file2)
     return false;
   try {
-    if (!isContained(realpathSync23(contextRoot), realpathSync23(dir)) || !isContained(realpathSync23(dir), realpathSync23(file2)))
+    if (!isContained(realpathSync24(contextRoot), realpathSync24(dir)) || !isContained(realpathSync24(dir), realpathSync24(file2)))
       return false;
     const text = readFileSync22(file2, "utf8");
     const header = JSON.parse(text.split("\n", 1)[0] ?? "");
-    if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync23(header.cwd) !== realpathSync23(contextRoot))
+    if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync24(header.cwd) !== realpathSync24(contextRoot))
       return false;
     return getLocalConversation(contextRoot, convId).history.some((m) => m.role === "user" && !isTaskNotification(m.content));
   } catch {
@@ -33527,7 +33601,7 @@ function getLocalConversation(contextRoot, convId) {
 }
 function listLocalConversations(contextRoot) {
   const dir = localSessionDir(contextRoot);
-  if (!existsSync34(dir))
+  if (!existsSync35(dir))
     return { conversations: [], total: 0 };
   const summaries = [];
   for (const f of readdirSync5(dir).filter((f2) => f2.endsWith(".jsonl"))) {
@@ -33556,19 +33630,19 @@ function listLocalConversations(contextRoot) {
 }
 
 // dist/local/launch-orientation.js
-import { realpathSync as realpathSync24, statSync as statSync20 } from "node:fs";
-import { dirname as dirname25, isAbsolute as isAbsolute22, relative as relative24, resolve as resolve40, sep as sep17 } from "node:path";
+import { realpathSync as realpathSync25, statSync as statSync20 } from "node:fs";
+import { dirname as dirname26, isAbsolute as isAbsolute23, relative as relative25, resolve as resolve41, sep as sep18 } from "node:path";
 function spaceMapLaunchPosition(povRoot, mapPath, firstRoot, suppliedRoot, focus) {
   let supplied;
   if (suppliedRoot) {
     try {
-      supplied = realpathSync24(suppliedRoot);
+      supplied = realpathSync25(suppliedRoot);
     } catch {
       throw new Error(`--working-root ${suppliedRoot} does not exist as a local directory. Omit it for this Space Map or connect its first root.`);
     }
   }
-  const first = firstRoot ? realpathSync24(firstRoot) : void 0;
-  const storage = realpathSync24(dirname25(mapPath));
+  const first = firstRoot ? realpathSync25(firstRoot) : void 0;
+  const storage = realpathSync25(dirname26(mapPath));
   if (supplied && supplied !== storage && supplied !== first) {
     throw new Error(`--working-root ${supplied} conflicts with this Space Map: its first root is ${first ?? "unavailable here"}. Omit --working-root or choose the first Map root.`);
   }
@@ -33580,26 +33654,26 @@ function spaceMapLaunchPosition(povRoot, mapPath, firstRoot, suppliedRoot, focus
   };
 }
 function localLaunchOrientation(povRoot, workingRoot, focus = "") {
-  if (!workingRoot.trim() || !isAbsolute22(workingRoot))
+  if (!workingRoot.trim() || !isAbsolute23(workingRoot))
     throw new Error("--working-root must be an absolute local directory");
   if ([povRoot, workingRoot, focus].some((value2) => value2.includes("\0") || /[\r\n]/u.test(value2))) {
     throw new Error("Launch coordinates must not contain control characters");
   }
-  if (isAbsolute22(focus) || focus.split(/[\\/]/u).includes("..")) {
+  if (isAbsolute23(focus) || focus.split(/[\\/]/u).includes("..")) {
     throw new Error("--focus must be a path inside --working-root");
   }
-  const working = realpathSync24(workingRoot);
+  const working = realpathSync25(workingRoot);
   if (!statSync20(working).isDirectory())
     throw new Error("--working-root must be a directory");
-  const target = realpathSync24(resolve40(working, focus || "."));
-  const position = relative24(working, target);
-  if (isAbsolute22(position) || position === ".." || position.startsWith(`..${sep17}`)) {
+  const target = realpathSync25(resolve41(working, focus || "."));
+  const position = relative25(working, target);
+  if (isAbsolute23(position) || position === ".." || position.startsWith(`..${sep18}`)) {
     throw new Error("--focus resolves outside --working-root");
   }
   return "[Local session position]\n" + JSON.stringify({
-    povRoot: realpathSync24(povRoot),
+    povRoot: realpathSync25(povRoot),
     workingRoot: working,
-    focus: position.split(sep17).join("/")
+    focus: position.split(sep18).join("/")
   }) + "\nThe launch folder supplies the chosen POV. The workingRoot is the material to work on, not a read-only reference mount. Orient there without replacing the chosen POV. Focus is relative to workingRoot (empty means the folder itself). Inspect the selected material before answering; use absolute paths for tools. File @mentions in the user question are relative to workingRoot. These coordinates do not grant additional OS permissions or request changes to the POV folder.";
 }
 
@@ -33825,10 +33899,10 @@ import { spawnSync as spawnSync18 } from "node:child_process";
 import { spawn as spawn4 } from "node:child_process";
 
 // dist/claude/local-conversations.js
-import { existsSync as existsSync35, readdirSync as readdirSync6, readFileSync as readFileSync23, realpathSync as realpathSync25, statSync as statSync21 } from "node:fs";
+import { existsSync as existsSync36, readdirSync as readdirSync6, readFileSync as readFileSync23, realpathSync as realpathSync26, statSync as statSync21 } from "node:fs";
 import { randomUUID as randomUUID13 } from "node:crypto";
 import { homedir as homedir6 } from "node:os";
-import { basename as basename21, dirname as dirname26, join as join45, resolve as resolve41 } from "node:path";
+import { basename as basename21, dirname as dirname27, join as join45, resolve as resolve42 } from "node:path";
 function claudeConfigDir(env = process.env) {
   return env.CLAUDE_CONFIG_DIR?.trim() || join45(homedir6(), ".claude");
 }
@@ -33836,9 +33910,9 @@ function slugOf(path) {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");
 }
 function claudeProjectSlug(cwd) {
-  let resolved = resolve41(cwd);
+  let resolved = resolve42(cwd);
   try {
-    resolved = realpathSync25(resolved);
+    resolved = realpathSync26(resolved);
   } catch {
   }
   return slugOf(resolved);
@@ -33847,7 +33921,7 @@ function claudeProjectDir(cwd, env = process.env) {
   return join45(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
 }
 function legacyClaudeProjectDir(cwd, env = process.env) {
-  return join45(claudeConfigDir(env), "projects", slugOf(resolve41(cwd)));
+  return join45(claudeConfigDir(env), "projects", slugOf(resolve42(cwd)));
 }
 function mintClaudeConversationId() {
   return randomUUID13();
@@ -33864,12 +33938,12 @@ function claudeSessionFile(cwd, convId, env = process.env) {
     return null;
   const projectDir = claudeProjectDir(cwd, env);
   const file2 = join45(projectDir, `${convId}.jsonl`);
-  if (existsSync35(file2))
+  if (existsSync36(file2))
     return file2;
   const unresolvedDir = legacyClaudeProjectDir(cwd, env);
   if (unresolvedDir !== projectDir) {
     const fallbackFile = join45(unresolvedDir, `${convId}.jsonl`);
-    if (existsSync35(fallbackFile))
+    if (existsSync36(fallbackFile))
       return fallbackFile;
   }
   return null;
@@ -34013,12 +34087,12 @@ function canResumeClaudeConversation(contextRoot, convId) {
   if (!file2)
     return false;
   try {
-    if (!isContained(realpathSync25(dirname26(file2)), realpathSync25(file2)))
+    if (!isContained(realpathSync26(dirname27(file2)), realpathSync26(file2)))
       return false;
     const text = readFileSync23(file2, "utf8");
     let sawIdentity = false;
     let sawRoot = false;
-    const root = realpathSync25(contextRoot);
+    const root = realpathSync26(contextRoot);
     const lines = text.split("\n").filter((line2) => line2.trim());
     for (const [index, line2] of lines.entries()) {
       let entry;
@@ -34032,7 +34106,7 @@ function canResumeClaudeConversation(contextRoot, convId) {
       if (entry.sessionId && entry.sessionId !== convId)
         return false;
       if (entry.cwd) {
-        const cwd = realpathSync25(entry.cwd);
+        const cwd = realpathSync26(entry.cwd);
         if (!isContained(root, cwd))
           return false;
         if (cwd === root)
@@ -34066,7 +34140,7 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
 }
 function listClaudeConversations(contextRoot, env = process.env) {
   const dir = claudeProjectDir(contextRoot, env);
-  const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync35(path));
+  const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync36(path));
   const summaries = [];
   const seen = /* @__PURE__ */ new Set();
   const files = dirs.flatMap((folder) => readdirSync6(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join45(folder, f)));

@@ -7,6 +7,7 @@ import { isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, pars
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
+import { checkPostLinks } from "./post-links.js";
 
 const MAX_POST = 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
@@ -439,9 +440,11 @@ export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
   rejectEscapedNewlines?: boolean;
+  /** Check the body's file-relative Markdown links before the write (the `threads post` command sets it). */
+  checkLinks?: boolean;
   verifyTarget?: (thread: LocalThread, parents: string[], supersedes?: string) => void;
   onDefaultReplyTo?: (openingPostId: string) => void;
-}): { post: ThreadPost; path: string } {
+}): { post: ThreadPost; path: string; warnings: string[] } {
   const thread = loadThread(dir);
   if (thread.writeRefusal) throw new Error(thread.writeRefusal);
   if (thread.closed === true) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
@@ -492,6 +495,14 @@ export function appendPost(dir: string, options: {
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
   if (options.supersedes && options.kind !== "correction") throw new Error("--supersedes requires --kind correction.");
   if (options.map !== undefined) validateThreadMomentMap(options.map);
+  const warnings: string[] = [];
+  if (options.checkLinks) {
+    const links = checkPostLinks(options.body, thread.path, dirname(dirname(thread.path)));
+    if (links.errors.length) {
+      throw new Error(`Post not written: ${links.errors.length === 1 ? "a link does" : `${links.errors.length} links do`} not resolve.\n${links.errors.map((e) => `  - ${e}`).join("\n")}\nFix the path (it is relative to the post file) or remove the link. Map positions are not checked here.`);
+    }
+    warnings.push(...links.warnings);
+  }
   // Local-first exclusive create, not a cross-process lock: check the selected
   // target as late as possible before writing, after all option validation.
   options.verifyTarget?.(thread, parentIds, options.supersedes);
@@ -515,7 +526,7 @@ export function appendPost(dir: string, options: {
   if (parsed.post.warnings?.length) throw new Error(`Generated post failed validation before write: ${parsed.post.warnings.map((w) => `${w.field}: ${w.warning}`).join(", ")}`);
   writeFileSync(path, content, { flag: "wx", mode: 0o600 });
   if (defaultParentId) options.onDefaultReplyTo?.(defaultParentId);
-  return { post: parsed.post, path };
+  return { post: parsed.post, path, warnings };
 }
 
 function cursorPath(thread: LocalThread): string {
