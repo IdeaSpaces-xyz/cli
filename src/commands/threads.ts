@@ -23,7 +23,7 @@ import { ackVerb, HOSTED_THREAD_32, HostedError, listVerb, newVerb, openVerb, po
 export { threadFlagError } from "./thread-flags.js";
 
 const SURFACE_BODY_BYTES = 800;
-const KNOWN_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure", "mark"]);
+const KNOWN_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure", "mark", "decision", "dispatch", "claim", "delivery", "verification", "question"]);
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
 }
@@ -283,7 +283,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
-    "ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard: post, snapshot, reframe, correction, closure, mark; custom kinds require --yes",
+    "ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard: post, snapshot, reframe, correction, closure, mark, decision, dispatch, claim, delivery, verification, question; custom kinds require --yes",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",

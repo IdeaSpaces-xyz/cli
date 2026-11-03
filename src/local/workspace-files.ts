@@ -36,7 +36,7 @@ const READ_TOOLS = new Set([
   "find",
 ]);
 
-const THREAD_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure"]);
+const THREAD_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure", "mark", "decision", "dispatch", "claim", "delivery", "verification", "question"]);
 
 function toolJson(tool: ToolInvocation): unknown {
   const result = tool.result;
