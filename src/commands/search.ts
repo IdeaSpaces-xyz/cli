@@ -19,7 +19,11 @@
  */
 
 import { parseFrontmatter } from "@ideaspaces/protocol";
-import { basename, relative } from "node:path";
+import { realpathSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
+import {
+  checkSaveTarget, readSavedSearch, SavedSearchError, shellWord, writeSavedSearch, type SavedSearchNote,
+} from "../search-saved.js";
 import { GitError, headSha, repoRoot } from "../git.js";
 import { rankDocs, type RankedHit } from "../search.js";
 import {
@@ -38,7 +42,7 @@ import type { CommandDef } from "../types.js";
 // Bare usage (no "Usage:" prefix) — `main.ts` adds the label for `--help`, and
 // the error path below adds it explicitly. Matches the convention used by the
 // other commands' `usage:` fields.
-const USAGE = "ideaspaces search <query> [--root <dir>]... [--threads] [--limit N] [--json]";
+const USAGE = "ideaspaces search <query> [--root <dir>]... [--threads] [--limit N] [--save <note.md> [--name T] [--summary S] [--force]] [--json]\n       ideaspaces search --open <note.md> [--limit N] [--json]";
 const DEFAULT_LIMIT = 20;
 const MAX_ROOTS = 256;
 
@@ -62,7 +66,25 @@ Roots:
                    given twice is searched once. Without --root, the
                    current repository.
   --threads        include local Threads: each root's own _threads/ READMEs
-                   and posts. Implied by kind:thread, kind:post or kind:readme.`;
+                   and posts. Implied by kind:thread, kind:post or kind:readme.
+
+Saved searches:
+  --save <note.md> write this search as a Note: the query, its roots
+                   (relative to the Note's folder) and the Threads setting
+                   go in its frontmatter under search:. --name and
+                   --summary title it; --force replaces an existing saved
+                   search (never an ordinary Note). Roots on another drive
+                   than the Note are refused.
+                   Without --root it saves the current repository. A
+                   search with --save (and every --open) answers in the
+                   --root form: roots[] and per-hit root, no Map.
+  --open <note.md> run a saved search again over what is on disk now.
+                   Only --limit and --json may be added. The Note is an
+                   ordinary Note: commit it, link it, or name it in a Map.
+                   Its roots must lie inside its own Vault (the folder
+                   holding home.map.md above it, else its Git repository):
+                   a Note naming / or a folder elsewhere is refused, on
+                   --open and on --save. Answers in the --root form.`;
 
 export interface SearchHit {
   path: string;
@@ -128,6 +150,31 @@ function parseLimit(flags: Record<string, unknown>): number | string {
   return raw;
 }
 
+interface SaveRequest { path: string; name: string | null; summary: string | null; force: boolean }
+
+/** `--save <note.md> [--name …] [--summary …] [--force]`, or null without --save, or an error string. */
+function parseSave(flags: Record<string, unknown>): SaveRequest | null | string {
+  if (flags.save === undefined) {
+    if (flags.name !== undefined || flags.summary !== undefined || flags.force !== undefined) {
+      return "--name, --summary and --force go with --save <note.md>.";
+    }
+    return null;
+  }
+  if (typeof flags.save !== "string" || !flags.save.trim()) return "--save needs a Note path, for example --save frictions.search.md.";
+  for (const key of ["name", "summary"] as const) {
+    if (flags[key] !== undefined && (typeof flags[key] !== "string" || !(flags[key] as string).trim())) return `--${key} needs text.`;
+  }
+  if (flags.force !== undefined && flags.force !== true) {
+    return "--force does not take a value; put it after the query or before another --flag.";
+  }
+  return {
+    path: flags.save,
+    name: typeof flags.name === "string" ? flags.name.trim() : null,
+    summary: typeof flags.summary === "string" ? flags.summary.trim() : null,
+    force: flags.force === true,
+  };
+}
+
 function rootFlags(flags: Record<string, unknown>): string[] | null {
   const value = flags.root;
   if (value === undefined) return null;
@@ -140,8 +187,17 @@ interface Corpus {
   base: string;
 }
 
-/** Path-level filters decide what is read at all. */
-function selectFiles(listings: RootListing[], base: string, query: ParsedQuery): Corpus["files"] {
+/** A file's canonical path, or the path as given when it can't be resolved. */
+function canonicalFile(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
+}
+
+/** Path-level filters decide what is read at all; `skip` is one canonical file to leave out (an opened saved search's own Note). */
+function selectFiles(listings: RootListing[], base: string, query: ParsedQuery, skip?: string): Corpus["files"] {
   const files: Corpus["files"] = [];
   const filtering = query.inPaths.length > 0 || query.excludeIn.length > 0 ||
     query.kinds.length > 0 || query.excludeKinds.length > 0;
@@ -153,6 +209,8 @@ function selectFiles(listings: RootListing[], base: string, query: ParsedQuery):
         if (prefix) locations.push(fold(`${prefix}/${path}`));
         if (!acceptsPath(query, locations, hitKind(path))) continue;
       }
+      // Roots are canonical, but a path can still pass through a symlinked folder: compare canonical files.
+      if (skip !== undefined && basename(path) === basename(skip) && canonicalFile(join(listing.root, path)) === skip) continue;
       files.push({ root: listing.root, path });
     }
   }
@@ -212,11 +270,48 @@ export const searchCommand: CommandDef = {
     "ideaspaces search kind:post author:Scout   # every post by Scout, newest first",
     "ideaspaces search loopback --root ~/Vault --root ~/Vault/agents/scout --json",
     "ideaspaces search decision -in:code --root . --threads",
+    'ideaspaces search desktop tag:friction --threads --root . --save frictions.search.md --name "Desktop frictions"',
+    "ideaspaces search --open frictions.search.md --json",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
 
-    const raw = args.join(" ").trim();
+    // --open runs a saved-search Note's own query and roots.
+    let saved: SavedSearchNote | null = null;
+    if (flags.open !== undefined) {
+      if (typeof flags.open !== "string" || !flags.open.trim()) {
+        output.error("--open needs a saved-search Note, for example --open frictions.search.md.");
+        return 1;
+      }
+      const extra = ["root", "save", "threads", "name", "summary", "force"].filter((key) => flags[key] !== undefined);
+      if (args.length > 0 || extra.length > 0) {
+        const given = [...(args.length > 0 ? ["a query"] : []), ...extra.map((key) => `--${key}`)].join(", ");
+        output.error(`--open runs the Note's own query, roots and Threads setting, so it takes no ${given}; add only --limit or --json. To change it, run the search and --save a new Note.`);
+        return 1;
+      }
+      try {
+        saved = readSavedSearch(flags.open);
+      } catch (error) {
+        output.error(error instanceof SavedSearchError ? error.message : String(error));
+        return 1;
+      }
+    }
+    const save = parseSave(flags);
+    if (typeof save === "string") {
+      output.error(save);
+      return 1;
+    }
+    if (save) {
+      // Refuse a bad target before reading anything, so a refusal never costs a search.
+      try {
+        checkSaveTarget(save.path, save.force);
+      } catch (error) {
+        output.error(error instanceof SavedSearchError ? error.message : String(error));
+        return 1;
+      }
+    }
+
+    const raw = saved ? saved.search.query : args.join(" ").trim();
     if (!raw) {
       output.error(`Usage: ${USAGE}\n\n${QUERY_HELP}`);
       return 1;
@@ -236,17 +331,30 @@ export const searchCommand: CommandDef = {
       output.error("--threads does not take a value.");
       return 1;
     }
-    const limit = parseLimit(flags);
-    if (typeof limit === "string") {
-      output.error(limit);
+    const parsedLimit = parseLimit(flags);
+    if (typeof parsedLimit === "string") {
+      output.error(parsedLimit);
       return 1;
     }
-    const threads = flags.threads === true || wantsThreads(query);
+    const limit = flags.limit === undefined && saved?.search.limit !== undefined ? saved.search.limit : parsedLimit;
+    const threads = (saved ? saved.search.threads : flags.threads === true) || wantsThreads(query);
     const listAll = query.terms.length === 0;
 
-    const roots = rootFlags(flags);
+    let roots = saved ? saved.absoluteRoots : rootFlags(flags);
+    if (roots === null && save) {
+      // A saved search always names its roots: here, the current repository.
+      try {
+        roots = [repoRoot()];
+      } catch (err) {
+        output.error(`${err instanceof GitError ? err.message : String(err)}. Run inside a repository, or name folders with --root <dir>, to save a search.`);
+        return 1;
+      }
+    }
     if (roots !== null) {
-      return searchRoots(roots, query, { limit, threads, listAll, json: global.json }, output);
+      return searchRoots(roots, query, {
+        limit, threads, listAll, json: global.json, saved,
+        save: save ? { ...save, limit: flags.limit === undefined ? undefined : parsedLimit } : null,
+      }, output);
     }
 
     let root: string;
@@ -327,7 +435,13 @@ export const searchCommand: CommandDef = {
 async function searchRoots(
   inputs: string[],
   query: ParsedQuery,
-  options: { limit: number; threads: boolean; listAll: boolean; json: boolean },
+  options: {
+    limit: number; threads: boolean; listAll: boolean; json: boolean;
+    /** The saved search being opened, if any. */
+    saved?: SavedSearchNote | null;
+    /** Where to save this search, if asked; `limit` only when given explicitly. */
+    save?: (SaveRequest & { limit?: number }) | null;
+  },
   output: ReturnType<typeof createOutput>,
 ): Promise<number> {
   if (inputs.length === 0) {
@@ -342,7 +456,9 @@ async function searchRoots(
   const usable = requests.filter((r): r is { input: string; root: string } => r.root !== null).map((r) => r.root);
   const listings = await listRoots(usable, options.threads);
   const base = commonBase(usable);
-  const files = selectFiles(listings.filter((l) => !l.error), base, query);
+  // An opened saved search never finds its own Note: it holds the query text.
+  const ownNote = options.saved ? canonicalFile(options.saved.path) : undefined;
+  const files = selectFiles(listings.filter((l) => !l.error), base, query, ownNote);
   const readCounts = new Map<string, number>();
   const outsideLinks = new Map<string, number>();
   const outcome = rank(files, query, options.limit, true, readCounts, outsideLinks);
@@ -369,7 +485,7 @@ async function searchRoots(
   const failed = rootRows.filter((row) => "error" in row && row.error);
   const complete = failed.length === 0 && !rootRows.some((row) => "truncated" in row && row.truncated);
 
-  const data = {
+  const data: Record<string, unknown> = {
     query: query.raw,
     base,
     scanned: outcome.scanned,
@@ -379,13 +495,40 @@ async function searchRoots(
     results,
     roots: rootRows,
   };
+  const savedLine: string[] = [];
+  if (options.saved) {
+    data.saved = { path: options.saved.path, name: options.saved.name, summary: options.saved.summary, search: options.saved.search };
+    savedLine.push(`Saved search: ${options.saved.name} (${options.saved.path})`);
+  }
   if (usable.length === 0 || failed.length === rootRows.length) {
     // Exit 1, but a JSON caller still gets every root's reason in the usual shape.
     const reasons = failed.map((row) => `  ${row.root}: ${row.error}`).join("\n");
-    const hint = "Check each path exists and is a folder you can read; a relative --root is taken from the current directory.";
+    const hint = options.saved
+      ? "The saved search names these folders relative to its Note; check they exist beside it."
+      : "Check each path exists and is a folder you can read; a relative --root is taken from the current directory.";
     if (options.json) output.result(data, "");
     output.error(`No root could be searched:\n${reasons}\n${hint}`);
     return 1;
+  }
+  if (options.save) {
+    // Save what was asked: every requested root, by where it would be, even one that failed this time.
+    const asked = requests.map((request) => request.root ?? resolve(request.input));
+    try {
+      const note = writeSavedSearch(options.save.path, {
+        name: options.save.name ?? `Search: ${query.raw}`,
+        summary: options.save.summary ?? undefined,
+        query: query.raw,
+        roots: asked,
+        threads: options.threads,
+        limit: options.save.limit,
+        force: options.save.force,
+      });
+      data.saved = { path: note.path, name: note.name, summary: note.summary, search: note.search };
+      savedLine.push(`Saved as ${note.path} — open it again with: ideaspaces search --open ${shellWord(options.save.path)}`);
+    } catch (error) {
+      output.error(error instanceof SavedSearchError ? error.message : `Could not save the search: ${String(error)}`);
+      return 1;
+    }
   }
   const notes = rootRows.flatMap((row) => [
     ...("error" in row && row.error ? [`Could not search ${row.root}: ${row.error}`] : []),
@@ -396,7 +539,7 @@ async function searchRoots(
     for (const warning of ("warnings" in row && row.warnings) || []) output.error(`Warning: ${row.root}: ${warning}`);
   }
   const footer = `${files.length} files in ${rootRows.length - failed.length} root${rootRows.length - failed.length === 1 ? "" : "s"}` +
-    (notes.length ? `\n${notes.join("\n")}` : "");
+    (notes.length ? `\n${notes.join("\n")}` : "") + (savedLine.length ? `\n${savedLine.join("\n")}` : "");
   if (results.length === 0) {
     output.result(data, `No matches for "${query.raw}".\n${footer}`);
     return 0;

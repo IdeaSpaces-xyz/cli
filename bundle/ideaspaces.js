@@ -1532,12 +1532,12 @@ var require_adapter = __commonJS({
       return newFs;
     }
     function toPromise(method) {
-      return (...args2) => new Promise((resolve42, reject) => {
+      return (...args2) => new Promise((resolve44, reject) => {
         args2.push((err, result) => {
           if (err) {
             reject(err);
           } else {
-            resolve42(result);
+            resolve44(result);
           }
         });
         method(...args2);
@@ -3078,7 +3078,7 @@ var require_stringify = __commonJS({
         props.push(doc.directives.tagString(tag));
       return props.join(" ");
     }
-    function stringify6(item, ctx, onComment, onChompKeep) {
+    function stringify7(item, ctx, onComment, onChompKeep) {
       if (identity.isPair(item))
         return item.toString(ctx, onComment, onChompKeep);
       if (identity.isAlias(item)) {
@@ -3107,7 +3107,7 @@ var require_stringify = __commonJS({
 ${ctx.indent}${str3}`;
     }
     exports.createStringifyContext = createStringifyContext;
-    exports.stringify = stringify6;
+    exports.stringify = stringify7;
   }
 });
 
@@ -3117,7 +3117,7 @@ var require_stringifyPair = __commonJS({
     "use strict";
     var identity = require_identity();
     var Scalar = require_Scalar();
-    var stringify6 = require_stringify();
+    var stringify7 = require_stringify();
     var stringifyComment = require_stringifyComment();
     function stringifyPair({ key: key2, value: value2 }, ctx, onComment, onChompKeep) {
       const { allNullValues, doc, indent, indentStep, options: { commentString, indentSeq, simpleKeys } } = ctx;
@@ -3139,7 +3139,7 @@ var require_stringifyPair = __commonJS({
       });
       let keyCommentDone = false;
       let chompKeep = false;
-      let str3 = stringify6.stringify(key2, ctx, () => keyCommentDone = true, () => chompKeep = true);
+      let str3 = stringify7.stringify(key2, ctx, () => keyCommentDone = true, () => chompKeep = true);
       if (!explicitKey && !ctx.inFlow && str3.length > 1024) {
         if (simpleKeys)
           throw new Error("With simple keys, single line scalar must not span more than 1024 characters");
@@ -3191,7 +3191,7 @@ ${indent}:`;
         ctx.indent = ctx.indent.substring(2);
       }
       let valueCommentDone = false;
-      const valueStr = stringify6.stringify(value2, ctx, () => valueCommentDone = true, () => chompKeep = true);
+      const valueStr = stringify7.stringify(value2, ctx, () => valueCommentDone = true, () => chompKeep = true);
       let ws = " ";
       if (keyComment || vsb || vcb) {
         ws = vsb ? "\n" : "";
@@ -3332,7 +3332,7 @@ var require_addPairToJSMap = __commonJS({
     "use strict";
     var log = require_log();
     var merge = require_merge();
-    var stringify6 = require_stringify();
+    var stringify7 = require_stringify();
     var identity = require_identity();
     var toJS = require_toJS();
     function addPairToJSMap(ctx, map, { key: key2, value: value2 }) {
@@ -3368,7 +3368,7 @@ var require_addPairToJSMap = __commonJS({
       if (typeof jsKey !== "object")
         return String(jsKey);
       if (identity.isNode(key2) && ctx?.doc) {
-        const strCtx = stringify6.createStringifyContext(ctx.doc, {});
+        const strCtx = stringify7.createStringifyContext(ctx.doc, {});
         strCtx.anchors = /* @__PURE__ */ new Set();
         for (const node of ctx.anchors.keys())
           strCtx.anchors.add(node.anchor);
@@ -3435,12 +3435,12 @@ var require_stringifyCollection = __commonJS({
   "node_modules/yaml/dist/stringify/stringifyCollection.js"(exports) {
     "use strict";
     var identity = require_identity();
-    var stringify6 = require_stringify();
+    var stringify7 = require_stringify();
     var stringifyComment = require_stringifyComment();
     function stringifyCollection(collection, ctx, options) {
       const flow = ctx.inFlow ?? collection.flow;
-      const stringify7 = flow ? stringifyFlowCollection : stringifyBlockCollection;
-      return stringify7(collection, ctx, options);
+      const stringify8 = flow ? stringifyFlowCollection : stringifyBlockCollection;
+      return stringify8(collection, ctx, options);
     }
     function stringifyBlockCollection({ comment, items }, ctx, { blockItemPrefix, flowChars, itemIndent, onChompKeep, onComment }) {
       const { indent, options: { commentString } } = ctx;
@@ -3465,7 +3465,7 @@ var require_stringifyCollection = __commonJS({
           }
         }
         chompKeep = false;
-        let str4 = stringify6.stringify(item, itemCtx, () => comment2 = null, () => chompKeep = true);
+        let str4 = stringify7.stringify(item, itemCtx, () => comment2 = null, () => chompKeep = true);
         if (comment2)
           str4 += stringifyComment.lineComment(str4, itemIndent, commentString(comment2));
         if (chompKeep && comment2)
@@ -3532,7 +3532,7 @@ ${indent}${line2}` : "\n";
         }
         if (comment)
           reqNewline = true;
-        let str3 = stringify6.stringify(item, itemCtx, () => comment = null);
+        let str3 = stringify7.stringify(item, itemCtx, () => comment = null);
         reqNewline || (reqNewline = lines.length > linesAtValue || str3.includes("\n"));
         if (i < items.length - 1) {
           str3 += ",";
@@ -4893,7 +4893,7 @@ var require_stringifyDocument = __commonJS({
   "node_modules/yaml/dist/stringify/stringifyDocument.js"(exports) {
     "use strict";
     var identity = require_identity();
-    var stringify6 = require_stringify();
+    var stringify7 = require_stringify();
     var stringifyComment = require_stringifyComment();
     function stringifyDocument(doc, options) {
       const lines = [];
@@ -4908,7 +4908,7 @@ var require_stringifyDocument = __commonJS({
       }
       if (hasDirectives)
         lines.push("---");
-      const ctx = stringify6.createStringifyContext(doc, options);
+      const ctx = stringify7.createStringifyContext(doc, options);
       const { commentString } = ctx.options;
       if (doc.commentBefore) {
         if (lines.length !== 1)
@@ -4930,7 +4930,7 @@ var require_stringifyDocument = __commonJS({
           contentComment = doc.contents.comment;
         }
         const onChompKeep = contentComment ? void 0 : () => chompKeep = true;
-        let body = stringify6.stringify(doc.contents, ctx, () => contentComment = null, onChompKeep);
+        let body = stringify7.stringify(doc.contents, ctx, () => contentComment = null, onChompKeep);
         if (contentComment)
           body += stringifyComment.lineComment(body, "", commentString(contentComment));
         if ((body[0] === "|" || body[0] === ">") && lines[lines.length - 1] === "---") {
@@ -4938,7 +4938,7 @@ var require_stringifyDocument = __commonJS({
         } else
           lines.push(body);
       } else {
-        lines.push(stringify6.stringify(doc.contents, ctx));
+        lines.push(stringify7.stringify(doc.contents, ctx));
       }
       if (doc.directives?.docEnd) {
         if (doc.comment) {
@@ -5571,10 +5571,10 @@ var require_resolve_block_map = __commonJS({
       let offset = bm.offset;
       let commentEnd = null;
       for (const collItem of bm.items) {
-        const { start, key: key2, sep: sep18, value: value2 } = collItem;
+        const { start, key: key2, sep: sep19, value: value2 } = collItem;
         const keyProps = resolveProps.resolveProps(start, {
           indicator: "explicit-key-ind",
-          next: key2 ?? sep18?.[0],
+          next: key2 ?? sep19?.[0],
           offset,
           onError,
           parentIndent: bm.indent,
@@ -5588,7 +5588,7 @@ var require_resolve_block_map = __commonJS({
             else if ("indent" in key2 && key2.indent !== bm.indent)
               onError(offset, "BAD_INDENT", startColMsg);
           }
-          if (!keyProps.anchor && !keyProps.tag && !sep18) {
+          if (!keyProps.anchor && !keyProps.tag && !sep19) {
             commentEnd = keyProps.end;
             if (keyProps.comment) {
               if (map.comment)
@@ -5612,7 +5612,7 @@ var require_resolve_block_map = __commonJS({
         ctx.atKey = false;
         if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
           onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-        const valueProps = resolveProps.resolveProps(sep18 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep19 ?? [], {
           indicator: "map-value-ind",
           next: value2,
           offset: keyNode.range[2],
@@ -5628,7 +5628,7 @@ var require_resolve_block_map = __commonJS({
             if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
               onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
           }
-          const valueNode = value2 ? composeNode(ctx, value2, valueProps, onError) : composeEmptyNode(ctx, offset, sep18, null, valueProps, onError);
+          const valueNode = value2 ? composeNode(ctx, value2, valueProps, onError) : composeEmptyNode(ctx, offset, sep19, null, valueProps, onError);
           if (ctx.schema.compat)
             utilFlowIndentCheck.flowIndentCheck(bm.indent, value2, onError);
           offset = valueNode.range[2];
@@ -5719,7 +5719,7 @@ var require_resolve_end = __commonJS({
       let comment = "";
       if (end) {
         let hasSpace = false;
-        let sep18 = "";
+        let sep19 = "";
         for (const token of end) {
           const { source, type } = token;
           switch (type) {
@@ -5733,13 +5733,13 @@ var require_resolve_end = __commonJS({
               if (!comment)
                 comment = cb;
               else
-                comment += sep18 + cb;
-              sep18 = "";
+                comment += sep19 + cb;
+              sep19 = "";
               break;
             }
             case "newline":
               if (comment)
-                sep18 += source;
+                sep19 += source;
               hasSpace = true;
               break;
             default:
@@ -5782,18 +5782,18 @@ var require_resolve_flow_collection = __commonJS({
       let offset = fc.offset + fc.start.source.length;
       for (let i = 0; i < fc.items.length; ++i) {
         const collItem = fc.items[i];
-        const { start, key: key2, sep: sep18, value: value2 } = collItem;
+        const { start, key: key2, sep: sep19, value: value2 } = collItem;
         const props = resolveProps.resolveProps(start, {
           flow: fcName,
           indicator: "explicit-key-ind",
-          next: key2 ?? sep18?.[0],
+          next: key2 ?? sep19?.[0],
           offset,
           onError,
           parentIndent: fc.indent,
           startOnNewline: false
         });
         if (!props.found) {
-          if (!props.anchor && !props.tag && !sep18 && !value2) {
+          if (!props.anchor && !props.tag && !sep19 && !value2) {
             if (i === 0 && props.comma)
               onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
             else if (i < fc.items.length - 1)
@@ -5847,8 +5847,8 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep18 && !props.found) {
-          const valueNode = value2 ? composeNode(ctx, value2, props, onError) : composeEmptyNode(ctx, props.end, sep18, null, props, onError);
+        if (!isMap && !sep19 && !props.found) {
+          const valueNode = value2 ? composeNode(ctx, value2, props, onError) : composeEmptyNode(ctx, props.end, sep19, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
           if (isBlock(value2))
@@ -5860,7 +5860,7 @@ var require_resolve_flow_collection = __commonJS({
           if (isBlock(key2))
             onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
           ctx.atKey = false;
-          const valueProps = resolveProps.resolveProps(sep18 ?? [], {
+          const valueProps = resolveProps.resolveProps(sep19 ?? [], {
             flow: fcName,
             indicator: "map-value-ind",
             next: value2,
@@ -5871,8 +5871,8 @@ var require_resolve_flow_collection = __commonJS({
           });
           if (valueProps.found) {
             if (!isMap && !props.found && ctx.options.strict) {
-              if (sep18)
-                for (const st of sep18) {
+              if (sep19)
+                for (const st of sep19) {
                   if (st === valueProps.found)
                     break;
                   if (st.type === "newline") {
@@ -5889,7 +5889,7 @@ var require_resolve_flow_collection = __commonJS({
             else
               onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
           }
-          const valueNode = value2 ? composeNode(ctx, value2, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep18, null, valueProps, onError) : null;
+          const valueNode = value2 ? composeNode(ctx, value2, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep19, null, valueProps, onError) : null;
           if (valueNode) {
             if (isBlock(value2))
               onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -6069,7 +6069,7 @@ var require_resolve_block_scalar = __commonJS({
           chompStart = i + 1;
       }
       let value2 = "";
-      let sep18 = "";
+      let sep19 = "";
       let prevMoreIndented = false;
       for (let i = 0; i < contentStart; ++i)
         value2 += lines[i][0].slice(trimIndent) + "\n";
@@ -6086,24 +6086,24 @@ var require_resolve_block_scalar = __commonJS({
           indent = "";
         }
         if (type === Scalar.Scalar.BLOCK_LITERAL) {
-          value2 += sep18 + indent.slice(trimIndent) + content;
-          sep18 = "\n";
+          value2 += sep19 + indent.slice(trimIndent) + content;
+          sep19 = "\n";
         } else if (indent.length > trimIndent || content[0] === "	") {
-          if (sep18 === " ")
-            sep18 = "\n";
-          else if (!prevMoreIndented && sep18 === "\n")
-            sep18 = "\n\n";
-          value2 += sep18 + indent.slice(trimIndent) + content;
-          sep18 = "\n";
+          if (sep19 === " ")
+            sep19 = "\n";
+          else if (!prevMoreIndented && sep19 === "\n")
+            sep19 = "\n\n";
+          value2 += sep19 + indent.slice(trimIndent) + content;
+          sep19 = "\n";
           prevMoreIndented = true;
         } else if (content === "") {
-          if (sep18 === "\n")
+          if (sep19 === "\n")
             value2 += "\n";
           else
-            sep18 = "\n";
+            sep19 = "\n";
         } else {
-          value2 += sep18 + content;
-          sep18 = " ";
+          value2 += sep19 + content;
+          sep19 = " ";
           prevMoreIndented = false;
         }
       }
@@ -6285,25 +6285,25 @@ var require_resolve_flow_scalar = __commonJS({
       if (!match)
         return source;
       let res = match[1];
-      let sep18 = " ";
+      let sep19 = " ";
       let pos = first.lastIndex;
       line2.lastIndex = pos;
       while (match = line2.exec(source)) {
         if (match[1] === "") {
-          if (sep18 === "\n")
-            res += sep18;
+          if (sep19 === "\n")
+            res += sep19;
           else
-            sep18 = "\n";
+            sep19 = "\n";
         } else {
-          res += sep18 + match[1];
-          sep18 = " ";
+          res += sep19 + match[1];
+          sep19 = " ";
         }
         pos = line2.lastIndex;
       }
       const last = /[ \t]*(.*)/sy;
       last.lastIndex = pos;
       match = last.exec(source);
-      return res + sep18 + (match?.[1] ?? "");
+      return res + sep19 + (match?.[1] ?? "");
     }
     function doubleQuotedValue(source, onError) {
       let res = "";
@@ -7073,7 +7073,7 @@ var require_cst_scalar = __commonJS({
 var require_cst_stringify = __commonJS({
   "node_modules/yaml/dist/parse/cst-stringify.js"(exports) {
     "use strict";
-    var stringify6 = (cst) => "type" in cst ? stringifyToken(cst) : stringifyItem(cst);
+    var stringify7 = (cst) => "type" in cst ? stringifyToken(cst) : stringifyItem(cst);
     function stringifyToken(token) {
       switch (token.type) {
         case "block-scalar": {
@@ -7113,20 +7113,20 @@ var require_cst_stringify = __commonJS({
         }
       }
     }
-    function stringifyItem({ start, key: key2, sep: sep18, value: value2 }) {
+    function stringifyItem({ start, key: key2, sep: sep19, value: value2 }) {
       let res = "";
       for (const st of start)
         res += st.source;
       if (key2)
         res += stringifyToken(key2);
-      if (sep18)
-        for (const st of sep18)
+      if (sep19)
+        for (const st of sep19)
           res += st.source;
       if (value2)
         res += stringifyToken(value2);
       return res;
     }
-    exports.stringify = stringify6;
+    exports.stringify = stringify7;
   }
 });
 
@@ -8287,18 +8287,18 @@ var require_parser = __commonJS({
         if (this.type === "map-value-ind") {
           const prev = getPrevProps(this.peek(2));
           const start = getFirstKeyStartProps(prev);
-          let sep18;
+          let sep19;
           if (scalar3.end) {
-            sep18 = scalar3.end;
-            sep18.push(this.sourceToken);
+            sep19 = scalar3.end;
+            sep19.push(this.sourceToken);
             delete scalar3.end;
           } else
-            sep18 = [this.sourceToken];
+            sep19 = [this.sourceToken];
           const map = {
             type: "block-map",
             offset: scalar3.offset,
             indent: scalar3.indent,
-            items: [{ start, key: scalar3, sep: sep18 }]
+            items: [{ start, key: scalar3, sep: sep19 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map;
@@ -8451,15 +8451,15 @@ var require_parser = __commonJS({
                 } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                   const start2 = getFirstKeyStartProps(it.start);
                   const key2 = it.key;
-                  const sep18 = it.sep;
-                  sep18.push(this.sourceToken);
+                  const sep19 = it.sep;
+                  sep19.push(this.sourceToken);
                   delete it.key;
                   delete it.sep;
                   this.stack.push({
                     type: "block-map",
                     offset: this.offset,
                     indent: this.indent,
-                    items: [{ start: start2, key: key2, sep: sep18 }]
+                    items: [{ start: start2, key: key2, sep: sep19 }]
                   });
                 } else if (start.length > 0) {
                   it.sep = it.sep.concat(start, this.sourceToken);
@@ -8653,13 +8653,13 @@ var require_parser = __commonJS({
             const prev = getPrevProps(parent);
             const start = getFirstKeyStartProps(prev);
             fixFlowSeqItems(fc);
-            const sep18 = fc.end.splice(1, fc.end.length);
-            sep18.push(this.sourceToken);
+            const sep19 = fc.end.splice(1, fc.end.length);
+            sep19.push(this.sourceToken);
             const map = {
               type: "block-map",
               offset: fc.offset,
               indent: fc.indent,
-              items: [{ start, key: fc, sep: sep18 }]
+              items: [{ start, key: fc, sep: sep19 }]
             };
             this.onKeyLine = true;
             this.stack[this.stack.length - 1] = map;
@@ -8856,7 +8856,7 @@ var require_public_api = __commonJS({
       }
       return doc.toJS(Object.assign({ reviver: _reviver }, options));
     }
-    function stringify6(value2, replacer, options) {
+    function stringify7(value2, replacer, options) {
       let _replacer = null;
       if (typeof replacer === "function" || Array.isArray(replacer)) {
         _replacer = replacer;
@@ -8881,7 +8881,7 @@ var require_public_api = __commonJS({
     exports.parse = parse2;
     exports.parseAllDocuments = parseAllDocuments;
     exports.parseDocument = parseDocument5;
-    exports.stringify = stringify6;
+    exports.stringify = stringify7;
   }
 });
 
@@ -10012,8 +10012,8 @@ function appendTrailers(message, add) {
   while (end >= 0 && lines[end].trim() === "")
     end--;
   const body = lines.slice(0, end + 1);
-  const sep18 = body.length > 0 ? [""] : [];
-  return [...body, ...sep18, ...additions].join("\n");
+  const sep19 = body.length > 0 ? [""] : [];
+  return [...body, ...sep19, ...additions].join("\n");
 }
 function findTrailerBlock(rawLines) {
   let end = rawLines.length - 1;
@@ -10382,14 +10382,14 @@ var FS = "";
 var REC = "";
 var DEFAULT_COMMIT_LIMIT = 20;
 function runGit(repoRoot2, args2) {
-  return new Promise((resolve42) => {
+  return new Promise((resolve44) => {
     const proc = spawn("git", ["-C", repoRoot2, ...args2], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let out = "";
     proc.stdout.on("data", (d) => out += d);
-    proc.on("close", (code) => resolve42({ ok: code === 0, out, code }));
-    proc.on("error", () => resolve42({ ok: false, out: "", code: null }));
+    proc.on("close", (code) => resolve44({ ok: code === 0, out, code }));
+    proc.on("error", () => resolve44({ ok: false, out: "", code: null }));
   });
 }
 async function resolveRepoRoot(cwd) {
@@ -16478,7 +16478,7 @@ function matches(actual, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 function startCallbackServer(expectedState) {
-  return new Promise((resolve42, reject) => {
+  return new Promise((resolve44, reject) => {
     let settled = false;
     let timer;
     let accept;
@@ -16540,7 +16540,7 @@ function startCallbackServer(expectedState) {
         reject(new Error("Could not open the local sign-in callback."));
         return;
       }
-      resolve42({
+      resolve44({
         port: address.port,
         waitForCallback(timeoutMs = 12e4) {
           if (!settled && !timer)
@@ -16610,7 +16610,7 @@ function buildCliLoginUrl(apiUrl, request2) {
 }
 function openBrowser(url) {
   const [command2, args2] = platform() === "win32" ? ["rundll32.exe", ["url.dll,FileProtocolHandler", url]] : platform() === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-  return new Promise((resolve42, reject) => execFile2(command2, args2, (error) => error ? reject(new Error("Could not open a browser. Open the sign-in URL manually.")) : resolve42()));
+  return new Promise((resolve44, reject) => execFile2(command2, args2, (error) => error ? reject(new Error("Could not open a browser. Open the sign-in URL manually.")) : resolve44()));
 }
 async function cliSignIn(apiUrl, deviceName, browser, timeoutMs = 12e4) {
   apiUrl = serviceOrigin(apiUrl);
@@ -27718,7 +27718,208 @@ var nodeCommand = {
 };
 
 // dist/commands/search.js
-import { basename as basename18, relative as relative20 } from "node:path";
+import { realpathSync as realpathSync21 } from "node:fs";
+import { basename as basename19, join as join36, relative as relative21, resolve as resolve38 } from "node:path";
+
+// dist/search-saved.js
+var import_yaml11 = __toESM(require_dist(), 1);
+import { existsSync as existsSync25, readFileSync as readFileSync15, realpathSync as realpathSync19, statSync as statSync15, writeFileSync as writeFileSync10 } from "node:fs";
+import { basename as basename16, dirname as dirname21, isAbsolute as isAbsolute18, relative as relative19, resolve as resolve36, sep as sep14 } from "node:path";
+var SavedSearchError = class extends Error {
+};
+var MAX_NOTE_BYTES2 = 64 * 1024;
+var MAX_CHECK_BYTES = 4 * 1024 * 1024;
+function searchBoundary(dir) {
+  let repo = null;
+  for (let at = dir; ; at = dirname21(at)) {
+    if (existsSync25(resolve36(at, "home.map.md")))
+      return at;
+    if (repo === null && existsSync25(resolve36(at, ".git")))
+      repo = at;
+    if (dirname21(at) === at)
+      break;
+  }
+  return repo ?? dir;
+}
+function within(boundary, path) {
+  const rel = relative19(boundary, path);
+  return rel === "" || !rel.startsWith("..") && !isAbsolute18(rel);
+}
+function realRoot(path) {
+  try {
+    return realpathSync19(path);
+  } catch {
+    return resolve36(path);
+  }
+}
+function checkInside(boundary, root, what) {
+  if (!within(boundary, realRoot(root))) {
+    throw new SavedSearchError(`${what} ${root} lies outside the Vault this saved search belongs to (${boundary}). A saved search only looks inside its own Vault; save it in a folder that contains what it searches.`);
+  }
+}
+function toPosix(path) {
+  return sep14 === "/" ? path : path.split(sep14).join("/");
+}
+function storedRoot(noteDir, root) {
+  const rel = relative19(noteDir, root);
+  if (isAbsolute18(rel)) {
+    throw new SavedSearchError(`${root} has no path relative to the Note's folder (another drive?). Save the Note on the same drive as the folders it searches.`);
+  }
+  const posix2 = toPosix(rel);
+  return posix2 === "" ? "." : posix2;
+}
+function shellWord(text) {
+  return /^[\w./@:+-]+$/.test(text) ? text : `'${text.replace(/'/g, `'\\''`)}'`;
+}
+function oneLine(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+function describeQuery(search) {
+  const lines = [
+    `- **Query:** \`${oneLine(search.query).replace(/`/g, "'")}\``,
+    `- **Roots:** ${search.roots.map((r) => `\`${r}\``).join(", ")}`,
+    `- **Threads:** ${search.threads ? "included" : "left out"}`
+  ];
+  if (search.limit !== void 0)
+    lines.push(`- **Limit:** ${search.limit}`);
+  return lines.join("\n");
+}
+function existingIsSavedSearch(path, notePath) {
+  let stat2;
+  try {
+    stat2 = statSync15(path);
+  } catch (error) {
+    throw new SavedSearchError(`Cannot check ${notePath} before replacing it: ${error.code ?? String(error)}`);
+  }
+  if (!stat2.isFile())
+    throw new SavedSearchError(`${notePath} is not a file, so --force will not replace it.`);
+  if (stat2.size > MAX_CHECK_BYTES)
+    throw new SavedSearchError(`${notePath} is too large to check before replacing it; choose another name.`);
+  let content;
+  try {
+    content = readFileSync15(path, "utf8");
+  } catch (error) {
+    throw new SavedSearchError(`Cannot read ${notePath} before replacing it: ${error.code ?? String(error)}`);
+  }
+  const block = parseFrontmatter(content)?.search;
+  return !!block && typeof block === "object" && !Array.isArray(block);
+}
+function checkSaveTarget(notePath, force) {
+  const path = resolve36(notePath);
+  if (!path.endsWith(".md"))
+    throw new SavedSearchError(`A saved search is a Note: give a path ending in .md (for example ${notePath}.search.md).`);
+  let dir;
+  try {
+    dir = realpathSync19(dirname21(path));
+    if (!statSync15(dir).isDirectory())
+      throw new Error("not a folder");
+  } catch {
+    throw new SavedSearchError(`No such folder for the saved search: ${dirname21(notePath)}`);
+  }
+  if (existsSync25(path)) {
+    if (!force)
+      throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
+    if (!existingIsSavedSearch(path, notePath)) {
+      throw new SavedSearchError(`${notePath} is a Note that is not a saved search; --force only replaces saved searches. Choose another name.`);
+    }
+  }
+  return { path, dir };
+}
+function writeSavedSearch(notePath, options) {
+  const { path, dir } = checkSaveTarget(notePath, options.force === true);
+  const name = oneLine(options.name);
+  if (!name)
+    throw new SavedSearchError("--name needs text.");
+  const boundary = searchBoundary(dir);
+  for (const root of options.roots)
+    checkInside(boundary, root, "The folder");
+  const search = {
+    query: options.query,
+    roots: options.roots.map((root) => storedRoot(dir, root)),
+    threads: options.threads,
+    ...options.limit !== void 0 ? { limit: options.limit } : {}
+  };
+  const frontmatter = { name };
+  if (options.summary)
+    frontmatter.summary = options.summary;
+  frontmatter.search = search;
+  const body = [
+    `# ${name}`,
+    "",
+    "A saved search. It runs again over what is on disk when opened:",
+    "",
+    describeQuery(search),
+    "",
+    // No machine or working-directory path: the Note reads the same wherever it is opened.
+    `Open it again with \`ideaspaces search --open ${shellWord(basename16(path))}\` from this folder, or give its path from anywhere.`,
+    ""
+  ].join("\n");
+  writeFileSync10(path, `---
+${(0, import_yaml11.stringify)(frontmatter).trimEnd()}
+---
+
+${body}`, { flag: options.force ? "w" : "wx" });
+  return { path, name, summary: options.summary ?? null, search, absoluteRoots: options.roots };
+}
+function readSavedSearch(notePath) {
+  const path = resolve36(notePath);
+  let content;
+  try {
+    const stat2 = statSync15(path);
+    if (!stat2.isFile())
+      throw new SavedSearchError(`Not a file: ${notePath}`);
+    if (stat2.size > MAX_NOTE_BYTES2)
+      throw new SavedSearchError(`${notePath} is too large to be a saved search.`);
+    content = readFileSync15(path, "utf8");
+  } catch (error) {
+    if (error instanceof SavedSearchError)
+      throw error;
+    throw new SavedSearchError(`Cannot read saved search ${notePath}: ${error.code ?? String(error)}`);
+  }
+  const fm = parseFrontmatter(content);
+  if (!fm)
+    throw new SavedSearchError(`${notePath} has no readable frontmatter, so it is not a saved search.`);
+  const raw = fm.search;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new SavedSearchError(`${notePath} has no search: block in its frontmatter, so it is not a saved search.`);
+  }
+  const block = raw;
+  if (typeof block.query !== "string" || !block.query.trim()) {
+    throw new SavedSearchError(`${notePath}: search.query must be the query text.`);
+  }
+  const rootsValue = block.roots ?? ["."];
+  if (!Array.isArray(rootsValue) || rootsValue.length === 0 || !rootsValue.every((r) => typeof r === "string" && r.trim())) {
+    throw new SavedSearchError(`${notePath}: search.roots must be a list of folders relative to the Note.`);
+  }
+  if (block.threads !== void 0 && typeof block.threads !== "boolean") {
+    throw new SavedSearchError(`${notePath}: search.threads must be true or false.`);
+  }
+  if (block.limit !== void 0 && !(Number.isInteger(block.limit) && block.limit > 0)) {
+    throw new SavedSearchError(`${notePath}: search.limit must be a whole number, 1 or more.`);
+  }
+  let dir;
+  try {
+    dir = realpathSync19(dirname21(path));
+  } catch {
+    dir = dirname21(path);
+  }
+  const roots = rootsValue.map((r) => r.trim());
+  const absoluteRoots = roots.map((r) => isAbsolute18(r) ? r : resolve36(dir, r));
+  const boundary = searchBoundary(dir);
+  roots.forEach((stored, i) => checkInside(boundary, absoluteRoots[i], `${notePath}: search.roots entry '${stored}' resolves to`));
+  return {
+    path,
+    name: typeof fm.name === "string" && fm.name.trim() ? fm.name.trim() : relative19(dir, path),
+    summary: typeof fm.summary === "string" ? fm.summary : null,
+    search: {
+      query: block.query.trim(),
+      roots,
+      threads: block.threads === true,
+      ...block.limit !== void 0 ? { limit: block.limit } : {}
+    },
+    absoluteRoots
+  };
+}
 
 // dist/search.js
 var K1 = 1.2;
@@ -28047,8 +28248,8 @@ function acceptsFrontmatter(q, frontmatter) {
 
 // dist/search-corpus.js
 import { execFile as execFile3 } from "node:child_process";
-import { existsSync as existsSync25, lstatSync as lstatSync6, readdirSync as readdirSync3, readFileSync as readFileSync15, realpathSync as realpathSync19, statSync as statSync15 } from "node:fs";
-import { basename as basename16, dirname as dirname21, isAbsolute as isAbsolute18, join as join34, relative as relative19, resolve as resolve36, sep as sep14 } from "node:path";
+import { existsSync as existsSync26, lstatSync as lstatSync6, readdirSync as readdirSync3, readFileSync as readFileSync16, realpathSync as realpathSync20, statSync as statSync16 } from "node:fs";
+import { basename as basename17, dirname as dirname22, isAbsolute as isAbsolute19, join as join34, relative as relative20, resolve as resolve37, sep as sep15 } from "node:path";
 var WALK_SKIP = /* @__PURE__ */ new Set(["node_modules", "_assets", "target", "dist"]);
 var WALK_MAX_DEPTH = 12;
 var WALK_MAX_FILES = 5e4;
@@ -28059,11 +28260,11 @@ function resolveRoots(inputs, cwd = process.cwd()) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const input of inputs) {
-    const abs = isAbsolute18(input) ? input : resolve36(cwd, input);
+    const abs = isAbsolute19(input) ? input : resolve37(cwd, input);
     let root;
     try {
-      root = realpathSync19.native(abs);
-      if (!statSync15(root).isDirectory()) {
+      root = realpathSync20.native(abs);
+      if (!statSync16(root).isDirectory()) {
         out.push({ input, root: null, error: `Not a folder: ${input}` });
         continue;
       }
@@ -28083,8 +28284,8 @@ function commonBase(roots) {
     return "";
   let base = roots[0];
   for (const root of roots.slice(1)) {
-    while (base !== root && !root.startsWith(base.endsWith(sep14) ? base : base + sep14)) {
-      const parent = dirname21(base);
+    while (base !== root && !root.startsWith(base.endsWith(sep15) ? base : base + sep15)) {
+      const parent = dirname22(base);
       if (parent === base)
         return base;
       base = parent;
@@ -28092,8 +28293,8 @@ function commonBase(roots) {
   }
   return base;
 }
-function toPosix(path) {
-  return sep14 === "/" ? path : path.split(sep14).join("/");
+function toPosix2(path) {
+  return sep15 === "/" ? path : path.split(sep15).join("/");
 }
 function threadSlugIndex(parts) {
   return parts.lastIndexOf("_threads");
@@ -28155,9 +28356,9 @@ function walkMarkdown2(root) {
           truncated = true;
           return;
         }
-        files.push(toPosix(relative19(root, abs)));
+        files.push(toPosix2(relative20(root, abs)));
       } else if (entry.isDirectory() && depth2 < WALK_MAX_DEPTH && !WALK_SKIP.has(entry.name)) {
-        if (existsSync25(join34(abs, ".git")))
+        if (existsSync26(join34(abs, ".git")))
           continue;
         visit(abs, depth2 + 1);
       }
@@ -28167,7 +28368,7 @@ function walkMarkdown2(root) {
   return { files, truncated, unreadable };
 }
 function ownThreadFiles(root, warnings) {
-  if (!existsSync25(join34(root, "_agent", "agreement.md")))
+  if (!existsSync26(join34(root, "_agent", "agreement.md")))
     return [];
   const base = join34(root, "_threads");
   let stat2;
@@ -28221,7 +28422,7 @@ async function listRoot(root, threads) {
   } else {
     return { root, listing: "git", files: [], error: `Could not list files: ${listed.message}` };
   }
-  const files = new Set(paths.map(toPosix).filter((p) => p.endsWith(".md") && (threads || !isThreadPath(p))));
+  const files = new Set(paths.map(toPosix2).filter((p) => p.endsWith(".md") && (threads || !isThreadPath(p))));
   if (threads)
     for (const p of ownThreadFiles(root, warnings))
       files.add(p);
@@ -28256,29 +28457,29 @@ async function listRoots(roots, threads) {
   }
   return listings;
 }
-function within(root, path) {
-  return path === root || path.startsWith(root.endsWith(sep14) ? root : root + sep14);
+function within2(root, path) {
+  return path === root || path.startsWith(root.endsWith(sep15) ? root : root + sep15);
 }
 function* readCorpus(files, withRoot, readCounts, outsideLinks) {
   const folderInside = /* @__PURE__ */ new Map();
   for (const { root, path } of files) {
     const abs = join34(root, path);
     try {
-      const folder = dirname21(abs);
+      const folder = dirname22(abs);
       const key2 = `${root}\0${folder}`;
       let inside = folderInside.get(key2);
       if (inside === void 0) {
-        inside = within(root, realpathSync19(folder));
+        inside = within2(root, realpathSync20(folder));
         folderInside.set(key2, inside);
       }
-      if (!inside || lstatSync6(abs).isSymbolicLink() && !within(root, realpathSync19(abs))) {
+      if (!inside || lstatSync6(abs).isSymbolicLink() && !within2(root, realpathSync20(abs))) {
         outsideLinks?.set(root, (outsideLinks.get(root) ?? 0) + 1);
         continue;
       }
-      const stat2 = statSync15(abs);
+      const stat2 = statSync16(abs);
       if (!stat2.isFile() || stat2.size > MAX_DOC_BYTES)
         continue;
-      const content = readFileSync15(abs, "utf-8");
+      const content = readFileSync16(abs, "utf-8");
       readCounts?.set(root, (readCounts.get(root) ?? 0) + 1);
       yield withRoot ? { root, path, content } : { path, content };
     } catch {
@@ -28288,15 +28489,15 @@ function* readCorpus(files, withRoot, readCounts, outsideLinks) {
 }
 function modifiedAt(root, path) {
   try {
-    return statSync15(join34(root, path)).mtime.toISOString();
+    return statSync16(join34(root, path)).mtime.toISOString();
   } catch {
     return null;
   }
 }
 
 // dist/search-map.js
-import { readFileSync as readFileSync16 } from "node:fs";
-import { basename as basename17, extname as extname2, join as join35 } from "node:path";
+import { readFileSync as readFileSync17 } from "node:fs";
+import { basename as basename18, extname as extname2, join as join35 } from "node:path";
 function safeHead(repoRoot2) {
   try {
     return headSha(repoRoot2);
@@ -28307,7 +28508,7 @@ function safeHead(repoRoot2) {
 function member(path, source) {
   const frontmatter = parseFrontmatter(source);
   const rawName = frontmatter?.name;
-  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename17(path, extname2(path));
+  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename18(path, extname2(path));
   const summary = summarizeMarkdown(source);
   return {
     root: 0,
@@ -28319,7 +28520,7 @@ function member(path, source) {
 function projectSearchMap(repoRoot2, headBefore, hitPaths, dependencies = {}) {
   const headSha2 = dependencies.headSha ?? safeHead;
   const tracked = dependencies.trackedAt ?? ((root) => trackedAt("HEAD", root));
-  const readSource = dependencies.readSource ?? ((root, path) => readFileSync16(join35(root, path), "utf-8"));
+  const readSource = dependencies.readSource ?? ((root, path) => readFileSync17(join35(root, path), "utf-8"));
   let members = null;
   let readIssue;
   try {
@@ -28378,7 +28579,7 @@ function searchMapLine(projection) {
 }
 
 // dist/commands/search.js
-var USAGE10 = "ideaspaces search <query> [--root <dir>]... [--threads] [--limit N] [--json]";
+var USAGE10 = "ideaspaces search <query> [--root <dir>]... [--threads] [--limit N] [--save <note.md> [--name T] [--summary S] [--force]] [--json]\n       ideaspaces search --open <note.md> [--limit N] [--json]";
 var DEFAULT_LIMIT2 = 20;
 var MAX_ROOTS = 256;
 var QUERY_HELP = `Query:
@@ -28401,9 +28602,27 @@ Roots:
                    given twice is searched once. Without --root, the
                    current repository.
   --threads        include local Threads: each root's own _threads/ READMEs
-                   and posts. Implied by kind:thread, kind:post or kind:readme.`;
+                   and posts. Implied by kind:thread, kind:post or kind:readme.
+
+Saved searches:
+  --save <note.md> write this search as a Note: the query, its roots
+                   (relative to the Note's folder) and the Threads setting
+                   go in its frontmatter under search:. --name and
+                   --summary title it; --force replaces an existing saved
+                   search (never an ordinary Note). Roots on another drive
+                   than the Note are refused.
+                   Without --root it saves the current repository. A
+                   search with --save (and every --open) answers in the
+                   --root form: roots[] and per-hit root, no Map.
+  --open <note.md> run a saved search again over what is on disk now.
+                   Only --limit and --json may be added. The Note is an
+                   ordinary Note: commit it, link it, or name it in a Map.
+                   Its roots must lie inside its own Vault (the folder
+                   holding home.map.md above it, else its Git repository):
+                   a Note naming / or a folder elsewhere is refused, on
+                   --open and on --save. Answers in the --root form.`;
 function stem(path) {
-  return basename18(path).replace(/\.md$/i, "");
+  return basename19(path).replace(/\.md$/i, "");
 }
 function stringField2(fm, key2) {
   const value2 = fm?.[key2];
@@ -28447,6 +28666,29 @@ function parseLimit2(flags2) {
     return "--limit takes a whole number of results, 1 or more.";
   return raw;
 }
+function parseSave(flags2) {
+  if (flags2.save === void 0) {
+    if (flags2.name !== void 0 || flags2.summary !== void 0 || flags2.force !== void 0) {
+      return "--name, --summary and --force go with --save <note.md>.";
+    }
+    return null;
+  }
+  if (typeof flags2.save !== "string" || !flags2.save.trim())
+    return "--save needs a Note path, for example --save frictions.search.md.";
+  for (const key2 of ["name", "summary"]) {
+    if (flags2[key2] !== void 0 && (typeof flags2[key2] !== "string" || !flags2[key2].trim()))
+      return `--${key2} needs text.`;
+  }
+  if (flags2.force !== void 0 && flags2.force !== true) {
+    return "--force does not take a value; put it after the query or before another --flag.";
+  }
+  return {
+    path: flags2.save,
+    name: typeof flags2.name === "string" ? flags2.name.trim() : null,
+    summary: typeof flags2.summary === "string" ? flags2.summary.trim() : null,
+    force: flags2.force === true
+  };
+}
 function rootFlags(flags2) {
   const value2 = flags2.root;
   if (value2 === void 0)
@@ -28454,11 +28696,18 @@ function rootFlags(flags2) {
   const list5 = Array.isArray(value2) ? value2 : [value2];
   return list5.filter((v) => typeof v === "string");
 }
-function selectFiles(listings, base, query) {
+function canonicalFile(path) {
+  try {
+    return realpathSync21.native(path);
+  } catch {
+    return path;
+  }
+}
+function selectFiles(listings, base, query, skip) {
   const files = [];
   const filtering = query.inPaths.length > 0 || query.excludeIn.length > 0 || query.kinds.length > 0 || query.excludeKinds.length > 0;
   for (const listing of listings) {
-    const prefix = toPosix(relative20(base, listing.root));
+    const prefix = toPosix2(relative21(base, listing.root));
     for (const path of listing.files) {
       if (filtering) {
         const locations = [fold(path)];
@@ -28467,6 +28716,8 @@ function selectFiles(listings, base, query) {
         if (!acceptsPath(query, locations, hitKind(path)))
           continue;
       }
+      if (skip !== void 0 && basename19(path) === basename19(skip) && canonicalFile(join36(listing.root, path)) === skip)
+        continue;
       files.push({ root: listing.root, path });
     }
   }
@@ -28517,11 +28768,45 @@ var searchCommand = {
     "ideaspaces search onboarding tag:desktop --threads",
     "ideaspaces search kind:post author:Scout   # every post by Scout, newest first",
     "ideaspaces search loopback --root ~/Vault --root ~/Vault/agents/scout --json",
-    "ideaspaces search decision -in:code --root . --threads"
+    "ideaspaces search decision -in:code --root . --threads",
+    'ideaspaces search desktop tag:friction --threads --root . --save frictions.search.md --name "Desktop frictions"',
+    "ideaspaces search --open frictions.search.md --json"
   ],
   async run(args2, flags2, global3) {
     const output = createOutput(global3);
-    const raw = args2.join(" ").trim();
+    let saved = null;
+    if (flags2.open !== void 0) {
+      if (typeof flags2.open !== "string" || !flags2.open.trim()) {
+        output.error("--open needs a saved-search Note, for example --open frictions.search.md.");
+        return 1;
+      }
+      const extra = ["root", "save", "threads", "name", "summary", "force"].filter((key2) => flags2[key2] !== void 0);
+      if (args2.length > 0 || extra.length > 0) {
+        const given = [...args2.length > 0 ? ["a query"] : [], ...extra.map((key2) => `--${key2}`)].join(", ");
+        output.error(`--open runs the Note's own query, roots and Threads setting, so it takes no ${given}; add only --limit or --json. To change it, run the search and --save a new Note.`);
+        return 1;
+      }
+      try {
+        saved = readSavedSearch(flags2.open);
+      } catch (error) {
+        output.error(error instanceof SavedSearchError ? error.message : String(error));
+        return 1;
+      }
+    }
+    const save = parseSave(flags2);
+    if (typeof save === "string") {
+      output.error(save);
+      return 1;
+    }
+    if (save) {
+      try {
+        checkSaveTarget(save.path, save.force);
+      } catch (error) {
+        output.error(error instanceof SavedSearchError ? error.message : String(error));
+        return 1;
+      }
+    }
+    const raw = saved ? saved.search.query : args2.join(" ").trim();
     if (!raw) {
       output.error(`Usage: ${USAGE10}
 
@@ -28543,16 +28828,32 @@ ${QUERY_HELP}`);
       output.error("--threads does not take a value.");
       return 1;
     }
-    const limit = parseLimit2(flags2);
-    if (typeof limit === "string") {
-      output.error(limit);
+    const parsedLimit = parseLimit2(flags2);
+    if (typeof parsedLimit === "string") {
+      output.error(parsedLimit);
       return 1;
     }
-    const threads = flags2.threads === true || wantsThreads(query);
+    const limit = flags2.limit === void 0 && saved?.search.limit !== void 0 ? saved.search.limit : parsedLimit;
+    const threads = (saved ? saved.search.threads : flags2.threads === true) || wantsThreads(query);
     const listAll = query.terms.length === 0;
-    const roots = rootFlags(flags2);
+    let roots = saved ? saved.absoluteRoots : rootFlags(flags2);
+    if (roots === null && save) {
+      try {
+        roots = [repoRoot()];
+      } catch (err) {
+        output.error(`${err instanceof GitError ? err.message : String(err)}. Run inside a repository, or name folders with --root <dir>, to save a search.`);
+        return 1;
+      }
+    }
     if (roots !== null) {
-      return searchRoots(roots, query, { limit, threads, listAll, json: global3.json }, output);
+      return searchRoots(roots, query, {
+        limit,
+        threads,
+        listAll,
+        json: global3.json,
+        saved,
+        save: save ? { ...save, limit: flags2.limit === void 0 ? void 0 : parsedLimit } : null
+      }, output);
     }
     let root;
     try {
@@ -28638,7 +28939,8 @@ async function searchRoots(inputs, query, options, output) {
   const usable = requests.filter((r) => r.root !== null).map((r) => r.root);
   const listings = await listRoots(usable, options.threads);
   const base = commonBase(usable);
-  const files = selectFiles(listings.filter((l) => !l.error), base, query);
+  const ownNote = options.saved ? canonicalFile(options.saved.path) : void 0;
+  const files = selectFiles(listings.filter((l) => !l.error), base, query, ownNote);
   const readCounts = /* @__PURE__ */ new Map();
   const outsideLinks = /* @__PURE__ */ new Map();
   const outcome = rank(files, query, options.limit, true, readCounts, outsideLinks);
@@ -28675,15 +28977,39 @@ async function searchRoots(inputs, query, options, output) {
     results,
     roots: rootRows
   };
+  const savedLine = [];
+  if (options.saved) {
+    data.saved = { path: options.saved.path, name: options.saved.name, summary: options.saved.summary, search: options.saved.search };
+    savedLine.push(`Saved search: ${options.saved.name} (${options.saved.path})`);
+  }
   if (usable.length === 0 || failed.length === rootRows.length) {
     const reasons = failed.map((row) => `  ${row.root}: ${row.error}`).join("\n");
-    const hint = "Check each path exists and is a folder you can read; a relative --root is taken from the current directory.";
+    const hint = options.saved ? "The saved search names these folders relative to its Note; check they exist beside it." : "Check each path exists and is a folder you can read; a relative --root is taken from the current directory.";
     if (options.json)
       output.result(data, "");
     output.error(`No root could be searched:
 ${reasons}
 ${hint}`);
     return 1;
+  }
+  if (options.save) {
+    const asked = requests.map((request2) => request2.root ?? resolve38(request2.input));
+    try {
+      const note = writeSavedSearch(options.save.path, {
+        name: options.save.name ?? `Search: ${query.raw}`,
+        summary: options.save.summary ?? void 0,
+        query: query.raw,
+        roots: asked,
+        threads: options.threads,
+        limit: options.save.limit,
+        force: options.save.force
+      });
+      data.saved = { path: note.path, name: note.name, summary: note.summary, search: note.search };
+      savedLine.push(`Saved as ${note.path} \u2014 open it again with: ideaspaces search --open ${shellWord(options.save.path)}`);
+    } catch (error) {
+      output.error(error instanceof SavedSearchError ? error.message : `Could not save the search: ${String(error)}`);
+      return 1;
+    }
   }
   const notes = rootRows.flatMap((row) => [
     ..."error" in row && row.error ? [`Could not search ${row.root}: ${row.error}`] : [],
@@ -28694,14 +29020,15 @@ ${hint}`);
       output.error(`Warning: ${row.root}: ${warning}`);
   }
   const footer = `${files.length} files in ${rootRows.length - failed.length} root${rootRows.length - failed.length === 1 ? "" : "s"}` + (notes.length ? `
-${notes.join("\n")}` : "");
+${notes.join("\n")}` : "") + (savedLine.length ? `
+${savedLine.join("\n")}` : "");
   if (results.length === 0) {
     output.result(data, `No matches for "${query.raw}".
 ${footer}`);
     return 0;
   }
   const lines = results.map((r) => {
-    const where = toPosix(relative20(base, `${r.root}/${r.path}`)) || r.path;
+    const where = toPosix2(relative21(base, `${r.root}/${r.path}`)) || r.path;
     const head2 = `${where}${r.line ? `:${r.line}` : ""}  ${r.title}`;
     return r.snippet ? `${head2}
     ${r.snippet}` : head2;
@@ -28713,23 +29040,23 @@ ${footer}`);
 }
 
 // dist/commands/ls.js
-import { statSync as statSync16 } from "node:fs";
-import { resolve as resolve37 } from "node:path";
+import { statSync as statSync17 } from "node:fs";
+import { resolve as resolve39 } from "node:path";
 
 // dist/file-listing.js
-import { existsSync as existsSync26, readdirSync as readdirSync4 } from "node:fs";
-import { join as join36, relative as relative21 } from "node:path";
+import { existsSync as existsSync27, readdirSync as readdirSync4 } from "node:fs";
+import { join as join37, relative as relative22 } from "node:path";
 var EXCLUDES = new Set(AUTOCOMPLETE_EXCLUDES);
 var DEFAULT_MAX_SCAN = 5e3;
 var DEFAULT_MAX_DEPTH = 10;
 function folderKind(abs) {
-  if (existsSync26(join36(abs, "_agent")))
+  if (existsSync27(join37(abs, "_agent")))
     return "ideaspace-repo";
-  if (existsSync26(join36(abs, ".git")))
+  if (existsSync27(join37(abs, ".git")))
     return "code-repo";
   return "folder";
 }
-function toPosix2(rel) {
+function toPosix3(rel) {
   return rel.split(/[\\/]/).join("/");
 }
 function listEntries(root, opts = {}) {
@@ -28751,8 +29078,8 @@ function listEntries(root, opts = {}) {
         continue;
       if (entries.length >= maxScan)
         return { entries, truncated: true };
-      const childAbs = join36(abs, dirent.name);
-      const path = toPosix2(relative21(root, childAbs));
+      const childAbs = join37(abs, dirent.name);
+      const path = toPosix3(relative22(root, childAbs));
       if (dirent.isDirectory()) {
         entries.push({ path, name: dirent.name, kind: folderKind(childAbs) });
         if (depth2 + 1 <= maxDepth)
@@ -28809,9 +29136,9 @@ var lsCommand = {
   ],
   async run(args2, flags2, global3) {
     const output = createOutput(global3);
-    const root = resolve37(args2[0] ?? ".");
+    const root = resolve39(args2[0] ?? ".");
     try {
-      if (!statSync16(root).isDirectory()) {
+      if (!statSync17(root).isDirectory()) {
         output.error(`Not a directory: ${root}`);
         return 1;
       }
@@ -29804,7 +30131,7 @@ var spacesCommand = {
 
 // dist/commands/inbox.js
 import { randomUUID as randomUUID11 } from "node:crypto";
-import { readFileSync as readFileSync17, statSync as statSync17 } from "node:fs";
+import { readFileSync as readFileSync18, statSync as statSync18 } from "node:fs";
 var USAGE13 = "ideaspaces threads <list|posts|read|send|reply|add|close|rename|expand> ...";
 var LIST_USAGE2 = "ideaspaces threads list [--space <space_node_id>] [--new|--since <position>] [--kind <message|reframe|request>] [--depth <name|summary|full>]";
 var POSTS_USAGE = "ideaspaces threads posts [x_thread_id] [--space <space_node_id>] [--scope <inbox|followed>] [--limit <number>] [--since <position|note_node_id|ISO date>] [--depth <name|summary>] [--order <newer|older>] [--cursor <token>]";
@@ -29873,10 +30200,10 @@ function loadMapSelection(flags2, output) {
     return null;
   }
   try {
-    if (statSync17(path).size > MAX_SELECTION_FILE_BYTES) {
+    if (statSync18(path).size > MAX_SELECTION_FILE_BYTES) {
       throw new Error(`selection file exceeds ${MAX_SELECTION_FILE_BYTES} bytes`);
     }
-    const raw = JSON.parse(readFileSync17(path, "utf8"));
+    const raw = JSON.parse(readFileSync18(path, "utf8"));
     return parseExchangeMapSelection(raw);
   } catch (error) {
     output.error(`Could not load --map selection: ${error instanceof Error ? error.message : String(error)}`);
@@ -30942,21 +31269,21 @@ var inboxCommand = {
 };
 
 // dist/commands/threads.js
-import { existsSync as existsSync28, lstatSync as lstatSync8, readFileSync as readFileSync19, realpathSync as realpathSync21 } from "node:fs";
+import { existsSync as existsSync29, lstatSync as lstatSync8, readFileSync as readFileSync20, realpathSync as realpathSync23 } from "node:fs";
 import { spawnSync as spawnSync16 } from "node:child_process";
-import { dirname as dirname22, isAbsolute as isAbsolute20, join as join38, relative as relative22, resolve as resolve38, sep as sep15 } from "node:path";
+import { dirname as dirname23, isAbsolute as isAbsolute21, join as join39, relative as relative23, resolve as resolve40, sep as sep16 } from "node:path";
 
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync15 } from "node:child_process";
-import { existsSync as existsSync27, lstatSync as lstatSync7, readFileSync as readFileSync18, realpathSync as realpathSync20 } from "node:fs";
-import { basename as basename19, isAbsolute as isAbsolute19, join as join37 } from "node:path";
+import { existsSync as existsSync28, lstatSync as lstatSync7, readFileSync as readFileSync19, realpathSync as realpathSync22 } from "node:fs";
+import { basename as basename20, isAbsolute as isAbsolute20, join as join38 } from "node:path";
 function physical(path) {
-  if (!isAbsolute19(path))
+  if (!isAbsolute20(path))
     throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
   try {
     const entry = lstatSync7(path);
     if (!entry.isSymbolicLink() && entry.isDirectory())
-      return realpathSync20.native(path);
+      return realpathSync22.native(path);
   } catch {
   }
   throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
@@ -31029,7 +31356,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   }
   const thread = loadThread(directory);
   const pinned = readPinnedThreadMember(checkout, pin, position);
-  const parsed2 = parseThreadPost(pinned, basename19(position));
+  const parsed2 = parseThreadPost(pinned, basename20(position));
   if (parsed2.status !== "valid")
     throw new Error("Selected authored Thread post is invalid.");
   const prefix = `_threads/${slug}/`;
@@ -31043,21 +31370,21 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   const verifyWrite = (live, parents, supersedes) => {
     if (live.path !== directory || live.slug !== slug || live.closed)
       throw new Error("Selected live Thread changed or closed; refusing append.");
-    const selectedPath = join37(directory, basename19(position));
+    const selectedPath = join38(directory, basename20(position));
     const safeEqual = (path, content) => {
-      if (!existsSync27(path))
+      if (!existsSync28(path))
         return false;
       const entry = lstatSync7(path);
-      return !entry.isSymbolicLink() && entry.isFile() && readFileSync18(path, "utf8") === content;
+      return !entry.isSymbolicLink() && entry.isFile() && readFileSync19(path, "utf8") === content;
     };
-    if (!safeEqual(join37(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join37(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename19(position))) {
+    if (!safeEqual(join38(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join38(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename20(position))) {
       throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
     }
     if (!parents.length || new Set(parents).size !== parents.length)
       throw new Error("Selected cross-Space post requires distinct explicit --reply-to ids; no implicit HEAD parent.");
     for (const id of [...parents, ...supersedes ? [supersedes] : []]) {
       const parent = live.posts.find((post) => post.id === id);
-      if (!parent || !safeEqual(join37(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
+      if (!parent || !safeEqual(join38(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
         throw new Error(`Selected parent or superseded post ${id} is missing or changed since the authored pin.`);
       }
     }
@@ -31155,7 +31482,7 @@ function threadSection(markdown, heading) {
 function threadFrame(thread) {
   let agreement = "";
   try {
-    agreement = readFileSync19(join38(thread.path, "_agent", "agreement.md"), "utf8");
+    agreement = readFileSync20(join39(thread.path, "_agent", "agreement.md"), "utf8");
   } catch (error) {
     if (error.code !== "ENOENT")
       throw error;
@@ -31251,22 +31578,22 @@ Marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")
   ].join("\n");
 }
 function selectedWriterName() {
-  const cwd = realpathSync21(process.cwd());
+  const cwd = realpathSync23(process.cwd());
   const prefix = spawnSync16(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
-  const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname22(at2), cwd) : cwd;
+  const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname23(at2), cwd) : cwd;
   let at = cwd;
   while (true) {
-    const pathFromRoot = relative22(boundary, at);
-    const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep15}`) || isAbsolute20(pathFromRoot);
+    const pathFromRoot = relative23(boundary, at);
+    const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep16}`) || isAbsolute21(pathFromRoot);
     if (outsideRoot)
       break;
-    const agentDir = join38(at, "_agent");
-    const agreement = join38(agentDir, "agreement.md");
-    if (existsSync28(agentDir) || existsSync28(agreement)) {
-      if (!existsSync28(agentDir) || lstatSync8(agentDir).isSymbolicLink() || !lstatSync8(agentDir).isDirectory() || !existsSync28(agreement) || lstatSync8(agreement).isSymbolicLink() || !lstatSync8(agreement).isFile()) {
+    const agentDir = join39(at, "_agent");
+    const agreement = join39(agentDir, "agreement.md");
+    if (existsSync29(agentDir) || existsSync29(agreement)) {
+      if (!existsSync29(agentDir) || lstatSync8(agentDir).isSymbolicLink() || !lstatSync8(agentDir).isDirectory() || !existsSync29(agreement) || lstatSync8(agreement).isSymbolicLink() || !lstatSync8(agreement).isFile()) {
         throw new Error("Caller POV needs a regular _agent/agreement.md with a name to author a selected Thread post.");
       }
-      const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
+      const fm = parseFrontmatter(readFileSync20(agreement, "utf8"));
       if (typeof fm?.name !== "string" || !fm.name.trim() || fm.agreement !== void 0 && (typeof fm.agreement !== "string" || !fm.agreement.startsWith("agent:repo:"))) {
         throw new Error("Caller POV _agent/agreement.md needs an agent name (and agent:repo: kind if declared) to author a selected Thread post.");
       }
@@ -31277,25 +31604,25 @@ function selectedWriterName() {
     }
     if (at === boundary)
       break;
-    at = dirname22(at);
+    at = dirname23(at);
   }
   throw new Error("Selected Thread posts require the caller's own _agent/agreement.md with a name; no git-author fallback.");
 }
 function writerName(explicit) {
   if (explicit)
     return explicit;
-  let at = resolve38(process.cwd());
+  let at = resolve40(process.cwd());
   while (true) {
-    const agreement = join38(at, "_agent", "agreement.md");
-    if (existsSync28(agreement)) {
-      const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
+    const agreement = join39(at, "_agent", "agreement.md");
+    if (existsSync29(agreement)) {
+      const fm = parseFrontmatter(readFileSync20(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
       }
     }
-    if (dirname22(at) === at)
+    if (dirname23(at) === at)
       break;
-    at = dirname22(at);
+    at = dirname23(at);
   }
   const result = spawnSync16(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim())
@@ -31387,11 +31714,11 @@ var threadsCommand = {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0]))
           throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
         const matches2 = [...new Map(rest.slice(1).flatMap((root) => {
-          if (!existsSync28(resolve38(root)))
+          if (!existsSync29(resolve40(root)))
             throw new Error(`Space root not found: ${root}. Supply an existing folder with _agent/agreement.md.`);
-          if (lstatSync8(resolve38(root)).isSymbolicLink())
+          if (lstatSync8(resolve40(root)).isSymbolicLink())
             throw new Error(`Refusing symlink Space root: ${root}`);
-          const requested = realpathSync21(resolve38(root));
+          const requested = realpathSync23(resolve40(root));
           if (threadBase(requested) !== requested)
             throw new Error(`Not a Space root: ${root}. Supply the folder with _agent/agreement.md.`);
           return listLocal(requested);
@@ -31418,7 +31745,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
             throw new Error("Hosted filters cannot be combined with a local directory.");
           return hostedThreadsCommand.run(args2, flags2, global3);
         }
-        const cwd = rest[0] ? resolve38(rest[0]) : process.cwd();
+        const cwd = rest[0] ? resolve40(rest[0]) : process.cwd();
         let local = [];
         let localThreads = [];
         let localWarnings = 0;
@@ -31733,7 +32060,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
         } : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
-        const rawPost = postId2 && posts3.length ? readFileSync19(join38(thread.path, posts3[0].path), "utf8") : void 0;
+        const rawPost = postId2 && posts3.length ? readFileSync20(join39(thread.path, posts3[0].path), "utf8") : void 0;
         let humanText;
         if (pinned && effectiveRung === "full") {
           humanText = pinned;
@@ -32067,13 +32394,13 @@ var unfollowCommand = {
 };
 
 // dist/auth/session-state.js
-import { existsSync as existsSync29, unlinkSync as unlinkSync3 } from "node:fs";
+import { existsSync as existsSync30, unlinkSync as unlinkSync3 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join39 } from "node:path";
-var SESSION_FILE = join39(homedir4(), ".ideaspaces", "session.json");
+import { join as join40 } from "node:path";
+var SESSION_FILE = join40(homedir4(), ".ideaspaces", "session.json");
 function clearSessionState() {
   try {
-    if (existsSync29(SESSION_FILE))
+    if (existsSync30(SESSION_FILE))
       unlinkSync3(SESSION_FILE);
   } catch {
   }
@@ -32105,8 +32432,8 @@ var logoutCommand = {
 };
 
 // dist/pi/pi-status.js
-import { existsSync as existsSync31, readFileSync as readFileSync21 } from "node:fs";
-import { basename as basename20, join as join41 } from "node:path";
+import { existsSync as existsSync32, readFileSync as readFileSync22 } from "node:fs";
+import { basename as basename21, join as join42 } from "node:path";
 
 // dist/local/probe-binary.js
 import { spawnSync as spawnSync17 } from "node:child_process";
@@ -32123,17 +32450,17 @@ function probeBinary(bin, env = process.env) {
 }
 
 // dist/pi/pi-auth.js
-import { chmodSync, existsSync as existsSync30, mkdirSync as mkdirSync10, readFileSync as readFileSync20, writeFileSync as writeFileSync10 } from "node:fs";
+import { chmodSync, existsSync as existsSync31, mkdirSync as mkdirSync10, readFileSync as readFileSync21, writeFileSync as writeFileSync11 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
-import { dirname as dirname23, join as join40 } from "node:path";
+import { dirname as dirname24, join as join41 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
   const override = env.PI_CODING_AGENT_DIR?.trim();
   if (override)
-    return override.startsWith("~") ? join40(homedir5(), override.slice(1)) : override;
-  return join40(homedir5(), ".pi", "agent");
+    return override.startsWith("~") ? join41(homedir5(), override.slice(1)) : override;
+  return join41(homedir5(), ".pi", "agent");
 }
 function resolvePiAuthPath(env = process.env) {
-  return join40(resolvePiAgentDir(env), "auth.json");
+  return join41(resolvePiAgentDir(env), "auth.json");
 }
 function parseAuth(raw) {
   if (!raw || !raw.trim())
@@ -32156,15 +32483,15 @@ function removeProvider(current, provider) {
   return { next, removed: true };
 }
 function readAuthFile(path) {
-  if (!existsSync30(path))
+  if (!existsSync31(path))
     return {};
-  return parseAuth(readFileSync20(path, "utf8"));
+  return parseAuth(readFileSync21(path, "utf8"));
 }
 function writeAuthFile(path, auth) {
-  const dir = dirname23(path);
-  if (!existsSync30(dir))
+  const dir = dirname24(path);
+  if (!existsSync31(dir))
     mkdirSync10(dir, { recursive: true, mode: 448 });
-  writeFileSync10(path, `${JSON.stringify(auth, null, 2)}
+  writeFileSync11(path, `${JSON.stringify(auth, null, 2)}
 `, { encoding: "utf8", mode: 384 });
   chmodSync(path, 384);
 }
@@ -32188,23 +32515,23 @@ function derivePiStatus(input) {
   };
 }
 function resolveExtension(path) {
-  const name = basename20(path.replace(/[/\\]+$/, "")) || path;
+  const name = basename21(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
-  if (!existsSync31(path))
+  if (!existsSync32(path))
     return check(false);
   if (/\.[cm]?[jt]s$/.test(path))
     return check(true);
-  const pkgPath = join41(path, "package.json");
-  if (existsSync31(pkgPath)) {
+  const pkgPath = join42(path, "package.json");
+  if (existsSync32(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync21(pkgPath, "utf8"));
+      const pkg = JSON.parse(readFileSync22(pkgPath, "utf8"));
       const exts = pkg.pi?.extensions;
       if (Array.isArray(exts) && exts.length > 0)
         return check(true);
     } catch {
     }
   }
-  return check(existsSync31(join41(path, "index.ts")) || existsSync31(join41(path, "index.js")));
+  return check(existsSync32(join42(path, "index.ts")) || existsSync32(join42(path, "index.js")));
 }
 function formatHuman3(s) {
   const out = [];
@@ -32330,7 +32657,7 @@ function trimModel(m) {
 var QUERY_ID = "__models";
 var TIMEOUT_MS = 2e4;
 function queryPiModels(piBin) {
-  return new Promise((resolve42, reject) => {
+  return new Promise((resolve44, reject) => {
     const pi = spawn2(piBin, ["--mode", "rpc", "--no-extensions"], {
       cwd: process.cwd(),
       stdio: ["pipe", "pipe", "pipe"]
@@ -32376,7 +32703,7 @@ function queryPiModels(piBin) {
         }
         const data = msg.data;
         const models = (data?.models ?? []).map(trimModel);
-        finish2(() => resolve42({ models }));
+        finish2(() => resolve44({ models }));
       }
     });
     try {
@@ -32415,7 +32742,7 @@ var piModelsCommand = {
 };
 
 // dist/pi/local-conversation-ops.js
-import { join as join44 } from "node:path";
+import { join as join45 } from "node:path";
 
 // dist/local/observed-event.js
 function observedEvent(event, options) {
@@ -32454,8 +32781,8 @@ function joinLocalOrientation(...parts) {
 }
 
 // dist/local/workspace-files.js
-import { existsSync as existsSync32, lstatSync as lstatSync9, statSync as statSync18, realpathSync as realpathSync22 } from "node:fs";
-import { dirname as dirname24, isAbsolute as isAbsolute21, relative as relative23, resolve as resolve39, sep as sep16 } from "node:path";
+import { existsSync as existsSync33, lstatSync as lstatSync9, statSync as statSync19, realpathSync as realpathSync24 } from "node:fs";
+import { dirname as dirname25, isAbsolute as isAbsolute22, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
 
 // node_modules/@ideaspaces/sdk/dist/keeper-events.js
 function emptyWorkspaceSurface() {
@@ -32911,7 +33238,7 @@ function toolJson(tool) {
 function observedThread(path) {
   try {
     const thread = loadThread(path);
-    if (dirname24(thread.path).split(sep16).at(-1) !== "_threads")
+    if (dirname25(thread.path).split(sep17).at(-1) !== "_threads")
       return void 0;
     return thread.thread_id ? { thread_id: thread.thread_id, path: thread.path } : void 0;
   } catch {
@@ -32919,8 +33246,8 @@ function observedThread(path) {
   }
 }
 function threadForFile(file2, observe = observedThread) {
-  const parent = dirname24(file2);
-  const directory = dirname24(parent).endsWith(`${sep16}_threads`) ? parent : parent.endsWith(`${sep16}_agent`) && dirname24(dirname24(parent)).endsWith(`${sep16}_threads`) ? dirname24(parent) : null;
+  const parent = dirname25(file2);
+  const directory = dirname25(parent).endsWith(`${sep17}_threads`) ? parent : parent.endsWith(`${sep17}_agent`) && dirname25(dirname25(parent)).endsWith(`${sep17}_threads`) ? dirname25(parent) : null;
   return directory ? observe(directory) : void 0;
 }
 function writtenThreadPost(tool, cwd) {
@@ -32931,13 +33258,13 @@ function writtenThreadPost(tool, cwd) {
     if (!post || typeof post !== "object")
       return void 0;
     const { id, path, kind } = post;
-    if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) || typeof path !== "string" || !isAbsolute21(path) || typeof kind !== "string" || !THREAD_POST_KINDS.has(kind) || typeof tool.args.path !== "string" || !tool.args.path.trim())
+    if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) || typeof path !== "string" || !isAbsolute22(path) || typeof kind !== "string" || !THREAD_POST_KINDS.has(kind) || typeof tool.args.path !== "string" || !tool.args.path.trim())
       return void 0;
     const file2 = lstatSync9(path);
     if (!file2.isFile() || file2.isSymbolicLink())
       return void 0;
-    const actual = realpathSync22.native(path);
-    if (dirname24(actual) !== resolveLocalThread(tool.args.path, cwd) || !actual.endsWith(`-${id}.md`))
+    const actual = realpathSync24.native(path);
+    if (dirname25(actual) !== resolveLocalThread(tool.args.path, cwd) || !actual.endsWith(`-${id}.md`))
       return void 0;
     return actual;
   } catch {
@@ -32963,14 +33290,14 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
   const roots = /* @__PURE__ */ new Map();
   const knownFolderRoots = [...new Set([workingRoot, launchCwd].map((root) => {
     try {
-      return realpathSync22.native(root);
+      return realpathSync24.native(root);
     } catch {
-      return resolve39(root);
+      return resolve41(root);
     }
   }))];
   const contains = (root, target) => {
-    const path = relative23(root, target);
-    return path === "" || !isAbsolute21(path) && path !== ".." && !path.startsWith(`..${sep16}`);
+    const path = relative24(root, target);
+    return path === "" || !isAbsolute22(path) && path !== ".." && !path.startsWith(`..${sep17}`);
   };
   for (const tool of tools) {
     if (tool.isError)
@@ -32978,9 +33305,9 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
     const knowledgeTool = tool.name.startsWith("is_");
     let cwd = launchCwd;
     if (knowledgeTool && typeof tool.args.cwd === "string" && tool.args.cwd.trim() !== "") {
-      cwd = resolve39(launchCwd, tool.args.cwd);
+      cwd = resolve41(launchCwd, tool.args.cwd);
     } else if (knowledgeTool && typeof tool.args.root === "string" && tool.args.root.trim() !== "" && tool.args.root !== "home") {
-      cwd = isAbsolute21(tool.args.root) ? resolve39(tool.args.root) : resolve39(launchCwd, tool.args.root);
+      cwd = isAbsolute22(tool.args.root) ? resolve41(tool.args.root) : resolve41(launchCwd, tool.args.root);
     }
     const postPath = writtenThreadPost(tool, cwd);
     if (tool.name === "is_threads") {
@@ -32992,7 +33319,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
           if (!row || typeof row !== "object")
             continue;
           const target = row;
-          if (typeof target.path !== "string" || !isAbsolute21(target.path) || target.source !== void 0 && target.source !== "local")
+          if (typeof target.path !== "string" || !isAbsolute22(target.path) || target.source !== void 0 && target.source !== "local")
             continue;
           const match = observe(target.path);
           if (match && match.thread_id === target.thread_id)
@@ -33023,11 +33350,11 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
     for (const input of paths) {
       if (typeof input !== "string" || !input || /[\x00-\x1f]/u.test(input))
         continue;
-      let absolute = isAbsolute21(input) ? resolve39(input) : resolve39(cwd, input);
+      let absolute = isAbsolute22(input) ? resolve41(input) : resolve41(cwd, input);
       let present = true;
       let isDir = false;
       try {
-        const stat2 = statSync18(absolute);
+        const stat2 = statSync19(absolute);
         if (stat2.isFile()) {
           isDir = false;
         } else if (stat2.isDirectory() && kind === "read") {
@@ -33043,20 +33370,20 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
       }
       if (!present && kind === "read")
         continue;
-      let ancestor = present ? absolute : dirname24(absolute);
-      while (!existsSync32(ancestor) && dirname24(ancestor) !== ancestor)
-        ancestor = dirname24(ancestor);
+      let ancestor = present ? absolute : dirname25(absolute);
+      while (!existsSync33(ancestor) && dirname25(ancestor) !== ancestor)
+        ancestor = dirname25(ancestor);
       try {
-        absolute = resolve39(realpathSync22.native(ancestor), relative23(ancestor, absolute));
+        absolute = resolve41(realpathSync24.native(ancestor), relative24(ancestor, absolute));
       } catch {
         continue;
       }
       const bucket = present ? kind : "deleted";
       if (!ws[bucket].includes(absolute))
         ws[bucket].push(absolute);
-      let directory = isDir ? absolute : dirname24(absolute);
-      while (!existsSync32(directory) && dirname24(directory) !== directory)
-        directory = dirname24(directory);
+      let directory = isDir ? absolute : dirname25(absolute);
+      while (!existsSync33(directory) && dirname25(directory) !== directory)
+        directory = dirname25(directory);
       let scope = roots.get(directory);
       if (!scope) {
         try {
@@ -33065,7 +33392,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
           let explicitRoot;
           if (knowledgeTool && (typeof tool.args.cwd === "string" || typeof tool.args.root === "string")) {
             try {
-              explicitRoot = realpathSync22.native(cwd);
+              explicitRoot = realpathSync24.native(cwd);
             } catch {
             }
           }
@@ -33078,7 +33405,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
         addThread(threadForFile(absolute, observe), bucket === "read" ? "read" : "write");
       ws.file_coordinates[absolute] = {
         ...scope,
-        path: relative23(scope.root, absolute).split("\\").join("/"),
+        path: relative24(scope.root, absolute).split("\\").join("/"),
         kind: isDir ? "directory" : "file"
       };
     }
@@ -33114,8 +33441,8 @@ async function* readJsonLines(input) {
 
 // dist/pi/local-agent.js
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync33, mkdirSync as mkdirSync11, writeFileSync as writeFileSync11 } from "node:fs";
-import { join as join42 } from "node:path";
+import { existsSync as existsSync34, mkdirSync as mkdirSync11, writeFileSync as writeFileSync12 } from "node:fs";
+import { join as join43 } from "node:path";
 var NON_AGENT_TYPES = /* @__PURE__ */ new Set(["response", "extension_ui_request"]);
 function lastPosition(tools) {
   for (let i = tools.length - 1; i >= 0; i--) {
@@ -33140,9 +33467,9 @@ function deriveConversationName(message) {
 }
 function ensureSessionDir(dir) {
   mkdirSync11(dir, { recursive: true });
-  const ignore = join42(dir, ".gitignore");
-  if (!existsSync33(ignore))
-    writeFileSync11(ignore, "*\n");
+  const ignore = join43(dir, ".gitignore");
+  if (!existsSync34(ignore))
+    writeFileSync12(ignore, "*\n");
 }
 function buildPiArgs(opts) {
   const args2 = [
@@ -33368,9 +33695,9 @@ async function* runLocalTurn(opts) {
 }
 
 // dist/pi/local-conversations.js
-import { existsSync as existsSync34, readdirSync as readdirSync5, readFileSync as readFileSync22, realpathSync as realpathSync23, statSync as statSync19 } from "node:fs";
+import { existsSync as existsSync35, readdirSync as readdirSync5, readFileSync as readFileSync23, realpathSync as realpathSync25, statSync as statSync20 } from "node:fs";
 import { randomUUID as randomUUID12 } from "node:crypto";
-import { join as join43 } from "node:path";
+import { join as join44 } from "node:path";
 
 // dist/local/task-notification.js
 var TASK_NOTIFICATION = /^\s*<task-notification>[\s\S]*?<\/task-notification>\s*$/u;
@@ -33380,7 +33707,7 @@ function isTaskNotification(content, origin) {
 
 // dist/pi/local-conversations.js
 function localSessionDir(contextRoot) {
-  return join43(contextRoot, ".pi", "sessions");
+  return join44(contextRoot, ".pi", "sessions");
 }
 function mintConversationId() {
   return `local-${randomUUID12()}`;
@@ -33472,17 +33799,17 @@ function parseSessionJsonl(text, fallbackTs) {
   return { id, name, messages: messages2, messageCount: count, preview, updatedAt: lastTs, modelTier };
 }
 function findSessionFile(dir, convId) {
-  if (!existsSync34(dir))
+  if (!existsSync35(dir))
     return null;
   const files = readdirSync5(dir).filter((f) => f.endsWith(".jsonl"));
   const bySuffix = files.find((f) => f.endsWith(`_${convId}.jsonl`));
   if (bySuffix)
-    return join43(dir, bySuffix);
+    return join44(dir, bySuffix);
   for (const f of files) {
     try {
-      const first = readFileSync22(join43(dir, f), "utf8").split("\n", 1)[0];
+      const first = readFileSync23(join44(dir, f), "utf8").split("\n", 1)[0];
       if (JSON.parse(first).id === convId)
-        return join43(dir, f);
+        return join44(dir, f);
     } catch {
     }
   }
@@ -33496,11 +33823,11 @@ function canResumePiConversation(contextRoot, convId) {
   if (!file2)
     return false;
   try {
-    if (!isContained(realpathSync23(contextRoot), realpathSync23(dir)) || !isContained(realpathSync23(dir), realpathSync23(file2)))
+    if (!isContained(realpathSync25(contextRoot), realpathSync25(dir)) || !isContained(realpathSync25(dir), realpathSync25(file2)))
       return false;
-    const text = readFileSync22(file2, "utf8");
+    const text = readFileSync23(file2, "utf8");
     const header = JSON.parse(text.split("\n", 1)[0] ?? "");
-    if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync23(header.cwd) !== realpathSync23(contextRoot))
+    if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync25(header.cwd) !== realpathSync25(contextRoot))
       return false;
     return getLocalConversation(contextRoot, convId).history.some((m) => m.role === "user" && !isTaskNotification(m.content));
   } catch {
@@ -33512,8 +33839,8 @@ function getLocalConversation(contextRoot, convId) {
   if (!file2) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
-  const mtime = statSync19(file2).mtime.toISOString();
-  const s = parseSessionJsonl(readFileSync22(file2, "utf8"), mtime);
+  const mtime = statSync20(file2).mtime.toISOString();
+  const s = parseSessionJsonl(readFileSync23(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -33527,18 +33854,18 @@ function getLocalConversation(contextRoot, convId) {
 }
 function listLocalConversations(contextRoot) {
   const dir = localSessionDir(contextRoot);
-  if (!existsSync34(dir))
+  if (!existsSync35(dir))
     return { conversations: [], total: 0 };
   const summaries = [];
   for (const f of readdirSync5(dir).filter((f2) => f2.endsWith(".jsonl"))) {
-    const path = join43(dir, f);
+    const path = join44(dir, f);
     let text;
     try {
-      text = readFileSync22(path, "utf8");
+      text = readFileSync23(path, "utf8");
     } catch {
       continue;
     }
-    const mtime = statSync19(path).mtime.toISOString();
+    const mtime = statSync20(path).mtime.toISOString();
     const s = parseSessionJsonl(text, mtime);
     if (!s.id)
       continue;
@@ -33556,19 +33883,19 @@ function listLocalConversations(contextRoot) {
 }
 
 // dist/local/launch-orientation.js
-import { realpathSync as realpathSync24, statSync as statSync20 } from "node:fs";
-import { dirname as dirname25, isAbsolute as isAbsolute22, relative as relative24, resolve as resolve40, sep as sep17 } from "node:path";
+import { realpathSync as realpathSync26, statSync as statSync21 } from "node:fs";
+import { dirname as dirname26, isAbsolute as isAbsolute23, relative as relative25, resolve as resolve42, sep as sep18 } from "node:path";
 function spaceMapLaunchPosition(povRoot, mapPath, firstRoot, suppliedRoot, focus) {
   let supplied;
   if (suppliedRoot) {
     try {
-      supplied = realpathSync24(suppliedRoot);
+      supplied = realpathSync26(suppliedRoot);
     } catch {
       throw new Error(`--working-root ${suppliedRoot} does not exist as a local directory. Omit it for this Space Map or connect its first root.`);
     }
   }
-  const first = firstRoot ? realpathSync24(firstRoot) : void 0;
-  const storage = realpathSync24(dirname25(mapPath));
+  const first = firstRoot ? realpathSync26(firstRoot) : void 0;
+  const storage = realpathSync26(dirname26(mapPath));
   if (supplied && supplied !== storage && supplied !== first) {
     throw new Error(`--working-root ${supplied} conflicts with this Space Map: its first root is ${first ?? "unavailable here"}. Omit --working-root or choose the first Map root.`);
   }
@@ -33580,26 +33907,26 @@ function spaceMapLaunchPosition(povRoot, mapPath, firstRoot, suppliedRoot, focus
   };
 }
 function localLaunchOrientation(povRoot, workingRoot, focus = "") {
-  if (!workingRoot.trim() || !isAbsolute22(workingRoot))
+  if (!workingRoot.trim() || !isAbsolute23(workingRoot))
     throw new Error("--working-root must be an absolute local directory");
   if ([povRoot, workingRoot, focus].some((value2) => value2.includes("\0") || /[\r\n]/u.test(value2))) {
     throw new Error("Launch coordinates must not contain control characters");
   }
-  if (isAbsolute22(focus) || focus.split(/[\\/]/u).includes("..")) {
+  if (isAbsolute23(focus) || focus.split(/[\\/]/u).includes("..")) {
     throw new Error("--focus must be a path inside --working-root");
   }
-  const working = realpathSync24(workingRoot);
-  if (!statSync20(working).isDirectory())
+  const working = realpathSync26(workingRoot);
+  if (!statSync21(working).isDirectory())
     throw new Error("--working-root must be a directory");
-  const target = realpathSync24(resolve40(working, focus || "."));
-  const position = relative24(working, target);
-  if (isAbsolute22(position) || position === ".." || position.startsWith(`..${sep17}`)) {
+  const target = realpathSync26(resolve42(working, focus || "."));
+  const position = relative25(working, target);
+  if (isAbsolute23(position) || position === ".." || position.startsWith(`..${sep18}`)) {
     throw new Error("--focus resolves outside --working-root");
   }
   return "[Local session position]\n" + JSON.stringify({
-    povRoot: realpathSync24(povRoot),
+    povRoot: realpathSync26(povRoot),
     workingRoot: working,
-    focus: position.split(sep17).join("/")
+    focus: position.split(sep18).join("/")
   }) + "\nThe launch folder supplies the chosen POV. The workingRoot is the material to work on, not a read-only reference mount. Orient there without replacing the chosen POV. Focus is relative to workingRoot (empty means the folder itself). Inspect the selected material before answering; use absolute paths for tools. File @mentions in the user question are relative to workingRoot. These coordinates do not grant additional OS permissions or request changes to the POV folder.";
 }
 
@@ -33633,7 +33960,7 @@ async function send2(flags2, output, options) {
     output.error("--topic is supported only on agent run for a new Pi session.");
     return 1;
   }
-  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join44(repoPath, ".pi", "sessions");
+  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join45(repoPath, ".pi", "sessions");
   const conversationId = typeof flags2.conversation === "string" ? flags2.conversation : `local-${Date.now().toString(36)}`;
   if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
     output.error(`Pi conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
@@ -33825,29 +34152,29 @@ import { spawnSync as spawnSync18 } from "node:child_process";
 import { spawn as spawn4 } from "node:child_process";
 
 // dist/claude/local-conversations.js
-import { existsSync as existsSync35, readdirSync as readdirSync6, readFileSync as readFileSync23, realpathSync as realpathSync25, statSync as statSync21 } from "node:fs";
+import { existsSync as existsSync36, readdirSync as readdirSync6, readFileSync as readFileSync24, realpathSync as realpathSync27, statSync as statSync22 } from "node:fs";
 import { randomUUID as randomUUID13 } from "node:crypto";
 import { homedir as homedir6 } from "node:os";
-import { basename as basename21, dirname as dirname26, join as join45, resolve as resolve41 } from "node:path";
+import { basename as basename22, dirname as dirname27, join as join46, resolve as resolve43 } from "node:path";
 function claudeConfigDir(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR?.trim() || join45(homedir6(), ".claude");
+  return env.CLAUDE_CONFIG_DIR?.trim() || join46(homedir6(), ".claude");
 }
 function slugOf(path) {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");
 }
 function claudeProjectSlug(cwd) {
-  let resolved = resolve41(cwd);
+  let resolved = resolve43(cwd);
   try {
-    resolved = realpathSync25(resolved);
+    resolved = realpathSync27(resolved);
   } catch {
   }
   return slugOf(resolved);
 }
 function claudeProjectDir(cwd, env = process.env) {
-  return join45(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
+  return join46(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
 }
 function legacyClaudeProjectDir(cwd, env = process.env) {
-  return join45(claudeConfigDir(env), "projects", slugOf(resolve41(cwd)));
+  return join46(claudeConfigDir(env), "projects", slugOf(resolve43(cwd)));
 }
 function mintClaudeConversationId() {
   return randomUUID13();
@@ -33863,13 +34190,13 @@ function claudeSessionFile(cwd, convId, env = process.env) {
   if (!isClaudeConversationId(convId))
     return null;
   const projectDir = claudeProjectDir(cwd, env);
-  const file2 = join45(projectDir, `${convId}.jsonl`);
-  if (existsSync35(file2))
+  const file2 = join46(projectDir, `${convId}.jsonl`);
+  if (existsSync36(file2))
     return file2;
   const unresolvedDir = legacyClaudeProjectDir(cwd, env);
   if (unresolvedDir !== projectDir) {
-    const fallbackFile = join45(unresolvedDir, `${convId}.jsonl`);
-    if (existsSync35(fallbackFile))
+    const fallbackFile = join46(unresolvedDir, `${convId}.jsonl`);
+    if (existsSync36(fallbackFile))
       return fallbackFile;
   }
   return null;
@@ -34013,12 +34340,12 @@ function canResumeClaudeConversation(contextRoot, convId) {
   if (!file2)
     return false;
   try {
-    if (!isContained(realpathSync25(dirname26(file2)), realpathSync25(file2)))
+    if (!isContained(realpathSync27(dirname27(file2)), realpathSync27(file2)))
       return false;
-    const text = readFileSync23(file2, "utf8");
+    const text = readFileSync24(file2, "utf8");
     let sawIdentity = false;
     let sawRoot = false;
-    const root = realpathSync25(contextRoot);
+    const root = realpathSync27(contextRoot);
     const lines = text.split("\n").filter((line2) => line2.trim());
     for (const [index, line2] of lines.entries()) {
       let entry;
@@ -34032,7 +34359,7 @@ function canResumeClaudeConversation(contextRoot, convId) {
       if (entry.sessionId && entry.sessionId !== convId)
         return false;
       if (entry.cwd) {
-        const cwd = realpathSync25(entry.cwd);
+        const cwd = realpathSync27(entry.cwd);
         if (!isContained(root, cwd))
           return false;
         if (cwd === root)
@@ -34051,8 +34378,8 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
   if (!file2) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
-  const mtime = statSync21(file2).mtime.toISOString();
-  const s = parseClaudeSessionJsonl(readFileSync23(file2, "utf8"), mtime);
+  const mtime = statSync22(file2).mtime.toISOString();
+  const s = parseClaudeSessionJsonl(readFileSync24(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -34066,22 +34393,22 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
 }
 function listClaudeConversations(contextRoot, env = process.env) {
   const dir = claudeProjectDir(contextRoot, env);
-  const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync35(path));
+  const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync36(path));
   const summaries = [];
   const seen = /* @__PURE__ */ new Set();
-  const files = dirs.flatMap((folder) => readdirSync6(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join45(folder, f)));
+  const files = dirs.flatMap((folder) => readdirSync6(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join46(folder, f)));
   for (const path of files) {
-    const fileId = basename21(path, ".jsonl");
+    const fileId = basename22(path, ".jsonl");
     if (seen.has(fileId))
       continue;
     seen.add(fileId);
     let text;
     try {
-      text = readFileSync23(path, "utf8");
+      text = readFileSync24(path, "utf8");
     } catch {
       continue;
     }
-    const mtime = statSync21(path).mtime.toISOString();
+    const mtime = statSync22(path).mtime.toISOString();
     const s = parseClaudeSessionJsonl(text, mtime);
     const conversationId = s.id || fileId;
     if (!s.messageCount)
