@@ -14,5 +14,7 @@ export interface CommandDef {
   description: string;
   usage: string;
   examples?: string[];
+  /** Longer reference shown by `--help` after the description (e.g. a query syntax). */
+  help?: string;
   run(args: string[], flags: Record<string, string | boolean>, global: GlobalFlags): Promise<number>;
 }
