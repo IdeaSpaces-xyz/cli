@@ -253,6 +253,23 @@ describe("saved searches", () => {
     expect(saved.json.saved.search.roots).toEqual([".."]);
   });
 
+  it.skipIf(process.platform === "win32")("opens through a symlinked folder elsewhere and still searches the saved roots", async () => {
+    const elsewhere = realpathSync.native(await mkdtemp(join(tmpdir(), "is-cli-search-saved-link-")));
+    try {
+      await run(["loopback"], { root: [vault], save: "searches/round.search.md" });
+      // The link's own parent is a different folder: a lexical `..` would point there.
+      symlinkSync(join(vault, "searches"), join(elsewhere, "searches"));
+      process.chdir(elsewhere);
+      const opened = await run([], { open: "searches/round.search.md" });
+      expect(opened.exit).toBe(0);
+      expect(opened.json.roots.map((r: { root: string }) => r.root)).toEqual([vault]);
+      expect(opened.json.complete).toBe(true);
+    } finally {
+      process.chdir(vault);
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+  });
+
   it("a hand-written saved search with no roots searches the Note's own folder", async () => {
     write(join(vault, "notes", "mine.search.md"), "---\nname: Mine\nsearch:\n  query: loopback\n---\n");
     const opened = await run([], { open: "notes/mine.search.md" });

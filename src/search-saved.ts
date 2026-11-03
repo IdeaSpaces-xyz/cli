@@ -199,7 +199,10 @@ export function readSavedSearch(notePath: string): SavedSearchNote {
   if (block.limit !== undefined && !(Number.isInteger(block.limit) && (block.limit as number) > 0)) {
     throw new SavedSearchError(`${notePath}: search.limit must be a whole number, 1 or more.`);
   }
-  const dir = dirname(path);
+  // Roots were stored relative to the Note's canonical folder, so they resolve from it too:
+  // opening through a symlinked folder must reach the same roots as saving through it.
+  let dir: string;
+  try { dir = realpathSync(dirname(path)); } catch { dir = dirname(path); }
   const roots = (rootsValue as string[]).map((r) => r.trim());
   return {
     path,

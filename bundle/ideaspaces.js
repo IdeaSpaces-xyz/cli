@@ -27615,7 +27615,12 @@ function readSavedSearch(notePath) {
   if (block.limit !== void 0 && !(Number.isInteger(block.limit) && block.limit > 0)) {
     throw new SavedSearchError(`${notePath}: search.limit must be a whole number, 1 or more.`);
   }
-  const dir = dirname21(path);
+  let dir;
+  try {
+    dir = realpathSync19(dirname21(path));
+  } catch {
+    dir = dirname21(path);
+  }
   const roots = rootsValue.map((r) => r.trim());
   return {
     path,
