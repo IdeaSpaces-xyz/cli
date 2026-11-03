@@ -1,5 +1,6 @@
 import { existsSync, lstatSync, statSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { THREAD_KINDS } from "@ideaspaces/protocol";
 import { repoRoot } from "../git.js";
 import { loadThread, resolveLocalThread } from "./threads.js";
 import { emptyWorkspaceSurface, type KeeperWorkspaceSurface, type ToolInvocation } from "@ideaspaces/sdk";
@@ -36,7 +37,7 @@ const READ_TOOLS = new Set([
   "find",
 ]);
 
-const THREAD_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure"]);
+const THREAD_POST_KINDS = new Set<string>(THREAD_KINDS);
 
 function toolJson(tool: ToolInvocation): unknown {
   const result = tool.result;
