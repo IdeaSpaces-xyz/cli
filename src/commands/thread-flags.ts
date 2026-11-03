@@ -12,7 +12,7 @@ const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
     read: "depth new ack kind since post map member checkout pin position limit order agreement",
     new: "about attached-to map",
     attach: "message author",
-    post: "map member checkout reply-to kind mark author name summary supersedes message tags",
+    post: "map member checkout reply-to kind mark author name summary supersedes message tags no-check-links",
     posts: "space scope limit since depth order cursor",
     close: "map reply-to kind author name summary supersedes message",
     render: "",

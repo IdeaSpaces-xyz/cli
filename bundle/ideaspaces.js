@@ -17736,7 +17736,7 @@ function localEffectError(operation, code, phase, message, path, detail3) {
 }
 
 // dist/argv.js
-var BOOLEAN_COMMAND_FLAGS = /* @__PURE__ */ new Set(["read-only", "orientation", "threads"]);
+var BOOLEAN_COMMAND_FLAGS = /* @__PURE__ */ new Set(["read-only", "orientation", "threads", "no-check-links"]);
 var LIST_FLAGS = { root: "search" };
 function setFlag(flags2, key2, value2, command2) {
   if (LIST_FLAGS[key2] !== void 0 && LIST_FLAGS[key2] === command2) {
@@ -25494,6 +25494,8 @@ function destinations(text) {
 }
 function checkPostLinks(body, postDir, spaceRoot) {
   const report = { errors: [], warnings: [] };
+  const realSpace = realpathSync14(spaceRoot);
+  const realPostDir = realpathSync14(postDir);
   const seen = /* @__PURE__ */ new Set();
   for (const raw of destinations(withoutCode(body))) {
     if (seen.has(raw))
@@ -25514,8 +25516,8 @@ function checkPostLinks(body, postDir, spaceRoot) {
       report.errors.push(`${raw}: a link in a post is relative to the post file; an absolute or backslash path breaks on any other machine.`);
       continue;
     }
-    const target = resolve31(postDir, decoded);
-    const inside = relative17(realpathSync14(spaceRoot), target);
+    const target = resolve31(realPostDir, decoded);
+    const inside = relative17(realSpace, target);
     if (inside === ".." || inside.startsWith(`..${sep13}`) || isAbsolute12(inside)) {
       report.errors.push(`${raw}: resolves outside the Space (${target}). Links are relative to the post file, which sits in ${postDir}.`);
       continue;
@@ -25523,11 +25525,9 @@ function checkPostLinks(body, postDir, spaceRoot) {
     if (existsSync19(target))
       continue;
     const name = target.split(sep13).pop() ?? "";
-    if (dirname18(target) === postDir.replace(/[\\/]+$/, "") || /(^|[\\/])_threads[\\/]/.test(target)) {
-      if (POST_FILE.test(name)) {
-        report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
-        continue;
-      }
+    if (POST_FILE.test(name) && existsSync19(dirname18(target)) && /(^|[\\/])_threads[\\/][^\\/]+$/.test(dirname18(target))) {
+      report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
+      continue;
     }
     report.errors.push(`${raw}: no file at ${target}. Links are relative to the post file, which sits in ${postDir}.`);
   }
@@ -25972,11 +25972,13 @@ function appendPost(dir, options) {
     validateThreadMomentMap(options.map);
   const warnings = [];
   if (options.checkLinks) {
+    if (basename14(dirname19(thread.path)) !== "_threads")
+      throw new Error("Thread must be an immediate child of _threads/.");
     const links = checkPostLinks(options.body, thread.path, dirname19(dirname19(thread.path)));
     if (links.errors.length) {
       throw new Error(`Post not written: ${links.errors.length === 1 ? "a link does" : `${links.errors.length} links do`} not resolve.
 ${links.errors.map((e) => `  - ${e}`).join("\n")}
-Fix the path (it is relative to the post file) or remove the link. Map positions are not checked here.`);
+Fix the path (it is relative to the post file), remove the link, or pass --no-check-links to post it as written (for a file that lands in the same change or lives on another branch). Map positions are not checked here.`);
     }
     warnings.push(...links.warnings);
   }
@@ -28939,7 +28941,7 @@ var THREAD_FLAGS = Object.fromEntries(Object.entries({
   read: "depth new ack kind since post map member checkout pin position limit order agreement",
   new: "about attached-to map",
   attach: "message author",
-  post: "map member checkout reply-to kind mark author name summary supersedes message tags",
+  post: "map member checkout reply-to kind mark author name summary supersedes message tags no-check-links",
   posts: "space scope limit since depth order cursor",
   close: "map reply-to kind author name summary supersedes message",
   render: "",
@@ -31392,7 +31394,7 @@ var threadsCommand = {
     "ideaspaces threads new <slug> --about 'About this Note' --attached-to note:@home//notes/topic.md  # link, no child edge",
     "ideaspaces threads attach <slug|path> post:msg_<parent> --message 'Why it moves'  # sets the Agreement's attached_to (current parent) and appends a reframe; the opening post keeps the origin",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
-    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
+    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux] [--no-check-links]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening; file-relative Markdown links in the body must resolve (an unwritten post is a warning); --no-check-links skips the check",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
     "ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard: post, snapshot, reframe, correction, closure, mark; custom kinds require --yes",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
@@ -31951,7 +31953,7 @@ Showing ${posts3.length} of ${totalMatching} matching posts. ${order === "newer"
         const body = str2(flags2, "message") ?? await stdin();
         const { post, path, warnings } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), {
           body,
-          checkLinks: true,
+          checkLinks: flags2["no-check-links"] !== true,
           name: str2(flags2, "name"),
           summary: str2(flags2, "summary"),
           author: target ? selectedWriterName() : writerName(str2(flags2, "author")),

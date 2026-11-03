@@ -35,9 +35,15 @@ function destinations(text: string): string[] {
  * `postDir` is the directory the post file will live in; links resolve from there. Web links,
  * anchors and mail links are not paths and are skipped. A Map block's `position` values are
  * repository-relative, not file-relative, and are never read here: only the body is.
+ *
+ * Deliberately partial: only inline `[text](path)` links are checked; reference-style links and
+ * autolinks are not. Both the Space root and the post directory are realpathed so a symlinked
+ * checkout compares like with like; a symlink inside the Space that points out is not followed.
  */
 export function checkPostLinks(body: string, postDir: string, spaceRoot: string): PostLinkReport {
   const report: PostLinkReport = { errors: [], warnings: [] };
+  const realSpace = realpathSync(spaceRoot);
+  const realPostDir = realpathSync(postDir);
   const seen = new Set<string>();
   for (const raw of destinations(withoutCode(body))) {
     if (seen.has(raw)) continue;
@@ -51,19 +57,18 @@ export function checkPostLinks(body: string, postDir: string, spaceRoot: string)
       report.errors.push(`${raw}: a link in a post is relative to the post file; an absolute or backslash path breaks on any other machine.`);
       continue;
     }
-    const target = resolve(postDir, decoded);
-    const inside = relative(realpathSync(spaceRoot), target);
+    const target = resolve(realPostDir, decoded);
+    const inside = relative(realSpace, target);
     if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
       report.errors.push(`${raw}: resolves outside the Space (${target}). Links are relative to the post file, which sits in ${postDir}.`);
       continue;
     }
     if (existsSync(target)) continue;
+    // A forward reference is a post-shaped filename in a Thread directory that exists.
     const name = target.split(sep).pop() ?? "";
-    if (dirname(target) === postDir.replace(/[\\/]+$/, "") || /(^|[\\/])_threads[\\/]/.test(target)) {
-      if (POST_FILE.test(name)) {
-        report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
-        continue;
-      }
+    if (POST_FILE.test(name) && existsSync(dirname(target)) && /(^|[\\/])_threads[\\/][^\\/]+$/.test(dirname(target))) {
+      report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
+      continue;
     }
     report.errors.push(`${raw}: no file at ${target}. Links are relative to the post file, which sits in ${postDir}.`);
   }

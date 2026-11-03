@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendPost, createThread } from "../local/threads.js";
 import { checkPostLinks } from "../local/post-links.js";
+import { threadsCommand } from "../commands/threads.js";
 
 const temp: string[] = [];
 afterEach(() => { for (const dir of temp.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -65,6 +66,55 @@ describe("post link check", () => {
     // A Map position is repository-relative; it is never resolved from the post file, so only the body is checked.
     const map = { roots: [{ root_node_id: "n_x", sha: "a".repeat(40) }], members: [{ root: 0, position: "knowledge/note.md", depth: "summary" }] };
     expect(() => appendPost(t.path, { body: "Cites the note by Map.", map, checkLinks: true })).not.toThrow(/Post not written/);
+  });
+
+  it("treats a post-shaped name in a Thread directory that does not exist as an error", () => {
+    const root = space();
+    const t = createThread("t", "T", root);
+    const r = checkPostLinks("[x](../typo/2026-11-03T09-00-00-000Z-msg_0a1b2c3d-0000-4000-8000-000000000000.md)", t.path, root);
+    expect(r.errors).toHaveLength(1);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it("works through a symlinked Space path", () => {
+    const root = space();
+    const t = createThread("t", "T", root);
+    const alias = join(mkdtempSync(join(tmpdir(), "is-post-links-alias-")), "space"); temp.push(join(alias, ".."));
+    symlinkSync(root, alias);
+    const r = checkPostLinks("[a](../../knowledge/note.md)", join(alias, "_threads", "t"), alias);
+    expect(r).toEqual({ errors: [], warnings: [] });
+    expect(t.path).toBeTruthy();
+  });
+
+  it("handles encoded spaces, <...> destinations, bad percent-encoding and several errors at once", () => {
+    const root = space();
+    const t = createThread("t", "T", root);
+    writeFileSync(join(root, "knowledge", "a b.md"), "x");
+    const ok = checkPostLinks("[a](../../knowledge/a%20b.md) [b](<../../knowledge/a b.md>)", t.path, root);
+    expect(ok).toEqual({ errors: [], warnings: [] });
+    const bad = checkPostLinks("[a](100%.md) [b](one.md) [c](two.md)", t.path, root);
+    expect(bad.errors).toHaveLength(3);
+    expect(() => appendPost(t.path, { body: "[b](one.md) [c](two.md)", checkLinks: true })).toThrow(/2 links do not resolve[\s\S]*--no-check-links/);
+  });
+
+  it("threads post refuses a bad link, honours --no-check-links and reports warnings in --json", async () => {
+    const root = space();
+    const t = createThread("t", "T", root);
+    const old = process.cwd(); process.chdir(root);
+    const write = process.stdout.write; const errWrite = process.stderr.write;
+    let out = "";
+    process.stdout.write = ((s: string) => { out += s; return true; }) as typeof process.stdout.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      const flags = { json: true, quiet: true, yes: false, help: false };
+      expect(await threadsCommand.run(["post", "t"], { author: "Tester", message: "See [x](missing.md)" }, flags)).toBe(1);
+      expect(await threadsCommand.run(["post", "t"], { author: "Tester", message: "See [x](missing.md)", "no-check-links": true }, flags)).toBe(0);
+      out = "";
+      const post = "2026-11-03T09-00-00-000Z-msg_0a1b2c3d-0000-4000-8000-000000000000.md";
+      expect(await threadsCommand.run(["post", "t"], { author: "Tester", message: `Soon [r](${post})` }, flags)).toBe(0);
+      expect(JSON.parse(out).warnings).toHaveLength(1);
+    } finally { process.stdout.write = write; process.stderr.write = errWrite; process.chdir(old); }
+    expect(t.path).toBeTruthy();
   });
 
   it("does not check bodies unless asked", () => {

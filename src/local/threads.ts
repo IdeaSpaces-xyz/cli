@@ -497,9 +497,10 @@ export function appendPost(dir: string, options: {
   if (options.map !== undefined) validateThreadMomentMap(options.map);
   const warnings: string[] = [];
   if (options.checkLinks) {
+    if (basename(dirname(thread.path)) !== "_threads") throw new Error("Thread must be an immediate child of _threads/.");
     const links = checkPostLinks(options.body, thread.path, dirname(dirname(thread.path)));
     if (links.errors.length) {
-      throw new Error(`Post not written: ${links.errors.length === 1 ? "a link does" : `${links.errors.length} links do`} not resolve.\n${links.errors.map((e) => `  - ${e}`).join("\n")}\nFix the path (it is relative to the post file) or remove the link. Map positions are not checked here.`);
+      throw new Error(`Post not written: ${links.errors.length === 1 ? "a link does" : `${links.errors.length} links do`} not resolve.\n${links.errors.map((e) => `  - ${e}`).join("\n")}\nFix the path (it is relative to the post file), remove the link, or pass --no-check-links to post it as written (for a file that lands in the same change or lives on another branch). Map positions are not checked here.`);
     }
     warnings.push(...links.warnings);
   }
