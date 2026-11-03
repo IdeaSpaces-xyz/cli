@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { assembleContentReference, parseFrontmatter, parseThreadPost, renderContentFocus, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
+import { assembleContentReference, parseFrontmatter, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
 import { agreementFlag, preferredContractSource } from "../contract-source.js";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
@@ -23,7 +23,7 @@ import { ackVerb, HOSTED_THREAD_32, HostedError, listVerb, newVerb, openVerb, po
 export { threadFlagError } from "./thread-flags.js";
 
 const SURFACE_BODY_BYTES = 800;
-const KNOWN_POST_KINDS = new Set(["post", "snapshot", "reframe", "correction", "closure", "mark", "decision", "dispatch", "claim", "delivery", "verification", "question"]);
+const KNOWN_POST_KINDS = new Set<string>(THREAD_KINDS);
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
 }
@@ -283,7 +283,8 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
-    "ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard: post, snapshot, reframe, correction, closure, mark, decision, dispatch, claim, delivery, verification, question; custom kinds require --yes",
+    `ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard kinds: ${THREAD_KINDS.join(", ")}`,
+    "ideaspaces threads post <slug> --kind my_signal --yes --message 'Intentional'  # a custom kind needs --yes",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",

@@ -192,6 +192,27 @@ it("defaults navigation/ls with omitted path to . while unscoped search tools sk
   expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo", kind: "directory" });
 });
 
+it("harvests mark and the standard work kinds as Thread writes", () => {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-thread-kinds-"))); dirs.push(dir);
+  execFileSync("git", ["init", "-q", dir]);
+  mkdirSync(join(dir, "_agent"));
+  writeFileSync(join(dir, "_agent/agreement.md"), "---\nname: Agreement — Test\n---\n# Test\n");
+  const cli = join(process.cwd(), "bundle/ideaspaces.js");
+  const run = (...args: string[]) => JSON.parse(execFileSync(process.execPath, [cli, "--json", "threads", ...args],
+    { cwd: dir, encoding: "utf8" })) as { id: string; path: string; kind: string; opening_post_id: string };
+  const opening = run("new", "kinds", "--about", "Kinds").opening_post_id;
+  const posts = [
+    run("post", "kinds", "--kind", "mark", "--mark", "claimed", "--reply-to", opening, "--message", "Claimed", "--author", "Probe"),
+    run("post", "kinds", "--kind", "decision", "--message", "Decided", "--author", "Probe"),
+    run("post", "kinds", "--kind", "delivery", "--message", "Delivered", "--author", "Probe"),
+  ];
+  const ws = harvestLocalFiles(
+    posts.map((post) => ({ name: "is_threads", args: { action: "post", path: "kinds" }, result: { content: [{ type: "text", text: JSON.stringify(post) }] }, isError: false })),
+    dir,
+  );
+  expect(ws.modified).toEqual(posts.map((post) => post.path));
+});
+
 it("harvests successful local is_threads post and close files for Pi and normalized Claude", () => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-thread-post-"))); dirs.push(dir);
   execFileSync("git", ["init", "-q", dir]);
