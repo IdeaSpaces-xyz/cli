@@ -12256,7 +12256,13 @@ var THREAD_KINDS = [
   "reframe",
   "correction",
   "closure",
-  "mark"
+  "mark",
+  "decision",
+  "dispatch",
+  "claim",
+  "delivery",
+  "verification",
+  "question"
 ];
 function parseThreadAttachment(value2) {
   if (typeof value2 !== "string" || !value2.trim())
