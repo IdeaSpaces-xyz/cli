@@ -17038,7 +17038,7 @@ function agreementContractTemplates(kind, name) {
 }
 var HOME_MAP_MD = `---
 name: Home
-summary: The Space. Every child repo pinned by identity and commit, in the order they matter today. Open this file and it is the lens; read it and it is a list of pointers.
+summary: Everything this folder holds. Each space here is its own repo, pinned by identity and commit, never copied in.
 map:
   roots: []
   members: []
@@ -17046,50 +17046,143 @@ map:
 
 # Home
 
-Every other space is part of this one folder, pinned by identity and commit.
+Each space this folder holds is pinned here by identity and commit, and opened from here.
 `;
+var HOME_GOAL_PROMPTS = Object.freeze([
+  "What this place is",
+  "What we hold here",
+  "What we want to accomplish"
+]);
 var HOME_AGREEMENT_MD = `---
 name: Agreement \u2014 Home
-summary: Home. Every other space is a child of this folder, pinned by a Map, never copied. We explore how to explore these Spaces from the Desktop and make that the best one. Threads are how work moves here, local first, one file per post.
+summary: Home, this folder's own place. What it is for is not written yet. A prompt \u2014 the first
+  conversation asks, and the answers replace this line.
 agreement: ${KIND_REFERENCES.knowledge}
 ---
 
 # Agreement \u2014 Home
 
-> Home. The place we explore from, and the place we explore how to explore.
+> The three sections below are prompts, not content. The first conversation here asks them, in the
+> owner's own words, and replaces them. Thin is honest; invented is not.
 
-## What this place is
+## ${HOME_GOAL_PROMPTS[0]}
 
-Every other space is part of this one folder: knowledge repos, agents, and in time the code repos. None of them is copied here. Each is its own repo, pinned in \`home.map.md\` by identity and commit, and opened from here.
+_A prompt. Whose place this is and what it is about, in a sentence or two._
+
+## ${HOME_GOAL_PROMPTS[1]}
+
+_A prompt. What lives here: the kinds of notes, sources, projects and agents this place keeps._
+
+## ${HOME_GOAL_PROMPTS[2]}
+
+_A prompt. What this place should make possible, and how you would know it worked._
 
 ## How work goes here
 
-A Thread is how we work on something. Start one for yourself or for your agents. Local first: a Thread lives in \`_threads/\`, one Markdown file per post, threaded by mail headers, synced by git, picked up again from its last post and its Map.
-
-Everything is a Map that captures state, including the state of the agents involved. A Space's Map points at things; a Thread's Map points into them.
+Home is this folder. Every other space it holds (a knowledge repo, an agent, a code repo) is its own repo, pinned in \`home.map.md\` by identity and commit and opened from here, never copied in. A Thread is how something gets worked on: a folder in \`_threads/\`, one Markdown file per post, picked up again from its last post.
 
 ## Alone, and brought back
 
-Alone: start a local Thread, append to one, read any child space, write or update a Map, rebuild an index. Brought back: erasing or moving a child space, publishing anything, sharing a Thread beyond this machine, and any change to this file.
+Alone: start a local Thread or append to one, read any space Home pins, add a space to \`home.map.md\`. Brought back: creating, erasing or moving a space, publishing anything, sharing a Thread beyond this machine, and any change to this file.
 
 ## Words with local meaning
 
 - **Space** \u2014 a \`.map.md\` file, opened. In the folder it is a Note with pointers.
-- **Thread** \u2014 a folder in \`_threads/\`: an Agreement for the terms, a README that is the curated story of what it has become with pointers into the timeline, and dated posts, one file each, never changed.
-- **Post** \u2014 a Note with \`id\`, \`in_reply_to\`, \`kind\`, and a \`map\` block when it snapshots.
-- **Home** \u2014 this folder, the largest Space here.
-- **Child** \u2014 a repo pinned by \`home.map.md\`, never tracked by Home's git.
-- **Cursor** \u2014 where a reader stopped, kept per reader in the local cache, never in the repo.
-- **Tier** \u2014 team: \`_threads/\` committed, or on the \`threads\` branch; public: a projection without them; beyond the repo: a hosted Thread with grants.
-
-## Still open
-
-- Root identities for the code repos, so they can be Map roots rather than addresses.
-- What ports out of the old shell first, and in what order.
+- **Thread** \u2014 a folder in \`_threads/\`: an Agreement for its terms, a README that tells what it has become, and dated posts, one file each, never changed.
+- **Home** \u2014 this folder.
+- **Child** \u2014 a repo pinned by \`home.map.md\`, never tracked by Home's own Git.
 
 ## When to revisit
 
-When a Thread cannot be picked up again from its last post. When a child space cannot be explored from the Desktop. When something is copied here instead of pinned.
+When something is copied here instead of pinned. When a Thread cannot be picked up again from its last post.
+`;
+var HOME_FIRST_CONVERSATION_SKILL_MD = `---
+name: first-conversation
+description: A fresh Space's first conversation, with no agent. Ask what this place is, what it holds and what it should accomplish; write the answers into its Agreement after the person's yes; open its first Thread; create an agent or a knowledge repo when asked.
+---
+
+# First conversation
+
+Use this when a conversation here has no agent and the place's goal is still prompts. Also use it
+when the person asks to say again what this place is for, or to add an agent or a knowledge repo.
+
+There is no agent in this conversation and no point of view to speak from. Talk plainly, as help
+in this place. The only frame is the place's goal. Never invent the answers: a short answer in the
+person's own words is right. Write only what the person said, with no name, date or detail they
+did not give, even one you could find elsewhere.
+
+## 1. Ask the three questions
+
+1. **What is this place?** Whose it is, and what it is about.
+2. **What do we hold here?** The kinds of notes, sources, projects and agents it keeps.
+3. **What do we want to accomplish?** What it should make possible, and how they would know it
+   worked.
+
+If the person's first message already answers some of them, say back what you understood and ask
+only for what is missing. Ask one follow-up at most. If they don't want to answer now, stop. The
+prompts stay as they are, and that is fine.
+
+## 2. Show the text, then wait for a yes
+
+Show the exact text you would write, and say which file it goes to. Write nothing until the person
+says yes in words. If they change something, show the text again.
+
+- **Home**, the folder with \`home.map.md\` at its root: write its \`_agent/agreement.md\`. Replace
+  the three prompt sections (*What this place is*, *What we hold here*, *What we want to
+  accomplish*), the prompt note above them, and the \`summary:\` line with two sentences from the
+  answers. Keep every other section and every other frontmatter field (\`name\`, \`agreement\`,
+  \`root_node_id\`) exactly as they are.
+- **Any other Space:** its goal lives in its Core Thread's \`_agent/agreement.md\` (the Space's
+  orientation names the Core Thread). Replace its Goal section and its \`summary:\` line the same way.
+  If it has no Core Thread, the answers go into the first Thread (step 4).
+
+## 3. Write, then commit only that file
+
+Read the file and its current revision first. Write it whole, with the change, and stage it. Then
+commit only that path, with a message in the person's terms ("Say what this place is for"). Tell
+the person where the file is: it is theirs to read and edit. If the commit fails, say the file is
+saved but not committed, and why.
+
+The answers are your own words in this conversation, so you already know them. Re-read the file
+before you change it again.
+
+## 4. Open the first Thread
+
+- **No Core Thread yet** (a fresh Home): open the Space's Core Thread, named in the person's words
+  (for example "What this place is for"). Its opening post carries the three answers. Use the tool
+  this surface gives for a Core Thread on an existing Map. Where there is none, start a local
+  Thread with \`ideaspaces threads new\` and say it is not yet the Space's Core.
+- **A Core Thread exists** (a Space made with one): post the three answers to it, as a reply to its
+  opening post.
+
+Tell the person where the Thread is. Offer to commit it, with the Map's change if there is one, and
+commit only those paths after a yes.
+
+## 5. An agent or a knowledge repo, when asked
+
+Explain the difference once, briefly, in the person's terms:
+
+- A **knowledge repo** is a folder of Notes about one subject, with its own history.
+- An **agent** is a folder that is a point of view: its Agreement says who it is, what it does and
+  what it never does. A conversation can start with it once it is in the Space.
+
+The person asking for one is the approval to create it. Use the name they chose: letters, digits,
+spaces, \`.\`, \`_\` or \`-\`, and no \`/\`.
+
+- An agent: in Home's \`agents/\` folder (make it first if it is missing), run
+  \`ideaspaces create <name> --agent --yes\`. It becomes \`agents/<name>\`.
+- A knowledge repo: in Home's root, run \`ideaspaces create <name> --yes\`.
+
+Each one is its own Git repo, with its own identity. Then:
+
+1. Add it to this Space: the Space's curation tool, or
+   \`ideaspaces map add home.map.md --position . --checkout <path>\`.
+2. Add \`/<path>/\` to Home's \`.gitignore\`: Home's own Git never tracks a child. Commit
+   \`.gitignore\` with the person's yes.
+3. Its Agreement's sections are prompts too. Offer to draw them out now, the same way: ask, show,
+   write after a yes, commit.
+
+Then tell the person the new agent can be chosen for the next conversation in this Space.
 `;
 var HOME_CLAUDE_MD = `---
 name: Claude Code orientation \u2014 Home
@@ -17098,7 +17191,7 @@ summary: This folder is Home. Read the Agreement first, then open home.map.md, w
 
 # CLAUDE.md
 
-This folder is Home. Read [\`_agent/agreement.md\`](_agent/agreement.md) first, then open \`home.map.md\`, which is the Space.
+This folder is Home. Read [\`_agent/agreement.md\`](_agent/agreement.md) first, then open \`home.map.md\`, which is the Space. While the Agreement's first three sections are still prompts, the first conversation follows [\`_agent/skills/first-conversation.md\`](_agent/skills/first-conversation.md).
 `;
 function agreementClaudeMd(kind, name) {
   if (kind === "agent") {
@@ -17331,6 +17424,7 @@ var CONVENTION_READMES = {
   skills: SKILLS_README_MD,
   perspectives: PERSPECTIVES_README_MD
 };
+var HOME_SKILL_PATH = join15("_agent", "skills", "first-conversation.md");
 var CODE_SIGNALS = [
   ".github",
   "package.json",
@@ -17351,7 +17445,7 @@ var createCommand = {
     "ideaspaces create --yes                # scaffold in current directory",
     "ideaspaces create --yes --shared       # in a code repo, opt into shared (committed) _agent/",
     "ideaspaces create scribe --yes --agent # an agent: the folder IS the agent",
-    "ideaspaces create --home ~/IdeaSpaces --yes  # scaffold Home with Agreement + empty home.map.md",
+    "ideaspaces create --home ~/IdeaSpaces --yes  # scaffold Home: Agreement with three goal prompts, empty home.map.md, first-conversation skill",
     "ideaspaces create --yes --foundation   # the older foundation.md + guide.md shape (one more release)"
   ],
   async run(args2, flags2, global3) {
@@ -17451,7 +17545,8 @@ var createCommand = {
         contract,
         contractShape,
         claudeMd,
-        homeMapMd: homeMode ? HOME_MAP_MD : void 0
+        homeMapMd: homeMode ? HOME_MAP_MD : void 0,
+        homeSkillMd: homeMode ? HOME_FIRST_CONVERSATION_SKILL_MD : void 0
       }));
     } catch (err) {
       output.error(`Scaffold failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -17472,7 +17567,7 @@ var createCommand = {
       lines.push(`Working locally \u2014 no version history yet. ${gitNote ?? ""}`.trim(), `Once git is ready, from ${where}: \`git init -b main && git add ${committablePaths.join(" ")} && git commit -m "Initial ideaspace scaffold"\`.`);
     }
     if (homeMode) {
-      lines.push(`Next: open a session in ${where} \u2014 Home is scaffolded with an Agreement and ${existingHomeMap ? "your existing" : "an empty"} home.map.md as the curated Space Map.`);
+      lines.push(`Next: open a session in ${where} \u2014 Home is scaffolded with an Agreement and ${existingHomeMap ? "your existing" : "an empty"} home.map.md as the curated Space Map. The Agreement's first three sections are prompts: the first conversation asks what this place is, what it holds and what it should accomplish (_agent/skills/first-conversation.md).`);
     } else if (contractShape === "agreement") {
       lines.push(agentMode ? `Next: open a session in ${where} \u2014 the Agreement's sections are prompts. Draw out who ${agentName} is from real tasks and replace them.` : `Next: open a session in ${where} \u2014 the Agreement's sections are prompts. Draw out what this place is and how work goes here, and replace them.`);
     } else {
@@ -17577,6 +17672,9 @@ function buildPlan(opts) {
   if (homeMode && !existsSync5(join15(targetDir, "home.map.md"))) {
     steps.push({ op: "write", path: join15(targetDir, "home.map.md"), detail: "empty Space Map" });
   }
+  if (homeMode && !existsSync5(join15(targetDir, HOME_SKILL_PATH))) {
+    steps.push({ op: "write", path: join15(targetDir, HOME_SKILL_PATH), detail: "first-conversation skill" });
+  }
   if (contractShape === "foundation") {
     for (const dim of Object.keys(CONVENTION_READMES)) {
       steps.push({
@@ -17629,7 +17727,7 @@ function renderPlanText(opts) {
   return lines.join("\n");
 }
 async function applyPlan(opts) {
-  const { targetDir, inspection, privateAgent, contract, contractShape, claudeMd, homeMapMd } = opts;
+  const { targetDir, inspection, privateAgent, contract, contractShape, claudeMd, homeMapMd, homeSkillMd } = opts;
   let rootNodeId = null;
   let materializedContract = contract;
   if (!privateAgent) {
@@ -17654,6 +17752,11 @@ async function applyPlan(opts) {
       await fs9.writeFile(mapAbs, homeMapMd, "utf-8");
       commitPaths2.push(mapRel);
     }
+  }
+  if (homeSkillMd && !existsSync5(join15(targetDir, HOME_SKILL_PATH))) {
+    await fs9.mkdir(join15(targetDir, "_agent", "skills"), { recursive: true });
+    await fs9.writeFile(join15(targetDir, HOME_SKILL_PATH), homeSkillMd, "utf-8");
+    commitPaths2.push(HOME_SKILL_PATH);
   }
   if (contractShape === "foundation") {
     for (const [dim, content] of Object.entries(CONVENTION_READMES)) {
