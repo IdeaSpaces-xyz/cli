@@ -870,6 +870,12 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["post", "work"], { kind: "snapshto", message: "Typo", author: "Integrator" }, { ...flags, quiet: false })).toBe(1);
       expect(err).toContain("pass --yes");
       expect(readdirSync(join(root, "_threads", "work"))).toHaveLength(beforeCustom);
+      for (const kind of ["decision", "dispatch", "claim", "delivery", "verification", "question"]) {
+        out = ""; err = "";
+        expect(await threadsCommand.run(["post", "work"], { kind, message: `A ${kind}`, author: "Integrator" }, { ...flags, quiet: false }), err).toBe(0);
+        expect(JSON.parse(out).kind).toBe(kind);
+        expect(err).not.toContain("custom post kind");
+      }
       out = ""; err = "";
       expect(await threadsCommand.run(["post", "work"], { kind: "custom_signal", message: "Open kind", author: "Integrator" }, { ...flags, yes: true, quiet: false })).toBe(0);
       expect(JSON.parse(out).kind).toBe("custom_signal");
