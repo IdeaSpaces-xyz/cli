@@ -12250,6 +12250,20 @@ function isRecord3(value2) {
 
 // node_modules/@ideaspaces/protocol/dist/threads.js
 var THREADS_DIRECTORY = "_threads";
+var THREAD_KINDS = [
+  "post",
+  "snapshot",
+  "reframe",
+  "correction",
+  "closure",
+  "mark",
+  "decision",
+  "dispatch",
+  "claim",
+  "delivery",
+  "verification",
+  "question"
+];
 function parseThreadAttachment(value2) {
   if (typeof value2 !== "string" || !value2.trim())
     return null;
@@ -31067,7 +31081,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
 
 // dist/commands/threads.js
 var SURFACE_BODY_BYTES = 800;
-var KNOWN_POST_KINDS = /* @__PURE__ */ new Set(["post", "snapshot", "reframe", "correction", "closure", "mark"]);
+var KNOWN_POST_KINDS = new Set(THREAD_KINDS);
 function str2(flags2, key2) {
   return typeof flags2[key2] === "string" ? flags2[key2] : void 0;
 }
@@ -31323,7 +31337,8 @@ var threadsCommand = {
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
     "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
-    "ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard: post, snapshot, reframe, correction, closure, mark; custom kinds require --yes",
+    `ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard kinds: ${THREAD_KINDS.join(", ")}`,
+    "ideaspaces threads post <slug> --kind my_signal --yes --message 'Intentional'  # a custom kind needs --yes",
     "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
     "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
     "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
@@ -32893,7 +32908,7 @@ var READ_TOOLS = /* @__PURE__ */ new Set([
   "grep",
   "find"
 ]);
-var THREAD_POST_KINDS = /* @__PURE__ */ new Set(["post", "snapshot", "reframe", "correction", "closure"]);
+var THREAD_POST_KINDS = new Set(THREAD_KINDS);
 function toolJson(tool) {
   const result = tool.result;
   const blocks = Array.isArray(result) ? result : result && typeof result === "object" && "content" in result ? result.content : null;
