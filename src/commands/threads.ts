@@ -281,7 +281,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads new <slug> --about 'About this Note' --attached-to note:@home//notes/topic.md  # link, no child edge",
     "ideaspaces threads attach <slug|path> post:msg_<parent> --message 'Why it moves'  # sets the Agreement's attached_to (current parent) and appends a reframe; the opening post keeps the origin",
     "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
-    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening",
+    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux] [--no-check-links]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening; file-relative Markdown links in the body must resolve (an unwritten post is a warning); --no-check-links skips the check",
     "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
     `ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard kinds: ${THREAD_KINDS.join(", ")}`,
     "ideaspaces threads post <slug> --kind my_signal --yes --message 'Intentional'  # a custom kind needs --yes",
@@ -705,12 +705,13 @@ export const threadsCommand: CommandDef = {
         const tags = typeof flags.tags === "string" ? flags.tags.split(",").map((t) => t.trim()) : undefined;
 
         const body = str(flags, "message") ?? await stdin();
-        const { post, path } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, name: str(flags, "name"),
+        const { post, path, warnings } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, checkLinks: flags["no-check-links"] !== true, name: str(flags, "name"),
           summary: str(flags, "summary"), author: target ? selectedWriterName() : writerName(str(flags, "author")), replyTo: parents,
           kind: kind as ThreadKind, mark: str(flags, "mark"), supersedes: str(flags, "supersedes"), map, tags,
           rejectEscapedNewlines: typeof flags.message === "string", verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
-        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo }, `Appended ${post.kind}: ${path}`); return 0;
+        for (const warning of warnings) output.log(`Link warning: ${warning}`);
+        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(warnings.length ? { warnings } : {}) }, `Appended ${post.kind}: ${path}`); return 0;
       }
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");
