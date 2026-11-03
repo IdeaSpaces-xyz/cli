@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
@@ -22,6 +22,26 @@ export interface ThreadParentInfo {
   path?: string;
   name?: string;
   summary?: string;
+  /** The opening post's attachment, present only when it names a different target than the parent. */
+  origin?: string;
+}
+
+/** The authored text of an attachment, or `unknown`. */
+export function attachmentText(attachment: ThreadAttachment | "unknown"): string {
+  return attachment === "unknown" ? "unknown" : attachment.raw ?? `${attachment.kind}:${attachment.value}`;
+}
+
+/** `post:msg_x` and bare `msg_x` name the same post; compare targets, not spellings. */
+function sameTarget(a: ThreadAttachment | "unknown" | null, b: ThreadAttachment | "unknown" | null): boolean {
+  if (a === null || b === null || a === "unknown" || b === "unknown") return a === b;
+  const post = (x: ThreadAttachment) => x.kind === "post" || x.kind === "id" || x.kind === "path";
+  return post(a) && post(b) ? a.value === b.value : a.kind === b.kind && a.value === b.value;
+}
+
+/** The origin note for a parent, only when the Thread has moved away from where it started. */
+function originNote(thread: LocalThread): { origin?: string } {
+  return thread.origin !== null && !sameTarget(thread.origin, thread.attachment)
+    ? { origin: attachmentText(thread.origin) } : {};
 }
 
 export interface ChildThreadInfo {
@@ -65,7 +85,10 @@ export interface LocalThread {
   closed: boolean | "unknown";
   /** Only an unreadable opening post refuses writes. */
   writeRefusal?: string;
+  /** Current parent: the Thread Agreement's attachment, else the opening post's. */
   attachment: ThreadAttachment | "unknown" | null;
+  /** Where the Thread started: the opening post's attachment, immutable. */
+  origin: ThreadAttachment | "unknown" | null;
   readme: string;
 }
 
@@ -163,9 +186,9 @@ export function loadThread(dir: string): LocalThread {
     if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join(path, entry.name)) });
   }
-  const legacy = agreementContent === null ? { status: "absent" as const }
+  const agreementAttachment = agreementContent === null ? { status: "absent" as const }
     : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
-  const inspection = inspectThreadPosts(sources, legacy);
+  const inspection = inspectThreadPosts(sources, agreementAttachment);
   const allPosts = inspection.posts.map((post) => ({ ...post, path: basename(post.path) }));
   const seen = new Set<string>();
   for (const post of allPosts) {
@@ -186,7 +209,7 @@ export function loadThread(dir: string): LocalThread {
     posts: timeline.posts, allPosts, warnings, unreadablePosts: inspection.unreadable.map((post) => post.path),
     closed: inspection.closed,
     ...(inspection.writeRefusal ? { writeRefusal: inspection.writeRefusal } : {}),
-    attachment: inspection.parent, readme,
+    attachment: inspection.parent, origin: inspection.origin, readme,
   };
 }
 
@@ -206,6 +229,13 @@ export function listLocal(cwd = process.cwd(), onError?: (message: string) => vo
   return rows.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
+/** The Agreement `threads new` writes; `threads attach` writes it too for a Thread without one. */
+function minimalAgreement(about: string, attachedTo?: string): string {
+  return `---\nname: ${stringify(`Agreement — ${about}`).trim()}\nsummary: Local Thread entry schema and immutable posts.\n` +
+    (attachedTo ? `attached_to: ${attachedTo}\n` : "") +
+    `---\n# ${about}\n\nPosts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.\n`;
+}
+
 export function createThread(slug: string, about: string, cwd = process.cwd(), attachedTo?: string): LocalThread {
   if (!SLUG.test(slug)) throw new Error("Thread slug must be lowercase letters, numbers and hyphens (1–101 characters).");
   if (!about.trim() || /[\r\n]/.test(about) || about.length > 200) throw new Error("--about must be a single-line title of at most 200 characters.");
@@ -218,7 +248,7 @@ export function createThread(slug: string, about: string, cwd = process.cwd(), a
   const dir = join(base, slug);
   mkdirSync(dir); // exclusive; never overwrite a Thread
   mkdirSync(join(dir, "_agent"));
-  writeFileSync(join(dir, "_agent", "agreement.md"), `---\nname: ${stringify(`Agreement — ${about.trim()}`).trim()}\nsummary: Local Thread entry schema and immutable posts.\n---\n# ${about.trim()}\n\nPosts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.\n`, { flag: "wx" });
+  writeFileSync(join(dir, "_agent", "agreement.md"), minimalAgreement(about.trim()), { flag: "wx" });
   writeFileSync(join(dir, "README.md"), stringify({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
   return loadThread(dir);
 }
@@ -257,7 +287,7 @@ export function resolveThreadParent(threadDir: string, knownThreads?: LocalThrea
   const attachment = thread.attachment;
   const attachedTo = attachment.raw ?? attachment.value;
   if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
-    return { attached_to: attachedTo, status: "none" };
+    return { attached_to: attachedTo, status: "none", ...originNote(thread) };
   }
   const spaceRoot = spaceForThread(threadDir);
   // This root snapshot is explicitly selected by the local Space, never a hosted lookup.
@@ -266,13 +296,13 @@ export function resolveThreadParent(threadDir: string, knownThreads?: LocalThrea
     path: `_threads/${sibling.slug}/${post.path}`, id: post.id,
   })));
   const resolved = resolveProtocolParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts }]);
-  if (resolved.status !== "resolved") return { attached_to: attachedTo, status: resolved.status };
+  if (resolved.status !== "resolved") return { attached_to: attachedTo, status: resolved.status, ...originNote(thread) };
   const parent = siblings.find((sibling) => sibling.slug === resolved.parent.path.split("/")[1]);
   const post = parent?.allPosts.find((candidate) => candidate.id === resolved.parent.id);
   return {
     attached_to: attachedTo, id: resolved.parent.id, slug: parent?.slug,
     path: resolved.parent.path, name: post?.frontmatter.name ?? resolved.parent.id,
-    summary: post?.frontmatter.summary ?? "",
+    summary: post?.frontmatter.summary ?? "", ...originNote(thread),
   };
 }
 
@@ -580,4 +610,173 @@ export function pushWorktree(cwd = process.cwd(), remote?: string): string {
   }
   git(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
   return remote;
+}
+
+export interface AttachResult {
+  thread: LocalThread;
+  /** The effective parent before the move, or null when the Thread had none. */
+  previous: ThreadParentInfo | null;
+  parent: { id: string; slug: string; path: string; name: string; attached_to: string };
+  agreementPath: string;
+  /** True when the Thread had no Agreement and attach wrote the minimal one `threads new` writes. */
+  agreementCreated: boolean;
+  post: ThreadPost;
+  postPath: string;
+  /** Threads whose parent could not be read, so the cycle check could not follow them. */
+  cycleCheckSkipped: string[];
+}
+
+/** The two writes attach makes. Tests replace them to prove the restore paths; callers never need to. */
+export interface AttachWrites {
+  appendPost: typeof appendPost;
+  /** Replace the Agreement file in full (temp file, then rename). */
+  writeAgreement: (path: string, content: string) => void;
+}
+
+function writeAgreementFile(path: string, content: string): void {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, content, { flag: "wx" });
+  renameSync(temporary, path);
+}
+
+const FRONTMATTER = /^---\r?\n([\s\S]*?\r?\n)?---(\r?\n|$)/;
+
+/** Set only `attached_to` in an Agreement's frontmatter; every other byte stays as it was. */
+function withAttachedTo(content: string, value: string): string {
+  const block = FRONTMATTER.exec(content);
+  if (!block) return `---\nattached_to: ${value}\n---\n${content}`;
+  const body = block[1] ?? "";
+  const lines = body.split(/(?<=\n)/);
+  const at = lines.findIndex((line) => /^attached_to\s*:/.test(line));
+  if (at !== -1) {
+    // A folded or block value continues on indented lines; this writer refuses rather than guess.
+    if (lines[at + 1] !== undefined && /^[ \t]/.test(lines[at + 1])) {
+      throw new Error("The Thread Agreement's attached_to spans several lines; edit it to one line, then attach again.");
+    }
+    const newline = lines[at].endsWith("\r\n") ? "\r\n" : "\n";
+    lines[at] = `attached_to: ${value}${newline}`;
+  } else {
+    lines.push(`attached_to: ${value}${content.startsWith("---\r\n") ? "\r\n" : "\n"}`);
+  }
+  const open = content.startsWith("---\r\n") ? "---\r\n" : "---\n";
+  const close = `---${block[2]}`;
+  return open + lines.join("") + close + content.slice(block[0].length);
+}
+
+/**
+ * Move a local Thread under another post: write the Thread Agreement's `attached_to`
+ * (its current parent) and append one `reframe` post naming the old and new parent.
+ * The opening post, its origin, is never touched. If the reframe cannot be written,
+ * the Agreement is restored, so no post claims a move that did not happen.
+ */
+export function attachThread(
+  dir: string,
+  target: string,
+  options: { message: string; author: string },
+  writes: AttachWrites = { appendPost, writeAgreement: writeAgreementFile },
+): AttachResult {
+  const thread = loadThread(dir);
+  if (thread.writeRefusal) throw new Error(thread.writeRefusal);
+  if (thread.closed === true) throw new Error(`Thread ${thread.slug} is closed; a closed Thread is not moved.`);
+  if (!thread.posts.length) throw new Error(`Thread ${thread.slug} has no opening post yet; attach after its first post.`);
+  if (!options.message.trim()) throw new Error("--message is required: say why the Thread moves.");
+  // The reason lands in an immutable post: refuse shell-escaped newlines before anything is written.
+  if (!options.message.includes("\n") && (options.message.match(/\\n/g) ?? []).length >= 2) {
+    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'). Nothing changed.");
+  }
+  const attachment = parseThreadAttachment(target);
+  if (!attachment) throw new Error(`Not a post target: ${target}. Use post:msg_…, msg_… or _threads/<thread>/<post>.md.`);
+  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
+    throw new Error(`threads attach takes a post target; ${target} is a ${attachment.kind} link. A Thread's Agreement parent is post-only; record other links on a post.`);
+  }
+  const spaceRoot = spaceForThread(thread.path);
+  // Strict: an unreadable sibling could hide the real match, so it refuses rather than guess.
+  const siblings = listLocal(spaceRoot);
+  const posts = siblings.flatMap((sibling) => sibling.allPosts.map((post) => ({
+    path: `_threads/${sibling.slug}/${post.path}`, id: post.id,
+  })));
+  const resolved = resolveProtocolParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts }]);
+  if (resolved.status === "unresolved") throw new Error(`${target} is not a readable post in this Space's Threads; nothing changed.`);
+  if (resolved.status === "ambiguous") throw new Error(`${target} names several posts in this Space; use the post's path. Nothing changed.`);
+  if (resolved.status !== "resolved") throw new Error(`${target} is not a post edge; nothing changed.`);
+  const parentSlug = resolved.parent.path.split("/")[1];
+  if (parentSlug === thread.slug) throw new Error(`${target} is a post in ${thread.slug} itself; a Thread cannot be its own parent.`);
+
+  // A post in a descendant Thread would close a cycle. Walk child links from this Thread.
+  // An unreadable parent proves no edge, so the check is partial whenever one is skipped:
+  // a Thread whose parent cannot be read could hide a real descendant. Callers report the skips.
+  const parentOf = new Map<string, string>();
+  const cycleCheckSkipped: string[] = [];
+  for (const sibling of siblings) {
+    if (sibling.slug === thread.slug) continue;
+    try {
+      const info = resolveThreadParent(sibling.path, siblings);
+      if (info?.status === "unknown") cycleCheckSkipped.push(sibling.slug);
+      else if (info?.slug) parentOf.set(sibling.slug, info.slug);
+    } catch {
+      cycleCheckSkipped.push(sibling.slug);
+    }
+  }
+  const descendants = new Set<string>([thread.slug]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [child, parent] of parentOf) {
+      if (descendants.has(parent) && !descendants.has(child)) { descendants.add(child); grew = true; }
+    }
+  }
+  if (descendants.has(parentSlug)) {
+    throw new Error(`${target} is in ${parentSlug}, which already descends from ${thread.slug}; attaching would make a cycle. Nothing changed.`);
+  }
+
+  const previous = resolveThreadParent(thread.path, siblings);
+  if (previous?.id === resolved.parent.id) throw new Error(`Thread ${thread.slug} is already attached to ${resolved.parent.id}; nothing changed.`);
+  // New authoring uses the Agreement schema's bare forms: a msg_ id, else the post path.
+  const value = /^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(resolved.parent.id) ? resolved.parent.id : resolved.parent.path;
+
+  const agentDir = join(thread.path, "_agent");
+  const agreementPath = join(agentDir, "agreement.md");
+  const before = threadAgreementContent(thread.path);
+  const createdDir = !lexists(agentDir);
+  const after = before === null ? minimalAgreement(thread.name, value) : withAttachedTo(before, value);
+  const check = parseThreadAgreementAttachment(after, `_threads/${thread.slug}/_agent/agreement.md`);
+  if (check.status !== "valid" || check.attachment.value !== value) {
+    throw new Error(`Could not write a valid attached_to into ${agreementPath}; nothing changed.`);
+  }
+  if (before !== null) {
+    const strip = (content: string) => { const fm = { ...(parseFrontmatter(content) ?? {}) }; delete fm.attached_to; return JSON.stringify(fm); };
+    if (strip(before) !== strip(after)) throw new Error(`Writing attached_to would change other fields of ${agreementPath}; nothing changed.`);
+  }
+  if (createdDir) mkdirSync(agentDir);
+  writes.writeAgreement(agreementPath, after);
+
+  const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
+  const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
+  const parentName = parentPost?.frontmatter.name ?? resolved.parent.id;
+  const previousText = previous ? `${previous.id ?? previous.attached_to}${previous.slug ? ` (${previous.slug})` : ""}` : "none";
+  const originText = thread.origin === null ? "none" : attachmentText(thread.origin);
+  try {
+    const { post, path } = writes.appendPost(thread.path, {
+      kind: "reframe",
+      replyTo: ["latest"],
+      author: options.author,
+      name: `Moved under ${parentSlug}`,
+      summary: `Current parent ${previousText} → ${resolved.parent.id} (${parentSlug}). ${options.message.trim().split("\n")[0]}`.slice(0, 1000),
+      body: `Reattached this Thread.\n\n- Previous parent: ${previousText}\n- New parent: ${resolved.parent.id} · ${parentName} (${resolved.parent.path})\n- Origin, unchanged: ${originText}\n\nWhy: ${options.message.trim()}\n`,
+    });
+    return {
+      thread: loadThread(thread.path), previous,
+      parent: { id: resolved.parent.id, slug: parentSlug, path: resolved.parent.path, name: parentName, attached_to: value },
+      agreementPath, agreementCreated: before === null, post, postPath: path, cycleCheckSkipped,
+    };
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    try {
+      if (before === null) rmSync(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
+      else writes.writeAgreement(agreementPath, before);
+    } catch (restoreError) {
+      // Never let a failed restore hide either failure: the Agreement now names a parent no post explains.
+      throw new Error(`The reframe post could not be written (${cause}), and restoring ${agreementPath} also failed (${restoreError instanceof Error ? restoreError.message : String(restoreError)}). Its attached_to now says ${value}, with no reframe post: restore the file from Git or run attach again.`);
+    }
+    throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${cause}`);
+  }
 }

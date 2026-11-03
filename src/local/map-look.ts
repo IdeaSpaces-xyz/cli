@@ -9,6 +9,7 @@ import {
   renderContentLook,
   type ContentFocusResult,
   type ContentLookResult,
+  type ContentRepresentation,
   type ContractSource,
   type MapDepth,
 } from "@ideaspaces/protocol";
@@ -61,6 +62,8 @@ export interface CommitReadTarget {
 export interface CommitLookOptions {
   depth: MapDepth;
   contractSource?: ContractSource;
+  /** Reference Agreement representation; the protocol default is summary. */
+  agreement?: ContentRepresentation;
   limit?: number;
   since?: string;
   order?: "older" | "newer";
@@ -76,6 +79,7 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
       position,
       depth: options.depth,
       ...(options.contractSource ? { contractSource: options.contractSource } : {}),
+      ...(options.agreement ? { agreement: options.agreement } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
       ...(options.since !== undefined ? { since: options.since } : {}),
       ...(options.order !== undefined ? { order: options.order } : {}),
@@ -95,14 +99,19 @@ export async function lookAtCommit(target: CommitReadTarget, options: CommitLook
 }
 
 /** Focus on one directory as it is in a commit: its contract, depth-one tree and skills, as reference. */
-export async function focusAtCommit(target: CommitReadTarget, contractSource?: ContractSource): Promise<CommitFocus> {
+export async function focusAtCommit(
+  target: CommitReadTarget,
+  contractSource?: ContractSource,
+  agreement?: ContentRepresentation,
+): Promise<CommitFocus> {
   if (target.kind !== "directory") return { status: "not_content", reason: `${target.position} is not a directory.` };
   return withSnapshot(target, true, async (dir) => {
     const position = join(dir, target.position);
-    let focus = await assembleContentFocus({ position, ...(contractSource ? { contractSource } : {}) });
+    const focusOpts = { position, ...(contractSource ? { contractSource } : {}), ...(agreement ? { agreement } : {}) };
+    let focus = await assembleContentFocus(focusOpts);
     if (focus?.status === "contract_choice_required" && !contractSource) {
       const preferred = preferredContractSource(focus.availableSources);
-      if (preferred) focus = await assembleContentFocus({ position, contractSource: preferred });
+      if (preferred) focus = await assembleContentFocus({ ...focusOpts, contractSource: preferred });
     }
     if (!focus) return { status: "not_content", reason: `${target.position} is not a Content position.` };
     const relabel = relabeller(dir, target.label);

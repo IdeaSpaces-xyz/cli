@@ -26,7 +26,7 @@ import {
   type MapParseIssue,
   type GitState,
 } from "@ideaspaces/protocol";
-import { contractSourceFlag, preferredContractSource } from "../contract-source.js";
+import { agreementFlag, contractSourceFlag, preferredContractSource } from "../contract-source.js";
 import {
   inspectPortableLocalRoot,
   type LocalProjectionRoot,
@@ -40,8 +40,8 @@ import type { CommandDef } from "../types.js";
 
 const DEPTHS = "<name|summary|surface|children|full>";
 const USAGE =
-  `ideaspaces look [<path>] [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_…] [--pin <sha>] [--json]\n` +
-  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_…] [--json]`;
+  `ideaspaces look [<path>] [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--agreement <summary|full>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_…] [--pin <sha>] [--json]\n` +
+  `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--agreement <summary|full>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_…] [--json]`;
 
 interface PortableProjection {
   root: LocalProjectionRoot;
@@ -87,6 +87,7 @@ export const lookCommand: CommandDef = {
     "ideaspaces look --post msg_75cc2f37 --depth summary  # searches only the current Space root (cwd)",
     "ideaspaces look @home//_threads/decision/msg_75cc2f37 --map thread.map.md --at pin --depth full",
     "ideaspaces look . --contract foundation --depth summary",
+    "ideaspaces look _threads/decision/2026-10-02T10-00-00Z-direction.md --agreement full  # the Thread's own Agreement in full; ancestors stay summary",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
@@ -96,7 +97,7 @@ export const lookCommand: CommandDef = {
     }
 
     const raw = args[0]?.trim() ?? ".";
-    const allowed = new Set(["depth", "contract", "limit", "pin", "map", "at", "new", "since", "order", "post"]);
+    const allowed = new Set(["depth", "contract", "agreement", "limit", "pin", "map", "at", "new", "since", "order", "post"]);
     const unknown = Object.keys(flags).find((flag) => !allowed.has(flag));
     if (unknown) {
       output.error(`Unknown flag for look: --${unknown}`);
@@ -144,6 +145,11 @@ export const lookCommand: CommandDef = {
       output.error(selected.error);
       return 1;
     }
+    const reference = agreementFlag(flags.agreement);
+    if (reference.error) {
+      output.error(reference.error);
+      return 1;
+    }
 
     if (looksLikeMapAddress(raw)) {
       if (threadPostIdAddress(raw) && (limit !== undefined || since || order)) {
@@ -170,6 +176,7 @@ export const lookCommand: CommandDef = {
           depth,
           ...(at ? { at } : {}),
           ...(selected.source ? { contractSource: selected.source } : {}),
+          ...(reference.agreement ? { agreement: reference.agreement } : {}),
           ...(limit !== undefined ? { limit } : {}),
           ...(since ? { since } : {}),
           ...(order ? { order } : {}),
@@ -192,6 +199,7 @@ export const lookCommand: CommandDef = {
       return lookAtPin(output, global.json, raw, flags.pin, {
         depth,
         ...(selected.source ? { contractSource: selected.source } : {}),
+        ...(reference.agreement ? { agreement: reference.agreement } : {}),
         ...(limit !== undefined ? { limit } : {}),
         ...(since ? { since } : {}),
         ...(order ? { order } : {}),
@@ -205,6 +213,7 @@ export const lookCommand: CommandDef = {
         position: path,
         depth,
         ...(selected.source ? { contractSource: selected.source } : {}),
+        ...(reference.agreement ? { agreement: reference.agreement } : {}),
         ...(limit !== undefined ? { limit } : {}),
         ...(since ? { since } : {}),
         ...(order ? { order } : {}),
