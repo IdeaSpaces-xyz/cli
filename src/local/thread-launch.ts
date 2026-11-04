@@ -1,13 +1,12 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
-import { parseFrontmatter, parseThreadPost, type MapBlock } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, parseFrontmatter, parseThreadPost, type MapBlock } from "@ideaspaces/protocol";
 import type { KeeperTurnCompleteEvent } from "@ideaspaces/sdk";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "./thread-map-member.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadThread, readPinnedThreadAgreement, readPinnedThreadMember, resolveLocalThread, threadBase } from "./threads.js";
 import { loadConfig } from "../auth/credentials.js";
 import { fetchHostedThread, fetchHostedThreadPosts } from "../auth/api.js";
-import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 
 /** CLI-local result extension; the SDK's generic Keeper turn does not own Thread writes. */
 export type LocalThreadCompletion = KeeperTurnCompleteEvent & {
@@ -250,7 +249,7 @@ export async function prepareHostedThreadLaunch(
   options?: { requireAuthor?: boolean },
 ): Promise<HostedThreadLaunch> {
   if (!HOSTED_THREAD_ID.test(threadId)) {
-    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected x_ followed by letters, digits, _ or -.`);
+    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected x_<id>.`);
   }
   const config = loadConfig();
   if (!config) {

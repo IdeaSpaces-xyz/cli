@@ -1,6 +1,5 @@
 export type Flags = Record<string, string | boolean>;
 
-export { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 export const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
 const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(

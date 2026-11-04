@@ -146,7 +146,7 @@ describe("threads list --hosted", () => {
   });
 });
 
-describe("threads open x_<32hex>", () => {
+describe("threads open x_<id>", () => {
   it("treats a hosted id as opaque: its form and length never decide, only x_ and the characters", async () => {
     const minted = "x_Ab-9_Z-a-form-no-client-has-seen-and-longer-than-any-minted-today-0123456789";
     serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ ...fixture("threads-page-1").threads[0], thread_id: minted }], next_cursor: null } }) });

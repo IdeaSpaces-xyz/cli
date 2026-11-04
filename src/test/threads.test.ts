@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { agentCommand } from "../commands/agent.js";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -934,7 +935,8 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
   const out = process.stdout.write; const err = process.stderr.write;
   let text = "";
   process.stdout.write = ((s: string) => { text += s; return true; }) as typeof out;
-  process.stderr.write = (() => true) as typeof err;
+  let errors = "";
+  process.stderr.write = ((s: string) => { errors += s; return true; }) as typeof err;
   const global = { json: true, quiet: true, yes: false, help: false };
   try {
     expect(await threadsCommand.run(["new", "x-notes"], { about: "Local x name" }, global)).toBe(0);
@@ -946,6 +948,29 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     mkdirSync(join(root, "x_dir"));
     expect(await threadsCommand.run(["list", "x_dir"], {}, global)).toBe(0);
     expect(JSON.parse(text).hosted_checked).toBe(false);
+    // A folder of that name decides, on every path that routes, and nothing reaches the service.
+    const fetched = vi.spyOn(globalThis, "fetch");
+    text = "";
+    expect(await threadsCommand.run(["post", "x_notes"], { message: "Stays local", author: "Fixture" }, global)).toBe(0);
+    expect(JSON.parse(text).path).toContain("_threads/x_notes/");
+    expect(await threadsCommand.run(["ack", "x_notes"], { seq: "1" }, global)).toBe(1);
+    expect(fetched).not.toHaveBeenCalled();
+    fetched.mockRestore();
+    // No folder of that name: it asks the service, and says a local name may be what was meant.
+    delete process.env.IDEASPACES_API_KEY;
+    text = "";
+    expect(await threadsCommand.run(["post", "x_notse"], { message: "Typo", "reply-to": "msg_parent" }, global)).toBe(1);
+    const refusal = JSON.parse(text).error;
+    expect(refusal.state).toBe("signed_out");
+    expect(refusal.message).toContain("give its path");
+    // A launch routes the same way: only a hosted target refuses the local pin flags.
+    const launch = (thread: string) => agentCommand.run(["run", "."], { thread, "thread-map": "none.map.md", message: "Hi" }, global);
+    errors = "";
+    expect(await launch("x_elsewhere")).toBe(1);
+    expect(errors).toContain("Hosted Thread launches use");
+    errors = "";
+    expect(await launch("x_notes")).toBe(1);
+    expect(errors).not.toContain("Hosted Thread launches use");
     expect(isHostedThreadTarget("x_notes")).toBe(false);
     expect(isHostedThreadTarget("x_elsewhere")).toBe(true);
     expect(isHostedThreadTarget("x_" + "a".repeat(80))).toBe(true);

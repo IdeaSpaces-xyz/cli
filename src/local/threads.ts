@@ -3,10 +3,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
-import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 import { readCheckoutAt } from "./map-resolve.js";
 import { checkPostLinks } from "./post-links.js";
 
@@ -162,8 +161,10 @@ export function resolveLocalThread(input: string, cwd = process.cwd()): string {
  */
 export function isHostedThreadTarget(value: string, cwd = process.cwd()): boolean {
   if (!HOSTED_THREAD_ID.test(value)) return false;
-  try { return !lexists(join(threadsDirectory(cwd), value)); }
-  catch { return true; }
+  let base: string;
+  try { base = threadsDirectory(cwd); }
+  catch (error) { if (error instanceof NoAgreementError) return true; throw error; }
+  return !lexists(join(base, value));
 }
 
 /** A Thread's own Agreement is optional for reading and posting: an absent one
