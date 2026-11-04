@@ -18,7 +18,7 @@ Nothing of yours leaves your machine until you publish, push, or share it. The o
 npm install -g @ideaspaces/cli
 ```
 
-Node 20+ and git. `ideaspaces status doctor` checks both, and says when this CLI is behind.
+Needs Node 20+ and git. `ideaspaces status doctor` checks both, and says when this CLI is behind.
 
 ## Stay current
 
