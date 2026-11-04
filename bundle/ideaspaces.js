@@ -22791,7 +22791,8 @@ import { existsSync as existsSync15, lstatSync as lstatSync2, mkdirSync as mkdir
 import { homedir as homedir2 } from "node:os";
 import { join as join26 } from "node:path";
 var VERSION = 1;
-var RECORD_BYTES = 12;
+var KEY_BYTES = 6;
+var RECORD_BYTES = KEY_BYTES + 8;
 var HEADER_BYTES = 5;
 var sha = (text) => createHash7("sha256").update(text).digest();
 function fingerprint(slug, files) {
@@ -22801,7 +22802,7 @@ function fingerprint(slug, files) {
     for (let i = 0; i < 6; i++)
       set[i] ^= hash2[i];
   }
-  return { key: sha(slug).subarray(0, 4).toString("hex"), count: Math.min(files.length, 65535), set: set.toString("hex") };
+  return { key: sha(slug).subarray(0, KEY_BYTES).toString("hex"), count: Math.min(files.length, 65535), set: set.toString("hex") };
 }
 function current(threadsDir) {
   if (!existsSync15(threadsDir))
@@ -22818,8 +22819,8 @@ function encode(root, threads) {
   threads.forEach((thread, index) => {
     const at = HEADER_BYTES + index * RECORD_BYTES;
     Buffer.from(thread.key, "hex").copy(bytes, at);
-    bytes.writeUInt16BE(thread.count, at + 4);
-    Buffer.from(thread.set, "hex").copy(bytes, at + 6);
+    bytes.writeUInt16BE(thread.count, at + KEY_BYTES);
+    Buffer.from(thread.set, "hex").copy(bytes, at + KEY_BYTES + 2);
   });
   return bytes.toString("base64url");
 }
@@ -22833,8 +22834,8 @@ function decode(root, cursor) {
   }
   const threads = /* @__PURE__ */ new Map();
   for (let at = HEADER_BYTES; at < bytes.length; at += RECORD_BYTES) {
-    const key2 = bytes.subarray(at, at + 4).toString("hex");
-    threads.set(key2, { key: key2, count: bytes.readUInt16BE(at + 4), set: bytes.subarray(at + 6, at + 12).toString("hex") });
+    const key2 = bytes.subarray(at, at + KEY_BYTES).toString("hex");
+    threads.set(key2, { key: key2, count: bytes.readUInt16BE(at + KEY_BYTES), set: bytes.subarray(at + KEY_BYTES + 2, at + RECORD_BYTES).toString("hex") });
   }
   return threads;
 }
@@ -30589,7 +30590,7 @@ var threadsCommand = {
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
-    "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit 50]  # which local Threads moved, ids and counts only; a first look sets a baseline",
+    "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit 50]  # which local Threads moved, ids and counts only; --cursor writes nothing; a reader's first look stores a baseline; the host may name the reader with IDEASPACES_READER",
     "ideaspaces threads ack --recent <cursor> [--reader <name>]  # move a reader's recent position; a look never does",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",

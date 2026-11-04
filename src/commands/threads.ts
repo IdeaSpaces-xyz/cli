@@ -283,7 +283,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
-    "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit 50]  # which local Threads moved, ids and counts only; a first look sets a baseline",
+    "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit 50]  # which local Threads moved, ids and counts only; --cursor writes nothing; a reader's first look stores a baseline; the host may name the reader with IDEASPACES_READER",
     "ideaspaces threads ack --recent <cursor> [--reader <name>]  # move a reader's recent position; a look never does",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",

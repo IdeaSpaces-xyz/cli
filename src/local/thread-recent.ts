@@ -4,7 +4,7 @@
  *
  * A position is one record per Thread: a key for its folder, its post count, and an XOR of its
  * filenames' hashes. That is an order-free fingerprint of the set, so it fits in a cursor an agent
- * can hold, at about 16 characters a Thread, and any added or removed post changes it. It can say
+ * can hold, at about 19 characters a Thread, and any added or removed post changes it. It can say
  * which Threads moved and by how many, not which posts; a reader then opens those Threads.
  *
  * Filenames alone are enough because a post file is immutable, and reading them is what keeps this
@@ -17,7 +17,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const VERSION = 1;
-const RECORD_BYTES = 12;
+const KEY_BYTES = 6;
+const RECORD_BYTES = KEY_BYTES + 8;
 const HEADER_BYTES = 5;
 
 export interface MovedThread {
@@ -38,7 +39,7 @@ function fingerprint(slug: string, files: string[]): Fingerprint {
     const hash = sha(file);
     for (let i = 0; i < 6; i++) set[i] ^= hash[i];
   }
-  return { key: sha(slug).subarray(0, 4).toString("hex"), count: Math.min(files.length, 0xffff), set: set.toString("hex") };
+  return { key: sha(slug).subarray(0, KEY_BYTES).toString("hex"), count: Math.min(files.length, 0xffff), set: set.toString("hex") };
 }
 
 function current(threadsDir: string): Array<Fingerprint & { slug: string }> {
@@ -60,8 +61,8 @@ function encode(root: string, threads: Fingerprint[]): string {
   threads.forEach((thread, index) => {
     const at = HEADER_BYTES + index * RECORD_BYTES;
     Buffer.from(thread.key, "hex").copy(bytes, at);
-    bytes.writeUInt16BE(thread.count, at + 4);
-    Buffer.from(thread.set, "hex").copy(bytes, at + 6);
+    bytes.writeUInt16BE(thread.count, at + KEY_BYTES);
+    Buffer.from(thread.set, "hex").copy(bytes, at + KEY_BYTES + 2);
   });
   return bytes.toString("base64url");
 }
@@ -76,8 +77,8 @@ function decode(root: string, cursor: string): Map<string, Fingerprint> {
   }
   const threads = new Map<string, Fingerprint>();
   for (let at = HEADER_BYTES; at < bytes.length; at += RECORD_BYTES) {
-    const key = bytes.subarray(at, at + 4).toString("hex");
-    threads.set(key, { key, count: bytes.readUInt16BE(at + 4), set: bytes.subarray(at + 6, at + 12).toString("hex") });
+    const key = bytes.subarray(at, at + KEY_BYTES).toString("hex");
+    threads.set(key, { key, count: bytes.readUInt16BE(at + KEY_BYTES), set: bytes.subarray(at + KEY_BYTES + 2, at + RECORD_BYTES).toString("hex") });
   }
   return threads;
 }

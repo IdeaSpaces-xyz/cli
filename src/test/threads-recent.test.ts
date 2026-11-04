@@ -129,7 +129,7 @@ describe("threads recent", () => {
   it("stays small enough for an agent to hold", () => {
     const root = space();
     for (let i = 0; i < 74; i++) mkdirSync(join(root, "_threads", `thread-${i}`), { recursive: true });
-    expect(recentSince(root, join(root, "_threads")).cursor.length).toBeLessThan(1300);
+    expect(recentSince(root, join(root, "_threads")).cursor.length).toBeLessThan(1500);
   });
 });
 
