@@ -29166,7 +29166,7 @@ function hostedVerbFlagError(verb, flags2) {
   const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
   if (!unknown)
     return void 0;
-  const label = unknown === "kind" ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
+  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
   return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
 }
 
