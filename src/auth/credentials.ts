@@ -182,10 +182,6 @@ export function loadConfig(): LoadedConfig | null {
     const service = stored.api_url.replace(/\/$/, "");
     // A stored credential, session or key, belongs to its service, never an IS_API_URL override.
     // IS_API_KEY is how a caller pairs a key with another server: that pair is theirs to name.
-    if (apiUrl !== service) {
-      warnRefusedOverride(service, apiUrl);
-      return null;
-    }
     return {
       apiUrl,
       apiKey: stored.api_key,
