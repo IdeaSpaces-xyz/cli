@@ -7,6 +7,7 @@ import { HOSTED_THREAD_ID, isPinnedMomentMap, inspectThreadPosts, parseFrontmatt
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
+import { PERSON_READER, readerCursorDirectory } from "./thread-recent.js";
 import { checkPostLinks } from "./post-links.js";
 
 const MAX_POST = 1024 * 1024;
@@ -546,13 +547,13 @@ export function appendPost(dir: string, options: {
   return { post: parsed.post, path, warnings };
 }
 
-function cursorPath(thread: LocalThread): string {
+function cursorPath(thread: LocalThread, reader = PERSON_READER): string {
   const key = createHash("sha256").update(thread.path).digest("hex");
-  return join(homedir(), ".ideaspaces", "cursors", `${key}.json`);
+  return join(readerCursorDirectory(reader) ?? join(homedir(), ".ideaspaces", "cursors"), `${key}.json`);
 }
 
-export function readCursor(thread: LocalThread): Set<string> {
-  const path = cursorPath(thread);
+export function readCursor(thread: LocalThread, reader = PERSON_READER): Set<string> {
+  const path = cursorPath(thread, reader);
   if (existsSync(dirname(path)) && lstatSync(dirname(path)).isSymbolicLink()) throw new Error("Refusing symlink local cursor directory.");
   if (!existsSync(path)) return new Set();
   const data: unknown = JSON.parse(safeFile(path));
@@ -561,10 +562,10 @@ export function readCursor(thread: LocalThread): Set<string> {
   return new Set((data as { seen: string[] }).seen);
 }
 
-export function acknowledge(thread: LocalThread, posts: ThreadPost[]): void {
-  const seen = readCursor(thread);
+export function acknowledge(thread: LocalThread, posts: ThreadPost[], reader = PERSON_READER): void {
+  const seen = readCursor(thread, reader);
   for (const post of posts) seen.add(post.id);
-  const path = cursorPath(thread);
+  const path = cursorPath(thread, reader);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   if (lstatSync(dirname(path)).isSymbolicLink()) throw new Error("Refusing symlink local cursor directory.");
   const tmp = `${path}.${randomUUID()}.tmp`;

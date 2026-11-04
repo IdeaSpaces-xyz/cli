@@ -10459,11 +10459,11 @@ async function pathRevision(root, path, runner, filesystem = nodeReadFileSystem)
 }
 async function inspectPathComponents(root, path, filesystem) {
   const segments = path.split("/");
-  let current = root;
+  let current2 = root;
   for (const [index, segment] of segments.entries()) {
-    current = join5(current, segment);
+    current2 = join5(current2, segment);
     try {
-      const stat2 = await filesystem.lstat(current);
+      const stat2 = await filesystem.lstat(current2);
       if (stat2 === null)
         return null;
       if (stat2.kind === "symlink") {
@@ -10661,8 +10661,8 @@ async function recentActivity(repoRoot2, sinceSha, limit = DEFAULT_COMMIT_LIMIT)
     if (!raw)
       continue;
     if (raw.startsWith(REC)) {
-      const [sha, subject, date, author] = raw.slice(1).split(FS);
-      commits.push({ sha, subject, date, author });
+      const [sha2, subject, date, author] = raw.slice(1).split(FS);
+      commits.push({ sha: sha2, subject, date, author });
       continue;
     }
     const parts = raw.split("	");
@@ -11392,15 +11392,15 @@ function filterPathContextForSource(context, source) {
   };
 }
 function hasOpaqueFilesystemAncestor(path) {
-  let current = resolve6(path);
+  let current2 = resolve6(path);
   while (true) {
-    const name = basename2(current);
+    const name = basename2(current2);
     if (name.startsWith("_"))
       return true;
-    const parent = dirname3(current);
-    if (parent === current)
+    const parent = dirname3(current2);
+    if (parent === current2)
       return false;
-    current = parent;
+    current2 = parent;
   }
 }
 async function readAwarenessSections(opts) {
@@ -13774,11 +13774,11 @@ function blobSha(path, cwd) {
   return r.ok ? r.out : null;
 }
 function pathStatus2(path, cwd) {
-  const sha = blobSha(path, cwd);
+  const sha2 = blobSha(path, cwd);
   return {
     path,
-    exists: sha !== null,
-    sha,
+    exists: sha2 !== null,
+    sha: sha2,
     inIndex: gitExit(["diff", "--cached", "--quiet", "--", path], cwd) === 1,
     modified: gitExit(["diff", "--quiet", "--", path], cwd) === 1,
     inTracked: git(["ls-files", "--error-unmatch", "--", path], cwd).ok
@@ -13839,8 +13839,8 @@ function commitsAheadOfUpstream(cwd) {
   if (!r.ok || !r.out)
     return [];
   return r.out.split("\n").flatMap((line2) => {
-    const [sha, subject] = line2.split("\0");
-    return sha ? [{ sha, subject: subject ?? "" }] : [];
+    const [sha2, subject] = line2.split("\0");
+    return sha2 ? [{ sha: sha2, subject: subject ?? "" }] : [];
   });
 }
 function pathsAheadOfUpstream(cwd) {
@@ -13852,13 +13852,13 @@ function pathsAheadOfUpstream(cwd) {
 function commitsNotInHistory(shas, cwd) {
   if (!shas.length)
     return /* @__PURE__ */ new Set();
-  if (!shas.every((sha) => /^[0-9a-f]{4,40}$/i.test(sha)))
+  if (!shas.every((sha2) => /^[0-9a-f]{4,40}$/i.test(sha2)))
     return null;
   const r = git(["rev-list", "--no-walk", ...shas, "--not", "HEAD"], cwd);
   if (!r.ok)
     return null;
   const full = r.out.split("\n").map((s) => s.trim()).filter(Boolean);
-  return new Set(shas.filter((sha) => full.some((f) => f.startsWith(sha))));
+  return new Set(shas.filter((sha2) => full.some((f) => f.startsWith(sha2))));
 }
 function fetch2(cwd) {
   gitOrThrow(["fetch"], cwd);
@@ -13893,14 +13893,14 @@ function parseHistoryLogLine(line2) {
   const parts = line2.split("");
   if (parts.length < 4)
     return null;
-  const sha = parts[0]?.trim();
+  const sha2 = parts[0]?.trim();
   const message = parts[1] ?? "";
   const date = parts[2]?.trim();
   const author = parts[3]?.trim();
-  if (!sha || !date || !author)
+  if (!sha2 || !date || !author)
     return null;
   const entry = {
-    sha,
+    sha: sha2,
     message,
     date,
     author
@@ -14370,18 +14370,18 @@ async function resolveSessionConfig(config, rejectedKey) {
     try {
       const raw = await sessionRequest(stored.api_url, "token", { grant_type: "refresh_token", refresh_token: s.refresh_token, install_id: s.install_id });
       const next = { ...credentials(stored.api_url, s.install_id, raw, s.id), username: stored.username };
-      const current = loadStoredCredentials();
-      if (current?.session?.id !== s.id || current.session.refresh_token !== s.refresh_token || !current.session.refreshing || current.api_url !== stored.api_url)
+      const current2 = loadStoredCredentials();
+      if (current2?.session?.id !== s.id || current2.session.refresh_token !== s.refresh_token || !current2.session.refreshing || current2.api_url !== stored.api_url)
         throw new SessionAuthError("This sign-in changed during refresh. Run the command again.");
       saveCredentials(next);
       return { ...config, apiKey: next.api_key };
     } catch (error) {
-      const current = loadStoredCredentials();
-      if (current?.session?.id === s.id && current.session.refresh_token === s.refresh_token && current.api_url === stored.api_url) {
+      const current2 = loadStoredCredentials();
+      if (current2?.session?.id === s.id && current2.session.refresh_token === s.refresh_token && current2.api_url === stored.api_url) {
         if (error instanceof SessionAuthError)
           deleteCredentials();
         else if (error instanceof RefreshUnspent)
-          saveCredentials({ ...current, session: { ...current.session, refreshing: void 0 } });
+          saveCredentials({ ...current2, session: { ...current2.session, refreshing: void 0 } });
       }
       throw error;
     }
@@ -17284,8 +17284,8 @@ async function writeMarkdown(request2, capabilities) {
     literalPathspec2(request2.path)
   ]);
   if (!staged.ok) {
-    const current = await bestEffortRevisions(request2.root, [request2.path], capabilities, [{ path: request2.path, revision: afterWrite }]);
-    return effectPartial("write_markdown", ["revision_check", "write"], "stage_failed", "stage", request2.path, "The document was written but could not be staged.", current, "Review the current path revision before staging or retrying.", gitDetail(staged));
+    const current2 = await bestEffortRevisions(request2.root, [request2.path], capabilities, [{ path: request2.path, revision: afterWrite }]);
+    return effectPartial("write_markdown", ["revision_check", "write"], "stage_failed", "stage", request2.path, "The document was written but could not be staged.", current2, "Review the current path revision before staging or retrying.", gitDetail(staged));
   }
   const finalRevision = await readSelectedRevision("write_markdown", request2.root, request2.path, capabilities);
   if (isEffectError(finalRevision)) {
@@ -17335,12 +17335,12 @@ async function commitPaths(request2, capabilities) {
   const stageBoundary = await readAllSelected(request2.root, request2.paths.map(({ path }) => path), capabilities);
   if (isEffectError(stageBoundary))
     return stageBoundary;
-  for (const [index, current] of stageBoundary.entries()) {
+  for (const [index, current2] of stageBoundary.entries()) {
     const selected = request2.paths[index];
-    const boundaryIgnoreError = await ignoredLocalPath("commit_paths", request2.root, selected.path, current.revision, capabilities);
+    const boundaryIgnoreError = await ignoredLocalPath("commit_paths", request2.root, selected.path, current2.revision, capabilities);
     if (boundaryIgnoreError)
       return boundaryIgnoreError;
-    if (!sameRevision(current.revision, selected.expected_revision)) {
+    if (!sameRevision(current2.revision, selected.expected_revision)) {
       return effectError("commit_paths", "revision_mismatch", "revision_check", "The reviewed path revision no longer matches.", selected.path);
     }
   }
@@ -17353,10 +17353,10 @@ async function commitPaths(request2, capabilities) {
       ...pathsToStage.map(literalPathspec2)
     ]);
     if (!stage.ok) {
-      const current = await bestEffortRevisions(request2.root, request2.paths.map(({ path }) => path), capabilities, initial);
-      const durable = current.some((entry, index) => entry.revision.index !== initial[index]?.revision.index);
+      const current2 = await bestEffortRevisions(request2.root, request2.paths.map(({ path }) => path), capabilities, initial);
+      const durable = current2.some((entry, index) => entry.revision.index !== initial[index]?.revision.index);
       if (durable) {
-        return effectPartial("commit_paths", ["revision_check", "stage"], "stage_failed", "stage", void 0, "Some selected index state changed before staging failed.", current, "Review every selected path revision before retrying.", gitDetail(stage));
+        return effectPartial("commit_paths", ["revision_check", "stage"], "stage_failed", "stage", void 0, "Some selected index state changed before staging failed.", current2, "Review every selected path revision before retrying.", gitDetail(stage));
       }
       return effectError("commit_paths", "stage_failed", "stage", "The selected paths could not be staged.", void 0, gitDetail(stage));
     }
@@ -17365,15 +17365,15 @@ async function commitPaths(request2, capabilities) {
   if (isEffectError(stagedRevisions)) {
     return effectPartial("commit_paths", ["revision_check", "stage"], stagedRevisions.code, stagedRevisions.phase, stagedRevisions.path, stagedRevisions.message, initial, "Review every selected path revision before retrying.", stagedRevisions.detail);
   }
-  for (const [index, current] of stagedRevisions.entries()) {
+  for (const [index, current2] of stagedRevisions.entries()) {
     const before = initial[index].revision;
     const expected = {
       worktree: before.worktree,
       index: before.worktree,
       head: before.head
     };
-    if (!sameRevision(current.revision, expected)) {
-      return effectPartial("commit_paths", ["revision_check", "stage"], "revision_mismatch", "revision_check", current.path, "A selected path changed at the commit boundary.", stagedRevisions, "Review every selected path revision before retrying.");
+    if (!sameRevision(current2.revision, expected)) {
+      return effectPartial("commit_paths", ["revision_check", "stage"], "revision_mismatch", "revision_check", current2.path, "A selected path changed at the commit boundary.", stagedRevisions, "Review every selected path revision before retrying.");
     }
   }
   const commit = await runGit5(capabilities, request2.root, [
@@ -17393,8 +17393,8 @@ async function commitPaths(request2, capabilities) {
     ...request2.paths.map(({ path }) => literalPathspec2(path))
   ]);
   if (!commit.ok) {
-    const current = await bestEffortRevisions(request2.root, request2.paths.map(({ path }) => path), capabilities, stagedRevisions);
-    return effectPartial("commit_paths", ["revision_check", "stage"], "commit_failed", "commit", void 0, "The selected paths were staged but the commit failed.", current, "Review the current index and selected path revisions before retrying.", gitDetail(commit));
+    const current2 = await bestEffortRevisions(request2.root, request2.paths.map(({ path }) => path), capabilities, stagedRevisions);
+    return effectPartial("commit_paths", ["revision_check", "stage"], "commit_failed", "commit", void 0, "The selected paths were staged but the commit failed.", current2, "Review the current index and selected path revisions before retrying.", gitDetail(commit));
   }
   const oidResult = await runGit5(capabilities, request2.root, ["rev-parse", "--verify", "HEAD"]);
   const membership = await runGit5(capabilities, request2.root, [
@@ -17453,8 +17453,8 @@ async function readAllSelected(root, paths, capabilities) {
   return revisions;
 }
 async function bestEffortRevisions(root, paths, capabilities, fallback) {
-  const current = await readAllSelected(root, paths, capabilities);
-  return isEffectError(current) ? fallback : current;
+  const current2 = await readAllSelected(root, paths, capabilities);
+  return isEffectError(current2) ? fallback : current2;
 }
 async function ignoredLocalPath(operation, root, path, revision, capabilities) {
   if (revision.index !== null || revision.head !== null)
@@ -17944,9 +17944,9 @@ var writeCommand = {
       return result.code === "revision_mismatch" ? 6 : 1;
     }
     const revision = result.path_revisions[0]?.revision;
-    const sha = revision?.worktree ?? null;
+    const sha2 = revision?.worktree ?? null;
     const staged = stage && revision?.index === revision?.worktree;
-    output.result({ ...result, path: absPath, staged, sha }, `${staged ? "Written + staged" : "Written"}: ${absPath} (${sha ?? "unknown sha"})`);
+    output.result({ ...result, path: absPath, staged, sha: sha2 }, `${staged ? "Written + staged" : "Written"}: ${absPath} (${sha2 ?? "unknown sha"})`);
     return 0;
   }
 };
@@ -20525,11 +20525,11 @@ function exactRemoteHead(cwd, branch) {
   const lines = output.trim().split("\n").filter(Boolean);
   if (lines.length !== 1)
     throw new Error(`origin has no exact refs/heads/${branch} branch`);
-  const [sha, ref, ...extra] = lines[0].trim().split(/\s+/);
-  if (!sha || ref !== `refs/heads/${branch}` || extra.length) {
+  const [sha2, ref, ...extra] = lines[0].trim().split(/\s+/);
+  if (!sha2 || ref !== `refs/heads/${branch}` || extra.length) {
     throw new Error(`origin returned an ambiguous refs/heads/${branch} coordinate`);
   }
-  return sha;
+  return sha2;
 }
 function relativePosition(repoRoot2, targetPath) {
   const path = relative13(repoRoot2, targetPath).split(sep9).join("/");
@@ -20949,9 +20949,9 @@ function memberFrom(args2, flags2, roots) {
     const depth2 = value(flags2, "depth");
     const existingRoot = value(flags2, "root");
     const requestedId = value(flags2, "root-node-id");
-    const sha = value(flags2, "sha");
+    const sha2 = value(flags2, "sha");
     const checkout = value(flags2, "checkout");
-    if (existingRoot && (requestedId || sha || checkout)) {
+    if (existingRoot && (requestedId || sha2 || checkout)) {
       throw new Error("Choose --root <index> or --checkout <repo> / --root-node-id <id>, not both.");
     }
     let local;
@@ -20970,7 +20970,7 @@ function memberFrom(args2, flags2, roots) {
       local = { path, id: id2 };
     }
     const id = requestedId ?? local?.id;
-    if (!existingRoot && !id || sha && !id) {
+    if (!existingRoot && !id || sha2 && !id) {
       throw new Error("Position needs --root <index>, --root-node-id <id>, or --checkout <repo> (optional --sha <commit>); --depth is optional on a Space Map.");
     }
     let root = existingRoot === void 0 ? roots.length : Number(existingRoot);
@@ -20983,8 +20983,8 @@ function memberFrom(args2, flags2, roots) {
         throw new Error(`Root ${id} occurs more than once; reconcile this Map before adding another member.`);
       if (matches2.length === 1) {
         root = matches2[0];
-        if (roots[root].sha !== sha)
-          throw new Error(`Root ${id} is ${roots[root].sha ? `pinned to ${roots[root].sha}` : "unpinned"}, but this add requested ${sha ?? "no pin"}. Select its existing index with --root or use a matching --sha.`);
+        if (roots[root].sha !== sha2)
+          throw new Error(`Root ${id} is ${roots[root].sha ? `pinned to ${roots[root].sha}` : "unpinned"}, but this add requested ${sha2 ?? "no pin"}. Select its existing index with --root or use a matching --sha.`);
       }
     }
     const member2 = {
@@ -20994,7 +20994,7 @@ function memberFrom(args2, flags2, roots) {
       ...value(flags2, "name") ? { name: value(flags2, "name") } : {},
       ...value(flags2, "summary") ? { summary: value(flags2, "summary") } : {}
     };
-    return { member: member2, ...id && root === roots.length ? { root: { root_node_id: id, ...sha ? { sha } : {} } } : {}, ...local ? { checkout: local } : {} };
+    return { member: member2, ...id && root === roots.length ? { root: { root_node_id: id, ...sha2 ? { sha: sha2 } : {} } } : {}, ...local ? { checkout: local } : {} };
   }
   if (!address || args2.length !== 1 || flags2.root !== void 0 || flags2["root-node-id"] !== void 0 || flags2.sha !== void 0 || flags2.checkout !== void 0) {
     throw new Error("Address needs exactly one <address>; position members use --position and --root.");
@@ -21719,9 +21719,9 @@ var whoamiCommand = {
           username = me.username ?? null;
           if (username)
             await withCredentialsLock(async () => {
-              const current = loadStoredCredentials();
-              if (current && !current.session && current.api_key === stored.api_key && current.api_url === stored.api_url)
-                saveCredentials({ ...current, username });
+              const current2 = loadStoredCredentials();
+              if (current2 && !current2.session && current2.api_key === stored.api_key && current2.api_url === stored.api_url)
+                saveCredentials({ ...current2, username });
             });
         } catch {
         }
@@ -21924,7 +21924,7 @@ async function readSourceAwareness(config, rootNodeId, recordedHead) {
   const changedPaths = Array.isArray(rawChanges) && rawChanges.every(isTrailChange) ? rawChanges : null;
   const pinIndex = entries?.findIndex((entry) => sameCommit(entry.sha, recordedHead)) ?? -1;
   const currentHead = entries?.[0]?.sha ?? null;
-  const moved = currentHead ? !sameCommit(currentHead, recordedHead) : changedPaths?.length ? true : null;
+  const moved2 = currentHead ? !sameCommit(currentHead, recordedHead) : changedPaths?.length ? true : null;
   const validationFailures = [
     ...log.status === "fulfilled" && entries === null ? ["The source Space returned an invalid commit list."] : [],
     ...changes.status === "fulfilled" && changedPaths === null ? ["The source Space returned an invalid changed-path list."] : []
@@ -21936,7 +21936,7 @@ async function readSourceAwareness(config, rootNodeId, recordedHead) {
   return {
     ...base,
     current_head: currentHead,
-    moved,
+    moved: moved2,
     commits: entries ? pinIndex >= 0 ? entries.slice(0, pinIndex) : entries : null,
     commits_complete: entries !== null && pinIndex >= 0,
     changes: changedPaths,
@@ -22016,8 +22016,8 @@ function describeChange(change) {
   const verb = change.status.startsWith("A") ? "added" : change.status.startsWith("D") ? "deleted" : change.status.startsWith("R") ? "renamed" : change.status.startsWith("C") ? "copied" : "changed";
   return change.old_path ? `  ${verb}  ${change.old_path} \u2192 ${change.path}` : `  ${verb}  ${change.path}`;
 }
-function describeCommit(sha, subject) {
-  return `  ${sha.slice(0, 8)}  ${subject}`;
+function describeCommit(sha2, subject) {
+  return `  ${sha2.slice(0, 8)}  ${subject}`;
 }
 function describeTrailCommit(commit) {
   return describeCommit(commit.sha, commit.message.split("\n")[0]);
@@ -22730,7 +22730,7 @@ var reposCommand = {
 };
 
 // dist/commands/hosted-threads.js
-import { randomUUID as randomUUID8 } from "node:crypto";
+import { randomUUID as randomUUID9 } from "node:crypto";
 var import_yaml9 = __toESM(require_dist(), 1);
 
 // dist/local/thread-map-member.js
@@ -22778,15 +22778,135 @@ function selectPinnedThreadMember(value2, ordinal) {
 }
 
 // dist/local/threads.js
-import { randomUUID as randomUUID7, createHash as createHash7 } from "node:crypto";
+import { randomUUID as randomUUID8, createHash as createHash8 } from "node:crypto";
 import { spawnSync as spawnSync12 } from "node:child_process";
-import { existsSync as existsSync16, lstatSync as lstatSync2, mkdirSync as mkdirSync6, readFileSync as readFileSync10, readdirSync as readdirSync2, realpathSync as realpathSync12, renameSync as renameSync4, rmSync as rmSync4, writeFileSync as writeFileSync7 } from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { basename as basename13, dirname as dirname14, isAbsolute as isAbsolute10, join as join26, resolve as resolve25 } from "node:path";
+import { existsSync as existsSync17, lstatSync as lstatSync3, mkdirSync as mkdirSync7, readFileSync as readFileSync11, readdirSync as readdirSync3, realpathSync as realpathSync12, renameSync as renameSync5, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { basename as basename13, dirname as dirname14, isAbsolute as isAbsolute10, join as join27, resolve as resolve25 } from "node:path";
 var import_yaml8 = __toESM(require_dist(), 1);
 
+// dist/local/thread-recent.js
+import { createHash as createHash7, randomUUID as randomUUID7 } from "node:crypto";
+import { existsSync as existsSync15, lstatSync as lstatSync2, mkdirSync as mkdirSync6, readdirSync as readdirSync2, readFileSync as readFileSync10, renameSync as renameSync4, writeFileSync as writeFileSync7 } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join26 } from "node:path";
+var VERSION = 1;
+var RECORD_BYTES = 12;
+var HEADER_BYTES = 5;
+var sha = (text) => createHash7("sha256").update(text).digest();
+function fingerprint(slug, files) {
+  const set = Buffer.alloc(6);
+  for (const file2 of files) {
+    const hash2 = sha(file2);
+    for (let i = 0; i < 6; i++)
+      set[i] ^= hash2[i];
+  }
+  return { key: sha(slug).subarray(0, 4).toString("hex"), count: Math.min(files.length, 65535), set: set.toString("hex") };
+}
+function current(threadsDir) {
+  if (!existsSync15(threadsDir))
+    return [];
+  return readdirSync2(threadsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.name.startsWith(".")).map((entry) => {
+    const files = readdirSync2(join26(threadsDir, entry.name), { withFileTypes: true }).filter((file2) => file2.isFile() && file2.name.endsWith(".md") && file2.name !== "README.md").map((file2) => file2.name);
+    return { slug: entry.name, ...fingerprint(entry.name, files) };
+  });
+}
+function encode(root, threads) {
+  const bytes = Buffer.alloc(HEADER_BYTES + threads.length * RECORD_BYTES);
+  bytes[0] = VERSION;
+  sha(root).copy(bytes, 1, 0, 4);
+  threads.forEach((thread, index) => {
+    const at = HEADER_BYTES + index * RECORD_BYTES;
+    Buffer.from(thread.key, "hex").copy(bytes, at);
+    bytes.writeUInt16BE(thread.count, at + 4);
+    Buffer.from(thread.set, "hex").copy(bytes, at + 6);
+  });
+  return bytes.toString("base64url");
+}
+function decode(root, cursor) {
+  const bytes = Buffer.from(cursor, "base64url");
+  if (bytes.length < HEADER_BYTES || bytes[0] !== VERSION || (bytes.length - HEADER_BYTES) % RECORD_BYTES) {
+    throw new Error("That is not a cursor from threads recent. Run threads recent with no --cursor for a new baseline.");
+  }
+  if (!sha(root).subarray(0, 4).equals(bytes.subarray(1, HEADER_BYTES))) {
+    throw new Error("That cursor is from another Space or checkout. Run threads recent here with no --cursor for a new baseline.");
+  }
+  const threads = /* @__PURE__ */ new Map();
+  for (let at = HEADER_BYTES; at < bytes.length; at += RECORD_BYTES) {
+    const key2 = bytes.subarray(at, at + 4).toString("hex");
+    threads.set(key2, { key: key2, count: bytes.readUInt16BE(at + 4), set: bytes.subarray(at + 6, at + 12).toString("hex") });
+  }
+  return threads;
+}
+function moved(threads, position) {
+  const rows = [];
+  for (const thread of threads) {
+    const seen = position.get(thread.key);
+    if (!seen)
+      rows.push({ slug: thread.slug, new_posts: thread.count, new_thread: true });
+    else if (seen.set !== thread.set) {
+      const added = thread.count - seen.count;
+      rows.push({ slug: thread.slug, new_posts: Math.max(added, 0), ...added <= 0 ? { changed: true } : {} });
+    }
+  }
+  return rows.sort((a, b) => b.new_posts - a.new_posts || a.slug.localeCompare(b.slug));
+}
+function recentSince(root, threadsDir, cursor) {
+  const threads = current(threadsDir);
+  const next = encode(root, threads);
+  if (cursor === void 0)
+    return { baseline: true, threads: [], cursor: next };
+  return { baseline: false, threads: moved(threads, decode(root, cursor)), cursor: next };
+}
+var READER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+var PERSON_READER = "person";
+function readerName(flag, environment = process.env.IDEASPACES_READER) {
+  const reader = flag ?? (environment?.trim() || PERSON_READER);
+  if (!READER.test(reader))
+    throw new Error(`Invalid reader ${JSON.stringify(reader)}: use 1 to 64 letters, digits, ., _ or -, starting with a letter or digit.`);
+  return reader;
+}
+function readersDirectory(reader) {
+  const base = join26(homedir2(), ".ideaspaces", "cursors");
+  for (const path of [base, join26(base, "readers")]) {
+    if (existsSync15(path) && lstatSync2(path).isSymbolicLink())
+      throw new Error("Refusing symlink local cursor directory.");
+  }
+  return join26(base, "readers", reader);
+}
+function readerCursorDirectory(reader) {
+  return reader === PERSON_READER ? void 0 : readersDirectory(reader);
+}
+function heldPath(root, reader) {
+  return join26(readersDirectory(reader), `recent-${sha(root).subarray(0, 16).toString("hex")}.json`);
+}
+function hold(root, reader, cursor) {
+  const path = heldPath(root, reader);
+  mkdirSync6(join26(path, ".."), { recursive: true, mode: 448 });
+  const temporary = `${path}.${randomUUID7()}.tmp`;
+  writeFileSync7(temporary, JSON.stringify({ cursor }), { flag: "wx", mode: 384 });
+  renameSync4(temporary, path);
+}
+function recentForReader(root, threadsDir, reader) {
+  const path = heldPath(root, reader);
+  if (!existsSync15(path)) {
+    const baseline = recentSince(root, threadsDir);
+    hold(root, reader, baseline.cursor);
+    return baseline;
+  }
+  const held2 = JSON.parse(readFileSync10(path, "utf8"));
+  if (!held2 || typeof held2 !== "object" || typeof held2.cursor !== "string") {
+    throw new Error(`Invalid held position: ${path}`);
+  }
+  return recentSince(root, threadsDir, held2.cursor);
+}
+function acknowledgeRecent(root, reader, cursor) {
+  decode(root, cursor);
+  hold(root, reader, cursor);
+}
+
 // dist/local/post-links.js
-import { existsSync as existsSync15, realpathSync as realpathSync11 } from "node:fs";
+import { existsSync as existsSync16, realpathSync as realpathSync11 } from "node:fs";
 import { dirname as dirname13, isAbsolute as isAbsolute9, relative as relative15, resolve as resolve24, sep as sep11 } from "node:path";
 var SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 var POST_FILE = /^(\d{4}-\d{2}-\d{2}T[\d-]+Z-)?(.*-)?msg_[0-9a-f-]+\.md$/i;
@@ -22832,10 +22952,10 @@ function checkPostLinks(body, postDir, spaceRoot) {
       report.errors.push(`${raw}: resolves outside the Space (${target}). Links are relative to the post file, which sits in ${postDir}.`);
       continue;
     }
-    if (existsSync15(target))
+    if (existsSync16(target))
       continue;
     const name = target.split(sep11).pop() ?? "";
-    if (POST_FILE.test(name) && existsSync15(dirname13(target)) && /(^|[\\/])_threads[\\/][^\\/]+$/.test(dirname13(target))) {
+    if (POST_FILE.test(name) && existsSync16(dirname13(target)) && /(^|[\\/])_threads[\\/][^\\/]+$/.test(dirname13(target))) {
       report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
       continue;
     }
@@ -22873,23 +22993,23 @@ function git3(cwd, args2) {
 }
 function safeDirectory(path) {
   const abs = resolve25(path);
-  if (existsSync16(abs) && lstatSync2(abs).isSymbolicLink())
+  if (existsSync17(abs) && lstatSync3(abs).isSymbolicLink())
     throw new Error(`Refusing symlink: ${abs}`);
-  if (!existsSync16(abs) || !lstatSync2(abs).isDirectory())
+  if (!existsSync17(abs) || !lstatSync3(abs).isDirectory())
     throw new Error(`Thread directory not found: ${abs}`);
   return realpathSync12(abs);
 }
 function safeFile(path) {
-  if (lstatSync2(path).isSymbolicLink() || !lstatSync2(path).isFile())
+  if (lstatSync3(path).isSymbolicLink() || !lstatSync3(path).isFile())
     throw new Error(`Refusing non-regular thread file: ${path}`);
-  if (lstatSync2(path).size > MAX_POST)
+  if (lstatSync3(path).size > MAX_POST)
     throw new Error(`Thread file exceeds ${MAX_POST} bytes: ${path}`);
-  return readFileSync10(path, "utf8");
+  return readFileSync11(path, "utf8");
 }
 function threadBase(cwd = process.cwd()) {
   let at = safeDirectory(cwd);
   while (true) {
-    if (existsSync16(join26(at, "_agent", "agreement.md")))
+    if (existsSync17(join27(at, "_agent", "agreement.md")))
       return at;
     const parent = dirname14(at);
     if (parent === at)
@@ -22903,17 +23023,17 @@ function spaceForThread(threadDir) {
   if (basename13(threads) !== "_threads")
     throw new Error("Thread must be an immediate child of _threads/.");
   const space = dirname14(threads);
-  if (!existsSync16(join26(space, "_agent", "agreement.md")))
+  if (!existsSync17(join27(space, "_agent", "agreement.md")))
     throw new NoAgreementError("No Space Agreement above this Thread.");
   return space;
 }
 function threadsDirectory(cwd = process.cwd()) {
-  return join26(threadBase(cwd), "_threads");
+  return join27(threadBase(cwd), "_threads");
 }
 function resolveLocalThread(input, cwd = process.cwd()) {
   const base = threadsDirectory(cwd);
   safeDirectory(base);
-  const path = input.includes("/") || input.startsWith(".") || isAbsolute10(input) ? resolve25(cwd, input) : join26(base, input);
+  const path = input.includes("/") || input.startsWith(".") || isAbsolute10(input) ? resolve25(cwd, input) : join27(base, input);
   const dir = safeDirectory(path);
   if (dirname14(dir) !== base)
     throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
@@ -22930,19 +23050,19 @@ function isHostedThreadTarget(value2, cwd = process.cwd()) {
       return true;
     throw error;
   }
-  return !lexists(join26(base, value2));
+  return !lexists(join27(base, value2));
 }
 function threadAgreementContent(path) {
-  const agent = join26(path, "_agent");
+  const agent = join27(path, "_agent");
   if (!lexists(agent))
     return null;
   safeDirectory(agent);
-  const agreement = join26(agent, "agreement.md");
+  const agreement = join27(agent, "agreement.md");
   return lexists(agreement) ? safeFile(agreement) : null;
 }
 function lexists(path) {
   try {
-    lstatSync2(path);
+    lstatSync3(path);
     return true;
   } catch (error) {
     if (error.code === "ENOENT")
@@ -22953,8 +23073,8 @@ function lexists(path) {
 var NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
 function loadThread(dir) {
   const path = safeDirectory(dir);
-  const readmePath = join26(path, "README.md");
-  if (!existsSync16(readmePath))
+  const readmePath = join27(path, "README.md");
+  if (!existsSync17(readmePath))
     throw new Error(`Thread ${path} needs README.md.`);
   const agreementContent = threadAgreementContent(path);
   const readme = safeFile(readmePath);
@@ -22963,12 +23083,12 @@ function loadThread(dir) {
     throw new Error(`Malformed README frontmatter: ${readmePath}`);
   const slug = basename13(path);
   const sources = [];
-  for (const entry of readdirSync2(path, { withFileTypes: true })) {
+  for (const entry of readdirSync3(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent")
       continue;
     if (!entry.isFile() || !entry.name.endsWith(".md"))
       throw new Error(`Unexpected thread entry: ${entry.name}`);
-    sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join26(path, entry.name)) });
+    sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join27(path, entry.name)) });
   }
   const agreementAttachment = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
   const inspection = inspectThreadPosts(sources, agreementAttachment);
@@ -23005,13 +23125,13 @@ function loadThread(dir) {
 }
 function listLocal(cwd = process.cwd(), onError) {
   const base = threadsDirectory(cwd);
-  if (!existsSync16(base))
+  if (!existsSync17(base))
     return [];
   safeDirectory(base);
   const rows = [];
-  for (const entry of readdirSync2(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+  for (const entry of readdirSync3(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
     try {
-      rows.push(loadThread(join26(base, entry.name)));
+      rows.push(loadThread(join27(base, entry.name)));
     } catch (error) {
       if (!onError)
         throw error;
@@ -23040,15 +23160,15 @@ function createThread(slug, about, cwd = process.cwd(), attachedTo) {
     throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
   }
   const base = threadsDirectory(cwd);
-  if (existsSync16(base))
+  if (existsSync17(base))
     safeDirectory(base);
   else
-    mkdirSync6(base);
-  const dir = join26(base, slug);
-  mkdirSync6(dir);
-  mkdirSync6(join26(dir, "_agent"));
-  writeFileSync7(join26(dir, "_agent", "agreement.md"), minimalAgreement(about.trim()), { flag: "wx" });
-  writeFileSync7(join26(dir, "README.md"), (0, import_yaml8.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
+    mkdirSync7(base);
+  const dir = join27(base, slug);
+  mkdirSync7(dir);
+  mkdirSync7(join27(dir, "_agent"));
+  writeFileSync8(join27(dir, "_agent", "agreement.md"), minimalAgreement(about.trim()), { flag: "wx" });
+  writeFileSync8(join27(dir, "README.md"), (0, import_yaml8.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
   return loadThread(dir);
 }
 function references(parents) {
@@ -23071,7 +23191,7 @@ function latestLocalActivity(posts2) {
   }, null);
 }
 function resolveThreadParent2(threadDir, knownThreads) {
-  const agreementPath = join26(threadDir, "_agent", "agreement.md");
+  const agreementPath = join27(threadDir, "_agent", "agreement.md");
   const agreementContent = threadAgreementContent(safeDirectory(threadDir));
   const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename13(threadDir)}/_agent/agreement.md`);
   const canonicalThreadDir = realpathSync12(threadDir);
@@ -23308,10 +23428,10 @@ Fix the path (it is relative to the post file), remove the link, or pass --no-ch
     warnings.push(...links.warnings);
   }
   options.verifyTarget?.(thread, parentIds, options.supersedes);
-  const id = `msg_${randomUUID7()}`;
+  const id = `msg_${randomUUID8()}`;
   const date = (/* @__PURE__ */ new Date()).toISOString();
   const stamp = date.replace(/[:.]/g, "-");
-  const path = join26(thread.path, `${stamp}-${id}.md`);
+  const path = join27(thread.path, `${stamp}-${id}.md`);
   const fields = {
     id,
     date,
@@ -23337,37 +23457,37 @@ ${options.body.trim()}
     throw new Error(`Generated post failed validation before write: ${parsed2.issues.join(", ")}`);
   if (parsed2.post.warnings?.length)
     throw new Error(`Generated post failed validation before write: ${parsed2.post.warnings.map((w) => `${w.field}: ${w.warning}`).join(", ")}`);
-  writeFileSync7(path, content, { flag: "wx", mode: 384 });
+  writeFileSync8(path, content, { flag: "wx", mode: 384 });
   if (defaultParentId)
     options.onDefaultReplyTo?.(defaultParentId);
   return { post: parsed2.post, path, warnings };
 }
-function cursorPath(thread) {
-  const key2 = createHash7("sha256").update(thread.path).digest("hex");
-  return join26(homedir2(), ".ideaspaces", "cursors", `${key2}.json`);
+function cursorPath(thread, reader = PERSON_READER) {
+  const key2 = createHash8("sha256").update(thread.path).digest("hex");
+  return join27(readerCursorDirectory(reader) ?? join27(homedir3(), ".ideaspaces", "cursors"), `${key2}.json`);
 }
-function readCursor(thread) {
-  const path = cursorPath(thread);
-  if (existsSync16(dirname14(path)) && lstatSync2(dirname14(path)).isSymbolicLink())
+function readCursor(thread, reader = PERSON_READER) {
+  const path = cursorPath(thread, reader);
+  if (existsSync17(dirname14(path)) && lstatSync3(dirname14(path)).isSymbolicLink())
     throw new Error("Refusing symlink local cursor directory.");
-  if (!existsSync16(path))
+  if (!existsSync17(path))
     return /* @__PURE__ */ new Set();
   const data = JSON.parse(safeFile(path));
   if (!data || typeof data !== "object" || !Array.isArray(data.seen) || !data.seen.every((id) => typeof id === "string"))
     throw new Error(`Invalid local Thread cursor: ${path}`);
   return new Set(data.seen);
 }
-function acknowledge(thread, posts2) {
-  const seen = readCursor(thread);
+function acknowledge(thread, posts2, reader = PERSON_READER) {
+  const seen = readCursor(thread, reader);
   for (const post of posts2)
     seen.add(post.id);
-  const path = cursorPath(thread);
-  mkdirSync6(dirname14(path), { recursive: true, mode: 448 });
-  if (lstatSync2(dirname14(path)).isSymbolicLink())
+  const path = cursorPath(thread, reader);
+  mkdirSync7(dirname14(path), { recursive: true, mode: 448 });
+  if (lstatSync3(dirname14(path)).isSymbolicLink())
     throw new Error("Refusing symlink local cursor directory.");
-  const tmp = `${path}.${randomUUID7()}.tmp`;
-  writeFileSync7(tmp, JSON.stringify({ seen: [...seen] }), { flag: "wx", mode: 384 });
-  renameSync4(tmp, path);
+  const tmp = `${path}.${randomUUID8()}.tmp`;
+  writeFileSync8(tmp, JSON.stringify({ seen: [...seen] }), { flag: "wx", mode: 384 });
+  renameSync5(tmp, path);
 }
 function readPinnedThreadFile(repo, pin, position) {
   if (!SHA2.test(pin))
@@ -23400,8 +23520,8 @@ function readPinnedThreadAgreement(repo, pin, position) {
 }
 function initWorktree(cwd = process.cwd()) {
   const root = threadBase(cwd);
-  const dir = join26(root, "_threads");
-  if (existsSync16(dir))
+  const dir = join27(root, "_threads");
+  if (existsSync17(dir))
     throw new Error("_threads/ already exists; refusing to replace it.");
   const origin = git3(root, ["rev-parse", "--show-toplevel"]);
   const canonical = (path) => {
@@ -23412,14 +23532,14 @@ function initWorktree(cwd = process.cwd()) {
     throw new Error("Run threads init at the repository root Agreement.");
   if (git3(root, ["branch", "--list", "threads"]))
     throw new Error("Local threads branch already exists; refusing to replace it.");
-  const ignore = join26(root, ".gitignore");
-  if (existsSync16(ignore) && lstatSync2(ignore).isSymbolicLink())
+  const ignore = join27(root, ".gitignore");
+  if (existsSync17(ignore) && lstatSync3(ignore).isSymbolicLink())
     throw new Error("Refusing symlink .gitignore.");
   git3(root, ["worktree", "add", "--orphan", "-b", "threads", dir]);
   markPrivateThreadsWorktree(dir);
-  const old = existsSync16(ignore) ? readFileSync10(ignore, "utf8") : "";
+  const old = existsSync17(ignore) ? readFileSync11(ignore, "utf8") : "";
   if (!old.split("\n").includes("/_threads/"))
-    writeFileSync7(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/
+    writeFileSync8(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/
 `);
   return dir;
 }
@@ -23441,9 +23561,9 @@ function pushWorktree(cwd = process.cwd(), remote) {
   return remote;
 }
 function writeAgreementFile(path, content) {
-  const temporary = `${path}.${randomUUID7()}.tmp`;
-  writeFileSync7(temporary, content, { flag: "wx" });
-  renameSync4(temporary, path);
+  const temporary = `${path}.${randomUUID8()}.tmp`;
+  writeFileSync8(temporary, content, { flag: "wx" });
+  renameSync5(temporary, path);
 }
 var FRONTMATTER = /^---\r?\n([\s\S]*?\r?\n)?---(\r?\n|$)/;
 function withAttachedTo(content, value2) {
@@ -23536,8 +23656,8 @@ function attachThread(dir, target, options, writes = { appendPost, writeAgreemen
   if (previous?.id === resolved.parent.id)
     throw new Error(`Thread ${thread.slug} is already attached to ${resolved.parent.id}; nothing changed.`);
   const value2 = /^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(resolved.parent.id) ? resolved.parent.id : resolved.parent.path;
-  const agentDir = join26(thread.path, "_agent");
-  const agreementPath = join26(agentDir, "agreement.md");
+  const agentDir = join27(thread.path, "_agent");
+  const agreementPath = join27(agentDir, "agreement.md");
   const before = threadAgreementContent(thread.path);
   const createdDir = !lexists(agentDir);
   const after = before === null ? minimalAgreement(thread.name, value2) : withAttachedTo(before, value2);
@@ -23555,7 +23675,7 @@ function attachThread(dir, target, options, writes = { appendPost, writeAgreemen
       throw new Error(`Writing attached_to would change other fields of ${agreementPath}; nothing changed.`);
   }
   if (createdDir)
-    mkdirSync6(agentDir);
+    mkdirSync7(agentDir);
   writes.writeAgreement(agreementPath, after);
   const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
   const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
@@ -23687,10 +23807,10 @@ function pageLimit(raw, dflt = 50) {
 function namespace(config) {
   return new URL(config.apiUrl).origin;
 }
-function encode(config, kind, value2, thread) {
+function encode2(config, kind, value2, thread) {
   return Buffer.from(JSON.stringify({ source: namespace(config), kind, value: value2, thread })).toString("base64url");
 }
-function decode(config, cursor, kinds, thread) {
+function decode2(config, cursor, kinds, thread) {
   const refused = new HostedError("invalid_request", "That cursor is not from this command for this Thread and service. Use the cursor the last page printed.");
   try {
     if (cursor.length > 8192)
@@ -23753,7 +23873,7 @@ function str(flags2, key2) {
 function postId(flags2) {
   const given = str(flags2, "post-id");
   if (given === void 0)
-    return `msg_${randomUUID8()}`;
+    return `msg_${randomUUID9()}`;
   if (!POST_ID.test(given))
     throw new HostedError("invalid_request", "--post-id must be a msg_ id (letters, digits, _ and -, at most 64 characters).");
   return given;
@@ -23885,10 +24005,10 @@ async function listVerb(output, json, flags2) {
   return runHosted(output, json, "Listing hosted Threads", "thread", async (config) => {
     const limit = pageLimit(flags2.limit);
     const given = str(flags2, "cursor");
-    const cursor = given === void 0 ? void 0 : String(decode(config, given, ["list"]).value);
+    const cursor = given === void 0 ? void 0 : String(decode2(config, given, ["list"]).value);
     const raw = await hostedListPage(config, { limit, ...cursor ? { cursor } : {} });
     const threads = raw.threads.filter((t) => !(flags2.new || flags2.unread) || t.unread_count > 0);
-    const next = raw.next_cursor ? encode(config, "list", raw.next_cursor) : null;
+    const next = raw.next_cursor ? encode2(config, "list", raw.next_cursor) : null;
     const text = threads.length ? threads.map((t) => `${t.id}  ${t.name}${t.closed ? " \xB7 closed" : ""}${t.unread_count ? ` \xB7 ${t.unread_count} unread` : ""}`).join("\n") + (next ? `
 
 More: ideaspaces threads list --hosted --cursor ${next}` : "") : "No hosted Threads.";
@@ -23899,7 +24019,7 @@ async function openVerb(output, json, id, flags2) {
   return runHosted(output, json, "Reading hosted Threads", "thread", async (config) => {
     const limit = pageLimit(flags2.limit);
     const given = str(flags2, "cursor");
-    const cursor = given === void 0 ? void 0 : decode(config, given, ["older", "follow"], id);
+    const cursor = given === void 0 ? void 0 : decode2(config, given, ["older", "follow"], id);
     const h = await head(config, id);
     let rows;
     let next;
@@ -23916,8 +24036,8 @@ async function openVerb(output, json, id, flags2) {
       rows = await posts(config, id, { limit, ...before !== void 0 ? { before_seq: before } : {} });
       next = Math.max(h.lastSeq, rows.at(-1)?.seq ?? 0);
     }
-    const older = rows.length === limit && rows[0].seq > 1 ? encode(config, "older", rows[0].seq, id) : null;
-    const follow2 = encode(config, "follow", next, id);
+    const older = rows.length === limit && rows[0].seq > 1 ? encode2(config, "older", rows[0].seq, id) : null;
+    const follow2 = encode2(config, "follow", next, id);
     const status = `${h.thread.closed ? "closed" : "open"} \xB7 ${h.thread.grade}${h.thread.can_reply ? "" : " \xB7 read only"}`;
     const text = [
       `${id}  ${h.thread.name}
@@ -23997,7 +24117,7 @@ async function ackVerb(output, json, id, flags2) {
   if (rawSeq !== void 0 && !/^\d+$/.test(rawSeq))
     throw new HostedError("invalid_request", "--seq must be a whole number.");
   return runHosted(output, json, "Marking hosted Threads read", "thread", async (config) => {
-    const target = given !== void 0 ? Number(decode(config, given, ["follow"], id).value) : Number(rawSeq);
+    const target = given !== void 0 ? Number(decode2(config, given, ["follow"], id).value) : Number(rawSeq);
     requireValue(seq(target), "invalid_request");
     const raw = await ackHostedThread(config, id, target);
     requireValue(record(raw) && raw.thread_id === id && seq(raw.read_seq));
@@ -24363,21 +24483,21 @@ var cloneCommand = {
 };
 
 // dist/commands/get.js
-import { existsSync as existsSync19, statSync as statSync10 } from "node:fs";
+import { existsSync as existsSync20, statSync as statSync10 } from "node:fs";
 import { resolve as resolve30 } from "node:path";
 
 // dist/commands/fork.js
 import { spawnSync as spawnSync14 } from "node:child_process";
-import { existsSync as existsSync18, mkdirSync as mkdirSync8, mkdtempSync as mkdtempSync3, renameSync as renameSync6, rmSync as rmSync6, statSync as statSync9, writeFileSync as writeFileSync9 } from "node:fs";
-import { basename as basename14, dirname as dirname16, join as join28, resolve as resolve28 } from "node:path";
+import { existsSync as existsSync19, mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync3, renameSync as renameSync7, rmSync as rmSync6, statSync as statSync9, writeFileSync as writeFileSync10 } from "node:fs";
+import { basename as basename14, dirname as dirname16, join as join29, resolve as resolve28 } from "node:path";
 
 // dist/fork-update.js
 var import_yaml10 = __toESM(require_dist(), 1);
 import { spawnSync as spawnSync13 } from "node:child_process";
-import { createHash as createHash8, randomUUID as randomUUID9 } from "node:crypto";
-import { existsSync as existsSync17, lstatSync as lstatSync3, mkdirSync as mkdirSync7, mkdtempSync as mkdtempSync2, readFileSync as readFileSync11, realpathSync as realpathSync13, renameSync as renameSync5, rmSync as rmSync5, unlinkSync as unlinkSync2, writeFileSync as writeFileSync8 } from "node:fs";
+import { createHash as createHash9, randomUUID as randomUUID10 } from "node:crypto";
+import { existsSync as existsSync18, lstatSync as lstatSync4, mkdirSync as mkdirSync8, mkdtempSync as mkdtempSync2, readFileSync as readFileSync12, realpathSync as realpathSync13, renameSync as renameSync6, rmSync as rmSync5, unlinkSync as unlinkSync2, writeFileSync as writeFileSync9 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname15, isAbsolute as isAbsolute11, join as join27, relative as relative16, resolve as resolve27, sep as sep12 } from "node:path";
+import { dirname as dirname15, isAbsolute as isAbsolute11, join as join28, relative as relative16, resolve as resolve27, sep as sep12 } from "node:path";
 
 // dist/fork-paths.js
 function isExactAssetPayloadParts(parts) {
@@ -24533,17 +24653,17 @@ function readLocalBuffer(path, root) {
   }
   let cursor = root;
   for (const part of rel.split(sep12)) {
-    cursor = join27(cursor, part);
-    if (!existsSync17(cursor))
+    cursor = join28(cursor, part);
+    if (!existsSync18(cursor))
       break;
-    if (lstatSync3(cursor).isSymbolicLink()) {
+    if (lstatSync4(cursor).isSymbolicLink()) {
       throw new Error(`Refusing to follow a symbolic link in update path: ${path}`);
     }
   }
-  return existsSync17(absolute) ? readFileSync11(absolute) : null;
+  return existsSync18(absolute) ? readFileSync12(absolute) : null;
 }
 function assetRevision(content) {
-  return createHash8("sha256").update(content).digest("hex");
+  return createHash9("sha256").update(content).digest("hex");
 }
 function assetRevisions(assets) {
   return Object.fromEntries([...assets].sort((left, right) => left.path.localeCompare(right.path)).map((asset) => [asset.path, assetRevision(asset.content)]));
@@ -24630,20 +24750,20 @@ function planForkUpdate(baseline, incoming, root, incomingAssets = []) {
 }
 function writeTree(root, files) {
   for (const [path, content] of Object.entries(files)) {
-    const absolute = join27(root, path);
-    mkdirSync7(dirname15(absolute), { recursive: true });
-    writeFileSync8(absolute, content);
+    const absolute = join28(root, path);
+    mkdirSync8(dirname15(absolute), { recursive: true });
+    writeFileSync9(absolute, content);
   }
 }
 function applyForkUpdate(plan, root) {
   const changed = [...Object.keys(plan.writes), ...Object.keys(plan.asset_writes), ...plan.deletes];
   if (!changed.length)
     return;
-  const temp = mkdtempSync2(join27(tmpdir2(), "ideaspaces-update-"));
-  const beforeDir = join27(temp, "before");
-  const afterDir = join27(temp, "after");
-  mkdirSync7(beforeDir);
-  mkdirSync7(afterDir);
+  const temp = mkdtempSync2(join28(tmpdir2(), "ideaspaces-update-"));
+  const beforeDir = join28(temp, "before");
+  const afterDir = join28(temp, "after");
+  mkdirSync8(beforeDir);
+  mkdirSync8(afterDir);
   try {
     const before = {};
     const after = {};
@@ -24703,27 +24823,27 @@ function baselinePaths(root) {
     roots.add(canonical.slice("/private".length));
   }
   return [...roots].map((candidate) => {
-    const key2 = createHash8("sha256").update(candidate).digest("hex");
-    return join27(configDir(), "fork-baselines", `${key2}.json`);
+    const key2 = createHash9("sha256").update(candidate).digest("hex");
+    return join28(configDir(), "fork-baselines", `${key2}.json`);
   });
 }
 function loadForkBaseline(root) {
-  const path = baselinePaths(root).find(existsSync17);
+  const path = baselinePaths(root).find(existsSync18);
   if (!path)
     return null;
   try {
-    return JSON.parse(readFileSync11(path, "utf-8"));
+    return JSON.parse(readFileSync12(path, "utf-8"));
   } catch {
     throw new Error("The local fork update baseline is corrupt; no files were changed.");
   }
 }
 function saveForkBaseline(root, baseline) {
   const path = baselinePaths(root)[0];
-  mkdirSync7(dirname15(path), { recursive: true, mode: 448 });
-  const temp = `${path}.${process.pid}.${randomUUID9()}.tmp`;
+  mkdirSync8(dirname15(path), { recursive: true, mode: 448 });
+  const temp = `${path}.${process.pid}.${randomUUID10()}.tmp`;
   try {
-    writeFileSync8(temp, JSON.stringify(baseline) + "\n", { mode: 384 });
-    renameSync5(temp, path);
+    writeFileSync9(temp, JSON.stringify(baseline) + "\n", { mode: 384 });
+    renameSync6(temp, path);
   } finally {
     rmSync5(temp, { force: true });
   }
@@ -24990,19 +25110,19 @@ function destinationRootIdentity(markdown, sourceRootNodeId) {
 }
 function writeTree2(root, markdown, assets) {
   for (const [path, content] of Object.entries(markdown)) {
-    const absolute = join28(root, path);
-    mkdirSync8(dirname16(absolute), { recursive: true });
-    writeFileSync9(absolute, content, { encoding: "utf-8", flag: "wx" });
+    const absolute = join29(root, path);
+    mkdirSync9(dirname16(absolute), { recursive: true });
+    writeFileSync10(absolute, content, { encoding: "utf-8", flag: "wx" });
   }
   for (const asset of assets) {
-    const absolute = join28(root, asset.path);
-    mkdirSync8(dirname16(absolute), { recursive: true });
-    writeFileSync9(absolute, asset.content, { flag: "wx" });
+    const absolute = join29(root, asset.path);
+    mkdirSync9(dirname16(absolute), { recursive: true });
+    writeFileSync10(absolute, asset.content, { flag: "wx" });
   }
   const ignore = gitignoreWithDefaults(null, { privateAgent: false });
   if (ignore === null)
     throw new Error("Could not prepare local-only ignore rules");
-  writeFileSync9(join28(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
+  writeFileSync10(join29(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
 }
 function initializeImport(root) {
   runGit7(root, ["init", "-q", "-b", "main"]);
@@ -25022,7 +25142,7 @@ function initializeImport(root) {
   }
 }
 function preflightDestination(path) {
-  if (existsSync18(path))
+  if (existsSync19(path))
     return `${path} already exists. Choose another destination folder.`;
   if (findSpaceFor(path)) {
     return `${path} still has a local Space registry record. Forget or repair that state before reusing the path.`;
@@ -25050,12 +25170,12 @@ function installLocalFork(opts) {
   let installed = false;
   let baselineSaved = false;
   try {
-    temporary = mkdtempSync3(join28(parent, `.${basename14(destination)}.ideaspaces-fork-`));
+    temporary = mkdtempSync3(join29(parent, `.${basename14(destination)}.ideaspaces-fork-`));
     writeTree2(temporary, markdown, assets);
     initializeImport(temporary);
-    if (existsSync18(destination))
+    if (existsSync19(destination))
       throw new Error(`${destination} appeared while the fork was being prepared`);
-    renameSync6(temporary, destination);
+    renameSync7(temporary, destination);
     temporary = null;
     installed = true;
     const baseline = {
@@ -25486,7 +25606,7 @@ var getCommand = {
     try {
       if (isUrl(address)) {
         plan = await planSpace(address, output);
-      } else if (existsSync19(address) && statSync10(address).isDirectory()) {
+      } else if (existsSync20(address) && statSync10(address).isDirectory()) {
         plan = planFolder(resolve30(address));
       } else {
         output.error(`Not a Space URL or an existing folder: ${address}`);
@@ -25763,7 +25883,7 @@ var clonesCommand = {
 
 // dist/commands/forget.js
 import { rmSync as rmSync7 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
+import { homedir as homedir4 } from "node:os";
 import { dirname as dirname17, resolve as resolve31 } from "node:path";
 var forgetCommand = {
   name: "forget",
@@ -25782,7 +25902,7 @@ var forgetCommand = {
     }
     const dir = resolve31(dirArg);
     const del = Boolean(flags2["delete"]);
-    if (del && (dir === resolve31(homedir3()) || dirname17(dir) === dir)) {
+    if (del && (dir === resolve31(homedir4()) || dirname17(dir) === dir)) {
       output.error(`Refusing to delete ${dir} \u2014 that's a home or root directory.`);
       return 1;
     }
@@ -26034,13 +26154,13 @@ function makeConversationCommand(local) {
 }
 
 // dist/commands/agent.js
-import { randomUUID as randomUUID10 } from "node:crypto";
-import { existsSync as existsSync24, readFileSync as readFileSync14, realpathSync as realpathSync18, statSync as statSync13 } from "node:fs";
-import { isAbsolute as isAbsolute17, join as join33, resolve as resolve35 } from "node:path";
+import { randomUUID as randomUUID11 } from "node:crypto";
+import { existsSync as existsSync25, readFileSync as readFileSync15, realpathSync as realpathSync18, statSync as statSync13 } from "node:fs";
+import { isAbsolute as isAbsolute17, join as join34, resolve as resolve35 } from "node:path";
 
 // dist/local/agent-reach.js
-import { existsSync as existsSync20, realpathSync as realpathSync14, statSync as statSync11 } from "node:fs";
-import { dirname as dirname18, isAbsolute as isAbsolute12, join as join29, resolve as resolve32 } from "node:path";
+import { existsSync as existsSync21, realpathSync as realpathSync14, statSync as statSync11 } from "node:fs";
+import { dirname as dirname18, isAbsolute as isAbsolute12, join as join30, resolve as resolve32 } from "node:path";
 function discoverAgentReach(opts) {
   const errors = [];
   const warnings = [];
@@ -26056,7 +26176,7 @@ function discoverAgentReach(opts) {
   try {
     const candidate = repoRoot(pov);
     nestedRepo = candidate === pov;
-    if (!nestedRepo && existsSync20(join29(candidate, "_threads")))
+    if (!nestedRepo && existsSync21(join30(candidate, "_threads")))
       spaceRoot = candidate;
   } catch {
   }
@@ -26065,7 +26185,7 @@ function discoverAgentReach(opts) {
       try {
         if (repoRoot(parent) !== parent)
           continue;
-        if (existsSync20(join29(parent, "_threads")))
+        if (existsSync21(join30(parent, "_threads")))
           spaceRoot = parent;
         break;
       } catch {
@@ -26169,8 +26289,8 @@ function enteredThroughRoot(root, path) {
 }
 
 // dist/local/thread-launch.js
-import { existsSync as existsSync21, lstatSync as lstatSync4, readFileSync as readFileSync12 } from "node:fs";
-import { basename as basename15, dirname as dirname20, isAbsolute as isAbsolute14, join as join30 } from "node:path";
+import { existsSync as existsSync22, lstatSync as lstatSync5, readFileSync as readFileSync13 } from "node:fs";
+import { basename as basename15, dirname as dirname20, isAbsolute as isAbsolute14, join as join31 } from "node:path";
 function withThreadSnapshot(event, id, path) {
   return { ...event, result: { ...event.result, thread_snapshot: { id, path } } };
 }
@@ -26187,7 +26307,7 @@ function threadContext(threadPath, pov) {
   return pov;
 }
 function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
-  if (!existsSync21(mapPath) || !lstatSync4(mapPath).isFile() || lstatSync4(mapPath).isSymbolicLink()) {
+  if (!existsSync22(mapPath) || !lstatSync5(mapPath).isFile() || lstatSync5(mapPath).isSymbolicLink()) {
     throw new Error("--thread-map must name a regular authored Map file; inline YAML is not a launch coordinate.");
   }
   const { root, member: member2 } = selectPinnedThreadMember(loadLocalThreadMap(mapPath), ordinal);
@@ -26219,9 +26339,9 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   if (!parseFrontmatter(agreement) || typeof threadName !== "string")
     throw new Error("Pinned Thread Agreement or README is invalid.");
   let agentName = "Agent";
-  const agentAgreement = join30(pov, "_agent", "agreement.md");
-  if (existsSync21(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
+  const agentAgreement = join31(pov, "_agent", "agreement.md");
+  if (existsSync22(agentAgreement) && lstatSync5(agentAgreement).isFile() && !lstatSync5(agentAgreement).isSymbolicLink()) {
+    const agent = parseFrontmatter(readFileSync13(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
       if (agentName.length > 900 || /[\r\n]/.test(agentName))
@@ -26269,9 +26389,9 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   if (localThread.closed)
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   let agentName = "Agent";
-  const agentAgreement = join30(pov, "_agent", "agreement.md");
-  if (existsSync21(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
+  const agentAgreement = join31(pov, "_agent", "agreement.md");
+  if (existsSync22(agentAgreement) && lstatSync5(agentAgreement).isFile() && !lstatSync5(agentAgreement).isSymbolicLink()) {
+    const agent = parseFrontmatter(readFileSync13(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
     }
@@ -26354,9 +26474,9 @@ async function prepareHostedThreadLaunch(pov, threadId, options) {
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   }
   let agentName = "Agent";
-  const agentAgreement = join30(pov, "_agent", "agreement.md");
-  if (existsSync21(agentAgreement) && lstatSync4(agentAgreement).isFile() && !lstatSync4(agentAgreement).isSymbolicLink()) {
-    const agent = parseFrontmatter(readFileSync12(agentAgreement, "utf8"));
+  const agentAgreement = join31(pov, "_agent", "agreement.md");
+  if (existsSync22(agentAgreement) && lstatSync5(agentAgreement).isFile() && !lstatSync5(agentAgreement).isSymbolicLink()) {
+    const agent = parseFrontmatter(readFileSync13(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
     }
@@ -26443,9 +26563,9 @@ function formatAgentRunCapabilities(caps) {
 }
 
 // dist/local/agent-runs.js
-import { appendFileSync, existsSync as existsSync22, mkdirSync as mkdirSync9, readFileSync as readFileSync13, realpathSync as realpathSync16 } from "node:fs";
-import { createHash as createHash9 } from "node:crypto";
-import { dirname as dirname21, isAbsolute as isAbsolute15, join as join31, resolve as resolve33, win32 } from "node:path";
+import { appendFileSync, existsSync as existsSync23, mkdirSync as mkdirSync10, readFileSync as readFileSync14, realpathSync as realpathSync16 } from "node:fs";
+import { createHash as createHash10 } from "node:crypto";
+import { dirname as dirname21, isAbsolute as isAbsolute15, join as join32, resolve as resolve33, win32 } from "node:path";
 function agentDisplayName(agentPath) {
   const trimmed = agentPath.replace(/[\\/]+$/, "");
   return win32.basename(trimmed) || agentPath;
@@ -26467,7 +26587,7 @@ function deriveTask(message, cwd = process.cwd()) {
   if (candidatePath.endsWith(".md") || candidatePath.endsWith(".markdown")) {
     const resolvedPath = isAbsolute15(candidatePath) ? candidatePath : resolve33(cwd, candidatePath);
     try {
-      const content = readFileSync13(resolvedPath, "utf8");
+      const content = readFileSync14(resolvedPath, "utf8");
       const fm = parseFrontmatter(content);
       if (fm && typeof fm.name === "string" && fm.name.trim()) {
         return fm.name.trim();
@@ -26492,10 +26612,10 @@ function deriveTask(message, cwd = process.cwd()) {
 function recordAgentRun(record2) {
   try {
     const dir = configDir();
-    if (!existsSync22(dir)) {
-      mkdirSync9(dir, { recursive: true, mode: 448 });
+    if (!existsSync23(dir)) {
+      mkdirSync10(dir, { recursive: true, mode: 448 });
     }
-    const file2 = join31(dir, "agent-runs.jsonl");
+    const file2 = join32(dir, "agent-runs.jsonl");
     appendFileSync(file2, `${JSON.stringify(record2)}
 `, { mode: 384, encoding: "utf8" });
     return true;
@@ -26504,12 +26624,12 @@ function recordAgentRun(record2) {
   }
 }
 function listAgentRuns(options = {}) {
-  const file2 = join31(configDir(), "agent-runs.jsonl");
-  if (!existsSync22(file2))
+  const file2 = join32(configDir(), "agent-runs.jsonl");
+  if (!existsSync23(file2))
     return [];
   let content;
   try {
-    content = readFileSync13(file2, "utf8");
+    content = readFileSync14(file2, "utf8");
   } catch {
     return [];
   }
@@ -26571,11 +26691,11 @@ function cachedClaudeSessionId(projectDir) {
       resolved = realpathSync16(resolved);
     } catch {
     }
-    const key2 = createHash9("sha256").update(resolved).digest("hex").slice(0, 16);
-    const sessionsDir = join31(configDir(), "sessions");
-    const file2 = join31(sessionsDir, key2);
-    if (existsSync22(file2)) {
-      const id = readFileSync13(file2, "utf8").trim();
+    const key2 = createHash10("sha256").update(resolved).digest("hex").slice(0, 16);
+    const sessionsDir = join32(configDir(), "sessions");
+    const file2 = join32(sessionsDir, key2);
+    if (existsSync23(file2)) {
+      const id = readFileSync14(file2, "utf8").trim();
       if (id)
         return id;
     }
@@ -26589,7 +26709,7 @@ function findActiveClaudeSessionId(cwd = process.cwd()) {
     const id = cachedClaudeSessionId(cur);
     if (id)
       return id;
-    if (existsSync22(join31(cur, ".git")) || existsSync22(join31(cur, "_agent"))) {
+    if (existsSync23(join32(cur, ".git")) || existsSync23(join32(cur, "_agent"))) {
       break;
     }
     const parent = dirname21(cur);
@@ -26606,8 +26726,8 @@ function resolveParentId(explicitParent, cwd = process.cwd()) {
 }
 
 // dist/local/agent-pov.js
-import { existsSync as existsSync23, lstatSync as lstatSync5, realpathSync as realpathSync17, statSync as statSync12 } from "node:fs";
-import { isAbsolute as isAbsolute16, join as join32, relative as relative18, resolve as resolve34 } from "node:path";
+import { existsSync as existsSync24, lstatSync as lstatSync6, realpathSync as realpathSync17, statSync as statSync12 } from "node:fs";
+import { isAbsolute as isAbsolute16, join as join33, relative as relative18, resolve as resolve34 } from "node:path";
 function isWithin2(parent, child) {
   const rel = relative18(parent, child);
   return !rel.startsWith("..") && !isAbsolute16(rel);
@@ -26624,7 +26744,7 @@ function validateAgentPov(pov, options = {}) {
   const cwd = options.cwd ?? process.cwd();
   let candidatePath = null;
   const directCandidate = resolve34(cwd, trimmed);
-  if (existsSync23(directCandidate)) {
+  if (existsSync24(directCandidate)) {
     try {
       if (statSync12(directCandidate).isDirectory()) {
         candidatePath = directCandidate;
@@ -26656,7 +26776,7 @@ function validateAgentPov(pov, options = {}) {
           return true;
         return false;
       });
-      if (found && existsSync23(found.path)) {
+      if (found && existsSync24(found.path)) {
         if (statSync12(found.path).isDirectory()) {
           candidatePath = found.path;
         }
@@ -26689,11 +26809,11 @@ function validateAgentPov(pov, options = {}) {
       message: `Agent point of view "${pov}" is inaccessible: ${err instanceof Error ? err.message : String(err)}`
     };
   }
-  const agreementPath = join32(canonicalDir, "_agent", "agreement.md");
-  const foundationPath = join32(canonicalDir, "_agent", "foundation.md");
-  const hasAgreement = existsSync23(agreementPath);
+  const agreementPath = join33(canonicalDir, "_agent", "agreement.md");
+  const foundationPath = join33(canonicalDir, "_agent", "foundation.md");
+  const hasAgreement = existsSync24(agreementPath);
   const allowFoundation = options.allowFoundation ?? true;
-  const hasFoundation = allowFoundation && existsSync23(foundationPath);
+  const hasFoundation = allowFoundation && existsSync24(foundationPath);
   if (!hasAgreement && !hasFoundation) {
     return {
       valid: false,
@@ -26704,7 +26824,7 @@ function validateAgentPov(pov, options = {}) {
   const contractType = hasAgreement ? "agreement" : "foundation";
   const contractFile = hasAgreement ? agreementPath : foundationPath;
   try {
-    const stat2 = lstatSync5(contractFile);
+    const stat2 = lstatSync6(contractFile);
     const canonicalContract = realpathSync17.native(contractFile);
     const targetStat = statSync12(canonicalContract);
     if (!targetStat.isFile()) {
@@ -26798,15 +26918,15 @@ var LIST_USAGE = "ideaspaces agent list --map <file> [--json]";
 var USAGE8 = `ideaspaces agent <run|runs|record|list|capabilities> \u2026 (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; record ${RECORD_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 function readAgentDefaults(povPath) {
   const available = [
-    ...existsSync24(join33(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
-    ...existsSync24(join33(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
+    ...existsSync25(join34(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
+    ...existsSync25(join34(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
   ];
   const source = preferredContractSource(available);
   if (!source)
     return {};
-  const contractPath = join33(povPath, "_agent", `${source}.md`);
+  const contractPath = join34(povPath, "_agent", `${source}.md`);
   try {
-    const content = readFileSync14(contractPath, "utf-8");
+    const content = readFileSync15(contractPath, "utf-8");
     const fm = parseFrontmatter(content);
     if (!fm || typeof fm !== "object")
       return {};
@@ -26855,7 +26975,7 @@ async function cmdRun(args2, flags2, local, output, jsonMode) {
       output.error("Selected POV Agreement exceeds 16 KiB; shorten it before launch.");
       return 1;
     }
-    const contract = readFileSync14(povResult.contractPath, "utf8");
+    const contract = readFileSync15(povResult.contractPath, "utf8");
     povOrientation = `[Selected ${povResult.contractType} POV: ${povPath}]
 ${contract}`;
     if (Buffer.byteLength(povOrientation) > MAX_ORIENTATION_BYTES) {
@@ -26971,7 +27091,7 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
         continue;
       for (const raw of flags2[key2].split(",").map((s) => s.trim()).filter(Boolean)) {
         const path = isAbsolute17(raw) ? raw : resolve35(povPath, raw);
-        if (!existsSync24(path)) {
+        if (!existsSync25(path)) {
           output.error(`Refusing ${key2} path ${raw}: path not found. Select an installed, reviewed path before launch.`);
           return 1;
         }
@@ -27072,7 +27192,7 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
   };
   const parentId = resolveParentId(flagString2(flags2, "parent"), process.cwd());
   const parentToolUseId = flagString2(flags2, "parent-tool-use-id") ?? process.env.PARENT_TOOL_USE_ID ?? null;
-  const runId = flagString2(flags2, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID10()}`;
+  const runId = flagString2(flags2, "run-id") ?? process.env.IDEASPACES_RUN_ID ?? `run-${randomUUID11()}`;
   const task = flagString2(flags2, "task") ?? deriveTask(message, process.cwd());
   const runRecord = {
     run_id: runId,
@@ -27130,7 +27250,7 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
     let snapshotWritten = false;
     const baseOnEvent = onEvent;
     onEvent = (event) => {
-      let current = event;
+      let current2 = event;
       if (event.type === "turn_complete") {
         try {
           if (snapshotWritten)
@@ -27149,12 +27269,12 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
           });
           snapshotWritten = true;
           output.progress(`Thread snapshot: ${path}`);
-          current = withThreadSnapshot(event, post.id, path);
+          current2 = withThreadSnapshot(event, post.id, path);
         } catch (err) {
-          current = { type: "error", error_type: "thread_snapshot", message: `Run completed but Thread snapshot was not appended: ${err instanceof Error ? err.message : String(err)}` };
+          current2 = { type: "error", error_type: "thread_snapshot", message: `Run completed but Thread snapshot was not appended: ${err instanceof Error ? err.message : String(err)}` };
         }
       }
-      return baseOnEvent(current);
+      return baseOnEvent(current2);
     };
   }
   const extraOrientation = thread ? `${povOrientation}
@@ -27338,7 +27458,7 @@ Usage: ${RECORD_USAGE}`);
   };
   const ok = recordAgentRun(record2);
   if (!ok) {
-    output.error(`Failed to record agent run ${record2.run_id} to ${join33(configDir(), "agent-runs.jsonl")}`);
+    output.error(`Failed to record agent run ${record2.run_id} to ${join34(configDir(), "agent-runs.jsonl")}`);
     return 1;
   }
   output.result(record2, `Recorded run ${record2.run_id} (${record2.status}) for ${agentDisplayName(record2.agent)}`);
@@ -27454,16 +27574,16 @@ var agentsCommand = {
 };
 
 // dist/commands/node.js
-import { existsSync as existsSync25, realpathSync as realpathSync19, statSync as statSync14 } from "node:fs";
+import { existsSync as existsSync26, realpathSync as realpathSync19, statSync as statSync14 } from "node:fs";
 import { isAbsolute as isAbsolute18, relative as relative19, resolve as resolve36, sep as sep14 } from "node:path";
 var USAGE9 = "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ... | history <path> [--limit N] | history <repo_id> <node_id>>";
 var USAGE_GET = "ideaspaces node get <repo_id> <node_id>";
 var USAGE_PUT = "ideaspaces node put <repo_id> <path> [--content TEXT]  (else reads stdin)";
 var USAGE_HISTORY = "ideaspaces node history <path> [--limit N]  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
 function toRepoRelativePath(repoRootPath, inputPath, cwd = process.cwd()) {
-  const realCwd = existsSync25(cwd) ? realpathSync19.native(cwd) : cwd;
+  const realCwd = existsSync26(cwd) ? realpathSync19.native(cwd) : cwd;
   const absPath = resolve36(realCwd, inputPath);
-  const realAbsPath = existsSync25(absPath) ? realpathSync19.native(absPath) : absPath;
+  const realAbsPath = existsSync26(absPath) ? realpathSync19.native(absPath) : absPath;
   const rel = relative19(repoRootPath, realAbsPath);
   if (rel === ".." || rel.startsWith(`..${sep14}`) || isAbsolute18(rel)) {
     throw new Error(`Path is outside repository: ${inputPath}`);
@@ -27569,7 +27689,7 @@ async function cmdHistory(args2, flags2, output) {
       return 1;
     }
     const fullPath = resolve36(root, relPath);
-    if (relPath === "" || existsSync25(fullPath) && statSync14(fullPath).isDirectory()) {
+    if (relPath === "" || existsSync26(fullPath) && statSync14(fullPath).isDirectory()) {
       output.error("node history requires a file path, not a directory.");
       return 1;
     }
@@ -27584,7 +27704,7 @@ async function cmdHistory(args2, flags2, output) {
     }
     try {
       const details = getFileHistoryDetails(relPath, { cwd: root, maxEntries });
-      if (details.total === 0 && !existsSync25(fullPath)) {
+      if (details.total === 0 && !existsSync26(fullPath)) {
         output.error(`Note not found: ${targetPath}`);
         return 1;
       }
@@ -27659,11 +27779,11 @@ var nodeCommand = {
 
 // dist/commands/search.js
 import { realpathSync as realpathSync22 } from "node:fs";
-import { basename as basename19, join as join36, relative as relative22, resolve as resolve39 } from "node:path";
+import { basename as basename19, join as join37, relative as relative22, resolve as resolve39 } from "node:path";
 
 // dist/search-saved.js
 var import_yaml11 = __toESM(require_dist(), 1);
-import { existsSync as existsSync26, readFileSync as readFileSync15, realpathSync as realpathSync20, statSync as statSync15, writeFileSync as writeFileSync10 } from "node:fs";
+import { existsSync as existsSync27, readFileSync as readFileSync16, realpathSync as realpathSync20, statSync as statSync15, writeFileSync as writeFileSync11 } from "node:fs";
 import { basename as basename16, dirname as dirname22, isAbsolute as isAbsolute19, relative as relative20, resolve as resolve37, sep as sep15 } from "node:path";
 var SavedSearchError = class extends Error {
 };
@@ -27672,9 +27792,9 @@ var MAX_CHECK_BYTES = 4 * 1024 * 1024;
 function searchBoundary(dir) {
   let repo = null;
   for (let at = dir; ; at = dirname22(at)) {
-    if (existsSync26(resolve37(at, "home.map.md")))
+    if (existsSync27(resolve37(at, "home.map.md")))
       return at;
-    if (repo === null && existsSync26(resolve37(at, ".git")))
+    if (repo === null && existsSync27(resolve37(at, ".git")))
       repo = at;
     if (dirname22(at) === at)
       break;
@@ -27737,7 +27857,7 @@ function existingIsSavedSearch(path, notePath) {
     throw new SavedSearchError(`${notePath} is too large to check before replacing it; choose another name.`);
   let content;
   try {
-    content = readFileSync15(path, "utf8");
+    content = readFileSync16(path, "utf8");
   } catch (error) {
     throw new SavedSearchError(`Cannot read ${notePath} before replacing it: ${error.code ?? String(error)}`);
   }
@@ -27756,7 +27876,7 @@ function checkSaveTarget(notePath, force) {
   } catch {
     throw new SavedSearchError(`No such folder for the saved search: ${dirname22(notePath)}`);
   }
-  if (existsSync26(path)) {
+  if (existsSync27(path)) {
     if (!force)
       throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
     if (!existingIsSavedSearch(path, notePath)) {
@@ -27794,7 +27914,7 @@ function writeSavedSearch(notePath, options) {
     `Open it again with \`ideaspaces search --open ${shellWord(basename16(path))}\` from this folder, or give its path from anywhere.`,
     ""
   ].join("\n");
-  writeFileSync10(path, `---
+  writeFileSync11(path, `---
 ${(0, import_yaml11.stringify)(frontmatter).trimEnd()}
 ---
 
@@ -27810,7 +27930,7 @@ function readSavedSearch(notePath) {
       throw new SavedSearchError(`Not a file: ${notePath}`);
     if (stat2.size > MAX_NOTE_BYTES2)
       throw new SavedSearchError(`${notePath} is too large to be a saved search.`);
-    content = readFileSync15(path, "utf8");
+    content = readFileSync16(path, "utf8");
   } catch (error) {
     if (error instanceof SavedSearchError)
       throw error;
@@ -28000,7 +28120,7 @@ var QueryError = class extends Error {
 };
 function splitQuery(raw) {
   const out = [];
-  let current = "";
+  let current2 = "";
   let quoted4 = false;
   let started = false;
   for (const ch of raw) {
@@ -28011,18 +28131,18 @@ function splitQuery(raw) {
     }
     if (!quoted4 && /\s/u.test(ch)) {
       if (started)
-        out.push(current);
-      current = "";
+        out.push(current2);
+      current2 = "";
       started = false;
       continue;
     }
-    current += ch;
+    current2 += ch;
     started = true;
   }
   if (quoted4)
     throw new QueryError('A quote is not closed. Close it, or drop the " to search for the words.');
   if (started)
-    out.push(current);
+    out.push(current2);
   return out;
 }
 function normalizeFolder(value2) {
@@ -28188,8 +28308,8 @@ function acceptsFrontmatter(q, frontmatter) {
 
 // dist/search-corpus.js
 import { execFile as execFile3 } from "node:child_process";
-import { existsSync as existsSync27, lstatSync as lstatSync6, readdirSync as readdirSync3, readFileSync as readFileSync16, realpathSync as realpathSync21, statSync as statSync16 } from "node:fs";
-import { basename as basename17, dirname as dirname23, isAbsolute as isAbsolute20, join as join34, relative as relative21, resolve as resolve38, sep as sep16 } from "node:path";
+import { existsSync as existsSync28, lstatSync as lstatSync7, readdirSync as readdirSync4, readFileSync as readFileSync17, realpathSync as realpathSync21, statSync as statSync16 } from "node:fs";
+import { basename as basename17, dirname as dirname23, isAbsolute as isAbsolute20, join as join35, relative as relative21, resolve as resolve38, sep as sep16 } from "node:path";
 var WALK_SKIP = /* @__PURE__ */ new Set(["node_modules", "_assets", "target", "dist"]);
 var WALK_MAX_DEPTH = 12;
 var WALK_MAX_FILES = 5e4;
@@ -28281,7 +28401,7 @@ function walkMarkdown2(root) {
       return;
     let entries;
     try {
-      entries = readdirSync3(dir, { withFileTypes: true });
+      entries = readdirSync4(dir, { withFileTypes: true });
     } catch {
       unreadable++;
       return;
@@ -28290,7 +28410,7 @@ function walkMarkdown2(root) {
     for (const entry of entries) {
       if (entry.name.startsWith("."))
         continue;
-      const abs = join34(dir, entry.name);
+      const abs = join35(dir, entry.name);
       if (entry.isFile() && entry.name.endsWith(".md")) {
         if (files.length >= WALK_MAX_FILES) {
           truncated = true;
@@ -28298,7 +28418,7 @@ function walkMarkdown2(root) {
         }
         files.push(toPosix2(relative21(root, abs)));
       } else if (entry.isDirectory() && depth2 < WALK_MAX_DEPTH && !WALK_SKIP.has(entry.name)) {
-        if (existsSync27(join34(abs, ".git")))
+        if (existsSync28(join35(abs, ".git")))
           continue;
         visit(abs, depth2 + 1);
       }
@@ -28308,12 +28428,12 @@ function walkMarkdown2(root) {
   return { files, truncated, unreadable };
 }
 function ownThreadFiles(root, warnings) {
-  if (!existsSync27(join34(root, "_agent", "agreement.md")))
+  if (!existsSync28(join35(root, "_agent", "agreement.md")))
     return [];
-  const base = join34(root, "_threads");
+  const base = join35(root, "_threads");
   let stat2;
   try {
-    stat2 = lstatSync6(base);
+    stat2 = lstatSync7(base);
   } catch {
     return [];
   }
@@ -28324,12 +28444,12 @@ function ownThreadFiles(root, warnings) {
   if (!stat2.isDirectory())
     return [];
   const out = [];
-  for (const thread of readdirSync3(base, { withFileTypes: true })) {
+  for (const thread of readdirSync4(base, { withFileTypes: true })) {
     if (!thread.isDirectory() || thread.name.startsWith("."))
       continue;
     let entries;
     try {
-      entries = readdirSync3(join34(base, thread.name), { withFileTypes: true });
+      entries = readdirSync4(join35(base, thread.name), { withFileTypes: true });
     } catch {
       continue;
     }
@@ -28388,7 +28508,7 @@ async function listRoots(roots, threads) {
   const byDepth = [...listings].sort((a, b) => b.root.length - a.root.length);
   for (const listing of byDepth) {
     listing.files = listing.files.filter((p) => {
-      const abs = join34(listing.root, p);
+      const abs = join35(listing.root, p);
       if (claimed.has(abs))
         return false;
       claimed.add(abs);
@@ -28403,7 +28523,7 @@ function within2(root, path) {
 function* readCorpus(files, withRoot, readCounts, outsideLinks) {
   const folderInside = /* @__PURE__ */ new Map();
   for (const { root, path } of files) {
-    const abs = join34(root, path);
+    const abs = join35(root, path);
     try {
       const folder = dirname23(abs);
       const key2 = `${root}\0${folder}`;
@@ -28412,14 +28532,14 @@ function* readCorpus(files, withRoot, readCounts, outsideLinks) {
         inside = within2(root, realpathSync21(folder));
         folderInside.set(key2, inside);
       }
-      if (!inside || lstatSync6(abs).isSymbolicLink() && !within2(root, realpathSync21(abs))) {
+      if (!inside || lstatSync7(abs).isSymbolicLink() && !within2(root, realpathSync21(abs))) {
         outsideLinks?.set(root, (outsideLinks.get(root) ?? 0) + 1);
         continue;
       }
       const stat2 = statSync16(abs);
       if (!stat2.isFile() || stat2.size > MAX_DOC_BYTES)
         continue;
-      const content = readFileSync16(abs, "utf-8");
+      const content = readFileSync17(abs, "utf-8");
       readCounts?.set(root, (readCounts.get(root) ?? 0) + 1);
       yield withRoot ? { root, path, content } : { path, content };
     } catch {
@@ -28429,15 +28549,15 @@ function* readCorpus(files, withRoot, readCounts, outsideLinks) {
 }
 function modifiedAt(root, path) {
   try {
-    return statSync16(join34(root, path)).mtime.toISOString();
+    return statSync16(join35(root, path)).mtime.toISOString();
   } catch {
     return null;
   }
 }
 
 // dist/search-map.js
-import { readFileSync as readFileSync17 } from "node:fs";
-import { basename as basename18, extname as extname2, join as join35 } from "node:path";
+import { readFileSync as readFileSync18 } from "node:fs";
+import { basename as basename18, extname as extname2, join as join36 } from "node:path";
 function safeHead(repoRoot2) {
   try {
     return headSha(repoRoot2);
@@ -28460,7 +28580,7 @@ function member(path, source) {
 function projectSearchMap(repoRoot2, headBefore, hitPaths, dependencies = {}) {
   const headSha2 = dependencies.headSha ?? safeHead;
   const tracked = dependencies.trackedAt ?? ((root) => trackedAt("HEAD", root));
-  const readSource = dependencies.readSource ?? ((root, path) => readFileSync17(join35(root, path), "utf-8"));
+  const readSource = dependencies.readSource ?? ((root, path) => readFileSync18(join36(root, path), "utf-8"));
   let members = null;
   let readIssue;
   try {
@@ -28656,7 +28776,7 @@ function selectFiles(listings, base, query, skip) {
         if (!acceptsPath(query, locations, hitKind(path)))
           continue;
       }
-      if (skip !== void 0 && basename19(path) === basename19(skip) && canonicalFile(join36(listing.root, path)) === skip)
+      if (skip !== void 0 && basename19(path) === basename19(skip) && canonicalFile(join37(listing.root, path)) === skip)
         continue;
       files.push({ root: listing.root, path });
     }
@@ -28984,15 +29104,15 @@ import { statSync as statSync17 } from "node:fs";
 import { resolve as resolve40 } from "node:path";
 
 // dist/file-listing.js
-import { existsSync as existsSync28, readdirSync as readdirSync4 } from "node:fs";
-import { join as join37, relative as relative23 } from "node:path";
+import { existsSync as existsSync29, readdirSync as readdirSync5 } from "node:fs";
+import { join as join38, relative as relative23 } from "node:path";
 var EXCLUDES = new Set(AUTOCOMPLETE_EXCLUDES);
 var DEFAULT_MAX_SCAN = 5e3;
 var DEFAULT_MAX_DEPTH = 10;
 function folderKind(abs) {
-  if (existsSync28(join37(abs, "_agent")))
+  if (existsSync29(join38(abs, "_agent")))
     return "ideaspace-repo";
-  if (existsSync28(join37(abs, ".git")))
+  if (existsSync29(join38(abs, ".git")))
     return "code-repo";
   return "folder";
 }
@@ -29008,7 +29128,7 @@ function listEntries(root, opts = {}) {
     const { abs, depth: depth2 } = queue[head2];
     let dirents;
     try {
-      dirents = readdirSync4(abs, { withFileTypes: true });
+      dirents = readdirSync5(abs, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -29018,7 +29138,7 @@ function listEntries(root, opts = {}) {
         continue;
       if (entries.length >= maxScan)
         return { entries, truncated: true };
-      const childAbs = join37(abs, dirent.name);
+      const childAbs = join38(abs, dirent.name);
       const path = toPosix3(relative23(root, childAbs));
       if (dirent.isDirectory()) {
         entries.push({ path, name: dirent.name, kind: folderKind(childAbs) });
@@ -29128,10 +29248,12 @@ var timesCommand = {
 // dist/commands/thread-flags.js
 var NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 var THREAD_FLAGS = Object.fromEntries(Object.entries({
-  list: "new unread space depth kind since limit cursor",
+  list: "new unread space depth kind since limit cursor open reader",
+  recent: "cursor reader limit",
+  ack: "through recent reader",
   locate: "",
-  open: "depth new ack since post map member checkout pin position limit order agreement",
-  read: "depth new ack kind since post map member checkout pin position limit order agreement",
+  open: "depth new ack since post map member checkout pin position limit order agreement reader",
+  read: "depth new ack kind since post map member checkout pin position limit order agreement reader",
   new: "about attached-to map",
   attach: "message author",
   post: "map member checkout reply-to kind mark author name summary supersedes message tags no-check-links",
@@ -30075,19 +30197,19 @@ var spacesCommand = {
 };
 
 // dist/commands/threads.js
-import { existsSync as existsSync30, lstatSync as lstatSync8, readFileSync as readFileSync19, realpathSync as realpathSync24 } from "node:fs";
+import { existsSync as existsSync31, lstatSync as lstatSync9, readFileSync as readFileSync20, realpathSync as realpathSync24 } from "node:fs";
 import { spawnSync as spawnSync16 } from "node:child_process";
-import { dirname as dirname24, isAbsolute as isAbsolute22, join as join39, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
+import { dirname as dirname24, isAbsolute as isAbsolute22, join as join40, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
 
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync15 } from "node:child_process";
-import { existsSync as existsSync29, lstatSync as lstatSync7, readFileSync as readFileSync18, realpathSync as realpathSync23 } from "node:fs";
-import { basename as basename20, isAbsolute as isAbsolute21, join as join38 } from "node:path";
+import { existsSync as existsSync30, lstatSync as lstatSync8, readFileSync as readFileSync19, realpathSync as realpathSync23 } from "node:fs";
+import { basename as basename20, isAbsolute as isAbsolute21, join as join39 } from "node:path";
 function physical(path) {
   if (!isAbsolute21(path))
     throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
   try {
-    const entry = lstatSync7(path);
+    const entry = lstatSync8(path);
     if (!entry.isSymbolicLink() && entry.isDirectory())
       return realpathSync23.native(path);
   } catch {
@@ -30176,21 +30298,21 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   const verifyWrite = (live, parents, supersedes) => {
     if (live.path !== directory || live.slug !== slug || live.closed)
       throw new Error("Selected live Thread changed or closed; refusing append.");
-    const selectedPath = join38(directory, basename20(position));
+    const selectedPath = join39(directory, basename20(position));
     const safeEqual = (path, content) => {
-      if (!existsSync29(path))
+      if (!existsSync30(path))
         return false;
-      const entry = lstatSync7(path);
-      return !entry.isSymbolicLink() && entry.isFile() && readFileSync18(path, "utf8") === content;
+      const entry = lstatSync8(path);
+      return !entry.isSymbolicLink() && entry.isFile() && readFileSync19(path, "utf8") === content;
     };
-    if (!safeEqual(join38(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join38(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename20(position))) {
+    if (!safeEqual(join39(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join39(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename20(position))) {
       throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
     }
     if (!parents.length || new Set(parents).size !== parents.length)
       throw new Error("Selected cross-Space post requires distinct explicit --reply-to ids; no implicit HEAD parent.");
     for (const id of [...parents, ...supersedes ? [supersedes] : []]) {
       const parent = live.posts.find((post) => post.id === id);
-      if (!parent || !safeEqual(join38(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
+      if (!parent || !safeEqual(join39(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
         throw new Error(`Selected parent or superseded post ${id} is missing or changed since the authored pin.`);
       }
     }
@@ -30232,11 +30354,15 @@ async function stdin() {
     chunks.push(chunk);
   return Buffer.concat(chunks).toString("utf8");
 }
-function localRows(threads, newOnly, onError) {
+function activityOf(row) {
+  const at = Date.parse(row.latest_activity_at ?? row.last_post_at ?? "");
+  return Number.isNaN(at) ? 0 : at;
+}
+function localRows(threads, newOnly, onError, reader) {
   return threads.filter((thread) => {
     if (!newOnly)
       return true;
-    const seen = readCursor(thread);
+    const seen = readCursor(thread, reader);
     return thread.posts.some((post) => !seen.has(post.id));
   }).map((thread) => {
     let parent = null;
@@ -30289,7 +30415,7 @@ function threadSection(markdown, heading) {
 function threadFrame(thread) {
   let agreement = "";
   try {
-    agreement = readFileSync19(join39(thread.path, "_agent", "agreement.md"), "utf8");
+    agreement = readFileSync20(join40(thread.path, "_agent", "agreement.md"), "utf8");
   } catch (error) {
     if (error.code !== "ENOENT")
       throw error;
@@ -30394,13 +30520,13 @@ function selectedWriterName() {
     const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep17}`) || isAbsolute22(pathFromRoot);
     if (outsideRoot)
       break;
-    const agentDir = join39(at, "_agent");
-    const agreement = join39(agentDir, "agreement.md");
-    if (existsSync30(agentDir) || existsSync30(agreement)) {
-      if (!existsSync30(agentDir) || lstatSync8(agentDir).isSymbolicLink() || !lstatSync8(agentDir).isDirectory() || !existsSync30(agreement) || lstatSync8(agreement).isSymbolicLink() || !lstatSync8(agreement).isFile()) {
+    const agentDir = join40(at, "_agent");
+    const agreement = join40(agentDir, "agreement.md");
+    if (existsSync31(agentDir) || existsSync31(agreement)) {
+      if (!existsSync31(agentDir) || lstatSync9(agentDir).isSymbolicLink() || !lstatSync9(agentDir).isDirectory() || !existsSync31(agreement) || lstatSync9(agreement).isSymbolicLink() || !lstatSync9(agreement).isFile()) {
         throw new Error("Caller POV needs a regular _agent/agreement.md with a name to author a selected Thread post.");
       }
-      const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
+      const fm = parseFrontmatter(readFileSync20(agreement, "utf8"));
       if (typeof fm?.name !== "string" || !fm.name.trim() || fm.agreement !== void 0 && (typeof fm.agreement !== "string" || !fm.agreement.startsWith("agent:repo:"))) {
         throw new Error("Caller POV _agent/agreement.md needs an agent name (and agent:repo: kind if declared) to author a selected Thread post.");
       }
@@ -30420,9 +30546,9 @@ function writerName(explicit) {
     return explicit;
   let at = resolve41(process.cwd());
   while (true) {
-    const agreement = join39(at, "_agent", "agreement.md");
-    if (existsSync30(agreement)) {
-      const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
+    const agreement = join40(at, "_agent", "agreement.md");
+    if (existsSync31(agreement)) {
+      const fm = parseFrontmatter(readFileSync20(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
       }
@@ -30449,6 +30575,9 @@ var threadsCommand = {
     "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients",
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
+    "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
+    "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit 50]  # which local Threads moved, ids and counts only; a first look sets a baseline",
+    "ideaspaces threads ack --recent <cursor> [--reader <name>]  # move a reader's recent position; a look never does",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
@@ -30480,7 +30609,7 @@ var threadsCommand = {
         throw new HostedError("invalid_request", "--hosted takes no value.");
       if (["posts", "expand", "add"].includes(sub ?? ""))
         throw new Error(`threads ${sub} retired with the Inbox; use threads list and open, or manage membership on the web.`);
-      if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename"].includes(sub ?? "") || sub === "ack") {
+      if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename", "ack"].includes(sub ?? "")) {
         const hostedFlagError = hostedVerbFlagError(sub, flags2);
         if (hostedFlagError)
           throw new HostedError("invalid_request", hostedTarget ? `${hostedFlagError} ${NAMED_THREAD_HINT}` : hostedFlagError);
@@ -30513,9 +30642,9 @@ var threadsCommand = {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0]))
           throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
         const matches2 = [...new Map(rest.slice(1).flatMap((root) => {
-          if (!existsSync30(resolve41(root)))
+          if (!existsSync31(resolve41(root)))
             throw new Error(`Space root not found: ${root}. Supply an existing folder with _agent/agreement.md.`);
-          if (lstatSync8(resolve41(root)).isSymbolicLink())
+          if (lstatSync9(resolve41(root)).isSymbolicLink())
             throw new Error(`Refusing symlink Space root: ${root}`);
           const requested = realpathSync24(resolve41(root));
           if (threadBase(requested) !== requested)
@@ -30525,6 +30654,66 @@ var threadsCommand = {
         const status = matches2.length === 1 ? "found" : matches2.length ? "ambiguous" : "not_found";
         output.result({ status, thread_id: rest[0], matches: matches2.map(({ path, slug, name }) => ({ path, slug, name })) }, status === "found" ? matches2[0].path : status === "ambiguous" ? `Ambiguous Thread id: ${matches2.length} locations. Select a Space explicitly:
 ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the supplied Space roots.");
+        return 0;
+      }
+      if (sub === "recent") {
+        if (rest.length)
+          throw new Error("Usage: threads recent [--cursor <cursor>] [--reader <name>] [--limit <n>]");
+        if (flags2.cursor === true || flags2.reader === true)
+          throw new Error("--cursor and --reader require a value.");
+        if (flags2.cursor !== void 0 && flags2.reader !== void 0)
+          throw new Error("Use --cursor or --reader, not both: a cursor is the position you hold, a reader is one held for you.");
+        const limit = flags2.limit === void 0 ? 50 : Number(flags2.limit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 500)
+          throw new Error("--limit must be a whole number from 1 to 500.");
+        const root = threadBase();
+        const reader = flags2.cursor === void 0 ? readerName(str2(flags2, "reader")) : void 0;
+        const result = reader ? recentForReader(root, threadsDirectory(), reader) : recentSince(root, threadsDirectory(), str2(flags2, "cursor"));
+        const shown = result.threads.slice(0, limit);
+        const label = (row) => `${row.slug}  ${row.new_thread ? `new Thread, ${row.new_posts} posts` : row.new_posts ? `${row.new_posts} new` : "changed"}`;
+        const lines = result.baseline ? [`Baseline set${reader ? ` for ${reader}` : ""}: nothing new yet. Later reads show what moved after this point.`] : shown.length ? shown.map(label) : ["Nothing moved."];
+        if (shown.length < result.threads.length)
+          lines.push(`Showing ${shown.length} of ${result.threads.length} Threads that moved; pass --limit for more.`);
+        if (reader && !result.baseline && result.threads.length)
+          lines.push(`Move ${reader}'s position here when you are done: ideaspaces threads ack --recent ${result.cursor}${reader === PERSON_READER ? "" : ` --reader ${reader}`}`);
+        output.result({
+          schema: "ideaspaces.threads.recent.v1",
+          location: "folder",
+          hosted_checked: false,
+          baseline: result.baseline,
+          ...reader ? { reader } : {},
+          threads: shown,
+          moved: result.threads.length,
+          shown: shown.length,
+          cursor: result.cursor
+        }, lines.join("\n"));
+        return 0;
+      }
+      if (sub === "ack") {
+        for (const flag of ["through", "recent", "reader"])
+          if (flags2[flag] === true)
+            throw new Error(`--${flag} requires a value.`);
+        const reader = readerName(str2(flags2, "reader"));
+        if (flags2.recent !== void 0) {
+          if (rest.length || flags2.through !== void 0)
+            throw new Error("Usage: threads ack --recent <cursor> [--reader <name>]");
+          acknowledgeRecent(threadBase(), reader, str2(flags2, "recent"));
+          output.result({ schema: "ideaspaces.threads.recent-ack.v1", reader, cursor: str2(flags2, "recent") }, `Moved ${reader}'s recent position.`);
+          return 0;
+        }
+        const usage = "Usage: threads ack <slug|path> --through <post-id|latest> [--reader <name>]";
+        if (rest.length !== 1)
+          throw new Error(usage);
+        const through = str2(flags2, "through");
+        if (!through)
+          throw new Error(`Say how far you read, so nothing unseen is marked read. ${usage}`);
+        const thread = loadThread(resolveLocalThread(rest[0]));
+        const at = through === "latest" ? thread.posts.length - 1 : thread.posts.findIndex((post) => post.id === through);
+        if (at < 0)
+          throw new Error(through === "latest" ? "This Thread has no posts to acknowledge." : `Post ${through} is not in this Thread's timeline.`);
+        const posts2 = thread.posts.slice(0, at + 1);
+        acknowledge(thread, posts2, reader);
+        output.result({ schema: "ideaspaces.local-thread.ack.v1", path: thread.path, reader, position: posts2[at].id, acknowledged: posts2.length }, `Marked ${posts2.length} posts read for ${reader}, through ${posts2[at].id}.`);
         return 0;
       }
       if (sub === "list") {
@@ -30556,7 +30745,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
               reportThreadWarnings(thread, output);
               localWarnings += thread.unreadablePosts.length;
             }
-            local = localRows(localThreads, newOnly, warn);
+            local = localRows(localThreads, newOnly, warn, readerName(str2(flags2, "reader")));
           } catch (error) {
             if (rest.length || !(error instanceof NoAgreementError))
               throw error;
@@ -30590,7 +30779,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
-        const rows = [...local, ...hosted].map((row) => {
+        const rows = [...local, ...hosted].filter((row) => !yes(flags2, "open") || row.closed !== true).sort((a, b) => activityOf(b) - activityOf(a)).map((row) => {
           if (rung === "name")
             return {
               source: row.source,
@@ -30739,7 +30928,8 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         if (postId2 && (newOnly || since || limit !== void 0 || order))
           throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
-        const seen = newOnly ? readCursor(thread) : /* @__PURE__ */ new Set();
+        const reader = readerName(str2(flags2, "reader"));
+        const seen = newOnly ? readCursor(thread, reader) : /* @__PURE__ */ new Set();
         let posts2 = thread.posts.filter((p) => !seen.has(p.id));
         if (since) {
           const at = thread.posts.findIndex((p) => p.id === since);
@@ -30804,7 +30994,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md"))
           throw new Error("Pinned post is invalid.");
         if (ack)
-          acknowledge(thread, posts2);
+          acknowledge(thread, posts2, reader);
         const effectiveRung = postId2 ? "full" : rung;
         let parent = null;
         let parentWarning;
@@ -30849,7 +31039,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
         } : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
-        const rawPost = postId2 && posts2.length ? readFileSync19(join39(thread.path, posts2[0].path), "utf8") : void 0;
+        const rawPost = postId2 && posts2.length ? readFileSync20(join40(thread.path, posts2[0].path), "utf8") : void 0;
         let humanText;
         if (pinned && effectiveRung === "full") {
           humanText = pinned;
@@ -30883,8 +31073,9 @@ Child Thread lookup incomplete: ${childWarnings} unreadable sibling(s).`;
         if (parentWarning)
           humanText += `
 Parent lookup incomplete: ${parentWarning}`;
-        if (reference?.status === "ok")
-          humanText = `${renderContentFocus(reference)}
+        const focus = reference?.status === "ok" && effectiveRung === "name" ? { ...reference, skills: [] } : reference;
+        if (focus?.status === "ok")
+          humanText = `${renderContentFocus(focus)}
 
 ${humanText}`;
         if (effectiveRung === "full" && !postId2 && posts2.length < totalMatching) {
@@ -30895,7 +31086,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         }
         output.result({
           schema: "ideaspaces.local-thread.open.v4",
-          ...reference?.status === "ok" ? { reference } : {},
+          ...focus?.status === "ok" ? { reference: focus } : {},
           ...referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {},
           thread: {
             path: thread.path,
@@ -31183,13 +31374,13 @@ var unfollowCommand = {
 };
 
 // dist/auth/session-state.js
-import { existsSync as existsSync31, unlinkSync as unlinkSync3 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { join as join40 } from "node:path";
-var SESSION_FILE = join40(homedir4(), ".ideaspaces", "session.json");
+import { existsSync as existsSync32, unlinkSync as unlinkSync3 } from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import { join as join41 } from "node:path";
+var SESSION_FILE = join41(homedir5(), ".ideaspaces", "session.json");
 function clearSessionState() {
   try {
-    if (existsSync31(SESSION_FILE))
+    if (existsSync32(SESSION_FILE))
       unlinkSync3(SESSION_FILE);
   } catch {
   }
@@ -31221,8 +31412,8 @@ var logoutCommand = {
 };
 
 // dist/pi/pi-status.js
-import { existsSync as existsSync33, readFileSync as readFileSync21 } from "node:fs";
-import { basename as basename21, join as join42 } from "node:path";
+import { existsSync as existsSync34, readFileSync as readFileSync22 } from "node:fs";
+import { basename as basename21, join as join43 } from "node:path";
 
 // dist/local/probe-binary.js
 import { spawnSync as spawnSync17 } from "node:child_process";
@@ -31239,17 +31430,17 @@ function probeBinary(bin, env = process.env) {
 }
 
 // dist/pi/pi-auth.js
-import { chmodSync, existsSync as existsSync32, mkdirSync as mkdirSync10, readFileSync as readFileSync20, writeFileSync as writeFileSync11 } from "node:fs";
-import { homedir as homedir5 } from "node:os";
-import { dirname as dirname25, join as join41 } from "node:path";
+import { chmodSync, existsSync as existsSync33, mkdirSync as mkdirSync11, readFileSync as readFileSync21, writeFileSync as writeFileSync12 } from "node:fs";
+import { homedir as homedir6 } from "node:os";
+import { dirname as dirname25, join as join42 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
   const override = env.PI_CODING_AGENT_DIR?.trim();
   if (override)
-    return override.startsWith("~") ? join41(homedir5(), override.slice(1)) : override;
-  return join41(homedir5(), ".pi", "agent");
+    return override.startsWith("~") ? join42(homedir6(), override.slice(1)) : override;
+  return join42(homedir6(), ".pi", "agent");
 }
 function resolvePiAuthPath(env = process.env) {
-  return join41(resolvePiAgentDir(env), "auth.json");
+  return join42(resolvePiAgentDir(env), "auth.json");
 }
 function parseAuth(raw) {
   if (!raw || !raw.trim())
@@ -31261,26 +31452,26 @@ function parseAuth(raw) {
     return {};
   }
 }
-function upsertApiKey(current, provider, key2) {
-  return { ...current, [provider]: { type: "api_key", key: key2 } };
+function upsertApiKey(current2, provider, key2) {
+  return { ...current2, [provider]: { type: "api_key", key: key2 } };
 }
-function removeProvider(current, provider) {
-  if (!(provider in current))
-    return { next: current, removed: false };
-  const next = { ...current };
+function removeProvider(current2, provider) {
+  if (!(provider in current2))
+    return { next: current2, removed: false };
+  const next = { ...current2 };
   delete next[provider];
   return { next, removed: true };
 }
 function readAuthFile(path) {
-  if (!existsSync32(path))
+  if (!existsSync33(path))
     return {};
-  return parseAuth(readFileSync20(path, "utf8"));
+  return parseAuth(readFileSync21(path, "utf8"));
 }
 function writeAuthFile(path, auth) {
   const dir = dirname25(path);
-  if (!existsSync32(dir))
-    mkdirSync10(dir, { recursive: true, mode: 448 });
-  writeFileSync11(path, `${JSON.stringify(auth, null, 2)}
+  if (!existsSync33(dir))
+    mkdirSync11(dir, { recursive: true, mode: 448 });
+  writeFileSync12(path, `${JSON.stringify(auth, null, 2)}
 `, { encoding: "utf8", mode: 384 });
   chmodSync(path, 384);
 }
@@ -31306,21 +31497,21 @@ function derivePiStatus(input) {
 function resolveExtension(path) {
   const name = basename21(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
-  if (!existsSync33(path))
+  if (!existsSync34(path))
     return check(false);
   if (/\.[cm]?[jt]s$/.test(path))
     return check(true);
-  const pkgPath = join42(path, "package.json");
-  if (existsSync33(pkgPath)) {
+  const pkgPath = join43(path, "package.json");
+  if (existsSync34(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync21(pkgPath, "utf8"));
+      const pkg = JSON.parse(readFileSync22(pkgPath, "utf8"));
       const exts = pkg.pi?.extensions;
       if (Array.isArray(exts) && exts.length > 0)
         return check(true);
     } catch {
     }
   }
-  return check(existsSync33(join42(path, "index.ts")) || existsSync33(join42(path, "index.js")));
+  return check(existsSync34(join43(path, "index.ts")) || existsSync34(join43(path, "index.js")));
 }
 function formatHuman3(s) {
   const out = [];
@@ -31531,7 +31722,7 @@ var piModelsCommand = {
 };
 
 // dist/pi/local-conversation-ops.js
-import { join as join45 } from "node:path";
+import { join as join46 } from "node:path";
 
 // dist/local/observed-event.js
 function observedEvent(event, options) {
@@ -31570,7 +31761,7 @@ function joinLocalOrientation(...parts) {
 }
 
 // dist/local/workspace-files.js
-import { existsSync as existsSync34, lstatSync as lstatSync9, statSync as statSync18, realpathSync as realpathSync25 } from "node:fs";
+import { existsSync as existsSync35, lstatSync as lstatSync10, statSync as statSync18, realpathSync as realpathSync25 } from "node:fs";
 import { dirname as dirname26, isAbsolute as isAbsolute23, relative as relative25, resolve as resolve42, sep as sep18 } from "node:path";
 
 // node_modules/@ideaspaces/sdk/dist/keeper-events.js
@@ -32049,7 +32240,7 @@ function writtenThreadPost(tool, cwd) {
     const { id, path, kind } = post;
     if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) || typeof path !== "string" || !isAbsolute23(path) || typeof kind !== "string" || !THREAD_POST_KINDS.has(kind) || typeof tool.args.path !== "string" || !tool.args.path.trim())
       return void 0;
-    const file2 = lstatSync9(path);
+    const file2 = lstatSync10(path);
     if (!file2.isFile() || file2.isSymbolicLink())
       return void 0;
     const actual = realpathSync25.native(path);
@@ -32160,7 +32351,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
       if (!present && kind === "read")
         continue;
       let ancestor = present ? absolute : dirname26(absolute);
-      while (!existsSync34(ancestor) && dirname26(ancestor) !== ancestor)
+      while (!existsSync35(ancestor) && dirname26(ancestor) !== ancestor)
         ancestor = dirname26(ancestor);
       try {
         absolute = resolve42(realpathSync25.native(ancestor), relative25(ancestor, absolute));
@@ -32171,7 +32362,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
       if (!ws[bucket].includes(absolute))
         ws[bucket].push(absolute);
       let directory = isDir ? absolute : dirname26(absolute);
-      while (!existsSync34(directory) && dirname26(directory) !== directory)
+      while (!existsSync35(directory) && dirname26(directory) !== directory)
         directory = dirname26(directory);
       let scope = roots.get(directory);
       if (!scope) {
@@ -32230,8 +32421,8 @@ async function* readJsonLines(input) {
 
 // dist/pi/local-agent.js
 import { spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync35, mkdirSync as mkdirSync11, writeFileSync as writeFileSync12 } from "node:fs";
-import { join as join43 } from "node:path";
+import { existsSync as existsSync36, mkdirSync as mkdirSync12, writeFileSync as writeFileSync13 } from "node:fs";
+import { join as join44 } from "node:path";
 var NON_AGENT_TYPES = /* @__PURE__ */ new Set(["response", "extension_ui_request"]);
 function lastPosition(tools) {
   for (let i = tools.length - 1; i >= 0; i--) {
@@ -32255,10 +32446,10 @@ function deriveConversationName(message) {
   return clean.length > 60 ? `${clean.slice(0, 57)}\u2026` : clean;
 }
 function ensureSessionDir(dir) {
-  mkdirSync11(dir, { recursive: true });
-  const ignore = join43(dir, ".gitignore");
-  if (!existsSync35(ignore))
-    writeFileSync12(ignore, "*\n");
+  mkdirSync12(dir, { recursive: true });
+  const ignore = join44(dir, ".gitignore");
+  if (!existsSync36(ignore))
+    writeFileSync13(ignore, "*\n");
 }
 function buildPiArgs(opts) {
   const args2 = [
@@ -32484,9 +32675,9 @@ async function* runLocalTurn(opts) {
 }
 
 // dist/pi/local-conversations.js
-import { existsSync as existsSync36, readdirSync as readdirSync5, readFileSync as readFileSync22, realpathSync as realpathSync26, statSync as statSync19 } from "node:fs";
-import { randomUUID as randomUUID11 } from "node:crypto";
-import { join as join44 } from "node:path";
+import { existsSync as existsSync37, readdirSync as readdirSync6, readFileSync as readFileSync23, realpathSync as realpathSync26, statSync as statSync19 } from "node:fs";
+import { randomUUID as randomUUID12 } from "node:crypto";
+import { join as join45 } from "node:path";
 
 // dist/local/task-notification.js
 var TASK_NOTIFICATION = /^\s*<task-notification>[\s\S]*?<\/task-notification>\s*$/u;
@@ -32496,10 +32687,10 @@ function isTaskNotification(content, origin) {
 
 // dist/pi/local-conversations.js
 function localSessionDir(contextRoot) {
-  return join44(contextRoot, ".pi", "sessions");
+  return join45(contextRoot, ".pi", "sessions");
 }
 function mintConversationId() {
-  return `local-${randomUUID11()}`;
+  return `local-${randomUUID12()}`;
 }
 function textOf(content) {
   if (typeof content === "string")
@@ -32588,17 +32779,17 @@ function parseSessionJsonl(text, fallbackTs) {
   return { id, name, messages: messages2, messageCount: count, preview, updatedAt: lastTs, modelTier };
 }
 function findSessionFile(dir, convId) {
-  if (!existsSync36(dir))
+  if (!existsSync37(dir))
     return null;
-  const files = readdirSync5(dir).filter((f) => f.endsWith(".jsonl"));
+  const files = readdirSync6(dir).filter((f) => f.endsWith(".jsonl"));
   const bySuffix = files.find((f) => f.endsWith(`_${convId}.jsonl`));
   if (bySuffix)
-    return join44(dir, bySuffix);
+    return join45(dir, bySuffix);
   for (const f of files) {
     try {
-      const first = readFileSync22(join44(dir, f), "utf8").split("\n", 1)[0];
+      const first = readFileSync23(join45(dir, f), "utf8").split("\n", 1)[0];
       if (JSON.parse(first).id === convId)
-        return join44(dir, f);
+        return join45(dir, f);
     } catch {
     }
   }
@@ -32614,7 +32805,7 @@ function canResumePiConversation(contextRoot, convId) {
   try {
     if (!isContained(realpathSync26(contextRoot), realpathSync26(dir)) || !isContained(realpathSync26(dir), realpathSync26(file2)))
       return false;
-    const text = readFileSync22(file2, "utf8");
+    const text = readFileSync23(file2, "utf8");
     const header = JSON.parse(text.split("\n", 1)[0] ?? "");
     if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync26(header.cwd) !== realpathSync26(contextRoot))
       return false;
@@ -32629,7 +32820,7 @@ function getLocalConversation(contextRoot, convId) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
   const mtime = statSync19(file2).mtime.toISOString();
-  const s = parseSessionJsonl(readFileSync22(file2, "utf8"), mtime);
+  const s = parseSessionJsonl(readFileSync23(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -32643,14 +32834,14 @@ function getLocalConversation(contextRoot, convId) {
 }
 function listLocalConversations(contextRoot) {
   const dir = localSessionDir(contextRoot);
-  if (!existsSync36(dir))
+  if (!existsSync37(dir))
     return { conversations: [], total: 0 };
   const summaries = [];
-  for (const f of readdirSync5(dir).filter((f2) => f2.endsWith(".jsonl"))) {
-    const path = join44(dir, f);
+  for (const f of readdirSync6(dir).filter((f2) => f2.endsWith(".jsonl"))) {
+    const path = join45(dir, f);
     let text;
     try {
-      text = readFileSync22(path, "utf8");
+      text = readFileSync23(path, "utf8");
     } catch {
       continue;
     }
@@ -32749,7 +32940,7 @@ async function send(flags2, output, options) {
     output.error("--topic is supported only on agent run for a new Pi session.");
     return 1;
   }
-  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join45(repoPath, ".pi", "sessions");
+  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join46(repoPath, ".pi", "sessions");
   const conversationId = typeof flags2.conversation === "string" ? flags2.conversation : `local-${Date.now().toString(36)}`;
   if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
     output.error(`Pi conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
@@ -32941,12 +33132,12 @@ import { spawnSync as spawnSync18 } from "node:child_process";
 import { spawn as spawn4 } from "node:child_process";
 
 // dist/claude/local-conversations.js
-import { existsSync as existsSync37, readdirSync as readdirSync6, readFileSync as readFileSync23, realpathSync as realpathSync28, statSync as statSync21 } from "node:fs";
-import { randomUUID as randomUUID12 } from "node:crypto";
-import { homedir as homedir6 } from "node:os";
-import { basename as basename22, dirname as dirname28, join as join46, resolve as resolve44 } from "node:path";
+import { existsSync as existsSync38, readdirSync as readdirSync7, readFileSync as readFileSync24, realpathSync as realpathSync28, statSync as statSync21 } from "node:fs";
+import { randomUUID as randomUUID13 } from "node:crypto";
+import { homedir as homedir7 } from "node:os";
+import { basename as basename22, dirname as dirname28, join as join47, resolve as resolve44 } from "node:path";
 function claudeConfigDir(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR?.trim() || join46(homedir6(), ".claude");
+  return env.CLAUDE_CONFIG_DIR?.trim() || join47(homedir7(), ".claude");
 }
 function slugOf(path) {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");
@@ -32960,13 +33151,13 @@ function claudeProjectSlug(cwd) {
   return slugOf(resolved);
 }
 function claudeProjectDir(cwd, env = process.env) {
-  return join46(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
+  return join47(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
 }
 function legacyClaudeProjectDir(cwd, env = process.env) {
-  return join46(claudeConfigDir(env), "projects", slugOf(resolve44(cwd)));
+  return join47(claudeConfigDir(env), "projects", slugOf(resolve44(cwd)));
 }
 function mintClaudeConversationId() {
-  return randomUUID12();
+  return randomUUID13();
 }
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 var CMD_NAME = /<command-name>([\s\S]*?)<\/command-name>/u;
@@ -32979,13 +33170,13 @@ function claudeSessionFile(cwd, convId, env = process.env) {
   if (!isClaudeConversationId(convId))
     return null;
   const projectDir = claudeProjectDir(cwd, env);
-  const file2 = join46(projectDir, `${convId}.jsonl`);
-  if (existsSync37(file2))
+  const file2 = join47(projectDir, `${convId}.jsonl`);
+  if (existsSync38(file2))
     return file2;
   const unresolvedDir = legacyClaudeProjectDir(cwd, env);
   if (unresolvedDir !== projectDir) {
-    const fallbackFile = join46(unresolvedDir, `${convId}.jsonl`);
-    if (existsSync37(fallbackFile))
+    const fallbackFile = join47(unresolvedDir, `${convId}.jsonl`);
+    if (existsSync38(fallbackFile))
       return fallbackFile;
   }
   return null;
@@ -33131,7 +33322,7 @@ function canResumeClaudeConversation(contextRoot, convId) {
   try {
     if (!isContained(realpathSync28(dirname28(file2)), realpathSync28(file2)))
       return false;
-    const text = readFileSync23(file2, "utf8");
+    const text = readFileSync24(file2, "utf8");
     let sawIdentity = false;
     let sawRoot = false;
     const root = realpathSync28(contextRoot);
@@ -33168,7 +33359,7 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
   const mtime = statSync21(file2).mtime.toISOString();
-  const s = parseClaudeSessionJsonl(readFileSync23(file2, "utf8"), mtime);
+  const s = parseClaudeSessionJsonl(readFileSync24(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -33182,10 +33373,10 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
 }
 function listClaudeConversations(contextRoot, env = process.env) {
   const dir = claudeProjectDir(contextRoot, env);
-  const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync37(path));
+  const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync38(path));
   const summaries = [];
   const seen = /* @__PURE__ */ new Set();
-  const files = dirs.flatMap((folder) => readdirSync6(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join46(folder, f)));
+  const files = dirs.flatMap((folder) => readdirSync7(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join47(folder, f)));
   for (const path of files) {
     const fileId = basename22(path, ".jsonl");
     if (seen.has(fileId))
@@ -33193,7 +33384,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
     seen.add(fileId);
     let text;
     try {
-      text = readFileSync23(path, "utf8");
+      text = readFileSync24(path, "utf8");
     } catch {
       continue;
     }

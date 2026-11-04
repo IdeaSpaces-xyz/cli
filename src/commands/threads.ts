@@ -11,10 +11,11 @@ import type { CommandDef } from "../types.js";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, attachThread, createThread, initWorktree, listLocal, loadThread,
-  pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
+  pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, threadsDirectory, NoAgreementError,
   resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
   isHostedThreadTarget, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
+import { acknowledgeRecent, PERSON_READER, readerName, recentForReader, recentSince, type MovedThread } from "../local/thread-recent.js";
 import { hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
 import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, NAMED_THREAD_HINT, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
 
@@ -50,10 +51,16 @@ async function stdin(): Promise<string> {
 }
 
 
-function localRows(threads: LocalThread[], newOnly: boolean, onError: (message: string) => void) {
+/** Newest first, in either location; a Thread with no dated post sorts last. */
+function activityOf(row: { latest_activity_at?: string | null; last_post_at?: string | null }): number {
+  const at = Date.parse(row.latest_activity_at ?? row.last_post_at ?? "");
+  return Number.isNaN(at) ? 0 : at;
+}
+
+function localRows(threads: LocalThread[], newOnly: boolean, onError: (message: string) => void, reader?: string) {
   return threads.filter((thread) => {
     if (!newOnly) return true;
-    const seen = readCursor(thread);
+    const seen = readCursor(thread, reader);
     return thread.posts.some((post) => !seen.has(post.id));
   }).map((thread) => {
     let parent: ThreadParentInfo | null = null;
@@ -275,6 +282,9 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients",
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
+    "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
+    "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit 50]  # which local Threads moved, ids and counts only; a first look sets a baseline",
+    "ideaspaces threads ack --recent <cursor> [--reader <name>]  # move a reader's recent position; a look never does",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
@@ -303,7 +313,7 @@ export const threadsCommand: CommandDef = {
       const hostedFlag = flags.hosted !== undefined;
       if (hostedFlag && flags.hosted !== true) throw new HostedError("invalid_request", "--hosted takes no value.");
       if (["posts", "expand", "add"].includes(sub ?? "")) throw new Error(`threads ${sub} retired with the Inbox; use threads list and open, or manage membership on the web.`);
-      if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename"].includes(sub ?? "") || sub === "ack") {
+      if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename", "ack"].includes(sub ?? "")) {
         const hostedFlagError = hostedVerbFlagError(sub!, flags);
         if (hostedFlagError) throw new HostedError("invalid_request", hostedTarget ? `${hostedFlagError} ${NAMED_THREAD_HINT}` : hostedFlagError);
         if (sub === "list" || sub === "new") {
@@ -338,6 +348,48 @@ export const threadsCommand: CommandDef = {
           status === "found" ? matches[0].path : status === "ambiguous" ? `Ambiguous Thread id: ${matches.length} locations. Select a Space explicitly:\n${matches.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the supplied Space roots.");
         return 0;
       }
+      if (sub === "recent") {
+        if (rest.length) throw new Error("Usage: threads recent [--cursor <cursor>] [--reader <name>] [--limit <n>]");
+        if (flags.cursor === true || flags.reader === true) throw new Error("--cursor and --reader require a value.");
+        if (flags.cursor !== undefined && flags.reader !== undefined) throw new Error("Use --cursor or --reader, not both: a cursor is the position you hold, a reader is one held for you.");
+        const limit = flags.limit === undefined ? 50 : Number(flags.limit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("--limit must be a whole number from 1 to 500.");
+        const root = threadBase();
+        const reader = flags.cursor === undefined ? readerName(str(flags, "reader")) : undefined;
+        const result = reader ? recentForReader(root, threadsDirectory(), reader) : recentSince(root, threadsDirectory(), str(flags, "cursor"));
+        const shown = result.threads.slice(0, limit);
+        const label = (row: MovedThread) => `${row.slug}  ${row.new_thread ? `new Thread, ${row.new_posts} posts` : row.new_posts ? `${row.new_posts} new` : "changed"}`;
+        const lines = result.baseline
+          ? [`Baseline set${reader ? ` for ${reader}` : ""}: nothing new yet. Later reads show what moved after this point.`]
+          : shown.length ? shown.map(label) : ["Nothing moved."];
+        if (shown.length < result.threads.length) lines.push(`Showing ${shown.length} of ${result.threads.length} Threads that moved; pass --limit for more.`);
+        if (reader && !result.baseline && result.threads.length) lines.push(`Move ${reader}'s position here when you are done: ideaspaces threads ack --recent ${result.cursor}${reader === PERSON_READER ? "" : ` --reader ${reader}`}`);
+        output.result({ schema: "ideaspaces.threads.recent.v1", location: "folder", hosted_checked: false, baseline: result.baseline, ...(reader ? { reader } : {}),
+          threads: shown, moved: result.threads.length, shown: shown.length, cursor: result.cursor }, lines.join("\n"));
+        return 0;
+      }
+      if (sub === "ack") {
+        for (const flag of ["through", "recent", "reader"]) if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
+        const reader = readerName(str(flags, "reader"));
+        if (flags.recent !== undefined) {
+          if (rest.length || flags.through !== undefined) throw new Error("Usage: threads ack --recent <cursor> [--reader <name>]");
+          acknowledgeRecent(threadBase(), reader, str(flags, "recent")!);
+          output.result({ schema: "ideaspaces.threads.recent-ack.v1", reader, cursor: str(flags, "recent") }, `Moved ${reader}'s recent position.`);
+          return 0;
+        }
+        const usage = "Usage: threads ack <slug|path> --through <post-id|latest> [--reader <name>]";
+        if (rest.length !== 1) throw new Error(usage);
+        const through = str(flags, "through");
+        if (!through) throw new Error(`Say how far you read, so nothing unseen is marked read. ${usage}`);
+        const thread = loadThread(resolveLocalThread(rest[0]));
+        const at = through === "latest" ? thread.posts.length - 1 : thread.posts.findIndex((post) => post.id === through);
+        if (at < 0) throw new Error(through === "latest" ? "This Thread has no posts to acknowledge." : `Post ${through} is not in this Thread's timeline.`);
+        const posts = thread.posts.slice(0, at + 1);
+        acknowledge(thread, posts, reader);
+        output.result({ schema: "ideaspaces.local-thread.ack.v1", path: thread.path, reader, position: posts[at].id, acknowledged: posts.length },
+          `Marked ${posts.length} posts read for ${reader}, through ${posts[at].id}.`);
+        return 0;
+      }
       if (sub === "list") {
         if (flags.depth === "children" || flags.depth === "surface") throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
         if (rest.length > 1 || (rest.length && str(flags, "space"))) throw new Error("Usage: threads list [<dir>] [--new|--unread] (or --hosted --limit <n> --cursor <cursor>)");
@@ -359,7 +411,7 @@ export const threadsCommand: CommandDef = {
               reportThreadWarnings(thread, output);
               localWarnings += thread.unreadablePosts.length;
             }
-            local = localRows(localThreads, newOnly, warn);
+            local = localRows(localThreads, newOnly, warn, readerName(str(flags, "reader")));
           } catch (error) {
             // Outside a Space, hosted listing still works. A malformed Thread or
             // cursor inside a Space is not an empty list — fail visibly.
@@ -368,7 +420,7 @@ export const threadsCommand: CommandDef = {
         }
         const config = peekConfig();
 
-        let hosted: Array<{ source: "hosted"; id: string; name: string; summary?: string; closed: boolean; unread_count: number }> = [];
+        let hosted: Array<{ source: "hosted"; id: string; name: string; summary?: string; closed: boolean; unread_count: number; last_post_at?: string | null }> = [];
         let hostedChecked = false;
         let hostedError: string | undefined;
         if (config && !rest.length) {
@@ -393,7 +445,7 @@ export const threadsCommand: CommandDef = {
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
-        const rows = [...local, ...hosted].map((row) => {
+        const rows = [...local, ...hosted].filter((row) => !yes(flags, "open") || row.closed !== true).sort((a, b) => activityOf(b) - activityOf(a)).map((row) => {
           if (rung === "name") return { source: row.source, id: row.id, name: row.name,
             ...(row.source === "local" ? { closed: row.closed, slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent } : { unread_count: row.unread_count, ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
           if (rung === "full" && row.source === "local") {
@@ -496,7 +548,8 @@ export const threadsCommand: CommandDef = {
         if (newOnly && since) throw new Error("Use either --new or --since, not both.");
         if (since && order === "newer") throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         if (postId && (newOnly || since || limit !== undefined || order)) throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
-        const seen = newOnly ? readCursor(thread) : new Set<string>();
+        const reader = readerName(str(flags, "reader"));
+        const seen = newOnly ? readCursor(thread, reader) : new Set<string>();
         let posts = thread.posts.filter((p) => !seen.has(p.id));
         if (since) {
           const at = thread.posts.findIndex((p) => p.id === since);
@@ -553,7 +606,7 @@ export const threadsCommand: CommandDef = {
         }
         const pinned = pin && position ? readPinnedThreadMember(threadBase(), pin, position) : undefined;
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
-        if (ack) acknowledge(thread, posts);
+        if (ack) acknowledge(thread, posts, reader);
         const effectiveRung = postId ? "full" : rung;
         let parent: ThreadParentInfo | null = null;
         let parentWarning: string | undefined;
@@ -606,12 +659,14 @@ export const threadsCommand: CommandDef = {
         }
 
         if (parentWarning) humanText += `\nParent lookup incomplete: ${parentWarning}`;
-        if (reference?.status === "ok") humanText = `${renderContentFocus(reference)}\n\n${humanText}`;
+        // A name read orients: the Agreement line stays, the Space's skills do not, and the CLI has no session to show them once.
+        const focus = reference?.status === "ok" && effectiveRung === "name" ? { ...reference, skills: [] } : reference;
+        if (focus?.status === "ok") humanText = `${renderContentFocus(focus)}\n\n${humanText}`;
         if (effectiveRung === "full" && !postId && posts.length < totalMatching) {
           const cursor = posts.at(-1)?.id;
           humanText += `\n\nShowing ${posts.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
         }
-        output.result({ schema: "ideaspaces.local-thread.open.v4", ...(reference?.status === "ok" ? { reference } : {}), ...(referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {}), thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
+        output.result({ schema: "ideaspaces.local-thread.open.v4", ...(focus?.status === "ok" ? { reference: focus } : {}), ...(referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {}), thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
           closed: thread.closed, parent, warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
           ...(parentWarning ? { parent_warning: parentWarning } : {}),
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
