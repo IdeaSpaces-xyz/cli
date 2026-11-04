@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { agentCommand } from "../commands/agent.js";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
-import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
+import { acknowledge, appendPost, createThread, initWorktree, isHostedThreadTarget, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
 import { threadsCommand, threadFlagError } from "../commands/threads.js";
 import { searchCommand } from "../commands/search.js";
 import { push as genericPush } from "../git.js";
@@ -934,7 +935,8 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
   const out = process.stdout.write; const err = process.stderr.write;
   let text = "";
   process.stdout.write = ((s: string) => { text += s; return true; }) as typeof out;
-  process.stderr.write = (() => true) as typeof err;
+  let errors = "";
+  process.stderr.write = ((s: string) => { errors += s; return true; }) as typeof err;
   const global = { json: true, quiet: true, yes: false, help: false };
   try {
     expect(await threadsCommand.run(["new", "x-notes"], { about: "Local x name" }, global)).toBe(0);
@@ -946,7 +948,46 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     mkdirSync(join(root, "x_dir"));
     expect(await threadsCommand.run(["list", "x_dir"], {}, global)).toBe(0);
     expect(JSON.parse(text).hosted_checked).toBe(false);
-  } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); }
+    // A folder of that name decides, on every path that routes, and nothing reaches the service.
+    const fetched = vi.spyOn(globalThis, "fetch");
+    text = "";
+    errors = "";
+    expect(await threadsCommand.run(["post", "x_notes"], { message: "Stays local", author: "Fixture" }, { ...global, quiet: false })).toBe(0);
+    expect(JSON.parse(text).path).toContain("_threads/x_notes/");
+    expect(errors).toContain("writes there"); // a folder that shadows an id says so on a write
+    expect(await threadsCommand.run(["ack", "x_notes"], { seq: "1" }, global)).toBe(1);
+    expect(fetched).not.toHaveBeenCalled();
+    fetched.mockRestore();
+    // No folder of that name: it asks the service, and says a local name may be what was meant.
+    vi.stubEnv("IDEASPACES_API_KEY", "");
+    text = "";
+    expect(await threadsCommand.run(["post", "x_notse"], { message: "Typo", "reply-to": "msg_parent" }, global)).toBe(1);
+    const refusal = JSON.parse(text).error;
+    expect(refusal.state).toBe("signed_out");
+    expect(refusal.message).toContain("give its path");
+    text = "";
+    expect(await threadsCommand.run(["post", "x_notse"], { kind: "snapshot", message: "Typo" }, global)).toBe(1);
+    expect(JSON.parse(text).error.message).toContain("give its path"); // a local-only flag on a typed name
+    text = "";
+    expect(await threadsCommand.run(["ack", "x_notse"], { seq: "1" }, global)).toBe(1);
+    expect(JSON.parse(text).error.message).not.toContain("give its path"); // ack has no local form
+    // A launch routes the same way: only a hosted target refuses the local pin flags.
+    const launch = (thread: string) => agentCommand.run(["run", "."], { thread, "thread-map": "none.map.md", message: "Hi" }, global);
+    errors = "";
+    expect(await launch("x_elsewhere")).toBe(1);
+    expect(errors).toContain("Hosted Thread launches use");
+    errors = "";
+    expect(await launch("x_notes")).toBe(1);
+    expect(errors).not.toContain("Hosted Thread launches use");
+    expect(isHostedThreadTarget("x_notes")).toBe(false);
+    expect(isHostedThreadTarget("x_elsewhere")).toBe(true);
+    expect(isHostedThreadTarget("x_" + "a".repeat(80))).toBe(true);
+    expect(isHostedThreadTarget("x_notes/README.md")).toBe(false);
+    expect(isHostedThreadTarget("x_")).toBe(false);
+    const outside = mkdtempSync(join(tmpdir(), "no-space-"));
+    expect(isHostedThreadTarget("x_notes", outside)).toBe(true); // nothing local to prefer outside a Space
+    rmSync(outside, { recursive: true, force: true });
+  } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); vi.unstubAllEnvs(); }
 });
 
 it("keeps local surface/full open limit available independently of hosted list flags", async () => {

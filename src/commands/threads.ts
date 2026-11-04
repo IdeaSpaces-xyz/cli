@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { assembleContentReference, parseFrontmatter, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
+import { assembleContentReference, HOSTED_THREAD_ID, parseFrontmatter, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
 import { agreementFlag, preferredContractSource } from "../contract-source.js";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
@@ -13,15 +13,17 @@ import {
   acknowledge, appendPost, attachThread, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, NoAgreementError,
   resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
-  type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
+  isHostedThreadTarget, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
-import { HOSTED_THREAD_ID as HOSTED, hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
-import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
+import { hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
+import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, NAMED_THREAD_HINT, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
 
 export { threadFlagError } from "./thread-flags.js";
 
 const SURFACE_BODY_BYTES = 800;
 const KNOWN_POST_KINDS = new Set<string>(THREAD_KINDS);
+/** Verbs whose first argument names a Thread; only these need the local-or-hosted decision. Keep with the dispatch below. */
+const TAKES_THREAD_ID = new Set(["open", "read", "post", "reply", "close", "rename", "ack", "attach"]);
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
 }
@@ -268,7 +270,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
-    "ideaspaces threads open x_<24-or-32-hex> [--limit 50] [--cursor <cursor>]  # read is an alias",
+    "ideaspaces threads open x_<id> [--limit 50] [--cursor <cursor>]  # read is an alias",
     "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--post-id msg_id]",
     "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md]  # alias of new --hosted --recipients",
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
@@ -297,13 +299,13 @@ export const threadsCommand: CommandDef = {
         output.result({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, "Hosted Threads use /threads only (no legacy exchange fallback).");
         return 0;
       }
-      const hostedTarget = HOSTED.test(rest[0] ?? "");
+      const hostedTarget = TAKES_THREAD_ID.has(sub ?? "") && isHostedThreadTarget(rest[0] ?? "");
       const hostedFlag = flags.hosted !== undefined;
       if (hostedFlag && flags.hosted !== true) throw new HostedError("invalid_request", "--hosted takes no value.");
       if (["posts", "expand", "add"].includes(sub ?? "")) throw new Error(`threads ${sub} retired with the Inbox; use threads list and open, or manage membership on the web.`);
       if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename"].includes(sub ?? "") || sub === "ack") {
         const hostedFlagError = hostedVerbFlagError(sub!, flags);
-        if (hostedFlagError) throw new HostedError("invalid_request", hostedFlagError);
+        if (hostedFlagError) throw new HostedError("invalid_request", hostedTarget ? `${hostedFlagError} ${NAMED_THREAD_HINT}` : hostedFlagError);
         if (sub === "list" || sub === "new") {
           if (rest.length) throw new HostedError("invalid_request", `threads ${sub} --hosted takes no positional target.`);
           return sub === "list" ? await listVerb(output, global.json, flags) : await newVerb(output, global.json, flags);
@@ -312,13 +314,12 @@ export const threadsCommand: CommandDef = {
           if (rest.length !== 1) throw new HostedError("invalid_request", "Usage: threads send <@handle|email> --name <title> --summary <summary> --message <opening> [--map <Map>]");
           return await newVerb(output, global.json, { ...flags, recipients: rest[0] });
         }
-        if (rest.length !== 1 || !hostedTarget) throw new HostedError("invalid_request", `threads ${sub} needs an x_ Thread id (24 or 32 hex).`);
+        if (rest.length !== 1 || !hostedTarget) throw new HostedError("invalid_request", `threads ${sub} needs a hosted x_ Thread id.`);
         if (sub === "post" || sub === "reply") return await postVerb(output, global.json, rest[0], flags);
         if (sub === "ack") return await ackVerb(output, global.json, rest[0], flags);
         if (sub === "close" || sub === "rename") return await lifecycleVerb(output, global.json, rest[0], sub, flags, global.yes);
         return await openVerb(output, global.json, rest[0], flags);
       }
-      if (sub !== "attach" && /^x_[0-9a-f]+$/.test(rest[0] ?? "")) throw new Error("Invalid hosted Thread id: expected x_ plus 24 or 32 hex characters.");
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
       if (sub === "read") return threadsCommand.run(["open", ...rest], flags, global);
@@ -435,7 +436,7 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");
-        if (HOSTED.test(rest[0]) && flags.agreement !== undefined) throw new Error("--agreement applies to local Threads; a hosted Thread's terms are kept by the service.");
+        if (hostedTarget && flags.agreement !== undefined) throw new Error("--agreement applies to local Threads; a hosted Thread's terms are kept by the service.");
 
         const referenceSelection = agreementFlag(flags.agreement);
         if (referenceSelection.error) throw new Error(referenceSelection.error);
@@ -624,7 +625,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "attach") {
         const usage = "Usage: threads attach <slug|path> <post:msg_…|msg_…|_threads/<thread>/<post>.md> --message <why>";
         if (rest.length !== 2) throw new Error(usage);
-        if (/^x_[0-9a-f]+$/.test(rest[0])) {
+        if (hostedTarget) {
           throw new Error("threads attach moves local Threads only; a hosted Thread's parent is kept by the service.");
         }
         for (const flag of ["message", "author"]) if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
@@ -653,11 +654,13 @@ export const threadsCommand: CommandDef = {
         return 0;
       }
       if (sub === "post" || sub === "close") {
-        if (rest.length !== 1 || HOSTED.test(rest[0])) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
+        if (rest.length !== 1 || hostedTarget) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
         for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags"]) {
           if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
         }
         if (sub === "close" && flags.kind !== undefined && flags.kind !== "closure") throw new Error("threads close always appends a closure post; omit --kind.");
+        // _threads/ arrives by clone, so a folder may carry an id someone means on the service: a write says which it took.
+        if (HOSTED_THREAD_ID.test(rest[0])) output.log(`${rest[0]} is a folder in this Space's _threads/, so this writes there. To reach a hosted Thread of that id, run it outside this Space.`);
         selectionFlags(flags);
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
         if (!kind.trim() || /[\r\n]/.test(kind)) throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");

@@ -12250,6 +12250,7 @@ function isRecord3(value2) {
 
 // node_modules/@ideaspaces/protocol/dist/threads.js
 var THREADS_DIRECTORY = "_threads";
+var HOSTED_THREAD_ID = /^x_[A-Za-z0-9_-]+$/;
 var THREAD_KINDS = [
   "post",
   "snapshot",
@@ -22734,9 +22735,6 @@ var reposCommand = {
   }
 };
 
-// dist/hosted-thread-id.js
-var HOSTED_THREAD_ID = /^x_(?:[0-9a-f]{24}|[0-9a-f]{32})$/;
-
 // dist/commands/hosted-threads.js
 import { randomUUID as randomUUID7 } from "node:crypto";
 var import_yaml8 = __toESM(require_dist(), 1);
@@ -22991,7 +22989,9 @@ function messageBody(flags2) {
   return body;
 }
 var AMBIGUOUS = /* @__PURE__ */ new Set(["offline", "unavailable", "rate_limited", "invalid_response"]);
-async function runHosted(output, json, what, subject, work, retry) {
+var NAMED_THREAD_HINT = "An x_ name with no folder in this Space's _threads/ is read as a hosted id; for a local Thread, give its path.";
+var HINTED = /* @__PURE__ */ new Set(["not_found", "signed_out", "offline", "unavailable"]);
+async function runHosted(output, json, what, subject, work, { retry, namesThread = false } = {}) {
   try {
     const config = hostedConfig(what);
     const { data, text } = await work(config);
@@ -23002,15 +23002,16 @@ async function runHosted(output, json, what, subject, work, retry) {
       throw error;
     const failure = failureOf(error, subject);
     const resend = retry && AMBIGUOUS.has(failure.state) ? ` The post may or may not have landed: resend with --post-id ${retry.postId}${retry.verb === "close" ? " --yes" : ""} and the same arguments; the service accepts an exact resend once.` : "";
+    const hint = namesThread && HINTED.has(failure.state) ? ` ${NAMED_THREAD_HINT}` : "";
     if (json) {
       process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: {
         state: failure.state,
-        message: failure.message + resend,
+        message: failure.message + resend + hint,
         ...failure.retryAfterMs !== void 0 ? { retry_after_ms: failure.retryAfterMs } : {},
         ...retry ? { post_id: retry.postId } : {}
       } }, null, 2) + "\n");
     }
-    output.error(`Error (${failure.state}): ${failure.message}${resend}`);
+    output.error(`Error (${failure.state}): ${failure.message}${resend}${hint}`);
     return 1;
   }
 }
@@ -23093,7 +23094,7 @@ ${status}`,
       [older && `Older: ideaspaces threads open ${id} --cursor ${older}`, `Newer: ideaspaces threads open ${id} --cursor ${follow2}`, `Mark read: ideaspaces threads ack ${id} --cursor ${follow2}`].filter(Boolean).join("\n")
     ].join("\n\n");
     return { data: { schema: "ideaspaces.hosted-thread.page.v1", thread: h.thread, posts: rows, older_cursor: older, cursor: follow2, refresh, has_more: hasMore }, text };
-  });
+  }, { namesThread: true });
 }
 async function postVerb(output, json, id, flags2) {
   const parents = str(flags2, "reply-to")?.split(",").map((p) => p.trim());
@@ -23115,7 +23116,7 @@ async function postVerb(output, json, id, flags2) {
     const posted = postOf(await appendHostedThreadPost(config, id, note), id);
     requireValue(posted.id === msgId);
     return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `Posted ${posted.id} as seq ${posted.seq} in ${id} (${posted.author}).` };
-  }, { postId: msgId, verb: "post" });
+  }, { retry: { postId: msgId, verb: "post" }, namesThread: true });
 }
 async function newVerb(output, json, flags2) {
   const recipients = str(flags2, "recipients")?.split(",").map((r) => r.trim()) ?? [];
@@ -23137,7 +23138,7 @@ async function newVerb(output, json, flags2) {
     const opening = postOf(raw, raw.thread_id);
     requireValue(opening.id === msgId && opening.seq === 1);
     return { data: { schema: "ideaspaces.hosted-thread.new.v1", thread_id: raw.thread_id, post: opening }, text: `Opened ${raw.thread_id}: ${name}` };
-  }, { postId: msgId, verb: "new" });
+  }, { retry: { postId: msgId, verb: "new" } });
 }
 async function lifecycleVerb(output, json, id, verb, flags2, confirmed) {
   const name = verb === "rename" ? singleLine2(flags2, "name", true) : void 0;
@@ -23153,7 +23154,7 @@ async function lifecycleVerb(output, json, id, verb, flags2, confirmed) {
     const posted = postOf(await appendHostedThreadPost(config, id, note), id);
     requireValue(posted.id === msgId);
     return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `${verb === "close" ? "Closed" : "Renamed"} ${id} (${posted.id}).` };
-  }, { postId: msgId, verb });
+  }, { retry: { postId: msgId, verb }, namesThread: true });
 }
 async function ackVerb(output, json, id, flags2) {
   const given = str(flags2, "cursor");
@@ -25481,6 +25482,19 @@ function resolveLocalThread(input, cwd = process.cwd()) {
     throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
   return dir;
 }
+function isHostedThreadTarget(value2, cwd = process.cwd()) {
+  if (!HOSTED_THREAD_ID.test(value2))
+    return false;
+  let base;
+  try {
+    base = threadsDirectory(cwd);
+  } catch (error) {
+    if (error instanceof NoAgreementError)
+      return true;
+    throw error;
+  }
+  return !lexists(join29(base, value2));
+}
 function threadAgreementContent(path) {
   const agent = join29(path, "_agent");
   if (!lexists(agent))
@@ -26320,7 +26334,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
 }
 async function prepareHostedThreadLaunch(pov, threadId, options) {
   if (!HOSTED_THREAD_ID.test(threadId)) {
-    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected x_<hex>.`);
+    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected x_ followed by letters, digits, - or _.`);
   }
   const config = loadConfig();
   if (!config) {
@@ -26854,7 +26868,7 @@ ${contract}`;
       output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
       return 1;
     }
-    if (HOSTED_THREAD_ID.test(path)) {
+    if (isHostedThreadTarget(path)) {
       if (flags2["thread-map"] !== void 0 || flags2["thread-member"] !== void 0) {
         output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
         return 1;
@@ -30177,6 +30191,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
 // dist/commands/threads.js
 var SURFACE_BODY_BYTES = 800;
 var KNOWN_POST_KINDS = new Set(THREAD_KINDS);
+var TAKES_THREAD_ID = /* @__PURE__ */ new Set(["open", "read", "post", "reply", "close", "rename", "ack", "attach"]);
 function str2(flags2, key2) {
   return typeof flags2[key2] === "string" ? flags2[key2] : void 0;
 }
@@ -30419,7 +30434,7 @@ var threadsCommand = {
     "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
-    "ideaspaces threads open x_<24-or-32-hex> [--limit 50] [--cursor <cursor>]  # read is an alias",
+    "ideaspaces threads open x_<id> [--limit 50] [--cursor <cursor>]  # read is an alias",
     "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--post-id msg_id]",
     "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md]  # alias of new --hosted --recipients",
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
@@ -30449,7 +30464,7 @@ var threadsCommand = {
         output.result({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, "Hosted Threads use /threads only (no legacy exchange fallback).");
         return 0;
       }
-      const hostedTarget = HOSTED_THREAD_ID.test(rest[0] ?? "");
+      const hostedTarget = TAKES_THREAD_ID.has(sub ?? "") && isHostedThreadTarget(rest[0] ?? "");
       const hostedFlag = flags2.hosted !== void 0;
       if (hostedFlag && flags2.hosted !== true)
         throw new HostedError("invalid_request", "--hosted takes no value.");
@@ -30458,7 +30473,7 @@ var threadsCommand = {
       if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename"].includes(sub ?? "") || sub === "ack") {
         const hostedFlagError = hostedVerbFlagError(sub, flags2);
         if (hostedFlagError)
-          throw new HostedError("invalid_request", hostedFlagError);
+          throw new HostedError("invalid_request", hostedTarget ? `${hostedFlagError} ${NAMED_THREAD_HINT}` : hostedFlagError);
         if (sub === "list" || sub === "new") {
           if (rest.length)
             throw new HostedError("invalid_request", `threads ${sub} --hosted takes no positional target.`);
@@ -30470,7 +30485,7 @@ var threadsCommand = {
           return await newVerb(output, global3.json, { ...flags2, recipients: rest[0] });
         }
         if (rest.length !== 1 || !hostedTarget)
-          throw new HostedError("invalid_request", `threads ${sub} needs an x_ Thread id (24 or 32 hex).`);
+          throw new HostedError("invalid_request", `threads ${sub} needs a hosted x_ Thread id.`);
         if (sub === "post" || sub === "reply")
           return await postVerb(output, global3.json, rest[0], flags2);
         if (sub === "ack")
@@ -30479,8 +30494,6 @@ var threadsCommand = {
           return await lifecycleVerb(output, global3.json, rest[0], sub, flags2, global3.yes);
         return await openVerb(output, global3.json, rest[0], flags2);
       }
-      if (sub !== "attach" && /^x_[0-9a-f]+$/.test(rest[0] ?? ""))
-        throw new Error("Invalid hosted Thread id: expected x_ plus 24 or 32 hex characters.");
       const flagError = threadFlagError(sub ?? "", flags2);
       if (flagError)
         throw new Error(flagError);
@@ -30629,7 +30642,7 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
       if (sub === "open") {
         if (rest.length !== 1)
           throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");
-        if (HOSTED_THREAD_ID.test(rest[0]) && flags2.agreement !== void 0)
+        if (hostedTarget && flags2.agreement !== void 0)
           throw new Error("--agreement applies to local Threads; a hosted Thread's terms are kept by the service.");
         const referenceSelection = agreementFlag(flags2.agreement);
         if (referenceSelection.error)
@@ -30902,7 +30915,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         const usage = "Usage: threads attach <slug|path> <post:msg_\u2026|msg_\u2026|_threads/<thread>/<post>.md> --message <why>";
         if (rest.length !== 2)
           throw new Error(usage);
-        if (/^x_[0-9a-f]+$/.test(rest[0])) {
+        if (hostedTarget) {
           throw new Error("threads attach moves local Threads only; a hosted Thread's parent is kept by the service.");
         }
         for (const flag of ["message", "author"])
@@ -30935,7 +30948,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         return 0;
       }
       if (sub === "post" || sub === "close") {
-        if (rest.length !== 1 || HOSTED_THREAD_ID.test(rest[0]))
+        if (rest.length !== 1 || hostedTarget)
           throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
         for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags"]) {
           if (flags2[flag] === true)
@@ -30943,6 +30956,8 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         }
         if (sub === "close" && flags2.kind !== void 0 && flags2.kind !== "closure")
           throw new Error("threads close always appends a closure post; omit --kind.");
+        if (HOSTED_THREAD_ID.test(rest[0]))
+          output.log(`${rest[0]} is a folder in this Space's _threads/, so this writes there. To reach a hosted Thread of that id, run it outside this Space.`);
         selectionFlags(flags2);
         const kind = sub === "close" ? "closure" : str2(flags2, "kind") ?? "post";
         if (!kind.trim() || /[\r\n]/.test(kind))
@@ -32801,7 +32816,7 @@ async function send(flags2, output, options) {
       output.error("A Thread launch requires --thread <path|x_id>.");
       return 1;
     }
-    if (HOSTED_THREAD_ID.test(threadPath)) {
+    if (isHostedThreadTarget(threadPath)) {
       if (flags2["thread-map"] !== void 0 || flags2["thread-member"] !== void 0) {
         output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
         return 1;
@@ -33773,7 +33788,7 @@ async function send2(flags2, output, options) {
       output.error("A Thread launch requires --thread <path|x_id>.");
       return 1;
     }
-    if (HOSTED_THREAD_ID.test(threadPath)) {
+    if (isHostedThreadTarget(threadPath)) {
       if (flags2["thread-map"] !== void 0 || flags2["thread-member"] !== void 0) {
         output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
         return 1;
