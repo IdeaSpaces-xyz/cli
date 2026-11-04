@@ -35,11 +35,11 @@ export function threadFlagError(verb: string, flags: Flags): string | undefined 
 const HOSTED_VERB_FLAGS: Record<string, ReadonlySet<string>> = {
   list: new Set(["hosted", "limit", "cursor", "new", "unread"]),
   open: new Set(["limit", "cursor"]),
-  post: new Set(["reply-to", "message", "name", "summary", "post-id", "map"]),
-  new: new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map"]),
+  post: new Set(["reply-to", "message", "name", "summary", "post-id", "map", "tags"]),
+  new: new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags"]),
   close: new Set(["message", "post-id"]),
   rename: new Set(["message", "name", "summary", "post-id"]),
-  send: new Set(["name", "summary", "message", "post-id", "map"]),
+  send: new Set(["name", "summary", "message", "post-id", "map", "tags"]),
   ack: new Set(["seq", "cursor"]),
 };
 

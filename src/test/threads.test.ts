@@ -863,18 +863,17 @@ describe("local Threads", () => {
       out = ""; err = "";
       const beforeCustom = readdirSync(join(root, "_threads", "work")).length;
       expect(await threadsCommand.run(["post", "work"], { kind: "snapshto", message: "Typo", author: "Integrator" }, { ...flags, quiet: false })).toBe(1);
-      expect(err).toContain("pass --yes");
-      expect(readdirSync(join(root, "_threads", "work"))).toHaveLength(beforeCustom);
-      for (const kind of ["decision", "dispatch", "claim", "delivery", "verification", "question"]) {
+      expect(err).toContain("A label for a post goes in --tags");
+      for (const kind of ["delivery", "decision", "custom_signal"]) {
         out = ""; err = "";
-        expect(await threadsCommand.run(["post", "work"], { kind, message: `A ${kind}`, author: "Integrator" }, { ...flags, quiet: false }), err).toBe(0);
-        expect(JSON.parse(out).kind).toBe(kind);
-        expect(err).not.toContain("custom post kind");
+        // --yes no longer opens the kind: a label goes in tags.
+        expect(await threadsCommand.run(["post", "work"], { kind, message: `A ${kind}`, author: "Integrator" }, { ...flags, yes: true, quiet: false })).toBe(1);
+        expect(err).toContain("--tags");
       }
+      expect(readdirSync(join(root, "_threads", "work"))).toHaveLength(beforeCustom);
       out = ""; err = "";
-      expect(await threadsCommand.run(["post", "work"], { kind: "custom_signal", message: "Open kind", author: "Integrator" }, { ...flags, yes: true, quiet: false })).toBe(0);
-      expect(JSON.parse(out).kind).toBe("custom_signal");
-      expect(err).toContain("Authoring custom post kind");
+      expect(await threadsCommand.run(["post", "work"], { message: "Shipped", tags: "delivery", author: "Integrator" }, { ...flags, quiet: false })).toBe(0);
+      expect(JSON.parse(out).kind).toBe("post");
       const count = readdirSync(join(root, "_threads", "work")).length;
       out = ""; err = "";
       expect(await threadsCommand.run(["post", "work"], { kind: "mark", message: "No mark", "reply-to": t.opening_post_id, author: "Integrator" }, flags)).toBe(1);

@@ -311,6 +311,25 @@ describe("threads new --hosted and threads ack", () => {
     expect(json().error.message).toContain("--summary is required");
   });
 
+  it("writes a label as tags in the Note, and refuses a kind or a bad tag before calling", async () => {
+    serve({ [`POST /api/v1/threads/${T}/posts`]: "post-created", "POST /api/v1/threads": "thread-opened" });
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "Shipped", tags: "delivery, ux,delivery", "post-id": "msg_cli_fixed" })).toBe(0);
+    expect(calls[0].body).toContain("tags:\n  - delivery\n  - ux\n");
+    calls.length = 0;
+    expect(await threads(["new"], { hosted: true, name: "n", summary: "s", message: "x", tags: "dispatch", "post-id": "msg_cli_opening" })).toBe(0);
+    expect(JSON.parse(calls[0].body!).note).toContain("tags:\n  - dispatch\n");
+    calls.length = 0;
+    for (const tags of ["", "ok,", "x".repeat(201)]) {
+      expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", tags })).toBe(1);
+      expect(json().error).toMatchObject({ state: "invalid_request", message: expect.stringContaining("--tags") });
+    }
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", tags: true })).toBe(1);
+    expect(json().error.message).toContain("--tags requires a value");
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", kind: "delivery" })).toBe(1);
+    expect(json().error.message).toContain("--kind");
+    expect(calls).toEqual([]);
+  });
+
   it("acks by cursor or by seq, exactly one", async () => {
     serve({ [`GET /api/v1/threads/${T}`]: "thread-head", [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest", [`POST /api/v1/threads/${T}/ack`]: "ack" });
     expect(await threads(["open", T], { limit: "2" })).toBe(0);

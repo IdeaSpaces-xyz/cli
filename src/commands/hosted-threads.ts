@@ -23,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import { HOSTED_THREAD_ID, parseMap, parseThreadPost } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { loadLocalThreadMap } from "../local/thread-map-member.js";
+import { validateTags } from "../local/threads.js";
 import {
   ackHostedThread, ApiStatusError, appendHostedThreadPost, fetchHostedThread, fetchHostedThreadPosts, fetchVaults,
   listHostedThreads, NetworkError, openHostedThread, UnauthorizedError, type ApiConfig,
@@ -224,6 +225,16 @@ function buildNote(fields: Record<string, unknown>, body: string): string {
 
 /** The protocol validates optional disclosure fields; this service additionally requires
  * an authored object on every member. An explicitly empty object is valid; never fill it. */
+/** A post's labels, in the Note's own frontmatter: the service stores a Note as written. */
+function hostedTags(flags: Record<string, string | boolean>): { tags: string[] } | Record<string, never> {
+  if (flags.tags === undefined) return {};
+  if (typeof flags.tags !== "string") throw new HostedError("invalid_request", "--tags requires a value.");
+  const tags = [...new Set(flags.tags.split(",").map((tag) => tag.trim()))];
+  try { validateTags(tags); }
+  catch (error) { throw new HostedError("invalid_request", (error as Error).message); }
+  return { tags };
+}
+
 function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | Record<string, never> {
   if (flags.map === undefined) return {};
   const input = str(flags, "map");
@@ -377,7 +388,7 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
   const name = singleLine(flags, "name", false);
   const summary = singleLine(flags, "summary", false);
   const msgId = postId(flags);
-  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...(name ? { name } : {}), ...(summary ? { summary } : {}), ...hostedMap(flags) }, body);
+  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...(name ? { name } : {}), ...(summary ? { summary } : {}), ...hostedMap(flags), ...hostedTags(flags) }, body);
   const parsed = parseThreadPost(note, "reply.md");
   if (!(parsed.status === "valid" && parsed.post.id === msgId && parsed.post.kind === "post" && parsed.post.inReplyTo.length > 0 && parsed.post.body.trim())) {
     throw new HostedError("invalid_request", "The reply Note did not validate; check --reply-to, --name, --summary and --message.");
@@ -398,7 +409,7 @@ export async function newVerb(output: Output, json: boolean, flags: Record<strin
   const summary = singleLine(flags, "summary", true)!;
   const body = messageBody(flags);
   const msgId = postId(flags);
-  const note = buildNote({ id: msgId, kind: "post", name, summary, ...hostedMap(flags) }, body);
+  const note = buildNote({ id: msgId, kind: "post", name, summary, ...hostedMap(flags), ...hostedTags(flags) }, body);
   const parsed = parseThreadPost(note, "opening.md");
   if (!(parsed.status === "valid" && parsed.post.id === msgId && parsed.post.inReplyTo.length === 0)) {
     throw new HostedError("invalid_request", "The opening Note did not validate; check --name, --summary and --message.");
