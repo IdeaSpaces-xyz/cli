@@ -415,4 +415,19 @@ map:
     const data = JSON.parse(stdoutChunks.join(""));
     expect(data).not.toHaveProperty("target_node_id");
   });
+  it("does not synthesize address disclosure from curated labels", async () => {
+    writeFileSync(join(root, "notes/address.map.md"), `---\nname: Address Map\nmap:\n  roots: []\n  members:\n    - address: https://example.org\n      name: Curated label\n      depth: summary\n---\n# Map\n`);
+    git(["add", "notes/address.map.md"]); git(["commit", "-qm", "map without observed disclosure"]); git(["push", "-q", "origin", "main"]);
+    const result = await run("notes/address.map.md");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("needs authored disclosure");
+  });
+  it("does not hide a missing pinned post behind a fabricated disclosure", async () => {
+    writeFileSync(join(root, "notes/missing.map.md"), `---\nname: Missing Map\nmap:\n  roots:\n    - root_node_id: ${ROOT_NODE_ID}\n  members:\n    - root: 0\n      position: absent.md\n      name: Curated label\n      depth: summary\n---\n# Map\n`);
+    git(["add", "notes/missing.map.md"]); git(["commit", "-qm", "map missing pin content"]); git(["push", "-q", "origin", "main"]);
+    const result = await run("notes/missing.map.md");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Cannot read disclosure");
+  });
+
 });

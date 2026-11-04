@@ -368,6 +368,7 @@ export const threadsCommand: CommandDef = {
         if (!config && (flags.cursor !== undefined || flags.limit !== undefined)) throw new HostedError("signed_out", "Hosted paging needs sign-in. Use threads list <directory> for local-only listing, or sign in and retry.");
         let hosted: Array<{ source: "hosted"; id: string; name: string; summary?: string; closed: boolean; unread_count: number }> = [];
         let hostedChecked = false;
+        let hostedError: string | undefined;
         if (config && !rest.length) {
           try {
             // Default list drains all pages so --new/--unread includes the whole account.
@@ -376,6 +377,7 @@ export const threadsCommand: CommandDef = {
             let cursor: string | undefined;
             const seen = new Set<string>();
             do {
+              if (seen.size >= 100) throw new Error("Hosted list exceeded 100 pages; use threads list --hosted with cursor paging. No complete Unread list is claimed.");
               const page = await hostedListPage(config, { limit: 200, ...(cursor ? { cursor } : {}) });
               hosted.push(...page.threads.filter((t: any) => !(newOnly || flags.unread) || t.unread_count > 0).map((t: any) => ({ ...t, source: "hosted" as const })));
               cursor = page.next_cursor ?? undefined;
@@ -385,6 +387,7 @@ export const threadsCommand: CommandDef = {
             hostedChecked = true;
           } catch (error) {
             if (!local.length) throw error;
+            hostedError = error instanceof Error ? error.message : String(error);
             hosted = []; // Never render a partial account list alongside healthy local rows.
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
           }
@@ -409,7 +412,7 @@ export const threadsCommand: CommandDef = {
         const hint = !config && !rest.length ? isHostAuth()
           ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools."
           : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
+        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...(hostedError ? { hosted_error: hostedError } : {}), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
       if (sub === "new") {

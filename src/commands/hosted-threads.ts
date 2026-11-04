@@ -49,7 +49,7 @@ function messages(state: HostedFailure, subject: "thread" | "vaults"): string {
     case "not_found": return "This hosted Thread could not be found, or this sign-in has no access to it (the service answers 404 for both).";
     case "offline": return "IdeaSpaces could not be reached. Check your connection and retry; keep the same reply id.";
     case "rate_limited": return "IdeaSpaces is busy. Wait before retrying; keep the same reply id.";
-    case "conflict": return "This reply conflicts with the stored post, or the Thread is closed. Read the Thread to check its state; closed Threads cannot be reopened.";
+    case "conflict": return "This post id conflicts with stored text, or the Thread is closed. An exact resend (including close confirmation) needs the same --post-id and --message. Read the Thread to check its state; closed Threads cannot be reopened.";
     case "invalid_request": return thread
       ? "The Thread request is invalid. Use a cursor from this command for this Thread, and a reply with an explicit parent."
       : "The Vaults request is invalid.";
@@ -220,7 +220,8 @@ function buildNote(fields: Record<string, unknown>, body: string): string {
   return note;
 }
 
-/** Hosted storage requires observed disclosure on every Map member. Never invent it. */
+/** The protocol validates optional disclosure fields; this service additionally requires
+ * an authored object on every member. An explicitly empty object is valid; never fill it. */
 function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | Record<string, never> {
   if (flags.map === undefined) return {};
   const input = str(flags, "map");
@@ -258,7 +259,7 @@ async function runHosted(output: Output, json: boolean, what: string, subject: "
     if (error instanceof HostAuthRefusal) throw error;
     const failure = failureOf(error, subject);
     const resend = retry && AMBIGUOUS.has(failure.state)
-      ? ` The post may or may not have landed: resend with --post-id ${retry.postId} and the same arguments; the service accepts an exact resend once.`
+      ? ` The post may or may not have landed: resend with --post-id ${retry.postId}${retry.verb === "close" ? " --yes" : ""} and the same arguments; the service accepts an exact resend once.`
       : "";
     if (json) {
       process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: {
@@ -359,6 +360,7 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
   // Validate before any credential is touched or anything is sent.
   const parents = str(flags, "reply-to")?.split(",").map((p) => p.trim());
   if (!parents?.length || parents.some((p) => !POST_ID.test(p)) || new Set(parents).size !== parents.length || parents.length > 16) {
+    if (parents?.some(p => p.startsWith("n_"))) throw new HostedError("invalid_request", "Old n_ post ids are not /threads post ids. Read the ported Thread and use its returned msg_ id in --reply-to; no id was converted.");
     throw new HostedError("invalid_request", "--reply-to must name one to 16 distinct msg_ post ids in this Thread, separated by commas.");
   }
   const body = messageBody(flags);

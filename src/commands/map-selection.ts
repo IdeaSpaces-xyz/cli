@@ -336,19 +336,18 @@ export async function runMapSelection(
         }
         roots = momentRoots;
 
-        members = rawMembers.map((m) => {
+        members = rawMembers.map((m, ordinal) => {
           if (!m || typeof m !== "object") throw new Error("Map member must be an object");
           const mObj = m as Record<string, unknown>;
           if ("address" in mObj && typeof mObj.address === "string") {
-            const disc = mObj.disclosure && typeof mObj.disclosure === "object"
-              ? (mObj.disclosure as { name?: string; summary?: string })
-              : { name: typeof mObj.name === "string" ? mObj.name : mObj.address, summary: typeof mObj.summary === "string" ? mObj.summary : "" };
+            if (!mObj.disclosure || typeof mObj.disclosure !== "object" || Array.isArray(mObj.disclosure)) throw new Error(`Map address member ${ordinal} needs authored disclosure; curated labels are not observations.`);
+            const disc = mObj.disclosure as { name?: string; summary?: string };
             return {
               address: mObj.address,
               ...(mObj.depth ? { depth: mObj.depth as "name" | "summary" } : {}),
               ...(mObj.name ? { name: String(mObj.name) } : {}),
               ...(mObj.summary ? { summary: String(mObj.summary) } : {}),
-              disclosure: { name: disc.name || mObj.address, ...(disc.summary !== undefined ? { summary: disc.summary } : {}) },
+              disclosure: { ...disc },
             };
           }
           const mPos = typeof mObj.position === "string" ? mObj.position : "";
@@ -358,15 +357,13 @@ export async function runMapSelection(
             ? (mObj.disclosure as { name?: string; summary?: string })
             : undefined;
           if (!disc) {
+            const rootSha = roots[mRoot]?.sha;
+            const checkout = located[mRoot]?.checkoutPath;
+            if (!rootSha || !checkout) throw new Error(`Map member ${ordinal} needs authored disclosure or a reachable pinned checkout.`);
             try {
-              const rootSha = roots[mRoot]?.sha ?? headSha;
-              const content = gitRead(repoRoot, ["show", `${rootSha}:${mPos}`]);
-              disc = noteDisclosure(content, mPos);
-            } catch {
-              disc = {
-                name: typeof mObj.name === "string" ? mObj.name : basename(mPos, posix.extname(mPos)),
-                summary: typeof mObj.summary === "string" ? mObj.summary : "",
-              };
+              disc = noteDisclosure(gitRead(checkout, ["show", `${rootSha}:${mPos}`]), mPos);
+            } catch (error) {
+              throw new Error(`Cannot read disclosure for Map member ${ordinal} at ${rootSha}:${mPos}: ${error instanceof Error ? error.message : String(error)}. Supply authored disclosure or repair the pin.`);
             }
           }
           return {
@@ -375,7 +372,7 @@ export async function runMapSelection(
             depth: mDepth,
             ...(mObj.name ? { name: String(mObj.name) } : {}),
             ...(mObj.summary ? { summary: String(mObj.summary) } : {}),
-            disclosure: { name: disc.name || basename(mPos, posix.extname(mPos)), ...(mDepth === "name" ? {} : { summary: disc.summary || "" }) },
+            disclosure: { ...(disc.name !== undefined ? { name: disc.name } : {}), ...(mDepth === "name" || disc.summary === undefined ? {} : { summary: disc.summary }) },
           };
         });
 

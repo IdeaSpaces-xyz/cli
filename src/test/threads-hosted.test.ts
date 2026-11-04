@@ -90,3 +90,18 @@ it("discards earlier hosted pages when a later page fails, retaining only health
     expect(JSON.parse(text).threads).toHaveLength(1);
   } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); }
 });
+
+it("bounds fresh infinite service cursors with a visible incomplete-list error", async () => {
+  const root = mkdtempSync(join(tmpdir(), "is-threads-bound-")); temp.push(root); process.env.HOME = root;
+  loadConfigMock.mockReturnValue({ apiUrl: "https://example.test", apiKey: "synthetic" });
+  let pages = 0;
+  listHostedThreadsMock.mockImplementation(() => Promise.resolve({ threads: [], next_cursor: `page_${++pages}` }));
+  const old = process.cwd(); process.chdir(root);
+  const write = process.stderr.write; let error = "";
+  process.stderr.write = ((s: string) => { error += s; return true; }) as typeof write;
+  try {
+    expect(await threadsCommand.run(["list"], {}, flags)).toBe(1);
+    expect(pages).toBe(100);
+    expect(error).toContain("No complete Unread list is claimed");
+  } finally { process.stderr.write = write; process.chdir(old); }
+});

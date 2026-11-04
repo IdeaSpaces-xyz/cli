@@ -540,3 +540,16 @@ it("new passes multiple recipients alongside the exact opening Note", async () =
   expect(await threads(["new"], { hosted: true, recipients: "@ada,reader@example.org", name: "Question", summary: "Why", message: "Opening body", "post-id": "msg_multiple" })).toBe(0);
   expect(calls.map(path)).toEqual(["POST /api/v1/threads"]);
 });
+
+it("close ambiguous-write guidance retains explicit confirmation", async () => {
+  serve({ [`POST /api/v1/threads/${T}/posts`]: () => new Error("offline") });
+  expect(await threads(["close", T], { message: "Done", "post-id": "msg_close_uncertain" }, { ...JSON_FLAGS, yes: true })).toBe(1);
+  expect(json().error.message).toContain("--post-id msg_close_uncertain --yes");
+});
+it("a changed close confirmation is a conflict, not an implicit retry", async () => {
+  serve({ [`POST /api/v1/threads/${T}/posts`]: () => ({ status: 409, body: { detail: "msg_ id already used with different text or actor" } }) });
+  expect(await threads(["close", T], { message: "Changed", "post-id": "msg_close_existing" }, { ...JSON_FLAGS, yes: true })).toBe(1);
+  expect(json().error.state).toBe("conflict");
+  expect(json().error.message).toContain("same --post-id and --message");
+  expect(calls).toHaveLength(1);
+});

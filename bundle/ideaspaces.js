@@ -20751,18 +20751,20 @@ async function runMapSelection(args2, flags2, _global, output) {
           momentRoots.push({ ...root, sha: head2 });
         }
         roots = momentRoots;
-        members = rawMembers.map((m) => {
+        members = rawMembers.map((m, ordinal) => {
           if (!m || typeof m !== "object")
             throw new Error("Map member must be an object");
           const mObj = m;
           if ("address" in mObj && typeof mObj.address === "string") {
-            const disc2 = mObj.disclosure && typeof mObj.disclosure === "object" ? mObj.disclosure : { name: typeof mObj.name === "string" ? mObj.name : mObj.address, summary: typeof mObj.summary === "string" ? mObj.summary : "" };
+            if (!mObj.disclosure || typeof mObj.disclosure !== "object" || Array.isArray(mObj.disclosure))
+              throw new Error(`Map address member ${ordinal} needs authored disclosure; curated labels are not observations.`);
+            const disc2 = mObj.disclosure;
             return {
               address: mObj.address,
               ...mObj.depth ? { depth: mObj.depth } : {},
               ...mObj.name ? { name: String(mObj.name) } : {},
               ...mObj.summary ? { summary: String(mObj.summary) } : {},
-              disclosure: { name: disc2.name || mObj.address, ...disc2.summary !== void 0 ? { summary: disc2.summary } : {} }
+              disclosure: { ...disc2 }
             };
           }
           const mPos = typeof mObj.position === "string" ? mObj.position : "";
@@ -20770,15 +20772,14 @@ async function runMapSelection(args2, flags2, _global, output) {
           const mDepth = typeof mObj.depth === "string" && NOTE_DEPTHS.has(mObj.depth) ? mObj.depth : "summary";
           let disc = mObj.disclosure && typeof mObj.disclosure === "object" ? mObj.disclosure : void 0;
           if (!disc) {
+            const rootSha = roots[mRoot]?.sha;
+            const checkout = located[mRoot]?.checkoutPath;
+            if (!rootSha || !checkout)
+              throw new Error(`Map member ${ordinal} needs authored disclosure or a reachable pinned checkout.`);
             try {
-              const rootSha = roots[mRoot]?.sha ?? headSha2;
-              const content = gitRead(repoRoot2, ["show", `${rootSha}:${mPos}`]);
-              disc = noteDisclosure(content, mPos);
-            } catch {
-              disc = {
-                name: typeof mObj.name === "string" ? mObj.name : basename10(mPos, posix.extname(mPos)),
-                summary: typeof mObj.summary === "string" ? mObj.summary : ""
-              };
+              disc = noteDisclosure(gitRead(checkout, ["show", `${rootSha}:${mPos}`]), mPos);
+            } catch (error) {
+              throw new Error(`Cannot read disclosure for Map member ${ordinal} at ${rootSha}:${mPos}: ${error instanceof Error ? error.message : String(error)}. Supply authored disclosure or repair the pin.`);
             }
           }
           return {
@@ -20787,7 +20788,7 @@ async function runMapSelection(args2, flags2, _global, output) {
             depth: mDepth,
             ...mObj.name ? { name: String(mObj.name) } : {},
             ...mObj.summary ? { summary: String(mObj.summary) } : {},
-            disclosure: { name: disc.name || basename10(mPos, posix.extname(mPos)), ...mDepth === "name" ? {} : { summary: disc.summary || "" } }
+            disclosure: { ...disc.name !== void 0 ? { name: disc.name } : {}, ...mDepth === "name" || disc.summary === void 0 ? {} : { summary: disc.summary } }
           };
         });
         if (!targetNodeId) {
@@ -22808,7 +22809,7 @@ function messages(state, subject) {
     case "rate_limited":
       return "IdeaSpaces is busy. Wait before retrying; keep the same reply id.";
     case "conflict":
-      return "This reply conflicts with the stored post, or the Thread is closed. Read the Thread to check its state; closed Threads cannot be reopened.";
+      return "This post id conflicts with stored text, or the Thread is closed. An exact resend (including close confirmation) needs the same --post-id and --message. Read the Thread to check its state; closed Threads cannot be reopened.";
     case "invalid_request":
       return thread ? "The Thread request is invalid. Use a cursor from this command for this Thread, and a reply with an explicit parent." : "The Vaults request is invalid.";
     case "invalid_response":
@@ -22994,7 +22995,7 @@ async function runHosted(output, json, what, subject, work, retry) {
     if (error instanceof HostAuthRefusal)
       throw error;
     const failure = failureOf(error, subject);
-    const resend = retry && AMBIGUOUS.has(failure.state) ? ` The post may or may not have landed: resend with --post-id ${retry.postId} and the same arguments; the service accepts an exact resend once.` : "";
+    const resend = retry && AMBIGUOUS.has(failure.state) ? ` The post may or may not have landed: resend with --post-id ${retry.postId}${retry.verb === "close" ? " --yes" : ""} and the same arguments; the service accepts an exact resend once.` : "";
     if (json) {
       process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: {
         state: failure.state,
@@ -23091,6 +23092,8 @@ ${status}`,
 async function postVerb(output, json, id, flags2) {
   const parents = str(flags2, "reply-to")?.split(",").map((p) => p.trim());
   if (!parents?.length || parents.some((p) => !POST_ID.test(p)) || new Set(parents).size !== parents.length || parents.length > 16) {
+    if (parents?.some((p) => p.startsWith("n_")))
+      throw new HostedError("invalid_request", "Old n_ post ids are not /threads post ids. Read the ported Thread and use its returned msg_ id in --reply-to; no id was converted.");
     throw new HostedError("invalid_request", "--reply-to must name one to 16 distinct msg_ post ids in this Thread, separated by commas.");
   }
   const body = messageBody(flags2);
@@ -30530,6 +30533,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
           throw new HostedError("signed_out", "Hosted paging needs sign-in. Use threads list <directory> for local-only listing, or sign in and retry.");
         let hosted = [];
         let hostedChecked = false;
+        let hostedError;
         if (config && !rest.length) {
           try {
             if (flags2.cursor !== void 0 || flags2.limit !== void 0)
@@ -30537,6 +30541,8 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
             let cursor;
             const seen = /* @__PURE__ */ new Set();
             do {
+              if (seen.size >= 100)
+                throw new Error("Hosted list exceeded 100 pages; use threads list --hosted with cursor paging. No complete Unread list is claimed.");
               const page = await hostedListPage(config, { limit: 200, ...cursor ? { cursor } : {} });
               hosted.push(...page.threads.filter((t) => !(newOnly || flags2.unread) || t.unread_count > 0).map((t) => ({ ...t, source: "hosted" })));
               cursor = page.next_cursor ?? void 0;
@@ -30549,6 +30555,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
           } catch (error) {
             if (!local.length)
               throw error;
+            hostedError = error instanceof Error ? error.message : String(error);
             hosted = [];
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
           }
@@ -30579,7 +30586,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
   ${"summary" in row ? row.summary : ""} \xB7 ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? isHostAuth() ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools." : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `
+        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...hostedError ? { hosted_error: hostedError } : {}, local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `
 Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
