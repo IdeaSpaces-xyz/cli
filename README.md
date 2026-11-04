@@ -112,8 +112,9 @@ them so you can retry. Existing API keys remain supported until revoked: logout 
 forgets those keys, and does not revoke them. `IS_API_KEY` still explicitly overrides
 stored auth; unset it to use a new session. Login replaces the saved credential; when
 switching accounts/services, use `power logout` first to revoke the old session rather
-than merely forget it. A stored session never follows an
-`IS_API_URL` override to a different service.
+than merely forget it. A stored credential, session or key, never follows an
+`IS_API_URL` override to a different service: the CLI says so and does not send it. To use a key
+with another server, set `IS_API_KEY` as well.
 
 **Bundled clients:** update their CLI before using this sign-in; older bundles cannot
 renew these sessions or perform server sign-out. Publication and consumer updates must
@@ -204,7 +205,7 @@ Pick `claude` to continue a session you started in Claude Code; the same session
 | `~/.ideaspaces/update-check.json` | When the update check last ran and what it found |
 | `~/.pi/agent/auth.json` | Local-agent model credentials |
 
-`IS_API_KEY` overrides stored credentials. `IS_API_URL` selects an API origin; stored sessions are bound to their original service. `IDEASPACES_GIT_BIN` (or `--git-bin <path>`) names an explicit Git executable for environments with no Git on PATH. `IDEASPACES_PI_EXTENSIONS` lists extension paths for direct `conversation send --local` (not `agent run` child authority). `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.
+`IS_API_KEY` overrides stored credentials. `IS_API_URL` selects an API origin; stored credentials are bound to their original service, and only `IS_API_KEY` pairs a key with another one. `IDEASPACES_GIT_BIN` (or `--git-bin <path>`) names an explicit Git executable for environments with no Git on PATH. `IDEASPACES_PI_EXTENSIONS` lists extension paths for direct `conversation send --local` (not `agent run` child authority). `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.
 
 ## Contributing
 

@@ -9142,6 +9142,16 @@ function deleteCredentials() {
   }
 }
 var DEFAULT_API_URL = "https://api.ideaspaces.xyz";
+var warnedRefusedOverride = false;
+function warnRefusedOverride(service, override) {
+  if (warnedRefusedOverride)
+    return;
+  warnedRefusedOverride = true;
+  const shown = override.replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+  process.stderr.write(`Your stored IdeaSpaces sign-in belongs to ${service}, so it was not sent to ${shown} (IS_API_URL).
+To use your sign-in, unset IS_API_URL. To use that server, set IS_API_KEY to a key for it.
+`);
+}
 function loadConfig() {
   refuseInHostMode();
   const envKey = process.env.IS_API_KEY;
@@ -9153,9 +9163,12 @@ function loadConfig() {
   }
   const stored = loadStoredCredentials();
   if (stored) {
-    const apiUrl = (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, "");
-    if (stored.session && apiUrl !== stored.api_url.replace(/\/$/, ""))
+    const apiUrl = (process.env.IS_API_URL || stored.api_url).replace(/\/$/, "");
+    const service = stored.api_url.replace(/\/$/, "");
+    if (apiUrl !== service) {
+      warnRefusedOverride(service, apiUrl);
       return null;
+    }
     return {
       apiUrl,
       apiKey: stored.api_key,
@@ -14129,7 +14142,7 @@ import { join as join13 } from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
 
 // dist/version.js
-var CLI_VERSION = true ? "0.8.0" : "0.0.0-dev";
+var CLI_VERSION = true ? "0.8.1" : "0.0.0-dev";
 
 // dist/update-check.js
 var UPDATE_CHECK_COMMAND = "__update-check";
