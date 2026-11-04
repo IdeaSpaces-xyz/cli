@@ -147,6 +147,16 @@ describe("threads list --hosted", () => {
 });
 
 describe("threads open x_<id>", () => {
+  it("says a typed x_ name may be what reached the service, on the failures it can cause", async () => {
+    serve({ [`GET /api/v1/threads/${T}`]: [404, "thread-404"] });
+    let stderr = "";
+    const write = process.stderr.write;
+    process.stderr.write = ((s: string) => { stderr += s; return true; }) as typeof write;
+    try { expect(await threads(["open", T], {}, TEXT_FLAGS)).toBe(1); } finally { process.stderr.write = write; }
+    expect(stderr).toContain("not_found");
+    expect(stderr).toContain("give its path");
+  });
+
   it("treats a hosted id as opaque: its form and length never decide, only x_ and the characters", async () => {
     const minted = "x_Ab-9_Z-a-form-no-client-has-seen-and-longer-than-any-minted-today-0123456789";
     serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ ...fixture("threads-page-1").threads[0], thread_id: minted }], next_cursor: null } }) });

@@ -957,12 +957,15 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     expect(fetched).not.toHaveBeenCalled();
     fetched.mockRestore();
     // No folder of that name: it asks the service, and says a local name may be what was meant.
-    delete process.env.IDEASPACES_API_KEY;
+    vi.stubEnv("IDEASPACES_API_KEY", "");
     text = "";
     expect(await threadsCommand.run(["post", "x_notse"], { message: "Typo", "reply-to": "msg_parent" }, global)).toBe(1);
     const refusal = JSON.parse(text).error;
     expect(refusal.state).toBe("signed_out");
     expect(refusal.message).toContain("give its path");
+    text = "";
+    expect(await threadsCommand.run(["ack", "x_notse"], { seq: "1" }, global)).toBe(1);
+    expect(JSON.parse(text).error.message).not.toContain("give its path"); // ack has no local form
     // A launch routes the same way: only a hosted target refuses the local pin flags.
     const launch = (thread: string) => agentCommand.run(["run", "."], { thread, "thread-map": "none.map.md", message: "Hi" }, global);
     errors = "";
@@ -976,7 +979,10 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     expect(isHostedThreadTarget("x_" + "a".repeat(80))).toBe(true);
     expect(isHostedThreadTarget("x_notes/README.md")).toBe(false);
     expect(isHostedThreadTarget("x_")).toBe(false);
-  } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); }
+    const outside = mkdtempSync(join(tmpdir(), "no-space-"));
+    expect(isHostedThreadTarget("x_notes", outside)).toBe(true); // nothing local to prefer outside a Space
+    rmSync(outside, { recursive: true, force: true });
+  } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); vi.unstubAllEnvs(); }
 });
 
 it("keeps local surface/full open limit available independently of hosted list flags", async () => {

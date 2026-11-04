@@ -22,6 +22,8 @@ export { threadFlagError } from "./thread-flags.js";
 
 const SURFACE_BODY_BYTES = 800;
 const KNOWN_POST_KINDS = new Set<string>(THREAD_KINDS);
+/** Verbs whose first argument names a Thread; only these need the local-or-hosted decision. */
+const TAKES_THREAD_ID = new Set(["open", "read", "post", "reply", "close", "rename", "ack", "attach"]);
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
 }
@@ -297,7 +299,7 @@ export const threadsCommand: CommandDef = {
         output.result({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, "Hosted Threads use /threads only (no legacy exchange fallback).");
         return 0;
       }
-      const hostedTarget = isHostedThreadTarget(rest[0] ?? "");
+      const hostedTarget = TAKES_THREAD_ID.has(sub ?? "") && isHostedThreadTarget(rest[0] ?? "");
       const hostedFlag = flags.hosted !== undefined;
       if (hostedFlag && flags.hosted !== true) throw new HostedError("invalid_request", "--hosted takes no value.");
       if (["posts", "expand", "add"].includes(sub ?? "")) throw new Error(`threads ${sub} retired with the Inbox; use threads list and open, or manage membership on the web.`);

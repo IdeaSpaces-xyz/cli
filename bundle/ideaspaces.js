@@ -22990,8 +22990,8 @@ function messageBody(flags2) {
 }
 var AMBIGUOUS = /* @__PURE__ */ new Set(["offline", "unavailable", "rate_limited", "invalid_response"]);
 var NAMED_THREAD_HINT = "An x_ name with no folder in this Space's _threads/ is read as a hosted id; for a local Thread, give its path.";
-var HINTED = /* @__PURE__ */ new Set(["not_found", "signed_out"]);
-async function runHosted(output, json, what, subject, work, retry, namesThread = false) {
+var HINTED = /* @__PURE__ */ new Set(["not_found", "signed_out", "offline", "unavailable"]);
+async function runHosted(output, json, what, subject, work, { retry, namesThread = false } = {}) {
   try {
     const config = hostedConfig(what);
     const { data, text } = await work(config);
@@ -23094,7 +23094,7 @@ ${status}`,
       [older && `Older: ideaspaces threads open ${id} --cursor ${older}`, `Newer: ideaspaces threads open ${id} --cursor ${follow2}`, `Mark read: ideaspaces threads ack ${id} --cursor ${follow2}`].filter(Boolean).join("\n")
     ].join("\n\n");
     return { data: { schema: "ideaspaces.hosted-thread.page.v1", thread: h.thread, posts: rows, older_cursor: older, cursor: follow2, refresh, has_more: hasMore }, text };
-  }, void 0, true);
+  }, { namesThread: true });
 }
 async function postVerb(output, json, id, flags2) {
   const parents = str(flags2, "reply-to")?.split(",").map((p) => p.trim());
@@ -23116,7 +23116,7 @@ async function postVerb(output, json, id, flags2) {
     const posted = postOf(await appendHostedThreadPost(config, id, note), id);
     requireValue(posted.id === msgId);
     return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `Posted ${posted.id} as seq ${posted.seq} in ${id} (${posted.author}).` };
-  }, { postId: msgId, verb: "post" }, true);
+  }, { retry: { postId: msgId, verb: "post" }, namesThread: true });
 }
 async function newVerb(output, json, flags2) {
   const recipients = str(flags2, "recipients")?.split(",").map((r) => r.trim()) ?? [];
@@ -23138,7 +23138,7 @@ async function newVerb(output, json, flags2) {
     const opening = postOf(raw, raw.thread_id);
     requireValue(opening.id === msgId && opening.seq === 1);
     return { data: { schema: "ideaspaces.hosted-thread.new.v1", thread_id: raw.thread_id, post: opening }, text: `Opened ${raw.thread_id}: ${name}` };
-  }, { postId: msgId, verb: "new" });
+  }, { retry: { postId: msgId, verb: "new" } });
 }
 async function lifecycleVerb(output, json, id, verb, flags2, confirmed) {
   const name = verb === "rename" ? singleLine2(flags2, "name", true) : void 0;
@@ -23154,7 +23154,7 @@ async function lifecycleVerb(output, json, id, verb, flags2, confirmed) {
     const posted = postOf(await appendHostedThreadPost(config, id, note), id);
     requireValue(posted.id === msgId);
     return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `${verb === "close" ? "Closed" : "Renamed"} ${id} (${posted.id}).` };
-  }, { postId: msgId, verb }, true);
+  }, { retry: { postId: msgId, verb }, namesThread: true });
 }
 async function ackVerb(output, json, id, flags2) {
   const given = str(flags2, "cursor");
@@ -23170,7 +23170,7 @@ async function ackVerb(output, json, id, flags2) {
     const raw = await ackHostedThread(config, id, target);
     requireValue(record(raw) && raw.thread_id === id && seq(raw.read_seq));
     return { data: { schema: "ideaspaces.hosted-thread.ack.v1", thread_id: id, read_seq: raw.read_seq }, text: `Read up to seq ${raw.read_seq} in ${id}.` };
-  }, void 0, true);
+  });
 }
 function reportHostedRefusal(error, output, json) {
   if (!(error instanceof HostedError))
@@ -26334,7 +26334,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
 }
 async function prepareHostedThreadLaunch(pov, threadId, options) {
   if (!HOSTED_THREAD_ID.test(threadId)) {
-    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected x_<id>.`);
+    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected ${HOSTED_THREAD_ID.source}.`);
   }
   const config = loadConfig();
   if (!config) {
@@ -30191,6 +30191,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
 // dist/commands/threads.js
 var SURFACE_BODY_BYTES = 800;
 var KNOWN_POST_KINDS = new Set(THREAD_KINDS);
+var TAKES_THREAD_ID = /* @__PURE__ */ new Set(["open", "read", "post", "reply", "close", "rename", "ack", "attach"]);
 function str2(flags2, key2) {
   return typeof flags2[key2] === "string" ? flags2[key2] : void 0;
 }
@@ -30463,7 +30464,7 @@ var threadsCommand = {
         output.result({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, "Hosted Threads use /threads only (no legacy exchange fallback).");
         return 0;
       }
-      const hostedTarget = isHostedThreadTarget(rest[0] ?? "");
+      const hostedTarget = TAKES_THREAD_ID.has(sub ?? "") && isHostedThreadTarget(rest[0] ?? "");
       const hostedFlag = flags2.hosted !== void 0;
       if (hostedFlag && flags2.hosted !== true)
         throw new HostedError("invalid_request", "--hosted takes no value.");
