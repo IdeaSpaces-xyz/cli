@@ -14720,19 +14720,6 @@ async function openHostedThread(config, note, recipients = [], opts) {
 async function ackHostedThread(config, threadId, seq2, opts) {
   return request(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/ack`, { seq: seq2 }, { ...opts, ...HOSTED });
 }
-async function listSubscriptions(config, opts) {
-  const response = await request(config, "GET", `${API_V1}/subscriptions`, void 0, opts);
-  return response.subscriptions;
-}
-async function putSubscription(config, source, opts) {
-  return request(config, "POST", `${API_V1}/subscriptions`, source, opts);
-}
-async function deleteSubscription(config, followId, opts) {
-  return request(config, "DELETE", `${API_V1}/subscriptions/${encodeURIComponent(followId)}`, void 0, opts);
-}
-async function acknowledgeSubscription(config, followId, position, opts) {
-  return request(config, "PATCH", `${API_V1}/subscriptions/${encodeURIComponent(followId)}`, { position }, opts);
-}
 async function fetchEntity(config, entityType, entityKey, opts) {
   return request(config, "GET", `${API_V1}/entities/${encodeURIComponent(entityType)}/${encodeURIComponent(entityKey)}`, void 0, opts);
 }
@@ -23084,15 +23071,15 @@ async function openVerb(output, json, id, flags2) {
       next = Math.max(h.lastSeq, rows.at(-1)?.seq ?? 0);
     }
     const older = rows.length === limit && rows[0].seq > 1 ? encode(config, "older", rows[0].seq, id) : null;
-    const follow2 = encode(config, "follow", next, id);
+    const follow = encode(config, "follow", next, id);
     const status = `${h.thread.closed ? "closed" : "open"} \xB7 ${h.thread.grade}${h.thread.can_reply ? "" : " \xB7 read only"}`;
     const text = [
       `${id}  ${h.thread.name}
 ${status}`,
       ...rows.map(postText),
-      [older && `Older: ideaspaces threads open ${id} --cursor ${older}`, `Newer: ideaspaces threads open ${id} --cursor ${follow2}`, `Mark read: ideaspaces threads ack ${id} --cursor ${follow2}`].filter(Boolean).join("\n")
+      [older && `Older: ideaspaces threads open ${id} --cursor ${older}`, `Newer: ideaspaces threads open ${id} --cursor ${follow}`, `Mark read: ideaspaces threads ack ${id} --cursor ${follow}`].filter(Boolean).join("\n")
     ].join("\n\n");
-    return { data: { schema: "ideaspaces.hosted-thread.page.v1", thread: h.thread, posts: rows, older_cursor: older, cursor: follow2, refresh, has_more: hasMore }, text };
+    return { data: { schema: "ideaspaces.hosted-thread.page.v1", thread: h.thread, posts: rows, older_cursor: older, cursor: follow, refresh, has_more: hasMore }, text };
   });
 }
 async function postVerb(output, json, id, flags2) {
@@ -31037,129 +31024,22 @@ ${timeline.map((p) => `- ${p.name} (${p.kind}) ${p.path}${p.in_reply_to.length ?
 };
 
 // dist/commands/follow.js
-var FOLLOW_USAGE = "ideaspaces follow <node|repo> <id> [--ack <position>]";
-var UNFOLLOW_USAGE = "ideaspaces unfollow <node|repo> <id>";
-var NODE_ID3 = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
-function sourceFrom(args2, output, usage) {
-  const [rawName, rawId] = args2;
-  if (args2.length !== 2 || !rawName || !rawId) {
-    output.error(`Usage: ${usage}`);
-    return null;
-  }
-  if (rawName === "thread") {
-    output.error("Thread follow/mute retired with the Inbox. Use threads list --unread; hosted Unread needs no subscription.");
-    return null;
-  }
-  if (rawName !== "node" && rawName !== "repo") {
-    output.error(`Source must be one of: node, repo.
-Usage: ${usage}`);
-    return null;
-  }
-  if (!NODE_ID3.test(rawId)) {
-    output.error(`Invalid ${rawName} id: ${rawId}`);
-    return null;
-  }
+var RETIRED = "Follow, unfollow and subscription cursor acknowledgement are retired. No request was sent. Use `ideaspaces threads list --unread` for unread Threads; use `ideaspaces threads ack <id> --cursor <cursor>` only to mark a Thread read explicitly.";
+function retired(name) {
   return {
-    name: rawName,
-    kind: "node",
-    id: rawId
+    name,
+    description: "Retired: no subscription request is sent",
+    usage: `ideaspaces ${name} (retired)`,
+    examples: [],
+    help: RETIRED,
+    async run(_args, _flags, global3) {
+      createOutput(global3).error(RETIRED);
+      return 1;
+    }
   };
 }
-function parsePosition(value2, output) {
-  if (value2 === void 0)
-    return void 0;
-  if (typeof value2 !== "string" || !/^\d+$/.test(value2)) {
-    output.error("--ack must be a non-negative integer position.");
-    return null;
-  }
-  const position = Number(value2);
-  if (!Number.isSafeInteger(position)) {
-    output.error("--ack must be a non-negative safe integer position.");
-    return null;
-  }
-  return position;
-}
-function matchingFollow(rows, source) {
-  return rows.find((row) => row.source_kind === source.kind && row.source_id === source.id);
-}
-async function runAuthenticated2(output, operation) {
-  const config = loadConfig();
-  if (!config) {
-    output.error("Not logged in. Run `ideaspaces login`.");
-    return 1;
-  }
-  try {
-    return await operation(config);
-  } catch (err) {
-    if (err instanceof UnauthorizedError) {
-      output.error("Session expired. Run `ideaspaces login`.");
-      return 1;
-    }
-    output.error(err instanceof Error ? err.message : String(err));
-    return 1;
-  }
-}
-async function follow(args2, flags2, output) {
-  const source = sourceFrom(args2, output, FOLLOW_USAGE);
-  if (!source)
-    return 1;
-  const position = parsePosition(flags2.ack, output);
-  if (position === null)
-    return 1;
-  return runAuthenticated2(output, async (config) => {
-    if (position === void 0) {
-      const row2 = await putSubscription(config, { target_node_id: source.id });
-      output.result(row2, `Following ${source.name} ${source.id} from position ${row2.cursor}.`);
-      return 0;
-    }
-    const row = matchingFollow(await listSubscriptions(config), source);
-    if (!row) {
-      output.error(`Not following ${source.name} ${source.id}. Follow it before acknowledging.`);
-      return 1;
-    }
-    const acknowledged = await acknowledgeSubscription(config, row.id, position);
-    output.result(acknowledged, `Acknowledged ${source.name} ${source.id} through position ${acknowledged.cursor}.`);
-    return 0;
-  });
-}
-async function unfollow(args2, output) {
-  const source = sourceFrom(args2, output, UNFOLLOW_USAGE);
-  if (!source)
-    return 1;
-  return runAuthenticated2(output, async (config) => {
-    const row = matchingFollow(await listSubscriptions(config), source);
-    if (!row) {
-      output.error(`Not following ${source.name} ${source.id}.`);
-      return 1;
-    }
-    await deleteSubscription(config, row.id);
-    output.result({ removed: true, subscription: row }, `Unfollowed ${source.name} ${source.id}.`);
-    return 0;
-  });
-}
-var followCommand = {
-  name: "follow",
-  description: "Follow a Node or repository and acknowledge its cursor",
-  usage: FOLLOW_USAGE,
-  examples: [
-    "ideaspaces follow node n_0123456789abcdef01234567",
-    "ideaspaces follow repo n_0123456789abcdef01234567"
-  ],
-  async run(args2, flags2, global3) {
-    return follow(args2, flags2, createOutput(global3));
-  }
-};
-var unfollowCommand = {
-  name: "unfollow",
-  description: "Stop following a Node or repository",
-  usage: UNFOLLOW_USAGE,
-  examples: [
-    "ideaspaces unfollow repo n_0123456789abcdef01234567"
-  ],
-  async run(args2, _flags, global3) {
-    return unfollow(args2, createOutput(global3));
-  }
-};
+var followCommand = retired("follow");
+var unfollowCommand = retired("unfollow");
 
 // dist/auth/session-state.js
 import { existsSync as existsSync31, unlinkSync as unlinkSync3 } from "node:fs";
@@ -33983,8 +33863,6 @@ var topLevel = [
   requestCommand,
   spacesCommand,
   threadsCommand,
-  followCommand,
-  unfollowCommand,
   pullCommand,
   pushCommand,
   syncCommand,
@@ -33995,7 +33873,7 @@ var power = [
   logoutCommand
 ];
 function findCommand_(name) {
-  return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name);
+  return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name) ?? [followCommand, unfollowCommand].find((c) => c.name === name);
 }
 function printHelp() {
   const lines = [
