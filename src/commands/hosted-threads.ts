@@ -1,5 +1,5 @@
 /**
- * Hosted Threads (`x_<24 or 32 hex>`) and Vaults over /api/v1/threads and /api/v1/vaults.
+ * Hosted Threads (`x_<id>`) and Vaults over /api/v1/threads and /api/v1/vaults.
  *
  * Ported from Idea Explorer's own hosted Thread client rather than rewritten, so a host
  * that swaps its transport for this CLI reads the same shapes:
@@ -19,11 +19,11 @@
  * A cursor is never authority; the service checks access on every read.
  */
 
-import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 import { randomUUID } from "node:crypto";
-import { parseMap, parseThreadPost } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, parseMap, parseThreadPost } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { loadLocalThreadMap } from "../local/thread-map-member.js";
+import { validateTags } from "../local/threads.js";
 import {
   ackHostedThread, ApiStatusError, appendHostedThreadPost, fetchHostedThread, fetchHostedThreadPosts, fetchVaults,
   listHostedThreads, NetworkError, openHostedThread, UnauthorizedError, type ApiConfig,
@@ -223,6 +223,16 @@ function buildNote(fields: Record<string, unknown>, body: string): string {
   return note;
 }
 
+/** A post's labels, in the Note's own frontmatter: the service stores a Note as written. */
+function hostedTags(flags: Record<string, string | boolean>): { tags: string[] } | Record<string, never> {
+  if (flags.tags === undefined) return {};
+  if (typeof flags.tags !== "string") throw new HostedError("invalid_request", "--tags requires a value.");
+  const tags = [...new Set(flags.tags.split(",").map((tag) => tag.trim()))];
+  try { validateTags(tags); }
+  catch (error) { throw new HostedError("invalid_request", (error as Error).message); }
+  return { tags };
+}
+
 /** The protocol validates optional disclosure fields; this service additionally requires
  * an authored object on every member. An explicitly empty object is valid; never fill it. */
 function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | Record<string, never> {
@@ -254,7 +264,11 @@ type Run = (config: HostedConfig) => Promise<{ data: Record<string, unknown>; te
 /** Ambiguous outcomes of a write: the post may or may not have landed. */
 const AMBIGUOUS: ReadonlySet<HostedFailure> = new Set(["offline", "unavailable", "rate_limited", "invalid_response"]);
 
-async function runHosted(output: Output, json: boolean, what: string, subject: "thread" | "vaults", work: Run, retry?: { postId: string; verb: string }): Promise<number> {
+/** A typed-wrong local name asks the service, so a verb on one named Thread says that may be what happened. */
+export const NAMED_THREAD_HINT = "An x_ name with no folder in this Space's _threads/ is read as a hosted id; for a local Thread, give its path.";
+const HINTED: ReadonlySet<HostedFailure> = new Set(["not_found", "signed_out", "offline", "unavailable"]);
+
+async function runHosted(output: Output, json: boolean, what: string, subject: "thread" | "vaults", work: Run, { retry, namesThread = false }: { retry?: { postId: string; verb: string }; namesThread?: boolean } = {}): Promise<number> {
   try {
     // Host mode without --token-fd: HostAuthRefusal, rethrown below as every remote command refuses.
     const config = hostedConfig(what);
@@ -267,14 +281,15 @@ async function runHosted(output: Output, json: boolean, what: string, subject: "
     const resend = retry && AMBIGUOUS.has(failure.state)
       ? ` The post may or may not have landed: resend with --post-id ${retry.postId}${retry.verb === "close" ? " --yes" : ""} and the same arguments; the service accepts an exact resend once.`
       : "";
+    const hint = namesThread && HINTED.has(failure.state) ? ` ${NAMED_THREAD_HINT}` : "";
     if (json) {
       process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: {
-        state: failure.state, message: failure.message + resend,
+        state: failure.state, message: failure.message + resend + hint,
         ...(failure.retryAfterMs !== undefined ? { retry_after_ms: failure.retryAfterMs } : {}),
         ...(retry ? { post_id: retry.postId } : {}),
       } }, null, 2) + "\n");
     }
-    output.error(`Error (${failure.state}): ${failure.message}${resend}`);
+    output.error(`Error (${failure.state}): ${failure.message}${resend}${hint}`);
     return 1;
   }
 }
@@ -359,7 +374,7 @@ export async function openVerb(output: Output, json: boolean, id: string, flags:
       [older && `Older: ideaspaces threads open ${id} --cursor ${older}`, `Newer: ideaspaces threads open ${id} --cursor ${follow}`, `Mark read: ideaspaces threads ack ${id} --cursor ${follow}`].filter(Boolean).join("\n"),
     ].join("\n\n");
     return { data: { schema: "ideaspaces.hosted-thread.page.v1", thread: h.thread, posts: rows, older_cursor: older, cursor: follow, refresh, has_more: hasMore }, text };
-  });
+  }, { namesThread: true });
 }
 
 export async function postVerb(output: Output, json: boolean, id: string, flags: Record<string, string | boolean>): Promise<number> {
@@ -373,7 +388,7 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
   const name = singleLine(flags, "name", false);
   const summary = singleLine(flags, "summary", false);
   const msgId = postId(flags);
-  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...(name ? { name } : {}), ...(summary ? { summary } : {}), ...hostedMap(flags) }, body);
+  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...(name ? { name } : {}), ...(summary ? { summary } : {}), ...hostedMap(flags), ...hostedTags(flags) }, body);
   const parsed = parseThreadPost(note, "reply.md");
   if (!(parsed.status === "valid" && parsed.post.id === msgId && parsed.post.kind === "post" && parsed.post.inReplyTo.length > 0 && parsed.post.body.trim())) {
     throw new HostedError("invalid_request", "The reply Note did not validate; check --reply-to, --name, --summary and --message.");
@@ -382,7 +397,7 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
     const posted = postOf(await appendHostedThreadPost(config, id, note), id);
     requireValue(posted.id === msgId);
     return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `Posted ${posted.id} as seq ${posted.seq} in ${id} (${posted.author}).` };
-  }, { postId: msgId, verb: "post" });
+  }, { retry: { postId: msgId, verb: "post" }, namesThread: true });
 }
 
 export async function newVerb(output: Output, json: boolean, flags: Record<string, string | boolean>): Promise<number> {
@@ -394,7 +409,7 @@ export async function newVerb(output: Output, json: boolean, flags: Record<strin
   const summary = singleLine(flags, "summary", true)!;
   const body = messageBody(flags);
   const msgId = postId(flags);
-  const note = buildNote({ id: msgId, kind: "post", name, summary, ...hostedMap(flags) }, body);
+  const note = buildNote({ id: msgId, kind: "post", name, summary, ...hostedMap(flags), ...hostedTags(flags) }, body);
   const parsed = parseThreadPost(note, "opening.md");
   if (!(parsed.status === "valid" && parsed.post.id === msgId && parsed.post.inReplyTo.length === 0)) {
     throw new HostedError("invalid_request", "The opening Note did not validate; check --name, --summary and --message.");
@@ -405,7 +420,7 @@ export async function newVerb(output: Output, json: boolean, flags: Record<strin
     const opening = postOf(raw, raw.thread_id);
     requireValue(opening.id === msgId && opening.seq === 1);
     return { data: { schema: "ideaspaces.hosted-thread.new.v1", thread_id: raw.thread_id, post: opening }, text: `Opened ${raw.thread_id}: ${name}` };
-  }, { postId: msgId, verb: "new" });
+  }, { retry: { postId: msgId, verb: "new" } });
 }
 
 /** Lifecycle is an immutable Note on /threads, not an exchange management route. */
@@ -423,7 +438,7 @@ export async function lifecycleVerb(output: Output, json: boolean, id: string, v
     const posted = postOf(await appendHostedThreadPost(config, id, note), id);
     requireValue(posted.id === msgId);
     return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `${verb === "close" ? "Closed" : "Renamed"} ${id} (${posted.id}).` };
-  }, { postId: msgId, verb });
+  }, { retry: { postId: msgId, verb }, namesThread: true });
 }
 
 export async function ackVerb(output: Output, json: boolean, id: string, flags: Record<string, string | boolean>): Promise<number> {

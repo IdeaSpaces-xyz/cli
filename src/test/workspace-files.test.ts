@@ -192,7 +192,7 @@ it("defaults navigation/ls with omitted path to . while unscoped search tools sk
   expect(ws.file_coordinates[dir]).toEqual({ root: dir, path: "", root_kind: "repo", kind: "directory" });
 });
 
-it("harvests mark and the standard work kinds as Thread writes", () => {
+it("harvests mark and the other kinds as Thread writes", () => {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "workspace-thread-kinds-"))); dirs.push(dir);
   execFileSync("git", ["init", "-q", dir]);
   mkdirSync(join(dir, "_agent"));
@@ -203,8 +203,8 @@ it("harvests mark and the standard work kinds as Thread writes", () => {
   const opening = run("new", "kinds", "--about", "Kinds").opening_post_id;
   const posts = [
     run("post", "kinds", "--kind", "mark", "--mark", "claimed", "--reply-to", opening, "--message", "Claimed", "--author", "Probe"),
-    run("post", "kinds", "--kind", "decision", "--message", "Decided", "--author", "Probe"),
-    run("post", "kinds", "--kind", "delivery", "--message", "Delivered", "--author", "Probe"),
+    run("post", "kinds", "--kind", "snapshot", "--message", "Where it stands", "--author", "Probe"),
+    run("post", "kinds", "--kind", "reframe", "--message", "A new frame", "--author", "Probe"),
   ];
   const ws = harvestLocalFiles(
     posts.map((post) => ({ name: "is_threads", args: { action: "post", path: "kinds" }, result: { content: [{ type: "text", text: JSON.stringify(post) }] }, isError: false })),

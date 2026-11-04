@@ -3,10 +3,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
+import { PERSON_READER, readerCursorDirectory } from "./thread-recent.js";
 import { checkPostLinks } from "./post-links.js";
 
 const MAX_POST = 1024 * 1024;
@@ -152,6 +153,19 @@ export function resolveLocalThread(input: string, cwd = process.cwd()): string {
   const dir = safeDirectory(path);
   if (dirname(dir) !== base) throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
   return dir;
+}
+
+/**
+ * True when `value` means a Thread on the service here. A hosted id is opaque, so its grammar alone
+ * cannot tell it from an older local `x_notes`: a folder of exactly that name stays local. Creation
+ * never mints such a name, so a service id only loses to a folder someone put there by hand.
+ */
+export function isHostedThreadTarget(value: string, cwd = process.cwd()): boolean {
+  if (!HOSTED_THREAD_ID.test(value)) return false;
+  let base: string;
+  try { base = threadsDirectory(cwd); }
+  catch (error) { if (error instanceof NoAgreementError) return true; throw error; }
+  return !lexists(join(base, value));
 }
 
 /** A Thread's own Agreement is optional for reading and posting: an absent one
@@ -436,6 +450,16 @@ export function validateThreadMomentMap(input: unknown): void {
   }
 }
 
+/** Tags are a post's labels in either location, so both writers refuse the same values. */
+export function validateTags(tags: readonly string[]): void {
+  if (new Set(tags).size > 20) throw new Error("Tags are limited to 20 distinct values per post.");
+  for (const tag of tags) {
+    if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
+      throw new Error("--tags must contain non-empty values of at most 200 characters without newlines.");
+    }
+  }
+}
+
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
@@ -456,14 +480,7 @@ export function appendPost(dir: string, options: {
   for (const value of [options.name, options.summary, options.author]) {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
   }
-  if (options.tags !== undefined) {
-    if (new Set(options.tags).size > 20) throw new Error("Tags are limited to 20 distinct values per post.");
-    for (const tag of options.tags) {
-      if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
-        throw new Error("--tags must contain non-empty values of at most 200 characters without newlines.");
-      }
-    }
-  }
+  if (options.tags !== undefined) validateTags(options.tags);
   validateMarkOptions(options.kind, options.mark, options.replyTo);
   if (options.attachedTo !== undefined && thread.allPosts.length) throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
   const byId = new Map(thread.allPosts.map((post) => [post.id, post]));
@@ -530,13 +547,13 @@ export function appendPost(dir: string, options: {
   return { post: parsed.post, path, warnings };
 }
 
-function cursorPath(thread: LocalThread): string {
+function cursorPath(thread: LocalThread, reader = PERSON_READER): string {
   const key = createHash("sha256").update(thread.path).digest("hex");
-  return join(homedir(), ".ideaspaces", "cursors", `${key}.json`);
+  return join(readerCursorDirectory(reader) ?? join(homedir(), ".ideaspaces", "cursors"), `${key}.json`);
 }
 
-export function readCursor(thread: LocalThread): Set<string> {
-  const path = cursorPath(thread);
+export function readCursor(thread: LocalThread, reader = PERSON_READER): Set<string> {
+  const path = cursorPath(thread, reader);
   if (existsSync(dirname(path)) && lstatSync(dirname(path)).isSymbolicLink()) throw new Error("Refusing symlink local cursor directory.");
   if (!existsSync(path)) return new Set();
   const data: unknown = JSON.parse(safeFile(path));
@@ -545,10 +562,10 @@ export function readCursor(thread: LocalThread): Set<string> {
   return new Set((data as { seen: string[] }).seen);
 }
 
-export function acknowledge(thread: LocalThread, posts: ThreadPost[]): void {
-  const seen = readCursor(thread);
+export function acknowledge(thread: LocalThread, posts: ThreadPost[], reader = PERSON_READER): void {
+  const seen = readCursor(thread, reader);
   for (const post of posts) seen.add(post.id);
-  const path = cursorPath(thread);
+  const path = cursorPath(thread, reader);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   if (lstatSync(dirname(path)).isSymbolicLink()) throw new Error("Refusing symlink local cursor directory.");
   const tmp = `${path}.${randomUUID()}.tmp`;

@@ -134,7 +134,7 @@ describe("threads list --hosted", () => {
     expect(await threads(["list"], { hosted: true, cursor: foreign })).toBe(1);
     expect(json().error.state).toBe("invalid_request");
     expect(calls).toEqual([]);
-    serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ thread_id: "x_short", name: "Bad" }], next_cursor: null } }) });
+    serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ thread_id: "x_bad/id", name: "Bad" }], next_cursor: null } }) });
     expect(await threads(["list"], { hosted: true })).toBe(1);
     expect(json().error.state).toBe("invalid_response");
   });
@@ -146,7 +146,24 @@ describe("threads list --hosted", () => {
   });
 });
 
-describe("threads open x_<32hex>", () => {
+describe("threads open x_<id>", () => {
+  it("says a typed x_ name may be what reached the service, on the failures it can cause", async () => {
+    serve({ [`GET /api/v1/threads/${T}`]: [404, "thread-404"] });
+    let stderr = "";
+    const write = process.stderr.write;
+    process.stderr.write = ((s: string) => { stderr += s; return true; }) as typeof write;
+    try { expect(await threads(["open", T], {}, TEXT_FLAGS)).toBe(1); } finally { process.stderr.write = write; }
+    expect(stderr).toContain("not_found");
+    expect(stderr).toContain("give its path");
+  });
+
+  it("treats a hosted id as opaque: its form and length never decide, only x_ and the characters", async () => {
+    const minted = "x_Ab-9_Z-a-form-no-client-has-seen-and-longer-than-any-minted-today-0123456789";
+    serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ ...fixture("threads-page-1").threads[0], thread_id: minted }], next_cursor: null } }) });
+    expect(await threads(["list"], { hosted: true })).toBe(0);
+    expect(json().threads[0].id).toBe(minted);
+  });
+
   it("reads the head and the latest page; author and date are the service's, not the Note's", async () => {
     serve({ [`GET /api/v1/threads/${T}`]: "thread-head", [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest" });
     expect(await threads(["open", T], { limit: "2" })).toBe(0);
@@ -294,6 +311,27 @@ describe("threads new --hosted and threads ack", () => {
     expect(json().error.message).toContain("--summary is required");
   });
 
+  it("writes a label as tags in the Note, and refuses a kind or a bad tag before calling", async () => {
+    serve({ [`POST /api/v1/threads/${T}/posts`]: "post-created", "POST /api/v1/threads": "thread-opened" });
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "Shipped", tags: "delivery, ux,delivery", "post-id": "msg_cli_fixed" })).toBe(0);
+    expect(calls[0].body).toContain("tags:\n  - delivery\n  - ux\n");
+    calls.length = 0;
+    expect(await threads(["new"], { hosted: true, name: "n", summary: "s", message: "x", tags: "dispatch", "post-id": "msg_cli_opening" })).toBe(0);
+    expect(JSON.parse(calls[0].body!).note).toContain("tags:\n  - dispatch\n");
+    calls.length = 0;
+    for (const tags of ["", "ok,", "x".repeat(201), Array.from({ length: 21 }, (_, i) => `t${i}`).join(",")]) {
+      expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", tags })).toBe(1);
+      expect(json().error).toMatchObject({ state: "invalid_request", message: expect.stringMatching(/tags/i) });
+    }
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", tags: true })).toBe(1);
+    expect(json().error.message).toContain("--tags requires a value");
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", kind: "delivery" })).toBe(1);
+    expect(json().error.message).toContain("a label goes in --tags");
+    expect(calls).toEqual([]);
+    expect(await threads(["send", "@ada"], { name: "n", summary: "s", message: "x", tags: "question", "post-id": "msg_cli_opening" })).toBe(0);
+    expect(JSON.parse(calls[0].body!).note).toContain("tags:\n  - question\n");
+  });
+
   it("acks by cursor or by seq, exactly one", async () => {
     serve({ [`GET /api/v1/threads/${T}`]: "thread-head", [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest", [`POST /api/v1/threads/${T}/ack`]: "ack" });
     expect(await threads(["open", T], { limit: "2" })).toBe(0);
@@ -306,7 +344,7 @@ describe("threads new --hosted and threads ack", () => {
     const sent = calls.length;
     expect(await threads(["ack", T], {})).toBe(1);
     expect(await threads(["ack", T], { cursor, seq: "4" })).toBe(1);
-    expect(await threads(["ack", "x_short"], { seq: "1" })).toBe(1); // malformed id refuses before any request
+    expect(await threads(["ack", "x_bad.id"], { seq: "1" })).toBe(1); // malformed id refuses before any request
     expect(calls.length).toBe(sent);
   });
 });

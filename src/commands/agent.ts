@@ -1,4 +1,3 @@
-import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 import { parseFrontmatter } from "@ideaspaces/protocol";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
@@ -13,7 +12,7 @@ import { loadMapNote } from "../local/map-note.js";
 import { mapContextDir } from "../local/space-map.js";
 import { enteredThroughRoot, isContained } from "../local/contained-path.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
-import { appendPost } from "../local/threads.js";
+import { appendPost, isHostedThreadTarget } from "../local/threads.js";
 import { formatMapAgentsText, projectMapAgents } from "../local/map-agents.js";
 import { agentRunCapabilities, formatAgentRunCapabilities } from "../local/agent-capabilities.js";
 import {
@@ -194,7 +193,7 @@ async function cmdRun(
       output.error("A local Thread launch requires --thread <path> --thread-map <authored-note> --thread-member <ordinal>; a path alone has no pin. Use `threads open <path> --map <note> --member <ordinal>` to check the authored selection.");
       return 1;
     }
-    if (HOSTED_THREAD_ID.test(path)) {
+    if (isHostedThreadTarget(path)) {
       if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
         output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
         return 1;
