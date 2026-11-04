@@ -5,6 +5,8 @@ import { createOutput } from "./output.js";
 import { STATUS_SECTIONS } from "./commands/status.js";
 import { parseArgs } from "./argv.js";
 import { takeTokenFd } from "./host-token-flag.js";
+import { afterCommand } from "./update-check.js";
+import { CLI_VERSION } from "./version.js";
 
 // ─── Main ──────────────────────────────────────────────────────────
 
@@ -57,6 +59,11 @@ if (global.gitBin) {
   process.env.IDEASPACES_GIT_BIN = global.gitBin;
 }
 
+if (!command && (flags.version !== undefined || flags.v !== undefined)) {
+  process.stdout.write(global.json ? `${JSON.stringify({ version: CLI_VERSION })}\n` : `${CLI_VERSION}\n`);
+  process.exit(0);
+}
+
 if (!command || global.help && !command) {
   printHelp();
   process.exit(0);
@@ -103,9 +110,11 @@ try {
   // Before the command does anything: read the host's token once and close the fd.
   takeTokenFd(global.tokenFd, cmd.name);
   const exitCode = await cmd.run(resolvedArgs, flags, global);
+  afterCommand({ command: cmd.name, json: global.json, quiet: global.quiet });
   process.exit(exitCode);
 } catch (err) {
   const output = createOutput(global);
   const exitCode = handleError(err, output, { json: global.json, command: cmd.name });
+  afterCommand({ command: cmd.name, json: global.json, quiet: global.quiet });
   process.exit(exitCode);
 }

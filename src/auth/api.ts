@@ -1,6 +1,7 @@
 import { resolveSessionConfig, refuseSession, SessionAuthError } from "./client-session.js";
 import { HostAuthRefusal, isHostAuth } from "./credentials.js";
 import { hostToken } from "./host-token.js";
+import { outOfDateMessage } from "../update-check.js";
 
 /**
  * Thin fetch helpers for the IdeaSpaces server API.
@@ -185,10 +186,7 @@ export class UnauthorizedError extends Error {
  * afternoon of "404 on every repo". */
 export class RetiredEndpointError extends Error {
   constructor(method: string, path: string, body: string) {
-    super(
-      `${method} ${path} → 410: ${retiredEndpointMessage(body)}\n` +
-        "This CLI is out of date. Update the ideaspaces CLI, or the plugin that bundles it, and retry.",
-    );
+    super(`${method} ${path} → 410: ${retiredEndpointMessage(body)}\n${outOfDateMessage()}`);
     this.name = "RetiredEndpointError";
   }
 }

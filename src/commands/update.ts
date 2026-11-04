@@ -47,6 +47,7 @@ export const updateCommand: CommandDef = {
   name: "update",
   description: "Preview or apply three-way source updates to a fork — what `integrate` runs for a fork",
   usage: "ideaspaces update [--yes]",
+  help: "To update this CLI itself, run: ideaspaces upgrade",
   examples: [
     "ideaspaces update       # preview source changes and conflicts",
     "ideaspaces update --yes # apply non-conflicting source changes",

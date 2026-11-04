@@ -7,12 +7,16 @@ import type { GlobalFlags } from "../types.js";
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
 const HUMAN_GLOBAL: GlobalFlags = { json: false, quiet: false, yes: false, help: false };
 
+const NPM_INSTALL_FIXTURE = { kind: "npm" as const, path: "/usr/local/lib/node_modules/@ideaspaces/cli/bundle/ideaspaces.js", owner: "/usr/local/lib" };
+const CURRENT_CLI = { version: "0.8.0", install: NPM_INSTALL_FIXTURE, latest: "0.8.0" };
+
 function runtime(overrides: Partial<Parameters<typeof makeDoctorCommand>[0]> = {}) {
   return {
     platform: "darwin",
     node: () => ({ state: "usable" as const, version: "v22.14.0" }),
     git: () => ({ state: "usable" as const, version: "git version 2.48.0" }),
     auth: () => null,
+    cli: () => CURRENT_CLI,
     ...overrides,
   };
 }
@@ -56,6 +60,17 @@ describe("ideaspaces doctor", () => {
           exit_code: null,
           fix: "Run `ideaspaces login` to enable publish, sync, and sharing.",
           api_url: null,
+        },
+        cli: {
+          state: "current",
+          required: false,
+          ok: true,
+          version: "0.8.0",
+          detail: null,
+          exit_code: null,
+          fix: null,
+          latest: "0.8.0",
+          install: "npm",
         },
       },
     });
@@ -156,6 +171,7 @@ describe("ideaspaces doctor", () => {
 
   it("keeps absent Git distinct from unusable Git", () => {
     const report = buildDoctorReport({
+      cli: CURRENT_CLI,
       platform: "win32",
       node: { state: "usable", version: "v20.19.0" },
       git: { state: "absent", hint: GIT_MISSING_HINT },
@@ -176,6 +192,7 @@ describe("ideaspaces doctor", () => {
       { state: "unsupported" as const, version: "v18.20.0", major: 18 },
     ]) {
       const report = buildDoctorReport({
+        cli: CURRENT_CLI,
         platform: "linux",
         node,
         git: { state: "usable", version: "git version 2.43.0" },
@@ -226,6 +243,7 @@ describe("ideaspaces doctor", () => {
 
   it("formats a ready report without repair lines for required checks", () => {
     const report = buildDoctorReport({
+      cli: CURRENT_CLI,
       platform: "linux",
       node: { state: "usable", version: "v20.19.0" },
       git: { state: "usable", version: "git version 2.43.0" },
@@ -234,5 +252,55 @@ describe("ideaspaces doctor", () => {
 
     expect(formatDoctorReport(report)).toContain("Ready for local IdeaSpaces.");
     expect(formatDoctorReport(report)).not.toContain("Fix:");
+  });
+
+  describe("the CLI check", () => {
+    it("says when the CLI is behind, with the command for this install, and stays ready", async () => {
+      const command = makeDoctorCommand(runtime({ cli: () => ({ ...CURRENT_CLI, latest: "0.9.0" }) }));
+
+      const human = await captureStdout(() => command.run([], {}, HUMAN_GLOBAL));
+      const { exit, json } = await captureJson(() => command.run([], {}, JSON_GLOBAL));
+
+      expect(human.out).toContain("○ CLI: 0.8.0");
+      expect(human.out).toContain("Behind: the latest is 0.9.0.");
+      expect(human.out).toContain("Fix: Run `ideaspaces upgrade`.");
+      expect(exit).toBe(0);
+      expect(json).toMatchObject({ ok: true, checks: { cli: { state: "behind", ok: false, required: false, latest: "0.9.0" } } });
+    });
+
+    it("names the plugin route for a plugin copy", () => {
+      const install = { kind: "plugin" as const, path: "/p/cli/bundle/ideaspaces.js", owner: "/p" };
+      const report = buildDoctorReport({
+        cli: { version: "0.8.0", install, latest: "0.9.0" },
+        platform: "darwin",
+        node: { state: "usable", version: "v22.14.0" },
+        git: { state: "usable", version: "git version 2.48.0" },
+        auth: null,
+      });
+      expect(report.checks.cli.fix).toContain("claude plugin update ideaspaces@ideaspaces-xyz");
+    });
+
+    it("says it did not compare when the latest is unknown", () => {
+      const report = buildDoctorReport({
+        cli: { ...CURRENT_CLI, latest: null },
+        platform: "darwin",
+        node: { state: "usable", version: "v22.14.0" },
+        git: { state: "usable", version: "git version 2.48.0" },
+        auth: null,
+      });
+      expect(report.checks.cli).toMatchObject({ state: "unchecked", ok: false, fix: null });
+      expect(report.ok).toBe(true);
+    });
+
+    it("a version newer than the registry is current", () => {
+      const report = buildDoctorReport({
+        cli: { version: "0.8.0", install: NPM_INSTALL_FIXTURE, latest: "0.6.0" },
+        platform: "darwin",
+        node: { state: "usable", version: "v22.14.0" },
+        git: { state: "usable", version: "git version 2.48.0" },
+        auth: null,
+      });
+      expect(report.checks.cli).toMatchObject({ state: "current", ok: true });
+    });
   });
 });

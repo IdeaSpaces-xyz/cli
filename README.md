@@ -10,7 +10,7 @@ A Vault coordinates the wider work. A **Space** is a lens: a view and a boundary
 
 Local and remote Spaces are separate and update independently. Import and export make copies, not a sync connection. The CLI's publish, push, pull, and clone commands work on Repos, not Space sync. Older examples and filenames here still use "space" for a Repo.
 
-Nothing leaves your machine until you publish, push, or share it.
+Nothing of yours leaves your machine until you publish, push, or share it. The one thing the CLI does on its own is a daily check for a new version, which you can [turn off](#stay-current).
 
 ## Install
 
@@ -18,7 +18,21 @@ Nothing leaves your machine until you publish, push, or share it.
 npm install -g @ideaspaces/cli
 ```
 
-Node 20+ and git. `ideaspaces doctor` checks both.
+Node 20+ and git. `ideaspaces status doctor` checks both, and says when this CLI is behind.
+
+## Stay current
+
+```sh
+ideaspaces --version          # what you have
+ideaspaces upgrade --check    # what is out, changing nothing
+ideaspaces upgrade            # update this CLI
+```
+
+`upgrade` finds how this copy was installed. An npm global install is updated in place. Any other copy is left alone, and the command names what to run: Idea Explorer, the IdeaSpaces plugin and the Pi package each carry their own copy and update on their own route. `ideaspaces update` is a different command: it brings source changes into a fork.
+
+Once a day, a global install at a terminal checks the npm registry in the background. If a newer version is out, it prints one line on stderr after a command. It stays silent with `--json` or `--quiet`, when either output is piped, in CI, and in an app or agent session. The check is one anonymous read of the package's public version, sending nothing about your work. `IDEASPACES_NO_UPDATE_CHECK=1` (or `NO_UPDATE_NOTIFIER=1`) turns off the notice and the check. `status doctor` and the out-of-date message show what the last check found and make no call of their own; `upgrade` and `--check` ask the registry because you asked them to.
+
+The daily check only ever reads `registry.npmjs.org`. `upgrade` and `--check` also follow `npm_config_registry` when you set it in the environment. None of them read `.npmrc`, so behind a mirror the version they report can differ from what `npm install` gives.
 
 ## Five minutes
 
@@ -114,6 +128,7 @@ be coordinated; merging this source does not update installed plugins.
 | Look around | `navigate`, `look`, `status`, `inspect`, `ls`, `search`, `skills`, `map`, `times` |
 | Write things down | `write`, `commit`, `change`, `node` |
 | Start, bring home | `create`, `get` (`clone`, `fork`, `link`), `clones`, `forget` |
+| Stay current | `--version`, `upgrade` (`--check`), `status doctor` |
 | Share and sync | `login`, `status account` (`whoami`), `publish`, `share`, `push`, `integrate` (`pull`, `update`), `sync`, `repos`, `vaults`, `catalog` |
 | Talk | `conversation`, `conversations`, `threads`, `spaces`, `agents`, `agent list`, `agent runs`, `agent record` |
 | Run a local agent | `agent run` (`--runtime=pi` or `--runtime=claude`, `--model`, `--parent`, pinned local `--thread`), `agent runs` (query run records), `agent record` (append/update run records), `agent capabilities`, `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
@@ -186,6 +201,7 @@ Pick `claude` to continue a session you started in Claude Code; the same session
 | `~/.ideaspaces/installs/` | Stable non-secret per-service CLI install identities (kept on logout) |
 | `~/.ideaspaces/spaces.json` | Known spaces and remotes |
 | `~/.ideaspaces/cursors/` | Private per-reader local Thread acknowledgements |
+| `~/.ideaspaces/update-check.json` | When the update check last ran and what it found |
 | `~/.pi/agent/auth.json` | Local-agent model credentials |
 
 `IS_API_KEY` overrides stored credentials. `IS_API_URL` selects an API origin; stored sessions are bound to their original service. `IDEASPACES_GIT_BIN` (or `--git-bin <path>`) names an explicit Git executable for environments with no Git on PATH. `IDEASPACES_PI_EXTENSIONS` lists extension paths for direct `conversation send --local` (not `agent run` child authority). `CLAUDE_CONFIG_DIR` relocates the Claude Code sessions `--runtime=claude` reads, as it does for Claude Code itself.

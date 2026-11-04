@@ -28,6 +28,7 @@ import { integrateCommand } from "./commands/integrate.js";
 import { clonesCommand } from "./commands/clones.js";
 import { forkCommand } from "./commands/fork.js";
 import { updateCommand } from "./commands/update.js";
+import { updateCheckCommand, upgradeCommand } from "./commands/upgrade.js";
 import { linkCommand } from "./commands/link.js";
 import { forgetCommand } from "./commands/forget.js";
 import { makeConversationsCommand } from "./commands/conversations.js";
@@ -87,6 +88,7 @@ const topLevel: CommandDef[] = [
   cloneCommand,
   forkCommand,
   updateCommand,
+  upgradeCommand,
   clonesCommand,
   linkCommand,
   forgetCommand,
@@ -124,10 +126,13 @@ const power: CommandDef[] = [
 
 // Hidden compatibility refusals, not active subscription capabilities.
 const retiredCommands = [followCommand, unfollowCommand];
+// Internal: never listed, only started by the CLI itself.
+const hiddenCommands = [updateCheckCommand];
 
 export function findCommand_(name: string): CommandDef | undefined {
   return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name)
-    ?? retiredCommands.find((c) => c.name === name);
+    ?? retiredCommands.find((c) => c.name === name)
+    ?? hiddenCommands.find((c) => c.name === name);
 }
 
 export function printHelp(): void {
@@ -146,6 +151,7 @@ export function printHelp(): void {
   lines.push("  --quiet          Suppress non-essential output");
   lines.push("  --yes            Apply the plan (create, publish, share visibility)");
   lines.push("  --help           Show help");
+  lines.push("  --version        Print this CLI's version");
   lines.push("  --token-fd <n>   Host-run only (IDEASPACES_AUTH=host): read the app's {api_url, access_token} once from inherited fd n");
   lines.push("", "Run: ideaspaces <command> --help for command-specific help.");
   process.stderr.write(lines.join("\n") + "\n");

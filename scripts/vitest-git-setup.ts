@@ -6,6 +6,8 @@ import { join } from "node:path";
 let dir: string;
 let previousGlobal: string | undefined;
 let previousSystem: string | undefined;
+// No test reaches the npm registry by accident: update-check tests inject their own answers.
+process.env.IDEASPACES_NO_UPDATE_CHECK = "1";
 beforeEach(() => {
   previousGlobal = process.env.GIT_CONFIG_GLOBAL;
   previousSystem = process.env.GIT_CONFIG_SYSTEM;

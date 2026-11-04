@@ -2,7 +2,10 @@ import { spawnSync } from "node:child_process";
 import { isHostAuth, peekConfig } from "../auth/credentials.js";
 import { gitAvailability } from "../git.js";
 import type { GitAvailability } from "../git.js";
+import { detectInstall, updateAdvice, type Install, type InstallKind } from "../install-kind.js";
 import { createOutput } from "../output.js";
+import { isBehind, knownLatestForCompare } from "../update-check.js";
+import { CLI_VERSION } from "../version.js";
 import type { CommandDef } from "../types.js";
 
 const MINIMUM_NODE_MAJOR = 20;
@@ -28,6 +31,19 @@ export interface RemoteAuthCheck extends DoctorCheck {
   api_url: string | null;
 }
 
+export interface CliCheck extends DoctorCheck {
+  state: "current" | "behind" | "unchecked";
+  latest: string | null;
+  install: InstallKind;
+}
+
+export interface CliAvailability {
+  version: string;
+  install: Install;
+  /** The latest published version as of the last check, or null when there is no usable check. */
+  latest: string | null;
+}
+
 export interface DoctorReport {
   schema_version: 1;
   ok: boolean;
@@ -36,6 +52,7 @@ export interface DoctorReport {
     node: DoctorCheck;
     git: DoctorCheck;
     remote_auth: RemoteAuthCheck;
+    cli: CliCheck;
   };
 }
 
@@ -44,6 +61,7 @@ export interface DoctorRuntime {
   node: () => NodeAvailability;
   git: () => GitAvailability;
   auth: () => { apiUrl: string; apiKey: string } | null;
+  cli: () => CliAvailability;
 }
 
 /** Probe the `node` executable on PATH, not the runtime already executing this command. */
@@ -86,6 +104,37 @@ export function nodeAvailability(): NodeAvailability {
   return { state: "usable", version };
 }
 
+/** This CLI against what the daily check last found. A diagnostic makes no network call of its own. */
+export function cliAvailability(): CliAvailability {
+  const install = detectInstall();
+  return { version: CLI_VERSION, install, latest: install.kind === "app" ? null : knownLatestForCompare() };
+}
+
+function cliCheck(cli: CliAvailability): CliCheck {
+  const base = { required: false, version: cli.version, exit_code: null, latest: cli.latest, install: cli.install.kind };
+  if (cli.latest === null) {
+    return {
+      ...base,
+      state: "unchecked",
+      ok: false,
+      detail: cli.install.kind === "app"
+        ? updateAdvice(cli.install).text
+        : "No recent update check to compare with. Run `ideaspaces upgrade --check`.",
+      fix: null,
+    };
+  }
+  if (isBehind(cli.version, cli.latest)) {
+    return {
+      ...base,
+      state: "behind",
+      ok: false,
+      detail: `Behind: the latest is ${cli.latest}.`,
+      fix: updateAdvice(cli.install).text.replace(/^Run: (.+)$/, "Run `$1`."),
+    };
+  }
+  return { ...base, state: "current", ok: true, detail: null, fix: null };
+}
+
 function nodeFix(platform: string, state: NodeAvailability["state"]): string {
   const action = state === "unusable" ? "Repair or reinstall" : "Install";
   if (platform === "darwin") {
@@ -123,6 +172,7 @@ export function buildDoctorReport(input: {
   node: NodeAvailability;
   git: GitAvailability;
   auth: { apiUrl: string } | null;
+  cli: CliAvailability;
 }): DoctorReport {
   const node: DoctorCheck = (() => {
     switch (input.node.state) {
@@ -240,7 +290,7 @@ export function buildDoctorReport(input: {
     schema_version: 1,
     ok: node.ok && git.ok,
     platform: input.platform,
-    checks: { node, git, remote_auth: remoteAuth },
+    checks: { node, git, remote_auth: remoteAuth, cli: cliCheck(input.cli) },
   };
 }
 
@@ -259,6 +309,7 @@ export function formatDoctorReport(report: DoctorReport): string {
     ...formatCheck("Node", report.checks.node),
     ...formatCheck("Git", report.checks.git),
     ...formatCheck("Remote auth", report.checks.remote_auth),
+    ...formatCheck("CLI", report.checks.cli),
     "",
     report.ok ? "Ready for local IdeaSpaces." : "Required dependencies need attention.",
   ];
@@ -270,12 +321,13 @@ const defaultRuntime: DoctorRuntime = {
   node: nodeAvailability,
   git: gitAvailability,
   auth: peekConfig,
+  cli: cliAvailability,
 };
 
 export function makeDoctorCommand(runtime: DoctorRuntime = defaultRuntime): CommandDef {
   return {
     name: "doctor",
-    description: "Check Node, Git, and remote-auth readiness — legacy name for `status doctor`",
+    description: "Check Node, Git, remote auth and whether this CLI is behind — legacy name for `status doctor`",
     usage: "ideaspaces status doctor [--json]  (legacy: ideaspaces doctor)",
     examples: ["ideaspaces status doctor", "ideaspaces status doctor --json"],
     async run(_args, _flags, global) {
@@ -284,6 +336,7 @@ export function makeDoctorCommand(runtime: DoctorRuntime = defaultRuntime): Comm
         node: runtime.node(),
         git: runtime.git(),
         auth: runtime.auth(),
+        cli: runtime.cli(),
       });
       createOutput(global).result(report, formatDoctorReport(report));
       return report.ok ? 0 : 1;

@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { configDir } from "./config-dir.js";
+import { outOfDateMessage } from "../update-check.js";
 import { deleteCredentials, HostAuthRefusal, isHostAuth, loadStoredCredentials, saveCredentials, withCredentialsLock, type StoredCredentials } from "./credentials.js";
 
 export interface SessionConfig { apiUrl: string; apiKey?: string; sessionId?: string }
@@ -66,6 +67,8 @@ async function sessionRequest(apiUrl: string, action: "token" | "revoke", params
         }
       }
       await response.body?.cancel();
+      // A retired route spent nothing, and a person told to check their connection would never find this.
+      if (response.status === 410) throw new RefreshUnspent(outOfDateMessage());
       if (action === "token" && [400, 401, 403].includes(response.status)) throw new SessionAuthError();
       throw new Error(`IdeaSpaces ${action === "token" ? "token exchange" : "sign-out"} failed (HTTP ${response.status}). Try again later.`);
     }

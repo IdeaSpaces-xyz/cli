@@ -66,6 +66,16 @@ try {
     throw new Error("Installed CLI did not render the expected help output.");
   }
 
+  // The app and the plugin carry the bundle alone: the version has to be inside it.
+  const version = spawnSync(executablePath, ["--version"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  if (version.error) throw version.error;
+  if (version.status !== 0 || version.stdout.trim() !== pkg.version) {
+    throw new Error(`Installed CLI reported "${version.stdout.trim()}" for --version, expected ${pkg.version}.`);
+  }
+
   // `status <section>` is the canonical spelling; its --help must reach the section.
   const sectionHelp = spawnSync(executablePath, ["status", "account", "--help"], {
     encoding: "utf8",

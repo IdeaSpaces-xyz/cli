@@ -1,7 +1,8 @@
 import * as esbuild from "esbuild";
-import { chmod } from "node:fs/promises";
+import { chmod, readFile } from "node:fs/promises";
 
 const outfile = "bundle/ideaspaces.js";
+const { version } = JSON.parse(await readFile("package.json", "utf8"));
 
 await esbuild.build({
   entryPoints: ["dist/main.js"],
@@ -17,6 +18,8 @@ await esbuild.build({
     js: "#!/usr/bin/env node\nimport { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);",
   },
   external: [],
+  // The app and the plugin carry this file alone, so the version has to live inside it.
+  define: { __IDEASPACES_CLI_VERSION__: JSON.stringify(version) },
 });
 
 // npm strips invalid bin entries during publication. esbuild creates files as

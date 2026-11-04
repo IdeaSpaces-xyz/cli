@@ -30,6 +30,7 @@ import {
 } from "../auth/api.js";
 import { HostAuthRefusal, hostedConfig, isHostAuth, type HostedConfig } from "../auth/credentials.js";
 import type { Output } from "../output.js";
+import { outOfDateMessage } from "../update-check.js";
 
 const POST_ID = /^msg_[a-zA-Z0-9_-]{1,60}$/;
 const MAX_NOTE_BYTES = 32 * 1024; // the service refuses a larger Note (413)
@@ -71,6 +72,8 @@ const STATUS: Record<number, HostedFailure> = { 401: "expired", 403: "forbidden"
 function failureOf(error: unknown, subject: "thread" | "vaults"): HostedError {
   if (error instanceof HostedError) return error.message === error.state ? new HostedError(error.state, messages(error.state, subject), error.retryAfterMs) : error;
   if (error instanceof ApiStatusError) {
+    // A retired route. The state stays what hosts parse; the words say what fixes it.
+    if (error.status === 410) return new HostedError("unavailable", outOfDateMessage(), error.retryAfterMs);
     const state = STATUS[error.status] ?? "unavailable";
     let detail = "";
     if (state === "invalid_request") {
