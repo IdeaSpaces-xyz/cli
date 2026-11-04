@@ -571,3 +571,13 @@ it("does not switch mixed list to hosted-only or overwrite a send recipient", as
   expect(json().error.message).toContain("--recipients is not supported");
   expect(calls).toEqual([]);
 });
+
+it("default list without local rows uses the same named expired-session JSON contract", async () => {
+  const previous = process.cwd(); process.chdir(home);
+  serve({ "GET /api/v1/threads": () => ({ status: 401, body: { detail: "expired" } }) });
+  try {
+    expect(await threads(["list"])).toBe(1);
+    expect(json()).toMatchObject({ schema: "ideaspaces.hosted.error.v1", error: { state: "expired" } });
+    expect(json().error.message).toContain("ideaspaces login");
+  } finally { process.chdir(previous); }
+});

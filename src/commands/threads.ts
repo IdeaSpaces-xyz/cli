@@ -16,7 +16,7 @@ import {
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { HOSTED_THREAD_ID as HOSTED, hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
-import { ackVerb, hostedListPage, lifecycleVerb, HostedError, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
+import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
 
 export { threadFlagError } from "./thread-flags.js";
 
@@ -377,16 +377,16 @@ export const threadsCommand: CommandDef = {
             let cursor: string | undefined;
             const seen = new Set<string>();
             do {
-              if (seen.size >= 100) throw new Error("Hosted list exceeded 100 pages; use threads list --hosted with cursor paging. No complete Unread list is claimed.");
+              if (seen.size >= 100) throw new HostedError("invalid_response", "Hosted list exceeded 100 pages; use threads list --hosted with cursor paging. No complete Unread list is claimed.");
               const page = await hostedListPage(config, { limit: 200, ...(cursor ? { cursor } : {}) });
               hosted.push(...page.threads.filter((t: any) => !(newOnly || flags.unread) || t.unread_count > 0).map((t: any) => ({ ...t, source: "hosted" as const })));
               cursor = page.next_cursor ?? undefined;
-              if (cursor && seen.has(cursor)) throw new Error("Service repeated a Thread list cursor; listing is incomplete.");
+              if (cursor && seen.has(cursor)) throw new HostedError("invalid_response", "Service repeated a Thread list cursor; listing is incomplete.");
               if (cursor) seen.add(cursor);
             } while (cursor);
             hostedChecked = true;
           } catch (error) {
-            if (!local.length) throw error;
+            if (!local.length) throw hostedFailure(error);
             hostedError = error instanceof Error ? error.message : String(error);
             hosted = []; // Never render a partial account list alongside healthy local rows.
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -412,7 +412,7 @@ export const threadsCommand: CommandDef = {
         const hint = !config && !rest.length ? isHostAuth()
           ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools."
           : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...(hostedError ? { hosted_error: hostedError } : {}), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
+        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...(hostedError ? { hosted_error: hostedError } : {}), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (hostedError ? `\nHosted Threads unavailable: ${hostedError}` : "") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
       if (sub === "new") {
@@ -491,8 +491,7 @@ export const threadsCommand: CommandDef = {
 
         const since = str(flags, "since");
         if (flags.since !== undefined && !since) throw new Error("--since requires an ISO date or post id.");
-        if (flags.limit !== undefined || flags.cursor !== undefined) throw new HostedError("invalid_request", "--limit and --cursor on list require --hosted; use threads list <directory> for local-only listing.");
-        const newOnly = yes(flags, "new") || yes(flags, "unread");
+        const newOnly = yes(flags, "new");
         if (newOnly && since) throw new Error("Use either --new or --since, not both.");
         if (since && order === "newer") throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         if (postId && (newOnly || since || limit !== undefined || order)) throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");

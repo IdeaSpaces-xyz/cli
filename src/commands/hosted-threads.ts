@@ -85,6 +85,9 @@ function failureOf(error: unknown, subject: "thread" | "vaults"): HostedError {
   return new HostedError("invalid_response", messages("invalid_response", subject));
 }
 
+/** Default combined list shares the same named failure contract as explicit hosted verbs. */
+export function hostedFailure(error: unknown): HostedError { return failureOf(error, "thread"); }
+
 function requireValue(ok: unknown, state: HostedFailure = "invalid_response"): asserts ok {
   if (!ok) throw new HostedError(state);
 }

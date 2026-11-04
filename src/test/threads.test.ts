@@ -948,3 +948,18 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     expect(JSON.parse(text).hosted_checked).toBe(false);
   } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); }
 });
+
+it("keeps local surface/full open limit available independently of hosted list flags", async () => {
+  const root = fixture(); process.env.HOME = root;
+  const t = createThread("bounded", "Bounded", root);
+  appendPost(t.path, { body: "One", author: "Fixture" }); appendPost(t.path, { body: "Two", author: "Fixture" });
+  const previous = process.cwd(); process.chdir(root); const write = process.stdout.write; let out = "";
+  process.stdout.write = ((s: string) => { out += s; return true; }) as typeof write;
+  const global = { json: true, quiet: true, yes: false, help: false };
+  try {
+    for (const options of [{ limit: "1" }, { depth: "full", limit: "1" }]) {
+      out = ""; expect(await threadsCommand.run(["open", "bounded"], options, global)).toBe(0);
+      expect(JSON.parse(out).posts).toHaveLength(1);
+    }
+  } finally { process.stdout.write = write; process.chdir(previous); }
+});

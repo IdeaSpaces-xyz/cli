@@ -22850,6 +22850,9 @@ function failureOf(error, subject) {
     return new HostedError("signed_out", messages("signed_out", subject));
   return new HostedError("invalid_response", messages("invalid_response", subject));
 }
+function hostedFailure(error) {
+  return failureOf(error, "thread");
+}
 function requireValue(ok, state = "invalid_response") {
   if (!ok)
     throw new HostedError(state);
@@ -30546,19 +30549,19 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
             const seen = /* @__PURE__ */ new Set();
             do {
               if (seen.size >= 100)
-                throw new Error("Hosted list exceeded 100 pages; use threads list --hosted with cursor paging. No complete Unread list is claimed.");
+                throw new HostedError("invalid_response", "Hosted list exceeded 100 pages; use threads list --hosted with cursor paging. No complete Unread list is claimed.");
               const page = await hostedListPage(config, { limit: 200, ...cursor ? { cursor } : {} });
               hosted.push(...page.threads.filter((t) => !(newOnly || flags2.unread) || t.unread_count > 0).map((t) => ({ ...t, source: "hosted" })));
               cursor = page.next_cursor ?? void 0;
               if (cursor && seen.has(cursor))
-                throw new Error("Service repeated a Thread list cursor; listing is incomplete.");
+                throw new HostedError("invalid_response", "Service repeated a Thread list cursor; listing is incomplete.");
               if (cursor)
                 seen.add(cursor);
             } while (cursor);
             hostedChecked = true;
           } catch (error) {
             if (!local.length)
-              throw error;
+              throw hostedFailure(error);
             hostedError = error instanceof Error ? error.message : String(error);
             hosted = [];
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
@@ -30590,7 +30593,8 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
   ${"summary" in row ? row.summary : ""} \xB7 ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? isHostAuth() ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools." : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...hostedError ? { hosted_error: hostedError } : {}, local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `
+        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...hostedError ? { hosted_error: hostedError } : {}, local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (hostedError ? `
+Hosted Threads unavailable: ${hostedError}` : "") + (localWarnings ? `
 Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
@@ -30705,9 +30709,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         const since = str2(flags2, "since");
         if (flags2.since !== void 0 && !since)
           throw new Error("--since requires an ISO date or post id.");
-        if (flags2.limit !== void 0 || flags2.cursor !== void 0)
-          throw new HostedError("invalid_request", "--limit and --cursor on list require --hosted; use threads list <directory> for local-only listing.");
-        const newOnly = yes(flags2, "new") || yes(flags2, "unread");
+        const newOnly = yes(flags2, "new");
         if (newOnly && since)
           throw new Error("Use either --new or --since, not both.");
         if (since && order === "newer")
