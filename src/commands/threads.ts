@@ -356,16 +356,16 @@ export const threadsCommand: CommandDef = {
         if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("--limit must be a whole number from 1 to 500.");
         const root = threadBase();
         const reader = flags.cursor === undefined ? readerName(str(flags, "reader")) : undefined;
-        const result = reader ? recentForReader(root, threadsDirectory(), reader) : recentSince(root, threadsDirectory(), str(flags, "cursor"));
-        const shown = result.threads.slice(0, limit);
+        const result = reader ? recentForReader(root, threadsDirectory(), reader, limit) : recentSince(root, threadsDirectory(), str(flags, "cursor"), limit);
+        const shown = result.threads;
         const label = (row: MovedThread) => `${row.slug}  ${row.new_thread ? `new Thread, ${row.new_posts} posts` : row.new_posts ? `${row.new_posts} new` : "changed"}`;
         const lines = result.baseline
           ? [`Baseline set${reader ? ` for ${reader}` : ""}: nothing new yet. Later reads show what moved after this point.`]
           : shown.length ? shown.map(label) : ["Nothing moved."];
-        if (shown.length < result.threads.length) lines.push(`Showing ${shown.length} of ${result.threads.length} Threads that moved; pass --limit for more.`);
-        if (reader && !result.baseline && result.threads.length) lines.push(`Move ${reader}'s position here when you are done: ideaspaces threads ack --recent ${result.cursor}${reader === PERSON_READER ? "" : ` --reader ${reader}`}`);
+        if (shown.length < result.moved) lines.push(`Showing ${shown.length} of ${result.moved} Threads that moved; the rest stay new.`);
+        if (reader && !result.baseline && shown.length) lines.push(`Move ${reader}'s position past what is shown here: ideaspaces threads ack --recent ${result.cursor}${reader === PERSON_READER ? "" : ` --reader ${reader}`}`);
         output.result({ schema: "ideaspaces.threads.recent.v1", location: "folder", hosted_checked: false, baseline: result.baseline, ...(reader ? { reader } : {}),
-          threads: shown, moved: result.threads.length, shown: shown.length, cursor: result.cursor }, lines.join("\n"));
+          threads: shown, moved: result.moved, shown: shown.length, cursor: result.cursor }, lines.join("\n"));
         return 0;
       }
       if (sub === "ack") {

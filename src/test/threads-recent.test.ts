@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { threadsCommand } from "../commands/threads.js";
@@ -91,6 +91,39 @@ describe("threads recent", () => {
     expect((await run(other, ["recent"], { cursor })).code).toBe(1);
     expect((await run(other, ["recent"], { cursor: "not-a-cursor" })).code).toBe(1);
     expect((await run(other, ["recent"], { cursor, reader: "scout" })).code).toBe(1);
+  });
+
+  it("never marks a Thread it did not show as seen: a limit leaves the rest new", async () => {
+    const root = space();
+    const a = thread(root, "a"); const b = thread(root, "b"); const c = thread(root, "c");
+    const before = recentSince(root, join(root, "_threads")).cursor;
+    post(a.path); post(b.path); post(c.path); thread(root, "d");
+    const first = (await run(root, ["recent"], { cursor: before, limit: "2" })).json;
+    expect(first).toMatchObject({ moved: 4, shown: 2 });
+    const second = (await run(root, ["recent"], { cursor: first.cursor })).json;
+    expect(second.moved).toBe(2);
+    expect(new Set([...first.threads, ...second.threads].map((row: { slug: string }) => row.slug))).toEqual(new Set(["a", "b", "c", "d"]));
+    expect((await run(root, ["recent"], { cursor: second.cursor })).json.moved).toBe(0);
+    // The same holds for a reader who moves its position past a limited read.
+    await run(root, ["recent"], { reader: "scout" });
+    post(a.path); post(b.path);
+    const limited = (await run(root, ["recent"], { reader: "scout", limit: "1" })).json;
+    await run(root, ["ack"], { recent: limited.cursor, reader: "scout" });
+    expect((await run(root, ["recent"], { reader: "scout" })).json.moved).toBe(1);
+  });
+
+  it("refuses what it cannot answer plainly", async () => {
+    const root = space();
+    const held = recentSince(root, join(root, "_threads")).cursor;
+    expect((await run(root, ["recent"], { cursor: held, reader: "scout" })).err).toContain("not both");
+    expect((await run(root, ["recent"], { limit: "0" })).err).toContain("1 to 500");
+    const other = space();
+    expect((await run(other, ["ack"], { recent: held })).err).toContain("another Space");
+    const scout = await run(other, ["recent"], { reader: "scout" });
+    expect(scout.code).toBe(0);
+    const positions = join(other, ".ideaspaces", "cursors", "readers", "scout");
+    writeFileSync(join(positions, readdirSync(positions)[0]), "not json");
+    expect((await run(other, ["recent"], { reader: "scout" })).err).toContain("Delete it for a new baseline");
   });
 
   it("stays small enough for an agent to hold", () => {

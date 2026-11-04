@@ -22851,12 +22851,20 @@ function moved(threads, position) {
   }
   return rows.sort((a, b) => b.new_posts - a.new_posts || a.slug.localeCompare(b.slug));
 }
-function recentSince(root, threadsDir, cursor) {
+function recentSince(root, threadsDir, cursor, limit = Infinity) {
   const threads = current(threadsDir);
-  const next = encode(root, threads);
   if (cursor === void 0)
-    return { baseline: true, threads: [], cursor: next };
-  return { baseline: false, threads: moved(threads, decode(root, cursor)), cursor: next };
+    return { baseline: true, threads: [], moved: 0, cursor: encode(root, threads) };
+  const position = decode(root, cursor);
+  const rows = moved(threads, position);
+  const unshown = new Set(rows.slice(limit).map((row) => row.slug));
+  const next = threads.flatMap((thread) => {
+    if (!unshown.has(thread.slug))
+      return [thread];
+    const seen = position.get(thread.key);
+    return seen ? [seen] : [];
+  });
+  return { baseline: false, threads: rows.slice(0, limit), moved: rows.length, cursor: encode(root, next) };
 }
 var READER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var PERSON_READER = "person";
@@ -22887,18 +22895,23 @@ function hold(root, reader, cursor) {
   writeFileSync7(temporary, JSON.stringify({ cursor }), { flag: "wx", mode: 384 });
   renameSync4(temporary, path);
 }
-function recentForReader(root, threadsDir, reader) {
+function recentForReader(root, threadsDir, reader, limit = Infinity) {
   const path = heldPath(root, reader);
   if (!existsSync15(path)) {
     const baseline = recentSince(root, threadsDir);
     hold(root, reader, baseline.cursor);
     return baseline;
   }
-  const held2 = JSON.parse(readFileSync10(path, "utf8"));
-  if (!held2 || typeof held2 !== "object" || typeof held2.cursor !== "string") {
-    throw new Error(`Invalid held position: ${path}`);
+  const invalid = new Error(`Invalid held position: ${path}. Delete it for a new baseline.`);
+  let held2;
+  try {
+    held2 = JSON.parse(readFileSync10(path, "utf8"));
+  } catch {
+    throw invalid;
   }
-  return recentSince(root, threadsDir, held2.cursor);
+  if (!held2 || typeof held2 !== "object" || typeof held2.cursor !== "string")
+    throw invalid;
+  return recentSince(root, threadsDir, held2.cursor, limit);
 }
 function acknowledgeRecent(root, reader, cursor) {
   decode(root, cursor);
@@ -30668,14 +30681,14 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
           throw new Error("--limit must be a whole number from 1 to 500.");
         const root = threadBase();
         const reader = flags2.cursor === void 0 ? readerName(str2(flags2, "reader")) : void 0;
-        const result = reader ? recentForReader(root, threadsDirectory(), reader) : recentSince(root, threadsDirectory(), str2(flags2, "cursor"));
-        const shown = result.threads.slice(0, limit);
+        const result = reader ? recentForReader(root, threadsDirectory(), reader, limit) : recentSince(root, threadsDirectory(), str2(flags2, "cursor"), limit);
+        const shown = result.threads;
         const label = (row) => `${row.slug}  ${row.new_thread ? `new Thread, ${row.new_posts} posts` : row.new_posts ? `${row.new_posts} new` : "changed"}`;
         const lines = result.baseline ? [`Baseline set${reader ? ` for ${reader}` : ""}: nothing new yet. Later reads show what moved after this point.`] : shown.length ? shown.map(label) : ["Nothing moved."];
-        if (shown.length < result.threads.length)
-          lines.push(`Showing ${shown.length} of ${result.threads.length} Threads that moved; pass --limit for more.`);
-        if (reader && !result.baseline && result.threads.length)
-          lines.push(`Move ${reader}'s position here when you are done: ideaspaces threads ack --recent ${result.cursor}${reader === PERSON_READER ? "" : ` --reader ${reader}`}`);
+        if (shown.length < result.moved)
+          lines.push(`Showing ${shown.length} of ${result.moved} Threads that moved; the rest stay new.`);
+        if (reader && !result.baseline && shown.length)
+          lines.push(`Move ${reader}'s position past what is shown here: ideaspaces threads ack --recent ${result.cursor}${reader === PERSON_READER ? "" : ` --reader ${reader}`}`);
         output.result({
           schema: "ideaspaces.threads.recent.v1",
           location: "folder",
@@ -30683,7 +30696,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
           baseline: result.baseline,
           ...reader ? { reader } : {},
           threads: shown,
-          moved: result.threads.length,
+          moved: result.moved,
           shown: shown.length,
           cursor: result.cursor
         }, lines.join("\n"));

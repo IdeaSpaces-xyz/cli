@@ -98,16 +98,27 @@ function moved(threads: ReturnType<typeof current>, position: Map<string, Finger
 export interface RecentResult {
   /** True when this reader had no position: nothing is new, and `cursor` is where it starts. */
   baseline: boolean;
+  /** The Threads to show, at most the limit asked for. */
   threads: MovedThread[];
+  /** How many moved in all; more than `threads.length` means the rest wait for the next read. */
+  moved: number;
+  /** Covers only what was shown: passing it on never marks an unshown Thread as seen. */
   cursor: string;
 }
 
 /** Read only. The caller holds the cursor it gets back and passes it next time. */
-export function recentSince(root: string, threadsDir: string, cursor?: string): RecentResult {
+export function recentSince(root: string, threadsDir: string, cursor?: string, limit = Infinity): RecentResult {
   const threads = current(threadsDir);
-  const next = encode(root, threads);
-  if (cursor === undefined) return { baseline: true, threads: [], cursor: next };
-  return { baseline: false, threads: moved(threads, decode(root, cursor)), cursor: next };
+  if (cursor === undefined) return { baseline: true, threads: [], moved: 0, cursor: encode(root, threads) };
+  const position = decode(root, cursor);
+  const rows = moved(threads, position);
+  const unshown = new Set(rows.slice(limit).map((row) => row.slug));
+  const next = threads.flatMap((thread) => {
+    if (!unshown.has(thread.slug)) return [thread];
+    const seen = position.get(thread.key);
+    return seen ? [seen] : [];
+  });
+  return { baseline: false, threads: rows.slice(0, limit), moved: rows.length, cursor: encode(root, next) };
 }
 
 const READER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -153,18 +164,18 @@ function hold(root: string, reader: string, cursor: string): void {
  * nothing because nothing had been shown as new. After that a look moves nothing; only
  * `threads ack --recent` does, so a failed session leaves the reader's position where it was.
  */
-export function recentForReader(root: string, threadsDir: string, reader: string): RecentResult {
+export function recentForReader(root: string, threadsDir: string, reader: string, limit = Infinity): RecentResult {
   const path = heldPath(root, reader);
   if (!existsSync(path)) {
     const baseline = recentSince(root, threadsDir);
     hold(root, reader, baseline.cursor);
     return baseline;
   }
-  const held: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!held || typeof held !== "object" || typeof (held as { cursor?: unknown }).cursor !== "string") {
-    throw new Error(`Invalid held position: ${path}`);
-  }
-  return recentSince(root, threadsDir, (held as { cursor: string }).cursor);
+  const invalid = new Error(`Invalid held position: ${path}. Delete it for a new baseline.`);
+  let held: unknown;
+  try { held = JSON.parse(readFileSync(path, "utf8")); } catch { throw invalid; }
+  if (!held || typeof held !== "object" || typeof (held as { cursor?: unknown }).cursor !== "string") throw invalid;
+  return recentSince(root, threadsDir, (held as { cursor: string }).cursor, limit);
 }
 
 /** Move a reader's held position to a cursor `threads recent` returned here. */
