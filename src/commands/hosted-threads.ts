@@ -159,16 +159,17 @@ function postOf(raw: unknown, thread: string): HostedPost {
   };
 }
 
-// Owner is the agreed word for a Thread's owner; the service says Editor until it moves. Accept both.
-const THREAD_GRADES = ["Owner", "Editor", "Commenter", "Viewer"] as const;
+// A grade is the service's word, shown as it comes: a new one must never break a read, here or on
+// an install we can't update. Only these may reply; the service holds the real permission.
+const REPLY_GRADES = ["Owner", "Editor", "Commenter"];
 
-interface Head { id: string; name: string; closed: boolean; grade: (typeof THREAD_GRADES)[number]; can_reply: boolean }
+interface Head { id: string; name: string; closed: boolean; grade: string; can_reply: boolean }
 
 async function head(config: ApiConfig, id: string): Promise<{ thread: Head; lastSeq: number }> {
   const h: any = await fetchHostedThread(config, id);
   requireValue(record(h) && h.thread_id === id && typeof h.name === "string" && typeof h.closed === "boolean" && seq(h.last_seq)
-    && THREAD_GRADES.includes(h.grade));
-  return { thread: { id, name: h.name, closed: h.closed, grade: h.grade, can_reply: !h.closed && h.grade !== "Viewer" }, lastSeq: h.last_seq };
+    && typeof h.grade === "string" && h.grade.length > 0);
+  return { thread: { id, name: h.name, closed: h.closed, grade: h.grade, can_reply: !h.closed && REPLY_GRADES.includes(h.grade) }, lastSeq: h.last_seq };
 }
 
 async function posts(config: ApiConfig, id: string, query: { limit: number; after_seq?: number; before_seq?: number }): Promise<HostedPost[]> {
