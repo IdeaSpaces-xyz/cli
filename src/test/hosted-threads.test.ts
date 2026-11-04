@@ -517,3 +517,10 @@ describe("review regressions and hosted validation", () => {
     expect(calls).toEqual([]);
   });
 });
+
+it("advertises the hosted route without auth or a remote call", async () => {
+  rmSync(credentials);
+  expect(await threads(["capabilities"])).toBe(0);
+  expect(json()).toEqual({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false });
+  expect(calls).toEqual([]);
+});

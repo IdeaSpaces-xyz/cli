@@ -265,6 +265,7 @@ export const threadsCommand: CommandDef = {
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
   usage: "ideaspaces threads <list|open|read|new|post|send|reply|ack|close|rename|locate|attach|render|init|push> ...",
   examples: [
+    "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
     "ideaspaces threads open x_<24-or-32-hex> [--limit 50] [--cursor <cursor>]  # read is an alias",
@@ -291,6 +292,11 @@ export const threadsCommand: CommandDef = {
     const output = createOutput(global);
     const [sub, ...rest] = args;
     try {
+      if (sub === "capabilities") {
+        if (rest.length || Object.keys(flags).length) throw new Error("Usage: threads capabilities --json");
+        output.result({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, "Hosted Threads use /threads only (no legacy exchange fallback).");
+        return 0;
+      }
       const hostedTarget = HOSTED.test(rest[0] ?? "");
       const hostedFlag = flags.hosted !== undefined;
       if (hostedFlag && flags.hosted !== true) throw new HostedError("invalid_request", "--hosted takes no value.");
