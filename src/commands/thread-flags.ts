@@ -35,16 +35,18 @@ export function threadFlagError(verb: string, flags: Flags): string | undefined 
 const HOSTED_VERB_FLAGS: Record<string, ReadonlySet<string>> = {
   list: new Set(["hosted", "limit", "cursor", "new", "unread"]),
   open: new Set(["limit", "cursor"]),
-  post: new Set(["reply-to", "message", "name", "summary", "post-id", "map"]),
-  new: new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map"]),
+  post: new Set(["reply-to", "message", "name", "summary", "post-id", "map", "tags"]),
+  new: new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags"]),
   close: new Set(["message", "post-id"]),
   rename: new Set(["message", "name", "summary", "post-id"]),
-  send: new Set(["name", "summary", "message", "post-id", "map"]),
+  send: new Set(["name", "summary", "message", "post-id", "map", "tags"]),
   ack: new Set(["seq", "cursor"]),
 };
 
 export function hostedVerbFlagError(verb: string, flags: Flags): string | undefined {
   const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb];
   const unknown = known && Object.keys(flags).find((flag) => !known.has(flag));
-  return unknown ? `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.` : undefined;
+  if (!unknown) return undefined;
+  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
+  return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
 }

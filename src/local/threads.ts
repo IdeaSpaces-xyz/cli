@@ -449,6 +449,16 @@ export function validateThreadMomentMap(input: unknown): void {
   }
 }
 
+/** Tags are a post's labels in either location, so both writers refuse the same values. */
+export function validateTags(tags: readonly string[]): void {
+  if (new Set(tags).size > 20) throw new Error("Tags are limited to 20 distinct values per post.");
+  for (const tag of tags) {
+    if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
+      throw new Error("--tags must contain non-empty values of at most 200 characters without newlines.");
+    }
+  }
+}
+
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
@@ -469,14 +479,7 @@ export function appendPost(dir: string, options: {
   for (const value of [options.name, options.summary, options.author]) {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
   }
-  if (options.tags !== undefined) {
-    if (new Set(options.tags).size > 20) throw new Error("Tags are limited to 20 distinct values per post.");
-    for (const tag of options.tags) {
-      if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
-        throw new Error("--tags must contain non-empty values of at most 200 characters without newlines.");
-      }
-    }
-  }
+  if (options.tags !== undefined) validateTags(options.tags);
   validateMarkOptions(options.kind, options.mark, options.replyTo);
   if (options.attachedTo !== undefined && thread.allPosts.length) throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
   const byId = new Map(thread.allPosts.map((post) => [post.id, post]));

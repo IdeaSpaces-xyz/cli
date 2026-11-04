@@ -12257,13 +12257,7 @@ var THREAD_KINDS = [
   "reframe",
   "correction",
   "closure",
-  "mark",
-  "decision",
-  "dispatch",
-  "claim",
-  "delivery",
-  "verification",
-  "question"
+  "mark"
 ];
 function parseThreadAttachment(value2) {
   if (typeof value2 !== "string" || !value2.trim())
@@ -22736,8 +22730,8 @@ var reposCommand = {
 };
 
 // dist/commands/hosted-threads.js
-import { randomUUID as randomUUID7 } from "node:crypto";
-var import_yaml8 = __toESM(require_dist(), 1);
+import { randomUUID as randomUUID8 } from "node:crypto";
+var import_yaml9 = __toESM(require_dist(), 1);
 
 // dist/local/thread-map-member.js
 import { existsSync as existsSync14, lstatSync, readFileSync as readFileSync9 } from "node:fs";
@@ -22781,6 +22775,831 @@ function selectPinnedThreadMember(value2, ordinal) {
   if (!root?.sha)
     throw new Error("Selected Map root has no authored commit pin.");
   return { root, member: member2 };
+}
+
+// dist/local/threads.js
+import { randomUUID as randomUUID7, createHash as createHash7 } from "node:crypto";
+import { spawnSync as spawnSync12 } from "node:child_process";
+import { existsSync as existsSync16, lstatSync as lstatSync2, mkdirSync as mkdirSync6, readFileSync as readFileSync10, readdirSync as readdirSync2, realpathSync as realpathSync12, renameSync as renameSync4, rmSync as rmSync4, writeFileSync as writeFileSync7 } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { basename as basename13, dirname as dirname14, isAbsolute as isAbsolute10, join as join26, resolve as resolve25 } from "node:path";
+var import_yaml8 = __toESM(require_dist(), 1);
+
+// dist/local/post-links.js
+import { existsSync as existsSync15, realpathSync as realpathSync11 } from "node:fs";
+import { dirname as dirname13, isAbsolute as isAbsolute9, relative as relative15, resolve as resolve24, sep as sep11 } from "node:path";
+var SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+var POST_FILE = /^(\d{4}-\d{2}-\d{2}T[\d-]+Z-)?(.*-)?msg_[0-9a-f-]+\.md$/i;
+function withoutCode(body) {
+  return body.replace(/(^|\n)(```|~~~)[^\n]*\n[\s\S]*?(\n\2[^\n]*(?=\n|$)|$)/g, (m) => m.replace(/[^\n]/g, " ")).replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length));
+}
+function destinations(text) {
+  const found = [];
+  const pattern = /!?\[(?:[^\]\\]|\\.)*\]\(\s*(<[^>\n]*>|[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+  for (const match of text.matchAll(pattern)) {
+    const raw = match[1];
+    found.push(raw.startsWith("<") ? raw.slice(1, -1) : raw);
+  }
+  return found;
+}
+function checkPostLinks(body, postDir, spaceRoot) {
+  const report = { errors: [], warnings: [] };
+  const realSpace = realpathSync11(spaceRoot);
+  const realPostDir = realpathSync11(postDir);
+  const seen = /* @__PURE__ */ new Set();
+  for (const raw of destinations(withoutCode(body))) {
+    if (seen.has(raw))
+      continue;
+    seen.add(raw);
+    if (!raw || raw.startsWith("#") || raw.startsWith("//") || SCHEME.test(raw))
+      continue;
+    const path = raw.split(/[?#]/)[0];
+    if (!path)
+      continue;
+    let decoded;
+    try {
+      decoded = decodeURIComponent(path);
+    } catch {
+      decoded = path;
+    }
+    if (isAbsolute9(decoded) || decoded.includes("\\")) {
+      report.errors.push(`${raw}: a link in a post is relative to the post file; an absolute or backslash path breaks on any other machine.`);
+      continue;
+    }
+    const target = resolve24(realPostDir, decoded);
+    const inside = relative15(realSpace, target);
+    if (inside === ".." || inside.startsWith(`..${sep11}`) || isAbsolute9(inside)) {
+      report.errors.push(`${raw}: resolves outside the Space (${target}). Links are relative to the post file, which sits in ${postDir}.`);
+      continue;
+    }
+    if (existsSync15(target))
+      continue;
+    const name = target.split(sep11).pop() ?? "";
+    if (POST_FILE.test(name) && existsSync15(dirname13(target)) && /(^|[\\/])_threads[\\/][^\\/]+$/.test(dirname13(target))) {
+      report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
+      continue;
+    }
+    report.errors.push(`${raw}: no file at ${target}. Links are relative to the post file, which sits in ${postDir}.`);
+  }
+  return report;
+}
+
+// dist/local/threads.js
+var MAX_POST = 1024 * 1024;
+var SHA2 = /^[0-9a-f]{40}$/;
+var SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
+var NoAgreementError = class extends Error {
+};
+function attachmentText(attachment) {
+  return attachment === "unknown" ? "unknown" : attachment.raw ?? `${attachment.kind}:${attachment.value}`;
+}
+function sameTarget(a, b) {
+  if (a === null || b === null || a === "unknown" || b === "unknown")
+    return a === b;
+  const post = (x) => x.kind === "post" || x.kind === "id" || x.kind === "path";
+  return post(a) && post(b) ? a.value === b.value : a.kind === b.kind && a.value === b.value;
+}
+function originNote(thread) {
+  return thread.origin !== null && !sameTarget(thread.origin, thread.attachment) ? { origin: attachmentText(thread.origin) } : {};
+}
+function git3(cwd, args2) {
+  const availability = gitAvailability();
+  if (availability.state !== "usable")
+    throw new Error(availability.hint);
+  const result = spawnSync12(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  if (result.status !== 0)
+    throw new Error((result.stderr || result.error?.message || `git ${args2[0]} failed`).trim());
+  return result.stdout.trim();
+}
+function safeDirectory(path) {
+  const abs = resolve25(path);
+  if (existsSync16(abs) && lstatSync2(abs).isSymbolicLink())
+    throw new Error(`Refusing symlink: ${abs}`);
+  if (!existsSync16(abs) || !lstatSync2(abs).isDirectory())
+    throw new Error(`Thread directory not found: ${abs}`);
+  return realpathSync12(abs);
+}
+function safeFile(path) {
+  if (lstatSync2(path).isSymbolicLink() || !lstatSync2(path).isFile())
+    throw new Error(`Refusing non-regular thread file: ${path}`);
+  if (lstatSync2(path).size > MAX_POST)
+    throw new Error(`Thread file exceeds ${MAX_POST} bytes: ${path}`);
+  return readFileSync10(path, "utf8");
+}
+function threadBase(cwd = process.cwd()) {
+  let at = safeDirectory(cwd);
+  while (true) {
+    if (existsSync16(join26(at, "_agent", "agreement.md")))
+      return at;
+    const parent = dirname14(at);
+    if (parent === at)
+      throw new NoAgreementError("No enclosing Agreement; run from an ideaspace with _agent/agreement.md.");
+    at = parent;
+  }
+}
+function spaceForThread(threadDir) {
+  const dir = safeDirectory(threadDir);
+  const threads = dirname14(dir);
+  if (basename13(threads) !== "_threads")
+    throw new Error("Thread must be an immediate child of _threads/.");
+  const space = dirname14(threads);
+  if (!existsSync16(join26(space, "_agent", "agreement.md")))
+    throw new NoAgreementError("No Space Agreement above this Thread.");
+  return space;
+}
+function threadsDirectory(cwd = process.cwd()) {
+  return join26(threadBase(cwd), "_threads");
+}
+function resolveLocalThread(input, cwd = process.cwd()) {
+  const base = threadsDirectory(cwd);
+  safeDirectory(base);
+  const path = input.includes("/") || input.startsWith(".") || isAbsolute10(input) ? resolve25(cwd, input) : join26(base, input);
+  const dir = safeDirectory(path);
+  if (dirname14(dir) !== base)
+    throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
+  return dir;
+}
+function isHostedThreadTarget(value2, cwd = process.cwd()) {
+  if (!HOSTED_THREAD_ID.test(value2))
+    return false;
+  let base;
+  try {
+    base = threadsDirectory(cwd);
+  } catch (error) {
+    if (error instanceof NoAgreementError)
+      return true;
+    throw error;
+  }
+  return !lexists(join26(base, value2));
+}
+function threadAgreementContent(path) {
+  const agent = join26(path, "_agent");
+  if (!lexists(agent))
+    return null;
+  safeDirectory(agent);
+  const agreement = join26(agent, "agreement.md");
+  return lexists(agreement) ? safeFile(agreement) : null;
+}
+function lexists(path) {
+  try {
+    lstatSync2(path);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT")
+      return false;
+    throw error;
+  }
+}
+var NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
+function loadThread(dir) {
+  const path = safeDirectory(dir);
+  const readmePath = join26(path, "README.md");
+  if (!existsSync16(readmePath))
+    throw new Error(`Thread ${path} needs README.md.`);
+  const agreementContent = threadAgreementContent(path);
+  const readme = safeFile(readmePath);
+  const fm = parseFrontmatter(readme);
+  if (!fm)
+    throw new Error(`Malformed README frontmatter: ${readmePath}`);
+  const slug = basename13(path);
+  const sources = [];
+  for (const entry of readdirSync2(path, { withFileTypes: true })) {
+    if (entry.name === "README.md" || entry.name === "_agent")
+      continue;
+    if (!entry.isFile() || !entry.name.endsWith(".md"))
+      throw new Error(`Unexpected thread entry: ${entry.name}`);
+    sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join26(path, entry.name)) });
+  }
+  const agreementAttachment = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
+  const inspection = inspectThreadPosts(sources, agreementAttachment);
+  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename13(post.path) }));
+  const seen = /* @__PURE__ */ new Set();
+  for (const post of allPosts) {
+    if (seen.has(post.id))
+      throw new Error(`Duplicate post id: ${post.id}`);
+    seen.add(post.id);
+  }
+  const timeline = reconstructThreadTimeline(allPosts);
+  const openingPath = [...sources].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.path;
+  const opening = inspection.posts.find((post) => post.path === openingPath);
+  const warnings = [
+    ...agreementContent === null ? [NO_THREAD_AGREEMENT] : [],
+    ...inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`)
+  ];
+  return {
+    path,
+    slug,
+    thread_id: opening?.id ?? null,
+    name: typeof fm.name === "string" ? fm.name : slug,
+    summary: typeof fm.summary === "string" ? fm.summary : "",
+    posts: timeline.posts,
+    allPosts,
+    warnings,
+    unreadablePosts: inspection.unreadable.map((post) => post.path),
+    closed: inspection.closed,
+    ...inspection.writeRefusal ? { writeRefusal: inspection.writeRefusal } : {},
+    attachment: inspection.parent,
+    origin: inspection.origin,
+    readme
+  };
+}
+function listLocal(cwd = process.cwd(), onError) {
+  const base = threadsDirectory(cwd);
+  if (!existsSync16(base))
+    return [];
+  safeDirectory(base);
+  const rows = [];
+  for (const entry of readdirSync2(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+    try {
+      rows.push(loadThread(join26(base, entry.name)));
+    } catch (error) {
+      if (!onError)
+        throw error;
+      onError(`Thread ${entry.name} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return rows.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+function minimalAgreement(about, attachedTo) {
+  return `---
+name: ${(0, import_yaml8.stringify)(`Agreement \u2014 ${about}`).trim()}
+summary: Local Thread entry schema and immutable posts.
+` + (attachedTo ? `attached_to: ${attachedTo}
+` : "") + `---
+# ${about}
+
+Posts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.
+`;
+}
+function createThread(slug, about, cwd = process.cwd(), attachedTo) {
+  if (!SLUG.test(slug))
+    throw new Error("Thread slug must be lowercase letters, numbers and hyphens (1\u2013101 characters).");
+  if (!about.trim() || /[\r\n]/.test(about) || about.length > 200)
+    throw new Error("--about must be a single-line title of at most 200 characters.");
+  if (attachedTo !== void 0 && (!attachedTo.includes(":") || !parseThreadAttachment(attachedTo))) {
+    throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
+  }
+  const base = threadsDirectory(cwd);
+  if (existsSync16(base))
+    safeDirectory(base);
+  else
+    mkdirSync6(base);
+  const dir = join26(base, slug);
+  mkdirSync6(dir);
+  mkdirSync6(join26(dir, "_agent"));
+  writeFileSync7(join26(dir, "_agent", "agreement.md"), minimalAgreement(about.trim()), { flag: "wx" });
+  writeFileSync7(join26(dir, "README.md"), (0, import_yaml8.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
+  return loadThread(dir);
+}
+function references(parents) {
+  const ids = /* @__PURE__ */ new Set();
+  for (const parent of parents)
+    for (const id of [...parent.references, parent.id])
+      ids.add(id);
+  return [...ids];
+}
+function activityAt(post) {
+  if (post.dateWarning || !post.date)
+    return null;
+  return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
+}
+function latestLocalActivity(posts2) {
+  return posts2.reduce((latest, post) => {
+    const at = activityAt(post);
+    const time = at ? Date.parse(at) : NaN;
+    return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
+  }, null);
+}
+function resolveThreadParent2(threadDir, knownThreads) {
+  const agreementPath = join26(threadDir, "_agent", "agreement.md");
+  const agreementContent = threadAgreementContent(safeDirectory(threadDir));
+  const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename13(threadDir)}/_agent/agreement.md`);
+  const canonicalThreadDir = realpathSync12(threadDir);
+  const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
+  if (parsedAgreement.status === "invalid" && !thread.attachment) {
+    throw new Error(`Malformed Thread Agreement frontmatter: ${agreementPath} (${parsedAgreement.issue}).`);
+  }
+  if (thread.attachment === "unknown")
+    return { attached_to: "unknown", status: "unknown" };
+  if (!thread.attachment)
+    return null;
+  const attachment = thread.attachment;
+  const attachedTo = attachment.raw ?? attachment.value;
+  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
+    return { attached_to: attachedTo, status: "none", ...originNote(thread) };
+  }
+  const spaceRoot = spaceForThread(threadDir);
+  const siblings = knownThreads ?? listLocal(spaceRoot);
+  const posts2 = siblings.flatMap((sibling) => sibling.allPosts.map((post2) => ({
+    path: `_threads/${sibling.slug}/${post2.path}`,
+    id: post2.id
+  })));
+  const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: posts2 }]);
+  if (resolved.status !== "resolved")
+    return { attached_to: attachedTo, status: resolved.status, ...originNote(thread) };
+  const parent = siblings.find((sibling) => sibling.slug === resolved.parent.path.split("/")[1]);
+  const post = parent?.allPosts.find((candidate) => candidate.id === resolved.parent.id);
+  return {
+    attached_to: attachedTo,
+    id: resolved.parent.id,
+    slug: parent?.slug,
+    path: resolved.parent.path,
+    name: post?.frontmatter.name ?? resolved.parent.id,
+    summary: post?.frontmatter.summary ?? "",
+    ...originNote(thread)
+  };
+}
+function findChildThreads(targetThreadDir, postId2, onError) {
+  const spaceRoot = spaceForThread(targetThreadDir);
+  const targetSlug = basename13(targetThreadDir);
+  const targetThread = loadThread(targetThreadDir);
+  const allThreads = listLocal(spaceRoot, onError);
+  const children = [];
+  const targetPostIds = new Set(targetThread.posts.map((p) => p.id));
+  for (const t of allThreads) {
+    if (t.path === targetThread.path)
+      continue;
+    let parentInfo;
+    try {
+      parentInfo = resolveThreadParent2(t.path, allThreads);
+    } catch (error) {
+      if (!onError)
+        throw error;
+      onError(`Thread ${t.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    if (!parentInfo)
+      continue;
+    if (parentInfo.status === "unknown") {
+      const warning = `Thread ${t.slug} parent unknown: opening post unreadable; cannot prove child links.`;
+      if (!onError)
+        throw new Error(warning);
+      onError(warning);
+      continue;
+    }
+    const matchedPostId = parentInfo.slug === targetSlug && parentInfo.id && targetPostIds.has(parentInfo.id) ? parentInfo.id : null;
+    if (matchedPostId) {
+      if (!postId2 || matchedPostId === postId2) {
+        children.push({
+          id: t.path,
+          slug: t.slug,
+          path: t.path,
+          thread_id: t.thread_id,
+          name: t.name,
+          summary: t.summary,
+          attached_to: parentInfo.attached_to,
+          attached_to_post_id: matchedPostId,
+          latest_activity_at: latestLocalActivity(t.posts),
+          count: t.allPosts.length,
+          closed: t.closed
+        });
+      }
+    }
+  }
+  children.sort((a, b) => {
+    const timeA = a.latest_activity_at ? Date.parse(a.latest_activity_at) : 0;
+    const timeB = b.latest_activity_at ? Date.parse(b.latest_activity_at) : 0;
+    if (timeA !== timeB)
+      return timeB - timeA;
+    return a.slug.localeCompare(b.slug);
+  });
+  return children;
+}
+function findNewestSnapshot(posts2) {
+  for (let i = posts2.length - 1; i >= 0; i--) {
+    if (posts2[i].kind === "snapshot" || posts2[i].kind === "reframe") {
+      return posts2[i];
+    }
+  }
+  return null;
+}
+function computeBranches(posts2) {
+  if (!posts2.length)
+    return [];
+  const timeline = reconstructThreadTimeline(posts2);
+  const order = new Map(timeline.posts.map((post, index) => [post.id, index]));
+  const branches = [];
+  for (const root of timeline.roots) {
+    for (const start of root.children.length ? root.children : [root]) {
+      const seen = /* @__PURE__ */ new Set();
+      const pending = [start];
+      let tip = start.post;
+      while (pending.length) {
+        const node = pending.pop();
+        if (seen.has(node.post.id))
+          continue;
+        seen.add(node.post.id);
+        if ((order.get(node.post.id) ?? -1) > (order.get(tip.id) ?? -1))
+          tip = node.post;
+        pending.push(...node.children);
+      }
+      branches.push({
+        root_id: start.post.id,
+        root_name: start.post.frontmatter.name ?? start.post.id,
+        root_date: start.post.date ?? null,
+        tip_id: tip.id,
+        tip_name: tip.frontmatter.name ?? tip.id,
+        tip_date: tip.date ?? null,
+        count: seen.size
+      });
+    }
+  }
+  return branches;
+}
+function validateMarkOptions(kind, mark, replyTo) {
+  if (kind === "mark" && (!mark?.trim() || /[\r\n]/.test(mark))) {
+    throw new Error("--kind mark requires --mark <non-empty single-line value>.");
+  }
+  if (mark !== void 0 && kind !== "mark")
+    throw new Error("--mark requires --kind mark.");
+  if (kind === "mark" && (replyTo?.length !== 1 || replyTo[0] === "latest")) {
+    throw new Error("--kind mark requires --reply-to <one explicit target post id>.");
+  }
+}
+function validateThreadMomentMap(input) {
+  const map = parseMap(input);
+  if (map.status !== "valid")
+    throw new Error(`--map must contain a valid protocol Map block: ${map.status === "invalid" ? map.issues.map((issue2) => `${issue2.path} (${issue2.code})`).join(", ") : "map is absent"}. Fix the named field; no implicit HEAD pin is substituted.`);
+  if (!isPinnedMomentMap(map.map)) {
+    for (const [index, root] of map.map.roots.entries()) {
+      if (!root.sha)
+        throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);
+    }
+    for (const [index, member2] of map.map.members.entries()) {
+      if ("position" in member2 && !member2.depth)
+        throw new Error(`Thread post Map position member ${index} has no depth ceiling. Choose one before citing a moment.`);
+    }
+    throw new Error("Thread post Map must pin every root and choose a depth for each position.");
+  }
+}
+function validateTags(tags) {
+  if (new Set(tags).size > 20)
+    throw new Error("Tags are limited to 20 distinct values per post.");
+  for (const tag of tags) {
+    if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
+      throw new Error("--tags must contain non-empty values of at most 200 characters without newlines.");
+    }
+  }
+}
+function appendPost(dir, options) {
+  const thread = loadThread(dir);
+  if (thread.writeRefusal)
+    throw new Error(thread.writeRefusal);
+  if (thread.closed === true)
+    throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
+  if (!options.body.trim())
+    throw new Error("Post body is required through --message or stdin.");
+  if (options.rejectEscapedNewlines && !options.body.includes("\n") && (options.body.match(/\\n/g) ?? []).length >= 2) {
+    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'); to post literal escapes intentionally, pipe the body on stdin instead.");
+  }
+  if (Buffer.byteLength(options.body) > MAX_POST)
+    throw new Error(`Post body exceeds ${MAX_POST} bytes.`);
+  for (const value2 of [options.name, options.summary, options.author]) {
+    if (value2 && (/[\r\n]/.test(value2) || value2.length > 1e3))
+      throw new Error("Post header values must be single-line and at most 1,000 characters.");
+  }
+  if (options.tags !== void 0)
+    validateTags(options.tags);
+  validateMarkOptions(options.kind, options.mark, options.replyTo);
+  if (options.attachedTo !== void 0 && thread.allPosts.length)
+    throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
+  const byId = new Map(thread.allPosts.map((post) => [post.id, post]));
+  const referenced = new Set(thread.posts.flatMap((post) => post.inReplyTo));
+  const tips = thread.posts.filter((post) => !referenced.has(post.id)).map((post) => post.id);
+  let parentIds;
+  let defaultParentId;
+  if (options.replyTo !== void 0) {
+    if (options.replyTo.includes("latest")) {
+      if (!thread.posts.length)
+        throw new Error("Thread has no posts to reply to.");
+      const latestId = thread.posts.at(-1).id;
+      parentIds = options.replyTo.map((id2) => id2 === "latest" ? latestId : id2);
+    } else {
+      parentIds = options.replyTo;
+    }
+  } else if (options.kind === "closure") {
+    parentIds = tips;
+  } else if (thread.posts.length === 0) {
+    parentIds = [];
+  } else {
+    const openingPostId = thread.thread_id ?? thread.posts[0].id;
+    parentIds = [openingPostId];
+    defaultParentId = openingPostId;
+  }
+  if (new Set(parentIds).size !== parentIds.length || parentIds.some((id2) => !byId.has(id2)))
+    throw new Error("--reply-to must name distinct existing post ids in this Thread.");
+  const parents = parentIds.map((id2) => byId.get(id2));
+  if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes)))
+    throw new Error("A correction requires --supersedes <existing post id>.");
+  if (options.supersedes && options.kind !== "correction")
+    throw new Error("--supersedes requires --kind correction.");
+  if (options.map !== void 0)
+    validateThreadMomentMap(options.map);
+  const warnings = [];
+  if (options.checkLinks) {
+    if (basename13(dirname14(thread.path)) !== "_threads")
+      throw new Error("Thread must be an immediate child of _threads/.");
+    const links = checkPostLinks(options.body, thread.path, dirname14(dirname14(thread.path)));
+    if (links.errors.length) {
+      throw new Error(`Post not written: ${links.errors.length === 1 ? "a link does" : `${links.errors.length} links do`} not resolve.
+${links.errors.map((e) => `  - ${e}`).join("\n")}
+Fix the path (it is relative to the post file), remove the link, or pass --no-check-links to post it as written (for a file that lands in the same change or lives on another branch). Map positions are not checked here.`);
+    }
+    warnings.push(...links.warnings);
+  }
+  options.verifyTarget?.(thread, parentIds, options.supersedes);
+  const id = `msg_${randomUUID7()}`;
+  const date = (/* @__PURE__ */ new Date()).toISOString();
+  const stamp = date.replace(/[:.]/g, "-");
+  const path = join26(thread.path, `${stamp}-${id}.md`);
+  const fields = {
+    id,
+    date,
+    kind: options.kind ?? "post",
+    ...options.mark ? { mark: options.mark } : {},
+    ...options.attachedTo ? { attached_to: options.attachedTo } : {},
+    ...parentIds.length ? { in_reply_to: parentIds.length === 1 ? parentIds[0] : parentIds } : {},
+    ...parents.length ? { references: references(parents) } : {},
+    ...options.supersedes ? { supersedes: options.supersedes } : {},
+    ...options.name ? { name: options.name } : {},
+    ...options.summary ? { summary: options.summary } : {},
+    ...options.tags && options.tags.length ? { tags: [...new Set(options.tags)] } : {},
+    ...options.author ? { author: options.author } : {},
+    ...options.map !== void 0 ? { map: options.map } : {}
+  };
+  const content = `---
+${(0, import_yaml8.stringify)(fields)}---
+
+${options.body.trim()}
+`;
+  const parsed2 = parseThreadPost(content, basename13(path));
+  if (parsed2.status !== "valid")
+    throw new Error(`Generated post failed validation before write: ${parsed2.issues.join(", ")}`);
+  if (parsed2.post.warnings?.length)
+    throw new Error(`Generated post failed validation before write: ${parsed2.post.warnings.map((w) => `${w.field}: ${w.warning}`).join(", ")}`);
+  writeFileSync7(path, content, { flag: "wx", mode: 384 });
+  if (defaultParentId)
+    options.onDefaultReplyTo?.(defaultParentId);
+  return { post: parsed2.post, path, warnings };
+}
+function cursorPath(thread) {
+  const key2 = createHash7("sha256").update(thread.path).digest("hex");
+  return join26(homedir2(), ".ideaspaces", "cursors", `${key2}.json`);
+}
+function readCursor(thread) {
+  const path = cursorPath(thread);
+  if (existsSync16(dirname14(path)) && lstatSync2(dirname14(path)).isSymbolicLink())
+    throw new Error("Refusing symlink local cursor directory.");
+  if (!existsSync16(path))
+    return /* @__PURE__ */ new Set();
+  const data = JSON.parse(safeFile(path));
+  if (!data || typeof data !== "object" || !Array.isArray(data.seen) || !data.seen.every((id) => typeof id === "string"))
+    throw new Error(`Invalid local Thread cursor: ${path}`);
+  return new Set(data.seen);
+}
+function acknowledge(thread, posts2) {
+  const seen = readCursor(thread);
+  for (const post of posts2)
+    seen.add(post.id);
+  const path = cursorPath(thread);
+  mkdirSync6(dirname14(path), { recursive: true, mode: 448 });
+  if (lstatSync2(dirname14(path)).isSymbolicLink())
+    throw new Error("Refusing symlink local cursor directory.");
+  const tmp = `${path}.${randomUUID7()}.tmp`;
+  writeFileSync7(tmp, JSON.stringify({ seen: [...seen] }), { flag: "wx", mode: 384 });
+  renameSync4(tmp, path);
+}
+function readPinnedThreadFile(repo, pin, position) {
+  if (!SHA2.test(pin))
+    throw new Error("A full 40-character authored commit pin is required.");
+  const availability = gitAvailability();
+  if (availability.state !== "usable")
+    throw new Error(availability.hint);
+  const read = readCheckoutAt(repo, pin, position, MAX_POST);
+  if (read.status === "read") {
+    if (read.kind !== "file")
+      throw new Error(`${position} is a directory at pin ${pin}, not a post.`);
+    return read.content;
+  }
+  if (read.status === "pin_absent" || read.status === "missing_path") {
+    throw new Error(`Authored pin ${pin} does not contain ${position}; refusing working-tree HEAD fallback.`);
+  }
+  if (read.status === "too_large")
+    throw new Error("Pinned post exceeds the read limit.");
+  throw new Error(read.reason || "Pinned file could not be read.");
+}
+function readPinnedThreadMember(repo, pin, position) {
+  if (!/^_threads\/[a-z0-9-]+\/[A-Za-z0-9._-]+\.md$/.test(position) || position.includes(".."))
+    throw new Error("Invalid _threads/ Map position.");
+  return readPinnedThreadFile(repo, pin, position);
+}
+function readPinnedThreadAgreement(repo, pin, position) {
+  if (!/^_threads\/[a-z0-9-]+\/_agent\/agreement\.md$/.test(position))
+    throw new Error("Invalid pinned Thread Agreement position.");
+  return readPinnedThreadFile(repo, pin, position);
+}
+function initWorktree(cwd = process.cwd()) {
+  const root = threadBase(cwd);
+  const dir = join26(root, "_threads");
+  if (existsSync16(dir))
+    throw new Error("_threads/ already exists; refusing to replace it.");
+  const origin = git3(root, ["rev-parse", "--show-toplevel"]);
+  const canonical = (path) => {
+    const value2 = realpathSync12.native(path);
+    return process.platform === "win32" ? value2.toLowerCase() : value2;
+  };
+  if (canonical(origin) !== canonical(root))
+    throw new Error("Run threads init at the repository root Agreement.");
+  if (git3(root, ["branch", "--list", "threads"]))
+    throw new Error("Local threads branch already exists; refusing to replace it.");
+  const ignore = join26(root, ".gitignore");
+  if (existsSync16(ignore) && lstatSync2(ignore).isSymbolicLink())
+    throw new Error("Refusing symlink .gitignore.");
+  git3(root, ["worktree", "add", "--orphan", "-b", "threads", dir]);
+  markPrivateThreadsWorktree(dir);
+  const old = existsSync16(ignore) ? readFileSync10(ignore, "utf8") : "";
+  if (!old.split("\n").includes("/_threads/"))
+    writeFileSync7(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/
+`);
+  return dir;
+}
+function pushWorktree(cwd = process.cwd(), remote) {
+  const dir = safeDirectory(threadsDirectory(cwd));
+  if (!remote || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(remote))
+    throw new Error("Pass --remote <team-remote> explicitly; never push private Threads to the default remote.");
+  if (git3(dir, ["branch", "--show-current"]) !== "threads")
+    throw new Error("_threads/ must be the dedicated threads branch worktree.");
+  const url = git3(dir, ["remote", "get-url", "--push", remote]);
+  if (remote === "origin")
+    throw new Error("Refusing to push private Threads to origin; configure a separate team remote.");
+  const scp = /^[^@\s]+@([^:/\s]+):/.exec(url);
+  const host = scp?.[1] ?? (url.includes("://") ? new URL(url).hostname : null);
+  if (host !== "git.ideaspaces.xyz" && !(url.startsWith("file://") || isAbsolute10(url))) {
+    throw new Error("Private Threads may push only to git.ideaspaces.xyz or a local file remote; GitHub and unknown hosts are refused.");
+  }
+  git3(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
+  return remote;
+}
+function writeAgreementFile(path, content) {
+  const temporary = `${path}.${randomUUID7()}.tmp`;
+  writeFileSync7(temporary, content, { flag: "wx" });
+  renameSync4(temporary, path);
+}
+var FRONTMATTER = /^---\r?\n([\s\S]*?\r?\n)?---(\r?\n|$)/;
+function withAttachedTo(content, value2) {
+  const block = FRONTMATTER.exec(content);
+  if (!block)
+    return `---
+attached_to: ${value2}
+---
+${content}`;
+  const body = block[1] ?? "";
+  const lines = body.split(/(?<=\n)/);
+  const at = lines.findIndex((line2) => /^attached_to\s*:/.test(line2));
+  if (at !== -1) {
+    if (lines[at + 1] !== void 0 && /^[ \t]/.test(lines[at + 1])) {
+      throw new Error("The Thread Agreement's attached_to spans several lines; edit it to one line, then attach again.");
+    }
+    const newline = lines[at].endsWith("\r\n") ? "\r\n" : "\n";
+    lines[at] = `attached_to: ${value2}${newline}`;
+  } else {
+    lines.push(`attached_to: ${value2}${content.startsWith("---\r\n") ? "\r\n" : "\n"}`);
+  }
+  const open2 = content.startsWith("---\r\n") ? "---\r\n" : "---\n";
+  const close = `---${block[2]}`;
+  return open2 + lines.join("") + close + content.slice(block[0].length);
+}
+function attachThread(dir, target, options, writes = { appendPost, writeAgreement: writeAgreementFile }) {
+  const thread = loadThread(dir);
+  if (thread.writeRefusal)
+    throw new Error(thread.writeRefusal);
+  if (thread.closed === true)
+    throw new Error(`Thread ${thread.slug} is closed; a closed Thread is not moved.`);
+  if (!thread.posts.length)
+    throw new Error(`Thread ${thread.slug} has no opening post yet; attach after its first post.`);
+  if (!options.message.trim())
+    throw new Error("--message is required: say why the Thread moves.");
+  if (!options.message.includes("\n") && (options.message.match(/\\n/g) ?? []).length >= 2) {
+    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'). Nothing changed.");
+  }
+  const attachment = parseThreadAttachment(target);
+  if (!attachment)
+    throw new Error(`Not a post target: ${target}. Use post:msg_\u2026, msg_\u2026 or _threads/<thread>/<post>.md.`);
+  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
+    throw new Error(`threads attach takes a post target; ${target} is a ${attachment.kind} link. A Thread's Agreement parent is post-only; record other links on a post.`);
+  }
+  const spaceRoot = spaceForThread(thread.path);
+  const siblings = listLocal(spaceRoot);
+  const posts2 = siblings.flatMap((sibling) => sibling.allPosts.map((post) => ({
+    path: `_threads/${sibling.slug}/${post.path}`,
+    id: post.id
+  })));
+  const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: posts2 }]);
+  if (resolved.status === "unresolved")
+    throw new Error(`${target} is not a readable post in this Space's Threads; nothing changed.`);
+  if (resolved.status === "ambiguous")
+    throw new Error(`${target} names several posts in this Space; use the post's path. Nothing changed.`);
+  if (resolved.status !== "resolved")
+    throw new Error(`${target} is not a post edge; nothing changed.`);
+  const parentSlug = resolved.parent.path.split("/")[1];
+  if (parentSlug === thread.slug)
+    throw new Error(`${target} is a post in ${thread.slug} itself; a Thread cannot be its own parent.`);
+  const parentOf = /* @__PURE__ */ new Map();
+  const cycleCheckSkipped = [];
+  for (const sibling of siblings) {
+    if (sibling.slug === thread.slug)
+      continue;
+    try {
+      const info = resolveThreadParent2(sibling.path, siblings);
+      if (info?.status === "unknown")
+        cycleCheckSkipped.push(sibling.slug);
+      else if (info?.slug)
+        parentOf.set(sibling.slug, info.slug);
+    } catch {
+      cycleCheckSkipped.push(sibling.slug);
+    }
+  }
+  const descendants = /* @__PURE__ */ new Set([thread.slug]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [child, parent] of parentOf) {
+      if (descendants.has(parent) && !descendants.has(child)) {
+        descendants.add(child);
+        grew = true;
+      }
+    }
+  }
+  if (descendants.has(parentSlug)) {
+    throw new Error(`${target} is in ${parentSlug}, which already descends from ${thread.slug}; attaching would make a cycle. Nothing changed.`);
+  }
+  const previous = resolveThreadParent2(thread.path, siblings);
+  if (previous?.id === resolved.parent.id)
+    throw new Error(`Thread ${thread.slug} is already attached to ${resolved.parent.id}; nothing changed.`);
+  const value2 = /^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(resolved.parent.id) ? resolved.parent.id : resolved.parent.path;
+  const agentDir = join26(thread.path, "_agent");
+  const agreementPath = join26(agentDir, "agreement.md");
+  const before = threadAgreementContent(thread.path);
+  const createdDir = !lexists(agentDir);
+  const after = before === null ? minimalAgreement(thread.name, value2) : withAttachedTo(before, value2);
+  const check = parseThreadAgreementAttachment(after, `_threads/${thread.slug}/_agent/agreement.md`);
+  if (check.status !== "valid" || check.attachment.value !== value2) {
+    throw new Error(`Could not write a valid attached_to into ${agreementPath}; nothing changed.`);
+  }
+  if (before !== null) {
+    const strip = (content) => {
+      const fm = { ...parseFrontmatter(content) ?? {} };
+      delete fm.attached_to;
+      return JSON.stringify(fm);
+    };
+    if (strip(before) !== strip(after))
+      throw new Error(`Writing attached_to would change other fields of ${agreementPath}; nothing changed.`);
+  }
+  if (createdDir)
+    mkdirSync6(agentDir);
+  writes.writeAgreement(agreementPath, after);
+  const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
+  const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
+  const parentName = parentPost?.frontmatter.name ?? resolved.parent.id;
+  const previousText = previous ? `${previous.id ?? previous.attached_to}${previous.slug ? ` (${previous.slug})` : ""}` : "none";
+  const originText = thread.origin === null ? "none" : attachmentText(thread.origin);
+  try {
+    const { post, path } = writes.appendPost(thread.path, {
+      kind: "reframe",
+      replyTo: ["latest"],
+      author: options.author,
+      name: `Moved under ${parentSlug}`,
+      summary: `Current parent ${previousText} \u2192 ${resolved.parent.id} (${parentSlug}). ${options.message.trim().split("\n")[0]}`.slice(0, 1e3),
+      body: `Reattached this Thread.
+
+- Previous parent: ${previousText}
+- New parent: ${resolved.parent.id} \xB7 ${parentName} (${resolved.parent.path})
+- Origin, unchanged: ${originText}
+
+Why: ${options.message.trim()}
+`
+    });
+    return {
+      thread: loadThread(thread.path),
+      previous,
+      parent: { id: resolved.parent.id, slug: parentSlug, path: resolved.parent.path, name: parentName, attached_to: value2 },
+      agreementPath,
+      agreementCreated: before === null,
+      post,
+      postPath: path,
+      cycleCheckSkipped
+    };
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    try {
+      if (before === null)
+        rmSync4(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
+      else
+        writes.writeAgreement(agreementPath, before);
+    } catch (restoreError) {
+      throw new Error(`The reframe post could not be written (${cause}), and restoring ${agreementPath} also failed (${restoreError instanceof Error ? restoreError.message : String(restoreError)}). Its attached_to now says ${value2}, with no reframe post: restore the file from Git or run attach again.`);
+    }
+    throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${cause}`);
+  }
 }
 
 // dist/commands/hosted-threads.js
@@ -22934,7 +23753,7 @@ function str(flags2, key2) {
 function postId(flags2) {
   const given = str(flags2, "post-id");
   if (given === void 0)
-    return `msg_${randomUUID7()}`;
+    return `msg_${randomUUID8()}`;
   if (!POST_ID.test(given))
     throw new HostedError("invalid_request", "--post-id must be a msg_ id (letters, digits, _ and -, at most 64 characters).");
   return given;
@@ -22952,13 +23771,26 @@ function singleLine2(flags2, key2, required) {
 }
 function buildNote(fields, body) {
   const note = `---
-${(0, import_yaml8.stringify)(fields)}---
+${(0, import_yaml9.stringify)(fields)}---
 
 ${body.trim()}
 `;
   if (Buffer.byteLength(note) > MAX_NOTE_BYTES)
     throw new HostedError("invalid_request", `The Note is larger than the service accepts (${MAX_NOTE_BYTES / 1024} KiB). Shorten --message.`);
   return note;
+}
+function hostedTags(flags2) {
+  if (flags2.tags === void 0)
+    return {};
+  if (typeof flags2.tags !== "string")
+    throw new HostedError("invalid_request", "--tags requires a value.");
+  const tags = [...new Set(flags2.tags.split(",").map((tag) => tag.trim()))];
+  try {
+    validateTags(tags);
+  } catch (error) {
+    throw new HostedError("invalid_request", error.message);
+  }
+  return { tags };
 }
 function hostedMap(flags2) {
   if (flags2.map === void 0)
@@ -23107,7 +23939,7 @@ async function postVerb(output, json, id, flags2) {
   const name = singleLine2(flags2, "name", false);
   const summary = singleLine2(flags2, "summary", false);
   const msgId = postId(flags2);
-  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...name ? { name } : {}, ...summary ? { summary } : {}, ...hostedMap(flags2) }, body);
+  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...name ? { name } : {}, ...summary ? { summary } : {}, ...hostedMap(flags2), ...hostedTags(flags2) }, body);
   const parsed2 = parseThreadPost(note, "reply.md");
   if (!(parsed2.status === "valid" && parsed2.post.id === msgId && parsed2.post.kind === "post" && parsed2.post.inReplyTo.length > 0 && parsed2.post.body.trim())) {
     throw new HostedError("invalid_request", "The reply Note did not validate; check --reply-to, --name, --summary and --message.");
@@ -23127,7 +23959,7 @@ async function newVerb(output, json, flags2) {
   const summary = singleLine2(flags2, "summary", true);
   const body = messageBody(flags2);
   const msgId = postId(flags2);
-  const note = buildNote({ id: msgId, kind: "post", name, summary, ...hostedMap(flags2) }, body);
+  const note = buildNote({ id: msgId, kind: "post", name, summary, ...hostedMap(flags2), ...hostedTags(flags2) }, body);
   const parsed2 = parseThreadPost(note, "opening.md");
   if (!(parsed2.status === "valid" && parsed2.post.id === msgId && parsed2.post.inReplyTo.length === 0)) {
     throw new HostedError("invalid_request", "The opening Note did not validate; check --name, --summary and --message.");
@@ -23405,7 +24237,7 @@ var catalogCommand = {
 };
 
 // dist/commands/clone.js
-import { resolve as resolve24 } from "node:path";
+import { resolve as resolve26 } from "node:path";
 var cloneCommand = {
   name: "clone",
   description: "Clone an authorized Space into a local folder \u2014 the explicit clone mode of `get`",
@@ -23475,7 +24307,7 @@ var cloneCommand = {
       return 1;
     }
     const url = stableRoot ? canonicalGitUrl(config.apiUrl, stableRoot) : `${deriveGitBase(config.apiUrl)}/${namespace2}/${slug}.git`;
-    const dir = resolve24(args2[1] ?? slug);
+    const dir = resolve26(args2[1] ?? slug);
     await registerGitCredentialHelper();
     output.progress(`Cloning ${stableRoot ? canonicalRepoUrl(config.apiUrl, stableRoot) : `${namespace2}/${slug}`}\u2026`);
     try {
@@ -23531,21 +24363,21 @@ var cloneCommand = {
 };
 
 // dist/commands/get.js
-import { existsSync as existsSync17, statSync as statSync10 } from "node:fs";
-import { resolve as resolve28 } from "node:path";
+import { existsSync as existsSync19, statSync as statSync10 } from "node:fs";
+import { resolve as resolve30 } from "node:path";
 
 // dist/commands/fork.js
-import { spawnSync as spawnSync13 } from "node:child_process";
-import { existsSync as existsSync16, mkdirSync as mkdirSync7, mkdtempSync as mkdtempSync3, renameSync as renameSync5, rmSync as rmSync5, statSync as statSync9, writeFileSync as writeFileSync8 } from "node:fs";
-import { basename as basename13, dirname as dirname14, join as join27, resolve as resolve26 } from "node:path";
+import { spawnSync as spawnSync14 } from "node:child_process";
+import { existsSync as existsSync18, mkdirSync as mkdirSync8, mkdtempSync as mkdtempSync3, renameSync as renameSync6, rmSync as rmSync6, statSync as statSync9, writeFileSync as writeFileSync9 } from "node:fs";
+import { basename as basename14, dirname as dirname16, join as join28, resolve as resolve28 } from "node:path";
 
 // dist/fork-update.js
-var import_yaml9 = __toESM(require_dist(), 1);
-import { spawnSync as spawnSync12 } from "node:child_process";
-import { createHash as createHash7, randomUUID as randomUUID8 } from "node:crypto";
-import { existsSync as existsSync15, lstatSync as lstatSync2, mkdirSync as mkdirSync6, mkdtempSync as mkdtempSync2, readFileSync as readFileSync10, realpathSync as realpathSync11, renameSync as renameSync4, rmSync as rmSync4, unlinkSync as unlinkSync2, writeFileSync as writeFileSync7 } from "node:fs";
+var import_yaml10 = __toESM(require_dist(), 1);
+import { spawnSync as spawnSync13 } from "node:child_process";
+import { createHash as createHash8, randomUUID as randomUUID9 } from "node:crypto";
+import { existsSync as existsSync17, lstatSync as lstatSync3, mkdirSync as mkdirSync7, mkdtempSync as mkdtempSync2, readFileSync as readFileSync11, realpathSync as realpathSync13, renameSync as renameSync5, rmSync as rmSync5, unlinkSync as unlinkSync2, writeFileSync as writeFileSync8 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname13, isAbsolute as isAbsolute9, join as join26, relative as relative15, resolve as resolve25, sep as sep11 } from "node:path";
+import { dirname as dirname15, isAbsolute as isAbsolute11, join as join27, relative as relative16, resolve as resolve27, sep as sep12 } from "node:path";
 
 // dist/fork-paths.js
 function isExactAssetPayloadParts(parts) {
@@ -23561,7 +24393,7 @@ function isExactAssetPayloadPath(path) {
 
 // dist/fork-update.js
 function runGit6(args2, cwd) {
-  const result = spawnSync12(gitBinary(), args2, {
+  const result = spawnSync13(gitBinary(), args2, {
     cwd,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
@@ -23575,7 +24407,7 @@ function runGit6(args2, cwd) {
   return result.stdout ?? "";
 }
 function runGitBuffer(args2, cwd) {
-  const result = spawnSync12(gitBinary(), args2, {
+  const result = spawnSync13(gitBinary(), args2, {
     cwd,
     maxBuffer: 64 * 1024 * 1024,
     env: sanitizedGitEnvironment()
@@ -23612,7 +24444,7 @@ function nodeId(content) {
   if (end < 0)
     return null;
   try {
-    const metadata = (0, import_yaml9.parse)(content.slice(4, end));
+    const metadata = (0, import_yaml10.parse)(content.slice(4, end));
     const value2 = metadata?.node_id;
     return typeof value2 === "string" && /^n_[0-9a-f]{12}(?:[0-9a-f]{12})?$/.test(value2) ? value2 : null;
   } catch {
@@ -23639,7 +24471,7 @@ function rootIdentity3(content) {
   if (end < 0)
     return null;
   try {
-    const value2 = (0, import_yaml9.parse)(content.slice(4, end))?.root_node_id;
+    const value2 = (0, import_yaml10.parse)(content.slice(4, end))?.root_node_id;
     return isValidRootNodeId(value2) ? value2 : null;
   } catch {
     return null;
@@ -23694,24 +24526,24 @@ function normalizeSnapshot(files, baseline) {
   return normalized;
 }
 function readLocalBuffer(path, root) {
-  const absolute = resolve25(root, path);
-  const rel = relative15(root, absolute);
-  if (!rel || rel === ".." || rel.startsWith(`..${sep11}`) || isAbsolute9(rel)) {
+  const absolute = resolve27(root, path);
+  const rel = relative16(root, absolute);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep12}`) || isAbsolute11(rel)) {
     throw new Error(`Path escapes Space: ${path}`);
   }
   let cursor = root;
-  for (const part of rel.split(sep11)) {
-    cursor = join26(cursor, part);
-    if (!existsSync15(cursor))
+  for (const part of rel.split(sep12)) {
+    cursor = join27(cursor, part);
+    if (!existsSync17(cursor))
       break;
-    if (lstatSync2(cursor).isSymbolicLink()) {
+    if (lstatSync3(cursor).isSymbolicLink()) {
       throw new Error(`Refusing to follow a symbolic link in update path: ${path}`);
     }
   }
-  return existsSync15(absolute) ? readFileSync10(absolute) : null;
+  return existsSync17(absolute) ? readFileSync11(absolute) : null;
 }
 function assetRevision(content) {
-  return createHash7("sha256").update(content).digest("hex");
+  return createHash8("sha256").update(content).digest("hex");
 }
 function assetRevisions(assets) {
   return Object.fromEntries([...assets].sort((left, right) => left.path.localeCompare(right.path)).map((asset) => [asset.path, assetRevision(asset.content)]));
@@ -23798,20 +24630,20 @@ function planForkUpdate(baseline, incoming, root, incomingAssets = []) {
 }
 function writeTree(root, files) {
   for (const [path, content] of Object.entries(files)) {
-    const absolute = join26(root, path);
-    mkdirSync6(dirname13(absolute), { recursive: true });
-    writeFileSync7(absolute, content);
+    const absolute = join27(root, path);
+    mkdirSync7(dirname15(absolute), { recursive: true });
+    writeFileSync8(absolute, content);
   }
 }
 function applyForkUpdate(plan, root) {
   const changed = [...Object.keys(plan.writes), ...Object.keys(plan.asset_writes), ...plan.deletes];
   if (!changed.length)
     return;
-  const temp = mkdtempSync2(join26(tmpdir2(), "ideaspaces-update-"));
-  const beforeDir = join26(temp, "before");
-  const afterDir = join26(temp, "after");
-  mkdirSync6(beforeDir);
-  mkdirSync6(afterDir);
+  const temp = mkdtempSync2(join27(tmpdir2(), "ideaspaces-update-"));
+  const beforeDir = join27(temp, "before");
+  const afterDir = join27(temp, "after");
+  mkdirSync7(beforeDir);
+  mkdirSync7(afterDir);
   try {
     const before = {};
     const after = {};
@@ -23831,7 +24663,7 @@ function applyForkUpdate(plan, root) {
     }
     writeTree(beforeDir, before);
     writeTree(afterDir, after);
-    const diff = spawnSync12(gitBinary(), ["-c", "core.autocrlf=false", "diff", "--no-index", "--binary", "--no-renames", "--", "before", "after"], {
+    const diff = spawnSync13(gitBinary(), ["-c", "core.autocrlf=false", "diff", "--no-index", "--binary", "--no-renames", "--", "before", "after"], {
       cwd: temp,
       encoding: "utf-8",
       maxBuffer: 64 * 1024 * 1024,
@@ -23843,7 +24675,7 @@ function applyForkUpdate(plan, root) {
       throw new Error((diff.stderr || "Could not prepare update patch").trim());
     }
     const patch = (diff.stdout ?? "").replaceAll("a/before/", "a/").replaceAll("b/after/", "b/");
-    const applied = spawnSync12(gitBinary(), ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", "-"], {
+    const applied = spawnSync13(gitBinary(), ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", "-"], {
       cwd: root,
       input: patch,
       encoding: "utf-8",
@@ -23856,14 +24688,14 @@ function applyForkUpdate(plan, root) {
       throw new Error((applied.stderr || applied.stdout || "Could not apply update").trim());
     }
   } finally {
-    rmSync4(temp, { recursive: true, force: true });
+    rmSync5(temp, { recursive: true, force: true });
   }
 }
 function baselinePaths(root) {
-  const lexical = resolve25(root);
+  const lexical = resolve27(root);
   let canonical = lexical;
   try {
-    canonical = realpathSync11.native(lexical);
+    canonical = realpathSync13.native(lexical);
   } catch {
   }
   const roots = /* @__PURE__ */ new Set([canonical, lexical]);
@@ -23871,29 +24703,29 @@ function baselinePaths(root) {
     roots.add(canonical.slice("/private".length));
   }
   return [...roots].map((candidate) => {
-    const key2 = createHash7("sha256").update(candidate).digest("hex");
-    return join26(configDir(), "fork-baselines", `${key2}.json`);
+    const key2 = createHash8("sha256").update(candidate).digest("hex");
+    return join27(configDir(), "fork-baselines", `${key2}.json`);
   });
 }
 function loadForkBaseline(root) {
-  const path = baselinePaths(root).find(existsSync15);
+  const path = baselinePaths(root).find(existsSync17);
   if (!path)
     return null;
   try {
-    return JSON.parse(readFileSync10(path, "utf-8"));
+    return JSON.parse(readFileSync11(path, "utf-8"));
   } catch {
     throw new Error("The local fork update baseline is corrupt; no files were changed.");
   }
 }
 function saveForkBaseline(root, baseline) {
   const path = baselinePaths(root)[0];
-  mkdirSync6(dirname13(path), { recursive: true, mode: 448 });
-  const temp = `${path}.${process.pid}.${randomUUID8()}.tmp`;
+  mkdirSync7(dirname15(path), { recursive: true, mode: 448 });
+  const temp = `${path}.${process.pid}.${randomUUID9()}.tmp`;
   try {
-    writeFileSync7(temp, JSON.stringify(baseline) + "\n", { mode: 384 });
-    renameSync4(temp, path);
+    writeFileSync8(temp, JSON.stringify(baseline) + "\n", { mode: 384 });
+    renameSync5(temp, path);
   } finally {
-    rmSync4(temp, { force: true });
+    rmSync5(temp, { force: true });
   }
 }
 function removeForkBaseline(root) {
@@ -24112,7 +24944,7 @@ function runGit7(cwd, args2, importIdentity = false) {
       GIT_COMMITTER_EMAIL: IMPORT_EMAIL
     } : {}
   });
-  const result = spawnSync13(gitBinary(), ["-C", cwd, ...args2], {
+  const result = spawnSync14(gitBinary(), ["-C", cwd, ...args2], {
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
     env
@@ -24158,19 +24990,19 @@ function destinationRootIdentity(markdown, sourceRootNodeId) {
 }
 function writeTree2(root, markdown, assets) {
   for (const [path, content] of Object.entries(markdown)) {
-    const absolute = join27(root, path);
-    mkdirSync7(dirname14(absolute), { recursive: true });
-    writeFileSync8(absolute, content, { encoding: "utf-8", flag: "wx" });
+    const absolute = join28(root, path);
+    mkdirSync8(dirname16(absolute), { recursive: true });
+    writeFileSync9(absolute, content, { encoding: "utf-8", flag: "wx" });
   }
   for (const asset of assets) {
-    const absolute = join27(root, asset.path);
-    mkdirSync7(dirname14(absolute), { recursive: true });
-    writeFileSync8(absolute, asset.content, { flag: "wx" });
+    const absolute = join28(root, asset.path);
+    mkdirSync8(dirname16(absolute), { recursive: true });
+    writeFileSync9(absolute, asset.content, { flag: "wx" });
   }
   const ignore = gitignoreWithDefaults(null, { privateAgent: false });
   if (ignore === null)
     throw new Error("Could not prepare local-only ignore rules");
-  writeFileSync8(join27(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
+  writeFileSync9(join28(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
 }
 function initializeImport(root) {
   runGit7(root, ["init", "-q", "-b", "main"]);
@@ -24190,7 +25022,7 @@ function initializeImport(root) {
   }
 }
 function preflightDestination(path) {
-  if (existsSync16(path))
+  if (existsSync18(path))
     return `${path} already exists. Choose another destination folder.`;
   if (findSpaceFor(path)) {
     return `${path} still has a local Space registry record. Forget or repair that state before reusing the path.`;
@@ -24202,7 +25034,7 @@ function preflightDestination(path) {
   } catch (err) {
     return err instanceof Error ? err.message : String(err);
   }
-  const parent = dirname14(path);
+  const parent = dirname16(path);
   try {
     if (!statSync9(parent).isDirectory())
       return `${parent} is not a directory.`;
@@ -24213,17 +25045,17 @@ function preflightDestination(path) {
 }
 function installLocalFork(opts) {
   const { destination, name, sourceRootNodeId, sourceHead, rootNodeId, markdown, assets } = opts;
-  const parent = dirname14(destination);
+  const parent = dirname16(destination);
   let temporary = null;
   let installed = false;
   let baselineSaved = false;
   try {
-    temporary = mkdtempSync3(join27(parent, `.${basename13(destination)}.ideaspaces-fork-`));
+    temporary = mkdtempSync3(join28(parent, `.${basename14(destination)}.ideaspaces-fork-`));
     writeTree2(temporary, markdown, assets);
     initializeImport(temporary);
-    if (existsSync16(destination))
+    if (existsSync18(destination))
       throw new Error(`${destination} appeared while the fork was being prepared`);
-    renameSync5(temporary, destination);
+    renameSync6(temporary, destination);
     temporary = null;
     installed = true;
     const baseline = {
@@ -24252,11 +25084,11 @@ function installLocalFork(opts) {
       }
     }
     if (installed)
-      rmSync5(destination, { recursive: true, force: true });
+      rmSync6(destination, { recursive: true, force: true });
     throw err;
   } finally {
     if (temporary)
-      rmSync5(temporary, { recursive: true, force: true });
+      rmSync6(temporary, { recursive: true, force: true });
   }
 }
 var forkCommand = {
@@ -24296,7 +25128,7 @@ var forkCommand = {
       output.error(err instanceof Error ? err.message : String(err));
       return 1;
     }
-    const explicitDestination = args2[1] ? resolve26(args2[1]) : null;
+    const explicitDestination = args2[1] ? resolve28(args2[1]) : null;
     if (explicitDestination) {
       const problem = preflightDestination(explicitDestination);
       if (problem) {
@@ -24320,7 +25152,7 @@ var forkCommand = {
       return 1;
     }
     const name = stringFlag(flags2, "name") ?? source.name.trim();
-    const destination = explicitDestination ?? resolve26(slugify2(name));
+    const destination = explicitDestination ?? resolve28(slugify2(name));
     if (!explicitDestination) {
       const problem = preflightDestination(destination);
       if (problem) {
@@ -24382,7 +25214,7 @@ var forkCommand = {
 };
 
 // dist/commands/link.js
-import { resolve as resolve27 } from "node:path";
+import { resolve as resolve29 } from "node:path";
 var linkCommand = {
   name: "link",
   description: "Bind an existing local clone to one of your spaces \u2014 the explicit link mode of `get`",
@@ -24398,7 +25230,7 @@ var linkCommand = {
       output.error("Usage: ideaspaces link <dir> [space]");
       return 1;
     }
-    const dir = resolve27(dirArg);
+    const dir = resolve29(dirArg);
     if (!isInsideWorkTree(dir)) {
       output.error(`${dir} is not a git repository. Use \`clone\` to make one, or point at an existing clone.`);
       return 1;
@@ -24654,8 +25486,8 @@ var getCommand = {
     try {
       if (isUrl(address)) {
         plan = await planSpace(address, output);
-      } else if (existsSync17(address) && statSync10(address).isDirectory()) {
-        plan = planFolder(resolve28(address));
+      } else if (existsSync19(address) && statSync10(address).isDirectory()) {
+        plan = planFolder(resolve30(address));
       } else {
         output.error(`Not a Space URL or an existing folder: ${address}`);
         return 1;
@@ -24930,9 +25762,9 @@ var clonesCommand = {
 };
 
 // dist/commands/forget.js
-import { rmSync as rmSync6 } from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { dirname as dirname15, resolve as resolve29 } from "node:path";
+import { rmSync as rmSync7 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
+import { dirname as dirname17, resolve as resolve31 } from "node:path";
 var forgetCommand = {
   name: "forget",
   description: "Stop tracking a local clone (optionally delete its folder)",
@@ -24948,9 +25780,9 @@ var forgetCommand = {
       output.error("Usage: ideaspaces forget <dir> [--delete]");
       return 1;
     }
-    const dir = resolve29(dirArg);
+    const dir = resolve31(dirArg);
     const del = Boolean(flags2["delete"]);
-    if (del && (dir === resolve29(homedir2()) || dirname15(dir) === dir)) {
+    if (del && (dir === resolve31(homedir3()) || dirname17(dir) === dir)) {
       output.error(`Refusing to delete ${dir} \u2014 that's a home or root directory.`);
       return 1;
     }
@@ -24962,7 +25794,7 @@ var forgetCommand = {
     let deleted = false;
     if (del) {
       try {
-        rmSync6(dir, { recursive: true, force: true });
+        rmSync7(dir, { recursive: true, force: true });
         deleted = true;
       } catch (err) {
         output.error(`Removed the binding, but couldn't delete ${dir}: ${err instanceof Error ? err.message : String(err)}`);
@@ -25207,15 +26039,15 @@ import { existsSync as existsSync24, readFileSync as readFileSync14, realpathSyn
 import { isAbsolute as isAbsolute17, join as join33, resolve as resolve35 } from "node:path";
 
 // dist/local/agent-reach.js
-import { existsSync as existsSync18, realpathSync as realpathSync12, statSync as statSync11 } from "node:fs";
-import { dirname as dirname16, isAbsolute as isAbsolute10, join as join28, resolve as resolve30 } from "node:path";
+import { existsSync as existsSync20, realpathSync as realpathSync14, statSync as statSync11 } from "node:fs";
+import { dirname as dirname18, isAbsolute as isAbsolute12, join as join29, resolve as resolve32 } from "node:path";
 function discoverAgentReach(opts) {
   const errors = [];
   const warnings = [];
   const baseCwd = opts.cwd ?? process.cwd();
   let pov;
   try {
-    pov = realpathSync12(opts.povPath);
+    pov = realpathSync14(opts.povPath);
   } catch (err) {
     return { addedDirs: [], warnings, errors: [`Cannot resolve POV ${opts.povPath}: ${err instanceof Error ? err.message : String(err)}`] };
   }
@@ -25224,16 +26056,16 @@ function discoverAgentReach(opts) {
   try {
     const candidate = repoRoot(pov);
     nestedRepo = candidate === pov;
-    if (!nestedRepo && existsSync18(join28(candidate, "_threads")))
+    if (!nestedRepo && existsSync20(join29(candidate, "_threads")))
       spaceRoot = candidate;
   } catch {
   }
   if (nestedRepo) {
-    for (let parent = dirname16(pov); parent !== dirname16(parent); parent = dirname16(parent)) {
+    for (let parent = dirname18(pov); parent !== dirname18(parent); parent = dirname18(parent)) {
       try {
         if (repoRoot(parent) !== parent)
           continue;
-        if (existsSync18(join28(parent, "_threads")))
+        if (existsSync20(join29(parent, "_threads")))
           spaceRoot = parent;
         break;
       } catch {
@@ -25257,7 +26089,7 @@ function discoverAgentReach(opts) {
   }
   const seenMaps = /* @__PURE__ */ new Set();
   for (const item of mapsToInspect) {
-    const mapFile = resolve30(item.context, item.path);
+    const mapFile = resolve32(item.context, item.path);
     if (seenMaps.has(mapFile))
       continue;
     seenMaps.add(mapFile);
@@ -25272,7 +26104,7 @@ function discoverAgentReach(opts) {
         try {
           if (!statSync11(root.checkoutPath).isDirectory())
             throw new Error("not a directory");
-          discoveredCheckouts.push(realpathSync12(root.checkoutPath));
+          discoveredCheckouts.push(realpathSync14(root.checkoutPath));
         } catch (err) {
           warnings.push(`Map ${item.path}: checkout ${root.checkoutPath} unavailable (${err instanceof Error ? err.message : String(err)}); not added to reach.`);
         }
@@ -25288,9 +26120,9 @@ function discoverAgentReach(opts) {
   const explicitReach = [];
   if (opts.reachFlag) {
     for (const raw of (Array.isArray(opts.reachFlag) ? opts.reachFlag : [opts.reachFlag]).map((s) => s.trim()).filter(Boolean)) {
-      const resolved = isAbsolute10(raw) ? raw : resolve30(baseCwd, raw);
+      const resolved = isAbsolute12(raw) ? raw : resolve32(baseCwd, raw);
       try {
-        const canonical = realpathSync12(resolved);
+        const canonical = realpathSync14(resolved);
         if (!statSync11(canonical).isDirectory())
           throw new Error("directory not found");
         explicitReach.push(canonical);
@@ -25318,20 +26150,20 @@ var CLAUDE_HANDOVER_TOOLS = [
 ];
 
 // dist/local/contained-path.js
-import { realpathSync as realpathSync13 } from "node:fs";
-import { dirname as dirname17, isAbsolute as isAbsolute11, relative as relative16, sep as sep12 } from "node:path";
+import { realpathSync as realpathSync15 } from "node:fs";
+import { dirname as dirname19, isAbsolute as isAbsolute13, relative as relative17, sep as sep13 } from "node:path";
 function isContained(root, path) {
-  const rel = relative16(root, path);
-  return rel !== ".." && !rel.startsWith(`..${sep12}`) && !isAbsolute11(rel);
+  const rel = relative17(root, path);
+  return rel !== ".." && !rel.startsWith(`..${sep13}`) && !isAbsolute13(rel);
 }
 function enteredThroughRoot(root, path) {
-  for (let ancestor = path; ; ancestor = dirname17(ancestor)) {
+  for (let ancestor = path; ; ancestor = dirname19(ancestor)) {
     try {
-      if (realpathSync13(ancestor) === root)
+      if (realpathSync15(ancestor) === root)
         return true;
     } catch {
     }
-    if (dirname17(ancestor) === ancestor)
+    if (dirname19(ancestor) === ancestor)
       return false;
   }
 }
@@ -25339,831 +26171,6 @@ function enteredThroughRoot(root, path) {
 // dist/local/thread-launch.js
 import { existsSync as existsSync21, lstatSync as lstatSync4, readFileSync as readFileSync12 } from "node:fs";
 import { basename as basename15, dirname as dirname20, isAbsolute as isAbsolute14, join as join30 } from "node:path";
-
-// dist/local/threads.js
-import { randomUUID as randomUUID9, createHash as createHash8 } from "node:crypto";
-import { spawnSync as spawnSync14 } from "node:child_process";
-import { existsSync as existsSync20, lstatSync as lstatSync3, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync2, realpathSync as realpathSync15, renameSync as renameSync6, rmSync as rmSync7, writeFileSync as writeFileSync9 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
-import { basename as basename14, dirname as dirname19, isAbsolute as isAbsolute13, join as join29, resolve as resolve32 } from "node:path";
-var import_yaml10 = __toESM(require_dist(), 1);
-
-// dist/local/post-links.js
-import { existsSync as existsSync19, realpathSync as realpathSync14 } from "node:fs";
-import { dirname as dirname18, isAbsolute as isAbsolute12, relative as relative17, resolve as resolve31, sep as sep13 } from "node:path";
-var SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
-var POST_FILE = /^(\d{4}-\d{2}-\d{2}T[\d-]+Z-)?(.*-)?msg_[0-9a-f-]+\.md$/i;
-function withoutCode(body) {
-  return body.replace(/(^|\n)(```|~~~)[^\n]*\n[\s\S]*?(\n\2[^\n]*(?=\n|$)|$)/g, (m) => m.replace(/[^\n]/g, " ")).replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length));
-}
-function destinations(text) {
-  const found = [];
-  const pattern = /!?\[(?:[^\]\\]|\\.)*\]\(\s*(<[^>\n]*>|[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
-  for (const match of text.matchAll(pattern)) {
-    const raw = match[1];
-    found.push(raw.startsWith("<") ? raw.slice(1, -1) : raw);
-  }
-  return found;
-}
-function checkPostLinks(body, postDir, spaceRoot) {
-  const report = { errors: [], warnings: [] };
-  const realSpace = realpathSync14(spaceRoot);
-  const realPostDir = realpathSync14(postDir);
-  const seen = /* @__PURE__ */ new Set();
-  for (const raw of destinations(withoutCode(body))) {
-    if (seen.has(raw))
-      continue;
-    seen.add(raw);
-    if (!raw || raw.startsWith("#") || raw.startsWith("//") || SCHEME.test(raw))
-      continue;
-    const path = raw.split(/[?#]/)[0];
-    if (!path)
-      continue;
-    let decoded;
-    try {
-      decoded = decodeURIComponent(path);
-    } catch {
-      decoded = path;
-    }
-    if (isAbsolute12(decoded) || decoded.includes("\\")) {
-      report.errors.push(`${raw}: a link in a post is relative to the post file; an absolute or backslash path breaks on any other machine.`);
-      continue;
-    }
-    const target = resolve31(realPostDir, decoded);
-    const inside = relative17(realSpace, target);
-    if (inside === ".." || inside.startsWith(`..${sep13}`) || isAbsolute12(inside)) {
-      report.errors.push(`${raw}: resolves outside the Space (${target}). Links are relative to the post file, which sits in ${postDir}.`);
-      continue;
-    }
-    if (existsSync19(target))
-      continue;
-    const name = target.split(sep13).pop() ?? "";
-    if (POST_FILE.test(name) && existsSync19(dirname18(target)) && /(^|[\\/])_threads[\\/][^\\/]+$/.test(dirname18(target))) {
-      report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
-      continue;
-    }
-    report.errors.push(`${raw}: no file at ${target}. Links are relative to the post file, which sits in ${postDir}.`);
-  }
-  return report;
-}
-
-// dist/local/threads.js
-var MAX_POST = 1024 * 1024;
-var SHA2 = /^[0-9a-f]{40}$/;
-var SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
-var NoAgreementError = class extends Error {
-};
-function attachmentText(attachment) {
-  return attachment === "unknown" ? "unknown" : attachment.raw ?? `${attachment.kind}:${attachment.value}`;
-}
-function sameTarget(a, b) {
-  if (a === null || b === null || a === "unknown" || b === "unknown")
-    return a === b;
-  const post = (x) => x.kind === "post" || x.kind === "id" || x.kind === "path";
-  return post(a) && post(b) ? a.value === b.value : a.kind === b.kind && a.value === b.value;
-}
-function originNote(thread) {
-  return thread.origin !== null && !sameTarget(thread.origin, thread.attachment) ? { origin: attachmentText(thread.origin) } : {};
-}
-function git3(cwd, args2) {
-  const availability = gitAvailability();
-  if (availability.state !== "usable")
-    throw new Error(availability.hint);
-  const result = spawnSync14(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
-  if (result.status !== 0)
-    throw new Error((result.stderr || result.error?.message || `git ${args2[0]} failed`).trim());
-  return result.stdout.trim();
-}
-function safeDirectory(path) {
-  const abs = resolve32(path);
-  if (existsSync20(abs) && lstatSync3(abs).isSymbolicLink())
-    throw new Error(`Refusing symlink: ${abs}`);
-  if (!existsSync20(abs) || !lstatSync3(abs).isDirectory())
-    throw new Error(`Thread directory not found: ${abs}`);
-  return realpathSync15(abs);
-}
-function safeFile(path) {
-  if (lstatSync3(path).isSymbolicLink() || !lstatSync3(path).isFile())
-    throw new Error(`Refusing non-regular thread file: ${path}`);
-  if (lstatSync3(path).size > MAX_POST)
-    throw new Error(`Thread file exceeds ${MAX_POST} bytes: ${path}`);
-  return readFileSync11(path, "utf8");
-}
-function threadBase(cwd = process.cwd()) {
-  let at = safeDirectory(cwd);
-  while (true) {
-    if (existsSync20(join29(at, "_agent", "agreement.md")))
-      return at;
-    const parent = dirname19(at);
-    if (parent === at)
-      throw new NoAgreementError("No enclosing Agreement; run from an ideaspace with _agent/agreement.md.");
-    at = parent;
-  }
-}
-function spaceForThread(threadDir) {
-  const dir = safeDirectory(threadDir);
-  const threads = dirname19(dir);
-  if (basename14(threads) !== "_threads")
-    throw new Error("Thread must be an immediate child of _threads/.");
-  const space = dirname19(threads);
-  if (!existsSync20(join29(space, "_agent", "agreement.md")))
-    throw new NoAgreementError("No Space Agreement above this Thread.");
-  return space;
-}
-function threadsDirectory(cwd = process.cwd()) {
-  return join29(threadBase(cwd), "_threads");
-}
-function resolveLocalThread(input, cwd = process.cwd()) {
-  const base = threadsDirectory(cwd);
-  safeDirectory(base);
-  const path = input.includes("/") || input.startsWith(".") || isAbsolute13(input) ? resolve32(cwd, input) : join29(base, input);
-  const dir = safeDirectory(path);
-  if (dirname19(dir) !== base)
-    throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
-  return dir;
-}
-function isHostedThreadTarget(value2, cwd = process.cwd()) {
-  if (!HOSTED_THREAD_ID.test(value2))
-    return false;
-  let base;
-  try {
-    base = threadsDirectory(cwd);
-  } catch (error) {
-    if (error instanceof NoAgreementError)
-      return true;
-    throw error;
-  }
-  return !lexists(join29(base, value2));
-}
-function threadAgreementContent(path) {
-  const agent = join29(path, "_agent");
-  if (!lexists(agent))
-    return null;
-  safeDirectory(agent);
-  const agreement = join29(agent, "agreement.md");
-  return lexists(agreement) ? safeFile(agreement) : null;
-}
-function lexists(path) {
-  try {
-    lstatSync3(path);
-    return true;
-  } catch (error) {
-    if (error.code === "ENOENT")
-      return false;
-    throw error;
-  }
-}
-var NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
-function loadThread(dir) {
-  const path = safeDirectory(dir);
-  const readmePath = join29(path, "README.md");
-  if (!existsSync20(readmePath))
-    throw new Error(`Thread ${path} needs README.md.`);
-  const agreementContent = threadAgreementContent(path);
-  const readme = safeFile(readmePath);
-  const fm = parseFrontmatter(readme);
-  if (!fm)
-    throw new Error(`Malformed README frontmatter: ${readmePath}`);
-  const slug = basename14(path);
-  const sources = [];
-  for (const entry of readdirSync2(path, { withFileTypes: true })) {
-    if (entry.name === "README.md" || entry.name === "_agent")
-      continue;
-    if (!entry.isFile() || !entry.name.endsWith(".md"))
-      throw new Error(`Unexpected thread entry: ${entry.name}`);
-    sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join29(path, entry.name)) });
-  }
-  const agreementAttachment = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
-  const inspection = inspectThreadPosts(sources, agreementAttachment);
-  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename14(post.path) }));
-  const seen = /* @__PURE__ */ new Set();
-  for (const post of allPosts) {
-    if (seen.has(post.id))
-      throw new Error(`Duplicate post id: ${post.id}`);
-    seen.add(post.id);
-  }
-  const timeline = reconstructThreadTimeline(allPosts);
-  const openingPath = [...sources].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.path;
-  const opening = inspection.posts.find((post) => post.path === openingPath);
-  const warnings = [
-    ...agreementContent === null ? [NO_THREAD_AGREEMENT] : [],
-    ...inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`)
-  ];
-  return {
-    path,
-    slug,
-    thread_id: opening?.id ?? null,
-    name: typeof fm.name === "string" ? fm.name : slug,
-    summary: typeof fm.summary === "string" ? fm.summary : "",
-    posts: timeline.posts,
-    allPosts,
-    warnings,
-    unreadablePosts: inspection.unreadable.map((post) => post.path),
-    closed: inspection.closed,
-    ...inspection.writeRefusal ? { writeRefusal: inspection.writeRefusal } : {},
-    attachment: inspection.parent,
-    origin: inspection.origin,
-    readme
-  };
-}
-function listLocal(cwd = process.cwd(), onError) {
-  const base = threadsDirectory(cwd);
-  if (!existsSync20(base))
-    return [];
-  safeDirectory(base);
-  const rows = [];
-  for (const entry of readdirSync2(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
-    try {
-      rows.push(loadThread(join29(base, entry.name)));
-    } catch (error) {
-      if (!onError)
-        throw error;
-      onError(`Thread ${entry.name} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  return rows.sort((a, b) => a.slug.localeCompare(b.slug));
-}
-function minimalAgreement(about, attachedTo) {
-  return `---
-name: ${(0, import_yaml10.stringify)(`Agreement \u2014 ${about}`).trim()}
-summary: Local Thread entry schema and immutable posts.
-` + (attachedTo ? `attached_to: ${attachedTo}
-` : "") + `---
-# ${about}
-
-Posts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.
-`;
-}
-function createThread(slug, about, cwd = process.cwd(), attachedTo) {
-  if (!SLUG.test(slug))
-    throw new Error("Thread slug must be lowercase letters, numbers and hyphens (1\u2013101 characters).");
-  if (!about.trim() || /[\r\n]/.test(about) || about.length > 200)
-    throw new Error("--about must be a single-line title of at most 200 characters.");
-  if (attachedTo !== void 0 && (!attachedTo.includes(":") || !parseThreadAttachment(attachedTo))) {
-    throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
-  }
-  const base = threadsDirectory(cwd);
-  if (existsSync20(base))
-    safeDirectory(base);
-  else
-    mkdirSync8(base);
-  const dir = join29(base, slug);
-  mkdirSync8(dir);
-  mkdirSync8(join29(dir, "_agent"));
-  writeFileSync9(join29(dir, "_agent", "agreement.md"), minimalAgreement(about.trim()), { flag: "wx" });
-  writeFileSync9(join29(dir, "README.md"), (0, import_yaml10.stringify)({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
-  return loadThread(dir);
-}
-function references(parents) {
-  const ids = /* @__PURE__ */ new Set();
-  for (const parent of parents)
-    for (const id of [...parent.references, parent.id])
-      ids.add(id);
-  return [...ids];
-}
-function activityAt(post) {
-  if (post.dateWarning || !post.date)
-    return null;
-  return post.date.length === 10 ? post.fileDate ?? post.date : post.date;
-}
-function latestLocalActivity(posts2) {
-  return posts2.reduce((latest, post) => {
-    const at = activityAt(post);
-    const time = at ? Date.parse(at) : NaN;
-    return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
-  }, null);
-}
-function resolveThreadParent2(threadDir, knownThreads) {
-  const agreementPath = join29(threadDir, "_agent", "agreement.md");
-  const agreementContent = threadAgreementContent(safeDirectory(threadDir));
-  const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename14(threadDir)}/_agent/agreement.md`);
-  const canonicalThreadDir = realpathSync15(threadDir);
-  const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
-  if (parsedAgreement.status === "invalid" && !thread.attachment) {
-    throw new Error(`Malformed Thread Agreement frontmatter: ${agreementPath} (${parsedAgreement.issue}).`);
-  }
-  if (thread.attachment === "unknown")
-    return { attached_to: "unknown", status: "unknown" };
-  if (!thread.attachment)
-    return null;
-  const attachment = thread.attachment;
-  const attachedTo = attachment.raw ?? attachment.value;
-  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
-    return { attached_to: attachedTo, status: "none", ...originNote(thread) };
-  }
-  const spaceRoot = spaceForThread(threadDir);
-  const siblings = knownThreads ?? listLocal(spaceRoot);
-  const posts2 = siblings.flatMap((sibling) => sibling.allPosts.map((post2) => ({
-    path: `_threads/${sibling.slug}/${post2.path}`,
-    id: post2.id
-  })));
-  const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: posts2 }]);
-  if (resolved.status !== "resolved")
-    return { attached_to: attachedTo, status: resolved.status, ...originNote(thread) };
-  const parent = siblings.find((sibling) => sibling.slug === resolved.parent.path.split("/")[1]);
-  const post = parent?.allPosts.find((candidate) => candidate.id === resolved.parent.id);
-  return {
-    attached_to: attachedTo,
-    id: resolved.parent.id,
-    slug: parent?.slug,
-    path: resolved.parent.path,
-    name: post?.frontmatter.name ?? resolved.parent.id,
-    summary: post?.frontmatter.summary ?? "",
-    ...originNote(thread)
-  };
-}
-function findChildThreads(targetThreadDir, postId2, onError) {
-  const spaceRoot = spaceForThread(targetThreadDir);
-  const targetSlug = basename14(targetThreadDir);
-  const targetThread = loadThread(targetThreadDir);
-  const allThreads = listLocal(spaceRoot, onError);
-  const children = [];
-  const targetPostIds = new Set(targetThread.posts.map((p) => p.id));
-  for (const t of allThreads) {
-    if (t.path === targetThread.path)
-      continue;
-    let parentInfo;
-    try {
-      parentInfo = resolveThreadParent2(t.path, allThreads);
-    } catch (error) {
-      if (!onError)
-        throw error;
-      onError(`Thread ${t.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
-    if (!parentInfo)
-      continue;
-    if (parentInfo.status === "unknown") {
-      const warning = `Thread ${t.slug} parent unknown: opening post unreadable; cannot prove child links.`;
-      if (!onError)
-        throw new Error(warning);
-      onError(warning);
-      continue;
-    }
-    const matchedPostId = parentInfo.slug === targetSlug && parentInfo.id && targetPostIds.has(parentInfo.id) ? parentInfo.id : null;
-    if (matchedPostId) {
-      if (!postId2 || matchedPostId === postId2) {
-        children.push({
-          id: t.path,
-          slug: t.slug,
-          path: t.path,
-          thread_id: t.thread_id,
-          name: t.name,
-          summary: t.summary,
-          attached_to: parentInfo.attached_to,
-          attached_to_post_id: matchedPostId,
-          latest_activity_at: latestLocalActivity(t.posts),
-          count: t.allPosts.length,
-          closed: t.closed
-        });
-      }
-    }
-  }
-  children.sort((a, b) => {
-    const timeA = a.latest_activity_at ? Date.parse(a.latest_activity_at) : 0;
-    const timeB = b.latest_activity_at ? Date.parse(b.latest_activity_at) : 0;
-    if (timeA !== timeB)
-      return timeB - timeA;
-    return a.slug.localeCompare(b.slug);
-  });
-  return children;
-}
-function findNewestSnapshot(posts2) {
-  for (let i = posts2.length - 1; i >= 0; i--) {
-    if (posts2[i].kind === "snapshot" || posts2[i].kind === "reframe") {
-      return posts2[i];
-    }
-  }
-  return null;
-}
-function computeBranches(posts2) {
-  if (!posts2.length)
-    return [];
-  const timeline = reconstructThreadTimeline(posts2);
-  const order = new Map(timeline.posts.map((post, index) => [post.id, index]));
-  const branches = [];
-  for (const root of timeline.roots) {
-    for (const start of root.children.length ? root.children : [root]) {
-      const seen = /* @__PURE__ */ new Set();
-      const pending = [start];
-      let tip = start.post;
-      while (pending.length) {
-        const node = pending.pop();
-        if (seen.has(node.post.id))
-          continue;
-        seen.add(node.post.id);
-        if ((order.get(node.post.id) ?? -1) > (order.get(tip.id) ?? -1))
-          tip = node.post;
-        pending.push(...node.children);
-      }
-      branches.push({
-        root_id: start.post.id,
-        root_name: start.post.frontmatter.name ?? start.post.id,
-        root_date: start.post.date ?? null,
-        tip_id: tip.id,
-        tip_name: tip.frontmatter.name ?? tip.id,
-        tip_date: tip.date ?? null,
-        count: seen.size
-      });
-    }
-  }
-  return branches;
-}
-function validateMarkOptions(kind, mark, replyTo) {
-  if (kind === "mark" && (!mark?.trim() || /[\r\n]/.test(mark))) {
-    throw new Error("--kind mark requires --mark <non-empty single-line value>.");
-  }
-  if (mark !== void 0 && kind !== "mark")
-    throw new Error("--mark requires --kind mark.");
-  if (kind === "mark" && (replyTo?.length !== 1 || replyTo[0] === "latest")) {
-    throw new Error("--kind mark requires --reply-to <one explicit target post id>.");
-  }
-}
-function validateThreadMomentMap(input) {
-  const map = parseMap(input);
-  if (map.status !== "valid")
-    throw new Error(`--map must contain a valid protocol Map block: ${map.status === "invalid" ? map.issues.map((issue2) => `${issue2.path} (${issue2.code})`).join(", ") : "map is absent"}. Fix the named field; no implicit HEAD pin is substituted.`);
-  if (!isPinnedMomentMap(map.map)) {
-    for (const [index, root] of map.map.roots.entries()) {
-      if (!root.sha)
-        throw new Error(`Thread post Map root ${index} (${root.root_node_id ?? root.repo ?? "unnamed"}) has no SHA. Pin the root before citing a moment.`);
-    }
-    for (const [index, member2] of map.map.members.entries()) {
-      if ("position" in member2 && !member2.depth)
-        throw new Error(`Thread post Map position member ${index} has no depth ceiling. Choose one before citing a moment.`);
-    }
-    throw new Error("Thread post Map must pin every root and choose a depth for each position.");
-  }
-}
-function appendPost(dir, options) {
-  const thread = loadThread(dir);
-  if (thread.writeRefusal)
-    throw new Error(thread.writeRefusal);
-  if (thread.closed === true)
-    throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
-  if (!options.body.trim())
-    throw new Error("Post body is required through --message or stdin.");
-  if (options.rejectEscapedNewlines && !options.body.includes("\n") && (options.body.match(/\\n/g) ?? []).length >= 2) {
-    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'); to post literal escapes intentionally, pipe the body on stdin instead.");
-  }
-  if (Buffer.byteLength(options.body) > MAX_POST)
-    throw new Error(`Post body exceeds ${MAX_POST} bytes.`);
-  for (const value2 of [options.name, options.summary, options.author]) {
-    if (value2 && (/[\r\n]/.test(value2) || value2.length > 1e3))
-      throw new Error("Post header values must be single-line and at most 1,000 characters.");
-  }
-  if (options.tags !== void 0) {
-    if (new Set(options.tags).size > 20)
-      throw new Error("Tags are limited to 20 distinct values per post.");
-    for (const tag of options.tags) {
-      if (typeof tag !== "string" || !tag.trim() || /[\r\n]/.test(tag) || tag.length > 200) {
-        throw new Error("--tags must contain non-empty values of at most 200 characters without newlines.");
-      }
-    }
-  }
-  validateMarkOptions(options.kind, options.mark, options.replyTo);
-  if (options.attachedTo !== void 0 && thread.allPosts.length)
-    throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
-  const byId = new Map(thread.allPosts.map((post) => [post.id, post]));
-  const referenced = new Set(thread.posts.flatMap((post) => post.inReplyTo));
-  const tips = thread.posts.filter((post) => !referenced.has(post.id)).map((post) => post.id);
-  let parentIds;
-  let defaultParentId;
-  if (options.replyTo !== void 0) {
-    if (options.replyTo.includes("latest")) {
-      if (!thread.posts.length)
-        throw new Error("Thread has no posts to reply to.");
-      const latestId = thread.posts.at(-1).id;
-      parentIds = options.replyTo.map((id2) => id2 === "latest" ? latestId : id2);
-    } else {
-      parentIds = options.replyTo;
-    }
-  } else if (options.kind === "closure") {
-    parentIds = tips;
-  } else if (thread.posts.length === 0) {
-    parentIds = [];
-  } else {
-    const openingPostId = thread.thread_id ?? thread.posts[0].id;
-    parentIds = [openingPostId];
-    defaultParentId = openingPostId;
-  }
-  if (new Set(parentIds).size !== parentIds.length || parentIds.some((id2) => !byId.has(id2)))
-    throw new Error("--reply-to must name distinct existing post ids in this Thread.");
-  const parents = parentIds.map((id2) => byId.get(id2));
-  if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes)))
-    throw new Error("A correction requires --supersedes <existing post id>.");
-  if (options.supersedes && options.kind !== "correction")
-    throw new Error("--supersedes requires --kind correction.");
-  if (options.map !== void 0)
-    validateThreadMomentMap(options.map);
-  const warnings = [];
-  if (options.checkLinks) {
-    if (basename14(dirname19(thread.path)) !== "_threads")
-      throw new Error("Thread must be an immediate child of _threads/.");
-    const links = checkPostLinks(options.body, thread.path, dirname19(dirname19(thread.path)));
-    if (links.errors.length) {
-      throw new Error(`Post not written: ${links.errors.length === 1 ? "a link does" : `${links.errors.length} links do`} not resolve.
-${links.errors.map((e) => `  - ${e}`).join("\n")}
-Fix the path (it is relative to the post file), remove the link, or pass --no-check-links to post it as written (for a file that lands in the same change or lives on another branch). Map positions are not checked here.`);
-    }
-    warnings.push(...links.warnings);
-  }
-  options.verifyTarget?.(thread, parentIds, options.supersedes);
-  const id = `msg_${randomUUID9()}`;
-  const date = (/* @__PURE__ */ new Date()).toISOString();
-  const stamp = date.replace(/[:.]/g, "-");
-  const path = join29(thread.path, `${stamp}-${id}.md`);
-  const fields = {
-    id,
-    date,
-    kind: options.kind ?? "post",
-    ...options.mark ? { mark: options.mark } : {},
-    ...options.attachedTo ? { attached_to: options.attachedTo } : {},
-    ...parentIds.length ? { in_reply_to: parentIds.length === 1 ? parentIds[0] : parentIds } : {},
-    ...parents.length ? { references: references(parents) } : {},
-    ...options.supersedes ? { supersedes: options.supersedes } : {},
-    ...options.name ? { name: options.name } : {},
-    ...options.summary ? { summary: options.summary } : {},
-    ...options.tags && options.tags.length ? { tags: [...new Set(options.tags)] } : {},
-    ...options.author ? { author: options.author } : {},
-    ...options.map !== void 0 ? { map: options.map } : {}
-  };
-  const content = `---
-${(0, import_yaml10.stringify)(fields)}---
-
-${options.body.trim()}
-`;
-  const parsed2 = parseThreadPost(content, basename14(path));
-  if (parsed2.status !== "valid")
-    throw new Error(`Generated post failed validation before write: ${parsed2.issues.join(", ")}`);
-  if (parsed2.post.warnings?.length)
-    throw new Error(`Generated post failed validation before write: ${parsed2.post.warnings.map((w) => `${w.field}: ${w.warning}`).join(", ")}`);
-  writeFileSync9(path, content, { flag: "wx", mode: 384 });
-  if (defaultParentId)
-    options.onDefaultReplyTo?.(defaultParentId);
-  return { post: parsed2.post, path, warnings };
-}
-function cursorPath(thread) {
-  const key2 = createHash8("sha256").update(thread.path).digest("hex");
-  return join29(homedir3(), ".ideaspaces", "cursors", `${key2}.json`);
-}
-function readCursor(thread) {
-  const path = cursorPath(thread);
-  if (existsSync20(dirname19(path)) && lstatSync3(dirname19(path)).isSymbolicLink())
-    throw new Error("Refusing symlink local cursor directory.");
-  if (!existsSync20(path))
-    return /* @__PURE__ */ new Set();
-  const data = JSON.parse(safeFile(path));
-  if (!data || typeof data !== "object" || !Array.isArray(data.seen) || !data.seen.every((id) => typeof id === "string"))
-    throw new Error(`Invalid local Thread cursor: ${path}`);
-  return new Set(data.seen);
-}
-function acknowledge(thread, posts2) {
-  const seen = readCursor(thread);
-  for (const post of posts2)
-    seen.add(post.id);
-  const path = cursorPath(thread);
-  mkdirSync8(dirname19(path), { recursive: true, mode: 448 });
-  if (lstatSync3(dirname19(path)).isSymbolicLink())
-    throw new Error("Refusing symlink local cursor directory.");
-  const tmp = `${path}.${randomUUID9()}.tmp`;
-  writeFileSync9(tmp, JSON.stringify({ seen: [...seen] }), { flag: "wx", mode: 384 });
-  renameSync6(tmp, path);
-}
-function readPinnedThreadFile(repo, pin, position) {
-  if (!SHA2.test(pin))
-    throw new Error("A full 40-character authored commit pin is required.");
-  const availability = gitAvailability();
-  if (availability.state !== "usable")
-    throw new Error(availability.hint);
-  const read = readCheckoutAt(repo, pin, position, MAX_POST);
-  if (read.status === "read") {
-    if (read.kind !== "file")
-      throw new Error(`${position} is a directory at pin ${pin}, not a post.`);
-    return read.content;
-  }
-  if (read.status === "pin_absent" || read.status === "missing_path") {
-    throw new Error(`Authored pin ${pin} does not contain ${position}; refusing working-tree HEAD fallback.`);
-  }
-  if (read.status === "too_large")
-    throw new Error("Pinned post exceeds the read limit.");
-  throw new Error(read.reason || "Pinned file could not be read.");
-}
-function readPinnedThreadMember(repo, pin, position) {
-  if (!/^_threads\/[a-z0-9-]+\/[A-Za-z0-9._-]+\.md$/.test(position) || position.includes(".."))
-    throw new Error("Invalid _threads/ Map position.");
-  return readPinnedThreadFile(repo, pin, position);
-}
-function readPinnedThreadAgreement(repo, pin, position) {
-  if (!/^_threads\/[a-z0-9-]+\/_agent\/agreement\.md$/.test(position))
-    throw new Error("Invalid pinned Thread Agreement position.");
-  return readPinnedThreadFile(repo, pin, position);
-}
-function initWorktree(cwd = process.cwd()) {
-  const root = threadBase(cwd);
-  const dir = join29(root, "_threads");
-  if (existsSync20(dir))
-    throw new Error("_threads/ already exists; refusing to replace it.");
-  const origin = git3(root, ["rev-parse", "--show-toplevel"]);
-  const canonical = (path) => {
-    const value2 = realpathSync15.native(path);
-    return process.platform === "win32" ? value2.toLowerCase() : value2;
-  };
-  if (canonical(origin) !== canonical(root))
-    throw new Error("Run threads init at the repository root Agreement.");
-  if (git3(root, ["branch", "--list", "threads"]))
-    throw new Error("Local threads branch already exists; refusing to replace it.");
-  const ignore = join29(root, ".gitignore");
-  if (existsSync20(ignore) && lstatSync3(ignore).isSymbolicLink())
-    throw new Error("Refusing symlink .gitignore.");
-  git3(root, ["worktree", "add", "--orphan", "-b", "threads", dir]);
-  markPrivateThreadsWorktree(dir);
-  const old = existsSync20(ignore) ? readFileSync11(ignore, "utf8") : "";
-  if (!old.split("\n").includes("/_threads/"))
-    writeFileSync9(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/
-`);
-  return dir;
-}
-function pushWorktree(cwd = process.cwd(), remote) {
-  const dir = safeDirectory(threadsDirectory(cwd));
-  if (!remote || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(remote))
-    throw new Error("Pass --remote <team-remote> explicitly; never push private Threads to the default remote.");
-  if (git3(dir, ["branch", "--show-current"]) !== "threads")
-    throw new Error("_threads/ must be the dedicated threads branch worktree.");
-  const url = git3(dir, ["remote", "get-url", "--push", remote]);
-  if (remote === "origin")
-    throw new Error("Refusing to push private Threads to origin; configure a separate team remote.");
-  const scp = /^[^@\s]+@([^:/\s]+):/.exec(url);
-  const host = scp?.[1] ?? (url.includes("://") ? new URL(url).hostname : null);
-  if (host !== "git.ideaspaces.xyz" && !(url.startsWith("file://") || isAbsolute13(url))) {
-    throw new Error("Private Threads may push only to git.ideaspaces.xyz or a local file remote; GitHub and unknown hosts are refused.");
-  }
-  git3(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
-  return remote;
-}
-function writeAgreementFile(path, content) {
-  const temporary = `${path}.${randomUUID9()}.tmp`;
-  writeFileSync9(temporary, content, { flag: "wx" });
-  renameSync6(temporary, path);
-}
-var FRONTMATTER = /^---\r?\n([\s\S]*?\r?\n)?---(\r?\n|$)/;
-function withAttachedTo(content, value2) {
-  const block = FRONTMATTER.exec(content);
-  if (!block)
-    return `---
-attached_to: ${value2}
----
-${content}`;
-  const body = block[1] ?? "";
-  const lines = body.split(/(?<=\n)/);
-  const at = lines.findIndex((line2) => /^attached_to\s*:/.test(line2));
-  if (at !== -1) {
-    if (lines[at + 1] !== void 0 && /^[ \t]/.test(lines[at + 1])) {
-      throw new Error("The Thread Agreement's attached_to spans several lines; edit it to one line, then attach again.");
-    }
-    const newline = lines[at].endsWith("\r\n") ? "\r\n" : "\n";
-    lines[at] = `attached_to: ${value2}${newline}`;
-  } else {
-    lines.push(`attached_to: ${value2}${content.startsWith("---\r\n") ? "\r\n" : "\n"}`);
-  }
-  const open2 = content.startsWith("---\r\n") ? "---\r\n" : "---\n";
-  const close = `---${block[2]}`;
-  return open2 + lines.join("") + close + content.slice(block[0].length);
-}
-function attachThread(dir, target, options, writes = { appendPost, writeAgreement: writeAgreementFile }) {
-  const thread = loadThread(dir);
-  if (thread.writeRefusal)
-    throw new Error(thread.writeRefusal);
-  if (thread.closed === true)
-    throw new Error(`Thread ${thread.slug} is closed; a closed Thread is not moved.`);
-  if (!thread.posts.length)
-    throw new Error(`Thread ${thread.slug} has no opening post yet; attach after its first post.`);
-  if (!options.message.trim())
-    throw new Error("--message is required: say why the Thread moves.");
-  if (!options.message.includes("\n") && (options.message.match(/\\n/g) ?? []).length >= 2) {
-    throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'). Nothing changed.");
-  }
-  const attachment = parseThreadAttachment(target);
-  if (!attachment)
-    throw new Error(`Not a post target: ${target}. Use post:msg_\u2026, msg_\u2026 or _threads/<thread>/<post>.md.`);
-  if (attachment.kind !== "post" && attachment.kind !== "id" && attachment.kind !== "path") {
-    throw new Error(`threads attach takes a post target; ${target} is a ${attachment.kind} link. A Thread's Agreement parent is post-only; record other links on a post.`);
-  }
-  const spaceRoot = spaceForThread(thread.path);
-  const siblings = listLocal(spaceRoot);
-  const posts2 = siblings.flatMap((sibling) => sibling.allPosts.map((post) => ({
-    path: `_threads/${sibling.slug}/${post.path}`,
-    id: post.id
-  })));
-  const resolved = resolveThreadParent(attachment, [{ root: spaceRoot, pin: "working-tree", posts: posts2 }]);
-  if (resolved.status === "unresolved")
-    throw new Error(`${target} is not a readable post in this Space's Threads; nothing changed.`);
-  if (resolved.status === "ambiguous")
-    throw new Error(`${target} names several posts in this Space; use the post's path. Nothing changed.`);
-  if (resolved.status !== "resolved")
-    throw new Error(`${target} is not a post edge; nothing changed.`);
-  const parentSlug = resolved.parent.path.split("/")[1];
-  if (parentSlug === thread.slug)
-    throw new Error(`${target} is a post in ${thread.slug} itself; a Thread cannot be its own parent.`);
-  const parentOf = /* @__PURE__ */ new Map();
-  const cycleCheckSkipped = [];
-  for (const sibling of siblings) {
-    if (sibling.slug === thread.slug)
-      continue;
-    try {
-      const info = resolveThreadParent2(sibling.path, siblings);
-      if (info?.status === "unknown")
-        cycleCheckSkipped.push(sibling.slug);
-      else if (info?.slug)
-        parentOf.set(sibling.slug, info.slug);
-    } catch {
-      cycleCheckSkipped.push(sibling.slug);
-    }
-  }
-  const descendants = /* @__PURE__ */ new Set([thread.slug]);
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const [child, parent] of parentOf) {
-      if (descendants.has(parent) && !descendants.has(child)) {
-        descendants.add(child);
-        grew = true;
-      }
-    }
-  }
-  if (descendants.has(parentSlug)) {
-    throw new Error(`${target} is in ${parentSlug}, which already descends from ${thread.slug}; attaching would make a cycle. Nothing changed.`);
-  }
-  const previous = resolveThreadParent2(thread.path, siblings);
-  if (previous?.id === resolved.parent.id)
-    throw new Error(`Thread ${thread.slug} is already attached to ${resolved.parent.id}; nothing changed.`);
-  const value2 = /^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(resolved.parent.id) ? resolved.parent.id : resolved.parent.path;
-  const agentDir = join29(thread.path, "_agent");
-  const agreementPath = join29(agentDir, "agreement.md");
-  const before = threadAgreementContent(thread.path);
-  const createdDir = !lexists(agentDir);
-  const after = before === null ? minimalAgreement(thread.name, value2) : withAttachedTo(before, value2);
-  const check = parseThreadAgreementAttachment(after, `_threads/${thread.slug}/_agent/agreement.md`);
-  if (check.status !== "valid" || check.attachment.value !== value2) {
-    throw new Error(`Could not write a valid attached_to into ${agreementPath}; nothing changed.`);
-  }
-  if (before !== null) {
-    const strip = (content) => {
-      const fm = { ...parseFrontmatter(content) ?? {} };
-      delete fm.attached_to;
-      return JSON.stringify(fm);
-    };
-    if (strip(before) !== strip(after))
-      throw new Error(`Writing attached_to would change other fields of ${agreementPath}; nothing changed.`);
-  }
-  if (createdDir)
-    mkdirSync8(agentDir);
-  writes.writeAgreement(agreementPath, after);
-  const parentThread = siblings.find((sibling) => sibling.slug === parentSlug);
-  const parentPost = parentThread?.allPosts.find((post) => post.id === resolved.parent.id);
-  const parentName = parentPost?.frontmatter.name ?? resolved.parent.id;
-  const previousText = previous ? `${previous.id ?? previous.attached_to}${previous.slug ? ` (${previous.slug})` : ""}` : "none";
-  const originText = thread.origin === null ? "none" : attachmentText(thread.origin);
-  try {
-    const { post, path } = writes.appendPost(thread.path, {
-      kind: "reframe",
-      replyTo: ["latest"],
-      author: options.author,
-      name: `Moved under ${parentSlug}`,
-      summary: `Current parent ${previousText} \u2192 ${resolved.parent.id} (${parentSlug}). ${options.message.trim().split("\n")[0]}`.slice(0, 1e3),
-      body: `Reattached this Thread.
-
-- Previous parent: ${previousText}
-- New parent: ${resolved.parent.id} \xB7 ${parentName} (${resolved.parent.path})
-- Origin, unchanged: ${originText}
-
-Why: ${options.message.trim()}
-`
-    });
-    return {
-      thread: loadThread(thread.path),
-      previous,
-      parent: { id: resolved.parent.id, slug: parentSlug, path: resolved.parent.path, name: parentName, attached_to: value2 },
-      agreementPath,
-      agreementCreated: before === null,
-      post,
-      postPath: path,
-      cycleCheckSkipped
-    };
-  } catch (error) {
-    const cause = error instanceof Error ? error.message : String(error);
-    try {
-      if (before === null)
-        rmSync7(createdDir ? agentDir : agreementPath, { recursive: true, force: true });
-      else
-        writes.writeAgreement(agreementPath, before);
-    } catch (restoreError) {
-      throw new Error(`The reframe post could not be written (${cause}), and restoring ${agreementPath} also failed (${restoreError instanceof Error ? restoreError.message : String(restoreError)}). Its attached_to now says ${value2}, with no reframe post: restore the file from Git or run attach again.`);
-    }
-    throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${cause}`);
-  }
-}
-
-// dist/local/thread-launch.js
 function withThreadSnapshot(event, id, path) {
   return { ...event, result: { ...event.result, thread_snapshot: { id, path } } };
 }
@@ -29147,17 +29154,20 @@ function threadFlagError(verb, flags2) {
 var HOSTED_VERB_FLAGS = {
   list: /* @__PURE__ */ new Set(["hosted", "limit", "cursor", "new", "unread"]),
   open: /* @__PURE__ */ new Set(["limit", "cursor"]),
-  post: /* @__PURE__ */ new Set(["reply-to", "message", "name", "summary", "post-id", "map"]),
-  new: /* @__PURE__ */ new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map"]),
+  post: /* @__PURE__ */ new Set(["reply-to", "message", "name", "summary", "post-id", "map", "tags"]),
+  new: /* @__PURE__ */ new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags"]),
   close: /* @__PURE__ */ new Set(["message", "post-id"]),
   rename: /* @__PURE__ */ new Set(["message", "name", "summary", "post-id"]),
-  send: /* @__PURE__ */ new Set(["name", "summary", "message", "post-id", "map"]),
+  send: /* @__PURE__ */ new Set(["name", "summary", "message", "post-id", "map", "tags"]),
   ack: /* @__PURE__ */ new Set(["seq", "cursor"])
 };
 function hostedVerbFlagError(verb, flags2) {
   const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb];
   const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
-  return unknown ? `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.` : void 0;
+  if (!unknown)
+    return void 0;
+  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
+  return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
 }
 
 // dist/commands/share.js
@@ -30435,16 +30445,16 @@ var threadsCommand = {
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
     "ideaspaces threads open x_<id> [--limit 50] [--cursor <cursor>]  # read is an alias",
-    "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--post-id msg_id]",
-    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md]  # alias of new --hosted --recipients",
-    "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
+    "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--tags label] [--post-id msg_id]",
+    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients",
+    "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]",
-    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]",
+    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
     "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'",
@@ -30960,12 +30970,8 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
           output.log(`${rest[0]} is a folder in this Space's _threads/, so this writes there. To reach a hosted Thread of that id, run it outside this Space.`);
         selectionFlags(flags2);
         const kind = sub === "close" ? "closure" : str2(flags2, "kind") ?? "post";
-        if (!kind.trim() || /[\r\n]/.test(kind))
-          throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");
         if (!KNOWN_POST_KINDS.has(kind)) {
-          if (!global3.yes)
-            throw new Error(`Unrecognised --kind ${kind}. Posts are immutable; check spelling, or pass --yes to author this custom kind deliberately.`);
-          output.log(`Authoring custom post kind ${kind} with --yes; this immutable kind is not one of the standard values.`);
+          throw new Error(`--kind ${JSON.stringify(kind)} is not a kind: use ${THREAD_KINDS.join(", ")}. A label for a post goes in --tags.`);
         }
         if (sub === "close" && (flags2.member !== void 0 || flags2.checkout !== void 0))
           throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");

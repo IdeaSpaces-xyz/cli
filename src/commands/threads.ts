@@ -271,16 +271,16 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
     "ideaspaces threads open x_<id> [--limit 50] [--cursor <cursor>]  # read is an alias",
-    "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--post-id msg_id]",
-    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md]  # alias of new --hosted --recipients",
-    "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
+    "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--tags label] [--post-id msg_id]",
+    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients",
+    "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]",
-    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]",
+    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
     "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'",
@@ -663,10 +663,8 @@ export const threadsCommand: CommandDef = {
         if (HOSTED_THREAD_ID.test(rest[0])) output.log(`${rest[0]} is a folder in this Space's _threads/, so this writes there. To reach a hosted Thread of that id, run it outside this Space.`);
         selectionFlags(flags);
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
-        if (!kind.trim() || /[\r\n]/.test(kind)) throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");
         if (!KNOWN_POST_KINDS.has(kind)) {
-          if (!global.yes) throw new Error(`Unrecognised --kind ${kind}. Posts are immutable; check spelling, or pass --yes to author this custom kind deliberately.`);
-          output.log(`Authoring custom post kind ${kind} with --yes; this immutable kind is not one of the standard values.`);
+          throw new Error(`--kind ${JSON.stringify(kind)} is not a kind: use ${THREAD_KINDS.join(", ")}. A label for a post goes in --tags.`);
         }
         if (sub === "close" && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
