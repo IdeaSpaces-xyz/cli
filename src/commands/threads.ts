@@ -272,7 +272,7 @@ function writerName(explicit?: string): string {
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|open|read|new|post|send|reply|ack|close|rename|locate|attach|render|init|push> ...",
+  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|attach|render|init|push> ...",
   examples: [
     "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
