@@ -14142,7 +14142,7 @@ import { join as join13 } from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
 
 // dist/version.js
-var CLI_VERSION = true ? "0.8.1" : "0.0.0-dev";
+var CLI_VERSION = true ? "0.8.2" : "0.0.0-dev";
 
 // dist/update-check.js
 var UPDATE_CHECK_COMMAND = "__update-check";
@@ -24076,13 +24076,52 @@ function messages(state, subject) {
 var HostedError = class extends Error {
   state;
   retryAfterMs;
-  constructor(state, message, retryAfterMs) {
+  settled;
+  /** `settled`: the service refused and stored nothing, so there is no post to resend. */
+  constructor(state, message, retryAfterMs, settled = false) {
     super(message ?? state);
     this.state = state;
     this.retryAfterMs = retryAfterMs;
+    this.settled = settled;
     this.name = "HostedError";
   }
 };
+function tryAgain(ms) {
+  if (ms === void 0)
+    return "Try again later.";
+  const minutes = Math.ceil(ms / 6e4);
+  if (minutes <= 1)
+    return "Try again in a minute.";
+  if (minutes < 120)
+    return `Try again in ${minutes} minutes.`;
+  return `Try again in about ${Math.round(minutes / 60)} hours.`;
+}
+var FIRST_CONTACT = "This person is new to you, so your first message is a knock";
+var REFUSALS = [
+  [/^Knock first/, () => "One of these people is new to you, and someone new can't join a Thread with others. Nothing was sent. Reach them on their own with `ideaspaces threads send @handle`, which sends a knock."],
+  [/^This person answered your knock/, () => "This person answered your knock, so you can't knock on them again. Nothing was sent."],
+  [/^A knock takes no posts until it is answered/, () => "Neither side can post in a knock until it's let in. The person knocked on answers on the web. Nothing was posted."],
+  [/^This knock lapsed/, () => "This knock lapsed without an answer, so it takes no more posts. Whoever knocked can knock again. Nothing was posted."],
+  [/^A knock's name is set by the server/, () => "The service names a knock, so it can't be renamed. Nothing was posted."],
+  [/^Opening msg_ id already used with different input/, () => "This --post-id was already used with different text or a different person. Nothing was sent. To send something new, leave out --post-id. To resend, repeat the first command exactly."],
+  [/^A first contact carries no agents/, () => `${FIRST_CONTACT}, and a knock can't bring agents. Nothing was sent. Resend without them.`],
+  [/^A first contact is text only/, () => `${FIRST_CONTACT}, and a knock is text only. Nothing was sent. Resend without --map.`],
+  [/^A knock needs a message of 1 to (\d+) characters/, (m) => `${FIRST_CONTACT}, which holds 1 to ${Number(m[1]).toLocaleString("en-US")} characters. Nothing was sent. Shorten --message and resend.`],
+  [/^Recipient handle not found/, () => "Nobody has that @handle. Check the spelling and resend. Nothing was sent."],
+  [/^Cannot address yourself/, () => "You can't name yourself as a recipient. Nothing was sent. Leave yourself out, or leave out --recipients for a Thread of your own."],
+  [/^Knock budget exhausted/, (_, wait) => `You've reached the limit on reaching new people for now. Nothing was sent. ${tryAgain(wait)}`],
+  [/^Invitation budget exhausted/, (_, wait) => `You've reached the limit on inviting new people for now. Nothing was sent. ${tryAgain(wait)} If this Thread names many email addresses, name fewer: a list over the limit never fits.`],
+  [/^This person takes no more knocks for now/, (_, wait) => `This person isn't taking more knocks for now. Nothing was sent. ${tryAgain(wait)}`]
+];
+var SERVICE_DETAIL = /* @__PURE__ */ new Set(["invalid_request", "conflict", "rate_limited", "forbidden"]);
+function serviceDetail(body) {
+  try {
+    const detail3 = JSON.parse(body).detail;
+    return typeof detail3 === "string" ? detail3.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").slice(0, 500) : "";
+  } catch {
+    return "";
+  }
+}
 var STATUS = { 401: "expired", 403: "forbidden", 404: "not_found", 409: "conflict", 429: "rate_limited", 400: "invalid_request", 422: "invalid_request" };
 function failureOf(error, subject) {
   if (error instanceof HostedError)
@@ -24091,16 +24130,15 @@ function failureOf(error, subject) {
     if (error.status === 410)
       return new HostedError("unavailable", outOfDateMessage(), error.retryAfterMs);
     const state = STATUS[error.status] ?? "unavailable";
-    let detail3 = "";
-    if (state === "invalid_request") {
-      try {
-        const body = JSON.parse(error.body);
-        if (typeof body.detail === "string")
-          detail3 = ` Service: ${body.detail.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").slice(0, 500)}`;
-      } catch {
-      }
+    if (!SERVICE_DETAIL.has(state))
+      return new HostedError(state, messages(state, subject), error.retryAfterMs);
+    const detail3 = serviceDetail(error.body);
+    for (const [pattern, words] of REFUSALS) {
+      const match = pattern.exec(detail3);
+      if (match)
+        return new HostedError(state, words(match, error.retryAfterMs), error.retryAfterMs, true);
     }
-    return new HostedError(state, messages(state, subject) + detail3, error.retryAfterMs);
+    return new HostedError(state, messages(state, subject) + (detail3 ? ` Service: ${detail3}` : ""), error.retryAfterMs);
   }
   if (error instanceof UnauthorizedError)
     return new HostedError("expired", error.message);
@@ -24167,7 +24205,20 @@ var REPLY_GRADES = ["Owner", "Editor", "Commenter"];
 async function head(config, id) {
   const h = await fetchHostedThread(config, id);
   requireValue(record(h) && h.thread_id === id && typeof h.name === "string" && typeof h.closed === "boolean" && seq(h.last_seq) && typeof h.grade === "string" && h.grade.length > 0);
-  return { thread: { id, name: h.name, closed: h.closed, grade: h.grade, can_reply: !h.closed && REPLY_GRADES.includes(h.grade) }, lastSeq: h.last_seq };
+  const can_reply = typeof h.can_reply === "boolean" ? h.can_reply : !h.closed && REPLY_GRADES.includes(h.grade);
+  const knock = record(h.knock) && typeof h.knock.state === "string" ? { knock: { state: h.knock.state, can_answer: h.knock.can_answer === true } } : {};
+  return { thread: { id, name: h.name, closed: h.closed, grade: h.grade, can_reply, ...knock }, lastSeq: h.last_seq };
+}
+function knockStatus(knock) {
+  if (knock?.can_answer)
+    return " \xB7 knock waiting for you \xB7 answer on the web";
+  if (knock?.state === "open")
+    return " \xB7 knock waiting for an answer";
+  if (knock?.state === "lapsed")
+    return " \xB7 knock lapsed";
+  if (knock?.state === "declined")
+    return " \xB7 knock declined";
+  return "";
 }
 async function posts(config, id, query) {
   const raw = await fetchHostedThreadPosts(config, id, query);
@@ -24277,7 +24328,7 @@ async function runHosted(output, json, what, subject, work, { retry, namesThread
     if (error instanceof HostAuthRefusal)
       throw error;
     const failure = failureOf(error, subject);
-    const resend = retry && AMBIGUOUS.has(failure.state) ? ` The post may or may not have landed: resend with --post-id ${retry.postId}${retry.verb === "close" ? " --yes" : ""} and the same arguments; the service accepts an exact resend once.` : "";
+    const resend = retry && AMBIGUOUS.has(failure.state) && !failure.settled ? ` The post may or may not have landed: resend with --post-id ${retry.postId}${retry.verb === "close" ? " --yes" : ""} and the same arguments; the service accepts an exact resend once.` : "";
     const hint = namesThread && HINTED.has(failure.state) ? ` ${NAMED_THREAD_HINT}` : "";
     if (json) {
       process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: {
@@ -24362,7 +24413,7 @@ async function openVerb(output, json, id, flags2) {
     }
     const older = rows.length === limit && rows[0].seq > 1 ? encode2(config, "older", rows[0].seq, id) : null;
     const follow = encode2(config, "follow", next, id);
-    const status = `${h.thread.closed ? "closed" : "open"} \xB7 ${h.thread.grade}${h.thread.can_reply ? "" : " \xB7 read only"}`;
+    const status = `${h.thread.closed ? "closed" : "open"} \xB7 ${h.thread.grade}${h.thread.can_reply ? "" : " \xB7 read only"}${knockStatus(h.thread.knock)}`;
     const text = [
       `${id}  ${h.thread.name}
 ${status}`,
@@ -24412,8 +24463,17 @@ async function newVerb(output, json, flags2) {
     const raw = await openHostedThread(config, note, recipients);
     requireValue(record(raw) && typeof raw.thread_id === "string" && HOSTED_THREAD_ID.test(raw.thread_id));
     const opening = postOf(raw, raw.thread_id);
-    requireValue(opening.id === msgId && opening.seq === 1);
-    return { data: { schema: "ideaspaces.hosted-thread.new.v1", thread_id: raw.thread_id, post: opening }, text: `Opened ${raw.thread_id}: ${name}` };
+    const knocked = raw.reach === "knocked";
+    requireValue(opening.seq === 1 && (knocked || opening.id === msgId));
+    const reach = typeof raw.reach === "string" ? { reach: raw.reach } : {};
+    const data = { schema: "ideaspaces.hosted-thread.new.v1", thread_id: raw.thread_id, ...reach, post: opening };
+    if (!knocked)
+      return { data, text: `Opened ${raw.thread_id}: ${name}` };
+    const title = typeof opening.fields.name === "string" ? opening.fields.name : "A knock";
+    const stored = opening.id === msgId;
+    const who = recipients[0] ?? "them";
+    const lines = stored ? [`Knocked on ${who}: ${raw.thread_id}  ${title}`, "They see your message and can let you in or decline. Neither of you can post until they let you in."] : [`You already have a knock open with ${who}: ${raw.thread_id}  ${title}`, "This message was not stored. They still see your first one, and neither of you can post until they let you in."];
+    return { data: { ...data, message_stored: stored }, text: [...lines, `See where it stands: ideaspaces threads open ${raw.thread_id}`].join("\n") };
   }, { retry: { postId: msgId, verb: "new" } });
 }
 async function lifecycleVerb(output, json, id, verb, flags2, confirmed) {
@@ -31026,7 +31086,7 @@ var threadsCommand = {
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
     "ideaspaces threads open x_<id> [--limit 50] [--cursor <cursor>]  # read is an alias",
     "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--tags label] [--post-id msg_id]",
-    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients",
+    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients; to someone new it's a knock: text only, up to 1,000 characters, alone, and nobody posts until they let you in",
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
