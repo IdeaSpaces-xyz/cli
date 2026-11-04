@@ -750,6 +750,7 @@ export async function ackHostedThread(config: ApiConfig, threadId: string, seq: 
   return request<unknown>(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/ack`, { seq }, { ...opts, ...HOSTED });
 }
 
+/** Existing subscription lists may still contain retired exchange rows; clients never create or read their feeds. */
 export type FollowSourceKind = "exchange" | "node";
 export type FollowFilter = "follow" | "mute";
 
@@ -761,23 +762,6 @@ export interface FollowSubscription {
   cursor: number;
   created_at: string;
   updated_at: string;
-}
-
-export interface FollowEvent {
-  follow_ids: string[];
-  position: number;
-  event_id: string;
-  v: number;
-  ts: string;
-  actor_ref: string | null;
-  surface: "human" | "agent";
-  action: string;
-  target_node_id: string;
-  recipient_ref: string | null;
-  note_node_id: string | null;
-  exchange_id: string | null;
-  outcome: string | null;
-  retention_class: string | null;
 }
 
 export async function listSubscriptions(
@@ -796,7 +780,7 @@ export async function listSubscriptions(
 
 export async function putSubscription(
   config: ApiConfig,
-  source: { exchange_id: string } | { target_node_id: string },
+  source: { target_node_id: string },
   opts?: RequestOptions,
 ): Promise<FollowSubscription> {
   return request<FollowSubscription>(config, "POST", `${API_V1}/subscriptions`, source, opts);
@@ -829,21 +813,6 @@ export async function acknowledgeSubscription(
     { position },
     opts,
   );
-}
-
-export async function fetchSubscriptionEvents(
-  config: ApiConfig,
-  limit = 100,
-  opts?: RequestOptions,
-): Promise<FollowEvent[]> {
-  const response = await request<{ events: FollowEvent[] }>(
-    config,
-    "GET",
-    `${API_V1}/subscriptions/events?limit=${encodeURIComponent(String(limit))}`,
-    undefined,
-    opts,
-  );
-  return response.events;
 }
 
 export interface EntityDetail {

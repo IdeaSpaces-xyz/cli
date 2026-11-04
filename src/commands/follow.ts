@@ -4,7 +4,6 @@ import {
   listSubscriptions,
   putSubscription,
   UnauthorizedError,
-  type FollowSourceKind,
   type FollowSubscription,
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
@@ -12,17 +11,16 @@ import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
-type SourceName = "thread" | "node" | "repo";
+type SourceName = "node" | "repo";
 
 const FOLLOW_USAGE =
-  "ideaspaces follow <thread|node|repo> <id> [--ack <position>]";
-const UNFOLLOW_USAGE = "ideaspaces unfollow <thread|node|repo> <id>";
-const EXCHANGE_ID = /^x_[A-Za-z0-9_-]{1,62}$/;
+  "ideaspaces follow <node|repo> <id> [--ack <position>]";
+const UNFOLLOW_USAGE = "ideaspaces unfollow <node|repo> <id>";
 const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
 interface Source {
   name: SourceName;
-  kind: FollowSourceKind;
+  kind: "node";
   id: string;
 }
 
@@ -32,18 +30,21 @@ function sourceFrom(args: string[], output: Output, usage: string): Source | nul
     output.error(`Usage: ${usage}`);
     return null;
   }
-  if (rawName !== "thread" && rawName !== "node" && rawName !== "repo") {
-    output.error(`Source must be one of: thread, node, repo.\nUsage: ${usage}`);
+  if (rawName === "thread") {
+    output.error("Thread follow/mute retired with the Inbox. Use threads list --unread; hosted Unread needs no subscription.");
     return null;
   }
-  const pattern = rawName === "thread" ? EXCHANGE_ID : NODE_ID;
-  if (!pattern.test(rawId)) {
+  if (rawName !== "node" && rawName !== "repo") {
+    output.error(`Source must be one of: node, repo.\nUsage: ${usage}`);
+    return null;
+  }
+  if (!NODE_ID.test(rawId)) {
     output.error(`Invalid ${rawName} id: ${rawId}`);
     return null;
   }
   return {
     name: rawName,
-    kind: rawName === "thread" ? "exchange" : "node",
+    kind: "node",
     id: rawId,
   };
 }
@@ -97,9 +98,7 @@ async function follow(args: string[], flags: Flags, output: Output): Promise<num
     if (position === undefined) {
       const row = await putSubscription(
         config,
-        source.kind === "exchange"
-          ? { exchange_id: source.id }
-          : { target_node_id: source.id },
+        { target_node_id: source.id },
       );
       output.result(row, `Following ${source.name} ${source.id} from position ${row.cursor}.`);
       return 0;
@@ -139,13 +138,11 @@ async function unfollow(args: string[], output: Output): Promise<number> {
 
 export const followCommand: CommandDef = {
   name: "follow",
-  description: "Follow a Thread, Node, or repository and acknowledge its cursor",
+  description: "Follow a Node or repository and acknowledge its cursor",
   usage: FOLLOW_USAGE,
   examples: [
-    "ideaspaces follow thread x_example",
     "ideaspaces follow node n_0123456789abcdef01234567",
     "ideaspaces follow repo n_0123456789abcdef01234567",
-    "ideaspaces follow thread x_example --ack 42",
   ],
   async run(args, flags, global: GlobalFlags) {
     return follow(args, flags, createOutput(global));
@@ -154,10 +151,9 @@ export const followCommand: CommandDef = {
 
 export const unfollowCommand: CommandDef = {
   name: "unfollow",
-  description: "Stop following a Thread, Node, or repository",
+  description: "Stop following a Node or repository",
   usage: UNFOLLOW_USAGE,
   examples: [
-    "ideaspaces unfollow thread x_example",
     "ideaspaces unfollow repo n_0123456789abcdef01234567",
   ],
   async run(args, _flags, global: GlobalFlags) {

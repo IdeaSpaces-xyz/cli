@@ -19,7 +19,6 @@ import {
   putSubscription,
   deleteSubscription,
   acknowledgeSubscription,
-  fetchSubscriptionEvents,
   fetchContentTree,
   fetchEntity,
   RetiredEndpointError,
@@ -280,8 +279,8 @@ describe("subscription API", () => {
         }
         return Promise.resolve(new Response(JSON.stringify({
           id: "fol_0123456789abcdef01234567",
-          source_kind: "exchange",
-          source_id: "x_example",
+          source_kind: "node",
+          source_id: "n_0123456789abcdef01234567",
           filter: "follow",
           cursor: 4,
           created_at: "2026-09-20T00:00:00Z",
@@ -290,17 +289,16 @@ describe("subscription API", () => {
       }),
     );
 
-    await putSubscription(config, { exchange_id: "x_example" });
+    await putSubscription(config, { target_node_id: "n_0123456789abcdef01234567" });
     await listSubscriptions(config);
     await acknowledgeSubscription(config, "fol_0123456789abcdef01234567", 4);
-    await fetchSubscriptionEvents(config, 25);
     await deleteSubscription(config, "fol_0123456789abcdef01234567");
 
     expect(calls).toEqual([
       {
         url: "http://api.test/api/v1/subscriptions",
         method: "POST",
-        body: JSON.stringify({ exchange_id: "x_example" }),
+        body: JSON.stringify({ target_node_id: "n_0123456789abcdef01234567" }),
       },
       { url: "http://api.test/api/v1/subscriptions", method: "GET" },
       {
@@ -308,7 +306,6 @@ describe("subscription API", () => {
         method: "PATCH",
         body: JSON.stringify({ position: 4 }),
       },
-      { url: "http://api.test/api/v1/subscriptions/events?limit=25", method: "GET" },
       {
         url: "http://api.test/api/v1/subscriptions/fol_0123456789abcdef01234567",
         method: "DELETE",

@@ -30596,7 +30596,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
         output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...hostedError ? { hosted_error: hostedError } : {}, local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (hostedError ? `
 Hosted Threads unavailable: ${hostedError}` : "") + (localWarnings ? `
 Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
-        return 0;
+        return newOnly && hostedError ? 1 : 0;
       }
       if (sub === "new") {
         if (rest.length !== 1 || !str2(flags2, "about"))
@@ -31037,9 +31037,8 @@ ${timeline.map((p) => `- ${p.name} (${p.kind}) ${p.path}${p.in_reply_to.length ?
 };
 
 // dist/commands/follow.js
-var FOLLOW_USAGE = "ideaspaces follow <thread|node|repo> <id> [--ack <position>]";
-var UNFOLLOW_USAGE = "ideaspaces unfollow <thread|node|repo> <id>";
-var EXCHANGE_ID = /^x_[A-Za-z0-9_-]{1,62}$/;
+var FOLLOW_USAGE = "ideaspaces follow <node|repo> <id> [--ack <position>]";
+var UNFOLLOW_USAGE = "ideaspaces unfollow <node|repo> <id>";
 var NODE_ID3 = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 function sourceFrom(args2, output, usage) {
   const [rawName, rawId] = args2;
@@ -31047,19 +31046,22 @@ function sourceFrom(args2, output, usage) {
     output.error(`Usage: ${usage}`);
     return null;
   }
-  if (rawName !== "thread" && rawName !== "node" && rawName !== "repo") {
-    output.error(`Source must be one of: thread, node, repo.
+  if (rawName === "thread") {
+    output.error("Thread follow/mute retired with the Inbox. Use threads list --unread; hosted Unread needs no subscription.");
+    return null;
+  }
+  if (rawName !== "node" && rawName !== "repo") {
+    output.error(`Source must be one of: node, repo.
 Usage: ${usage}`);
     return null;
   }
-  const pattern = rawName === "thread" ? EXCHANGE_ID : NODE_ID3;
-  if (!pattern.test(rawId)) {
+  if (!NODE_ID3.test(rawId)) {
     output.error(`Invalid ${rawName} id: ${rawId}`);
     return null;
   }
   return {
     name: rawName,
-    kind: rawName === "thread" ? "exchange" : "node",
+    kind: "node",
     id: rawId
   };
 }
@@ -31106,7 +31108,7 @@ async function follow(args2, flags2, output) {
     return 1;
   return runAuthenticated2(output, async (config) => {
     if (position === void 0) {
-      const row2 = await putSubscription(config, source.kind === "exchange" ? { exchange_id: source.id } : { target_node_id: source.id });
+      const row2 = await putSubscription(config, { target_node_id: source.id });
       output.result(row2, `Following ${source.name} ${source.id} from position ${row2.cursor}.`);
       return 0;
     }
@@ -31137,13 +31139,11 @@ async function unfollow(args2, output) {
 }
 var followCommand = {
   name: "follow",
-  description: "Follow a Thread, Node, or repository and acknowledge its cursor",
+  description: "Follow a Node or repository and acknowledge its cursor",
   usage: FOLLOW_USAGE,
   examples: [
-    "ideaspaces follow thread x_example",
     "ideaspaces follow node n_0123456789abcdef01234567",
-    "ideaspaces follow repo n_0123456789abcdef01234567",
-    "ideaspaces follow thread x_example --ack 42"
+    "ideaspaces follow repo n_0123456789abcdef01234567"
   ],
   async run(args2, flags2, global3) {
     return follow(args2, flags2, createOutput(global3));
@@ -31151,10 +31151,9 @@ var followCommand = {
 };
 var unfollowCommand = {
   name: "unfollow",
-  description: "Stop following a Thread, Node, or repository",
+  description: "Stop following a Node or repository",
   usage: UNFOLLOW_USAGE,
   examples: [
-    "ideaspaces unfollow thread x_example",
     "ideaspaces unfollow repo n_0123456789abcdef01234567"
   ],
   async run(args2, _flags, global3) {

@@ -413,7 +413,7 @@ export const threadsCommand: CommandDef = {
           ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools."
           : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
         output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...(hostedError ? { hosted_error: hostedError } : {}), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (hostedError ? `\nHosted Threads unavailable: ${hostedError}` : "") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
-        return 0;
+        return newOnly && hostedError ? 1 : 0;
       }
       if (sub === "new") {
         if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title> [--attached-to <type>:<id>] [--map <pinned-note>]");

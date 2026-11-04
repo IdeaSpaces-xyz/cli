@@ -88,6 +88,9 @@ it("discards earlier hosted pages when a later page fails, retaining only health
     expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
     expect(JSON.parse(text)).toMatchObject({ hosted_checked: false, threads: [{ source: "local" }] });
     expect(JSON.parse(text).threads).toHaveLength(1);
+    text = "";
+    expect(await threadsCommand.run(["list"], { unread: true }, flags)).toBe(1);
+    expect(JSON.parse(text).hosted_checked).toBe(false);
   } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); }
 });
 
