@@ -22,7 +22,7 @@ function disclosure(member: MapMember): string {
 
 function memberReference(member: MapMember, roots: MapBlock["roots"]): string {
   if ("address" in member) {
-    return member.revision ? `${member.address}@${member.revision}` : member.address;
+    return member.revision ? `${member.address}@${member.revision}` : String(member.address);
   }
   const root = roots[member.root];
   const coordinate = root?.root_node_id ?? root?.repo ?? `root:${member.root}`;
@@ -41,4 +41,3 @@ export function formatPortableMap(map: MapBlock, indent = ""): string[] {
   }
   return lines;
 }
-
