@@ -38,6 +38,7 @@ describe("ideaspaces upgrade", () => {
   it("is a listed command, and `update` is still the fork command", () => {
     expect(findCommand_("upgrade")?.name).toBe("upgrade");
     expect(findCommand_("update")?.usage).toBe("ideaspaces update [--yes]");
+    expect(findCommand_("update")?.help).toBe("To update this CLI itself, run: ideaspaces upgrade");
   });
 
   it("--check reports and installs nothing", async () => {

@@ -10,7 +10,7 @@ A Vault coordinates the wider work. A **Space** is a lens: a view and a boundary
 
 Local and remote Spaces are separate and update independently. Import and export make copies, not a sync connection. The CLI's publish, push, pull, and clone commands work on Repos, not Space sync. Older examples and filenames here still use "space" for a Repo.
 
-Nothing leaves your machine until you publish, push, or share it.
+Nothing of yours leaves your machine until you publish, push, or share it. The one thing the CLI does on its own is a daily check for a new version, which you can [turn off](#stay-current).
 
 ## Install
 

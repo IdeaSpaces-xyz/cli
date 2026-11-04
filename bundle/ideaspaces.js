@@ -14129,7 +14129,7 @@ import { join as join13 } from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
 
 // dist/version.js
-var CLI_VERSION = true ? "0.7.1" : "0.0.0-dev";
+var CLI_VERSION = true ? "0.8.0" : "0.0.0-dev";
 
 // dist/update-check.js
 var UPDATE_CHECK_COMMAND = "__update-check";
@@ -25974,6 +25974,7 @@ var updateCommand = {
   name: "update",
   description: "Preview or apply three-way source updates to a fork \u2014 what `integrate` runs for a fork",
   usage: "ideaspaces update [--yes]",
+  help: "To update this CLI itself, run: ideaspaces upgrade",
   examples: [
     "ideaspaces update       # preview source changes and conflicts",
     "ideaspaces update --yes # apply non-conflicting source changes"
