@@ -4,10 +4,12 @@ export const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
 const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
   Object.entries({
-    list: "new unread space depth kind since limit cursor",
+    list: "new unread space depth kind since limit cursor open reader",
+    recent: "cursor reader limit",
+    ack: "through recent reader",
     locate: "",
-    open: "depth new ack since post map member checkout pin position limit order agreement",
-    read: "depth new ack kind since post map member checkout pin position limit order agreement",
+    open: "depth new ack since post map member checkout pin position limit order agreement reader",
+    read: "depth new ack kind since post map member checkout pin position limit order agreement reader",
     new: "about attached-to map",
     attach: "message author",
     post: "map member checkout reply-to kind mark author name summary supersedes message tags no-check-links",
