@@ -1,3 +1,4 @@
+import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 // The LOCAL (Pi) side of the `conversation` / `conversations` commands — the
 // `--local` handlers. Kept here (not in src/commands/) so the core commands stay
 // Pi-free: they dispatch `--local` to this injected `LocalConversationOps`, and
@@ -157,7 +158,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       output.error("A Thread launch requires --thread <path|x_id>.");
       return 1;
     }
-    if (/^x_(?:[0-9a-f]{24}|[0-9a-f]{32})$/.test(threadPath)) {
+    if (HOSTED_THREAD_ID.test(threadPath)) {
       if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
         output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
         return 1;

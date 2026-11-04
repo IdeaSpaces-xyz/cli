@@ -1,4 +1,3 @@
-import type { MapBlock, MapMember } from "@ideaspaces/protocol";
 import { resolveSessionConfig, refuseSession, SessionAuthError } from "./client-session.js";
 import { HostAuthRefusal, isHostAuth } from "./credentials.js";
 import { hostToken } from "./host-token.js";
@@ -633,121 +632,6 @@ export async function fetchAgents(
   return res.agents;
 }
 
-export interface InboxParticipant {
-  participant: string;
-  username: string | null;
-  name: string | null;
-  person_node_id: string | null;
-}
-
-export interface ExchangeMessageSummary {
-  note_node_id: string;
-  name: string;
-  summary: string;
-  author_ref: string;
-  actor_ref: string;
-  surface: "human" | "agent";
-  action: "inquiry.opened" | "note.replied";
-  recipient_ref: string;
-  position: number;
-  created_at: string;
-  event_at: string;
-  in_reply_to?: string[];
-}
-
-export interface ExchangeMessage extends ExchangeMessageSummary {
-  markdown: string;
-  map?: MapBlock | null;
-}
-
-export type ThreadGrade = "view" | "participate" | "manage";
-
-export interface InquiryInboxItem {
-  kind: "inquiry";
-  mode: "direct";
-  exchange_id: string;
-  target_node_id: string | null;
-  your_grade?: ThreadGrade;
-  name?: string;
-  closed?: boolean;
-  participants: InboxParticipant[];
-  opening_note: ExchangeMessageSummary;
-  latest_message: ExchangeMessageSummary;
-  latest_position: number;
-  cursor: number | null;
-  latest_received_position: number;
-  message_count: number;
-  received_message_count: number;
-}
-
-export interface AccessRequestInboxItem {
-  kind: "access_request";
-  request_id: string;
-  target_node_id: string;
-  requester: InboxParticipant;
-  requested_grade: "explore" | "fork" | "collaborate";
-  reason: string | null;
-  expires_at: string;
-  created_at: string;
-  latest_position: number;
-}
-
-export type InboxItem = InquiryInboxItem | AccessRequestInboxItem;
-
-export interface InboxResponse {
-  items: InboxItem[];
-}
-
-export interface ExchangeReadResponse {
-  mode: "direct";
-  exchange_id: string;
-  target_node_id: string | null;
-  your_grade?: ThreadGrade;
-  name?: string;
-  closed?: boolean;
-  participants: InboxParticipant[];
-  messages: ExchangeMessage[];
-  subject: { opening_note_id: string; current_note_id: string };
-  latest_position: number;
-  cursor: number | null;
-}
-
-export interface ExchangeNoteWrite {
-  send_id: string;
-  name: string;
-  summary: string;
-  markdown: string;
-  map?: MapBlock;
-  in_reply_to?: string[];
-}
-
-export interface InquirySendBody extends ExchangeNoteWrite {
-  /** Per-recipient Thread grade; omitted means participate. */
-  grade?: "view" | "participate";
-  /** Optional subject; an absent target needs an explicit recipient. */
-  target_node_id?: string;
-  /** Omit to address the target's owner. */
-  recipient?: { user_id: number } | { username: string } | { email: string };
-  /** Optional coordination Space node_id to bind this exchange to at creation. */
-  space_id?: string;
-  map?: MapBlock;
-}
-
-export interface ExchangeWriteResponse {
-  note_node_id: string;
-  exchange_id: string;
-  event_id: string;
-  position: number;
-  created_at: string;
-  target_node_id: string | null;
-  author_ref: string;
-  recipient_ref: string;
-  actor_ref: string;
-  surface: "human" | "agent";
-  action: "inquiry.opened" | "note.replied";
-  space_id?: string | null;
-}
-
 /** Pull the clean message or detail string out of an API error. */
 export function apiErrorDetail(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
@@ -814,94 +698,6 @@ export async function fetchCoordinationSpaces(
   return request<CoordinationSpaceListResponse>(config, "GET", path, undefined, opts);
 }
 
-export interface SpaceThreadSummary {
-  exchange_id: string;
-  name: string;
-  summary: string;
-  revision: string;
-  can_read: boolean;
-  created_at: string;
-  latest_activity_at: string;
-}
-
-export interface SpaceThreadsResponse {
-  threads: SpaceThreadSummary[];
-}
-
-/** List threads bound to an explicit coordination Space at a summary disclosure ceiling. */
-export async function fetchSpaceThreads(
-  config: ApiConfig,
-  spaceNodeId: string,
-  opts?: RequestOptions,
-): Promise<SpaceThreadsResponse> {
-  return request<SpaceThreadsResponse>(
-    config,
-    "GET",
-    `${API_V1}/coordination-spaces/${encodeURIComponent(spaceNodeId)}/threads`,
-    undefined,
-    opts,
-  );
-}
-
-/** Direct exchanges received by the logged-in person, newest activity first. */
-export async function fetchInbox(
-  config: ApiConfig,
-  opts?: RequestOptions,
-): Promise<InboxResponse> {
-  return request<InboxResponse>(config, "GET", `${API_V1}/inbox`, undefined, opts);
-}
-
-export interface ThreadPostSummary {
-  exchange_id: string;
-  thread_name: string;
-  note_node_id: string;
-  name: string;
-  summary: string;
-  author_ref: string;
-  actor_ref: string;
-  surface: "human" | "agent";
-  action: string;
-  position: number;
-  created_at: string;
-  in_reply_to: string[];
-}
-
-export interface ThreadPostsPageResponse {
-  items: ThreadPostSummary[];
-  next_cursor: string | null;
-}
-
-export interface ThreadPostsQuery {
-  scope?: "inbox" | "followed";
-  space_id?: string;
-  thread_id?: string;
-  limit?: number;
-  after?: string;
-  cursor?: string;
-  order?: "newer" | "older";
-}
-
-/** Posts across Threads under a container scope, space, or single Thread, newest first. */
-export async function fetchThreadPosts(
-  config: ApiConfig,
-  query?: ThreadPostsQuery,
-  opts?: RequestOptions,
-): Promise<ThreadPostsPageResponse> {
-  const params = new URLSearchParams();
-  if (query?.scope) params.set("scope", query.scope);
-  if (query?.space_id) params.set("space_id", query.space_id);
-  if (query?.thread_id) params.set("thread_id", query.thread_id);
-  if (query?.limit !== undefined) params.set("limit", String(query.limit));
-  if (query?.after) params.set("after", query.after);
-  if (query?.cursor) params.set("cursor", query.cursor);
-  if (query?.order) params.set("order", query.order);
-  const queryString = params.toString();
-  // The exchange posts feed, at the route released CLIs already call. Moving it to
-  // /inbox/posts waits until the service is checked to serve that route (#265).
-  const path = `${API_V1}/threads/posts${queryString ? `?${queryString}` : ""}`;
-  return request<ThreadPostsPageResponse>(config, "GET", path, undefined, opts);
-}
-
 // ─── Hosted Threads (x_<32hex>) and Vaults ─────────────────────────────
 // Raw service answers; commands/hosted-threads.ts validates and projects them.
 // Each call throws ApiStatusError on a non-2xx so the verb can name the state.
@@ -945,93 +741,13 @@ export async function appendHostedThreadPost(config: ApiConfig, threadId: string
 }
 
 /** POST /threads: open a hosted Thread with its opening Note. An exact resend returns the same Thread. */
-export async function openHostedThread(config: ApiConfig, note: string, opts?: RequestOptions, recipients: string[] = []): Promise<unknown> {
+export async function openHostedThread(config: ApiConfig, note: string, recipients: string[] = [], opts?: RequestOptions): Promise<unknown> {
   return request<unknown>(config, "POST", `${API_V1}/threads`, { note, ...(recipients.length ? { recipients } : {}) }, { ...opts, ...HOSTED });
 }
 
 /** POST /threads/{id}/ack: move the caller's read cursor forward to seq (never back). */
 export async function ackHostedThread(config: ApiConfig, threadId: string, seq: number, opts?: RequestOptions): Promise<unknown> {
   return request<unknown>(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/ack`, { seq }, { ...opts, ...HOSTED });
-}
-
-/** Complete immutable message history for one exchange. Non-parties receive the same 404 as absent ids. */
-export async function fetchExchange(
-  config: ApiConfig,
-  exchangeId: string,
-  opts?: RequestOptions,
-): Promise<ExchangeReadResponse> {
-  return request<ExchangeReadResponse>(
-    config,
-    "GET",
-    `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}`,
-    undefined,
-    opts,
-  );
-}
-
-export interface ExchangeMapMemberResponse {
-  member_ordinal: number;
-  member: MapMember;
-  representation: Record<string, unknown>;
-}
-
-/** Reauthorize and expand one preserved Map member for an exchange party. */
-export async function fetchExchangeMapMember(
-  config: ApiConfig,
-  exchangeId: string,
-  memberOrdinal: number,
-  opts?: RequestOptions,
-): Promise<ExchangeMapMemberResponse> {
-  return request<ExchangeMapMemberResponse>(
-    config,
-    "GET",
-    `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/map/members/${encodeURIComponent(String(memberOrdinal))}`,
-    undefined,
-    opts,
-  );
-}
-
-/** Open a direct inquiry about a readable Content target as the logged-in person. */
-export async function sendInquiry(
-  config: ApiConfig,
-  body: InquirySendBody,
-  opts?: RequestOptions,
-): Promise<ExchangeWriteResponse> {
-  return request<ExchangeWriteResponse>(config, "POST", `${API_V1}/inquiries`, body, opts);
-}
-
-export interface ExchangeManagementResponse {
-  exchange_id: string;
-  position: number;
-}
-
-/** Owner-only hosted Thread controls. The server authorizes every operation. */
-export async function addExchangePerson(config: ApiConfig, exchangeId: string, recipient: NonNullable<InquirySendBody["recipient"]>, grade: "view" | "participate", opts?: RequestOptions): Promise<ExchangeManagementResponse> {
-  return request<ExchangeManagementResponse>(config, "POST", `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/participants`, { recipient, grade }, opts);
-}
-
-export async function closeExchange(config: ApiConfig, exchangeId: string, opts?: RequestOptions): Promise<ExchangeManagementResponse> {
-  return request<ExchangeManagementResponse>(config, "POST", `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/close`, undefined, opts);
-}
-
-export async function renameExchange(config: ApiConfig, exchangeId: string, name: string, opts?: RequestOptions): Promise<ExchangeManagementResponse> {
-  return request<ExchangeManagementResponse>(config, "PATCH", `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}`, { name }, opts);
-}
-
-/** Reply through an existing direct exchange as the logged-in person. */
-export async function replyToExchange(
-  config: ApiConfig,
-  exchangeId: string,
-  body: ExchangeNoteWrite,
-  opts?: RequestOptions,
-): Promise<ExchangeWriteResponse> {
-  return request<ExchangeWriteResponse>(
-    config,
-    "POST",
-    `${API_V1}/exchanges/${encodeURIComponent(exchangeId)}/replies`,
-    body,
-    opts,
-  );
 }
 
 export type FollowSourceKind = "exchange" | "node";

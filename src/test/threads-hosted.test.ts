@@ -57,3 +57,17 @@ it("merges local and hosted list rows, excluding access requests, while preservi
     expect(listHostedThreadsMock).toHaveBeenCalledWith(expect.anything(), { limit: 200, cursor: "second" });
   } finally { process.stdout.write = stdout; process.chdir(previous); }
 });
+
+it("refuses repeated service cursors instead of looping or claiming a complete hosted list", async () => {
+  const root = mkdtempSync(join(tmpdir(), "is-threads-loop-")); temp.push(root);
+  process.env.HOME = root;
+  loadConfigMock.mockReturnValue({ apiUrl: "https://example.test", apiKey: "synthetic" });
+  listHostedThreadsMock.mockResolvedValue({ threads: [], next_cursor: "same" });
+  const previous = process.cwd(); process.chdir(root);
+  const write = process.stderr.write; let errors = "";
+  process.stderr.write = ((chunk: string) => { errors += chunk; return true; }) as typeof write;
+  try {
+    expect(await threadsCommand.run(["list"], { new: true }, flags)).toBe(1);
+    expect(errors).toContain("repeated a Thread list cursor");
+  } finally { process.stderr.write = write; process.chdir(previous); }
+});

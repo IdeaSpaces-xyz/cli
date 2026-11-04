@@ -15,10 +15,6 @@ import {
   listTeamShares,
   setTeamShare,
   removeTeamShare,
-  fetchInbox,
-  fetchThreadPosts,
-  fetchExchange,
-  fetchExchangeMapMember,
   listSubscriptions,
   putSubscription,
   deleteSubscription,
@@ -26,11 +22,6 @@ import {
   fetchSubscriptionEvents,
   fetchContentTree,
   fetchEntity,
-  sendInquiry,
-  addExchangePerson,
-  closeExchange,
-  renameExchange,
-  replyToExchange,
   RetiredEndpointError,
   UnauthorizedError,
   NetworkError,
@@ -56,28 +47,6 @@ function abortingFetch() {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
-});
-
-describe("hosted Thread grades and management routes", () => {
-  it("sends the grade and uses backend owner-management paths", async () => {
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ exchange_id: "x_test", position: 2 }), { status: 200 })));
-    vi.stubGlobal("fetch", fetchMock);
-    await addExchangePerson(config, "x_test", { username: "friend" }, "view");
-    await closeExchange(config, "x_test");
-    await renameExchange(config, "x_test", "New title");
-    const [addUrl, addOpts] = fetchMock.mock.calls[0];
-    expect(addUrl).toContain("/api/v1/exchanges/x_test/participants");
-    expect(addOpts.method).toBe("POST");
-    expect(JSON.parse(addOpts.body)).toEqual({ recipient: { username: "friend" }, grade: "view" });
-    expect(fetchMock.mock.calls[1][0]).toContain("/api/v1/exchanges/x_test/close");
-    expect(fetchMock.mock.calls[2][1].method).toBe("PATCH");
-    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ name: "New title" });
-  });
-
-  it("retains a server owner refusal instead of guessing permissions locally", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Only the Thread owner can manage it" }), { status: 403 })));
-    await expect(closeExchange(config, "x_test")).rejects.toThrow("Only the Thread owner can manage it");
-  });
 });
 
 describe("request() retry on timeout (cold start)", () => {
@@ -616,90 +585,6 @@ describe("sharing relationships and visibility", () => {
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({ grade: "collaborate" });
   });
 })
-
-describe("direct Inbox API", () => {
-  it("calls the direct exchange and selected-source routes", async () => {
-    const calls: { url: string; init?: RequestInit }[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string | URL | Request, init?: RequestInit) => {
-        calls.push({ url: String(url), init });
-        const path = String(url);
-        const body = path.endsWith("/inbox")
-          ? { items: [] }
-          : path.includes("/replies") || path.endsWith("/inquiries")
-            ? {
-                note_node_id: "n_note",
-                exchange_id: "x_one",
-                event_id: "evt_one",
-                position: 1,
-                created_at: "2026-08-29T00:00:00Z",
-                target_node_id: "n_target",
-                author_ref: "person:user_1",
-                recipient_ref: "person:user_2",
-                actor_ref: "person:user_1",
-                surface: "human",
-                action: path.includes("/replies") ? "note.replied" : "inquiry.opened",
-              }
-            : {
-                mode: "direct",
-                exchange_id: "x_one",
-                target_node_id: "n_target",
-                participants: [],
-                messages: [],
-              };
-        return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
-      }),
-    );
-
-    const note = {
-      send_id: "send-one",
-      name: "Question",
-      summary: "A focused question",
-      markdown: "# Question",
-    };
-    const map = {
-      roots: [{ root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) }],
-      members: [{ address: "hostname:example.com", depth: "summary" as const }],
-    };
-    await fetchInbox(config);
-    await fetchThreadPosts(config, { scope: "followed", limit: 10, after: "n_post_1", order: "newer" });
-    await fetchThreadPosts(config, { space_id: "n_0123456789abcdef01234567", cursor: "token" });
-    await fetchExchange(config, "x_one");
-    await fetchExchangeMapMember(config, "x_one", 0);
-    await fetchContentTree(config, "n_0123456789abcdef01234567", "notes/current");
-    await fetchEntity(config, "hostname", "example.com");
-    await sendInquiry(config, {
-      ...note,
-      target_node_id: "n_target",
-      recipient: { username: "two" },
-      map,
-    });
-    await replyToExchange(config, "x_one", { ...note, send_id: "reply-one" });
-
-    expect(calls.map((call) => [call.init?.method ?? "GET", call.url])).toEqual([
-      ["GET", "http://api.test/api/v1/inbox"],
-      ["GET", "http://api.test/api/v1/threads/posts?scope=followed&limit=10&after=n_post_1&order=newer"],
-      ["GET", "http://api.test/api/v1/threads/posts?space_id=n_0123456789abcdef01234567&cursor=token"],
-      ["GET", "http://api.test/api/v1/exchanges/x_one"],
-      ["GET", "http://api.test/api/v1/exchanges/x_one/map/members/0"],
-      ["GET", "http://api.test/api/v1/content/n_0123456789abcdef01234567/tree/notes/current"],
-      ["GET", "http://api.test/api/v1/entities/hostname/example.com"],
-      ["POST", "http://api.test/api/v1/inquiries"],
-      ["POST", "http://api.test/api/v1/exchanges/x_one/replies"],
-    ]);
-    expect(JSON.parse(String(calls[7].init?.body))).toMatchObject({
-      send_id: "send-one",
-      target_node_id: "n_target",
-      recipient: { username: "two" },
-      map,
-    });
-    expect(JSON.parse(String(calls[8].init?.body))).toMatchObject({ send_id: "reply-one" });
-    for (const call of calls) {
-      expect((call.init?.headers as Record<string, string>).Authorization).toBe("Bearer k");
-    }
-  });
-});
 
 describe("describeTrailRefusal", () => {
   // The server answers 404 for every refusal so a stranger probing root node

@@ -30,7 +30,7 @@ import {
 import { HostAuthRefusal, hostedConfig, isHostAuth, type HostedConfig } from "../auth/credentials.js";
 import type { Output } from "../output.js";
 
-export const HOSTED_THREAD_32 = /^x_(?:[0-9a-f]{24}|[0-9a-f]{32})$/;
+import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 const POST_ID = /^msg_[a-zA-Z0-9_-]{1,60}$/;
 const MAX_NOTE_BYTES = 32 * 1024; // the service refuses a larger Note (413)
 
@@ -223,7 +223,9 @@ function buildNote(fields: Record<string, unknown>, body: string): string {
 /** Hosted storage requires observed disclosure on every Map member. Never invent it. */
 function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | Record<string, never> {
   if (flags.map === undefined) return {};
-  const map: any = loadLocalThreadMap(str(flags, "map")!);
+  const input = str(flags, "map");
+  if (!input?.trim()) throw new HostedError("invalid_request", "--map requires a Map file or inline Map value; no post sent.");
+  const map: any = loadLocalThreadMap(input);
   for (const [i, member] of map.members.entries()) {
     if (!record(member.disclosure)) throw new HostedError("invalid_request", `--map member ${i} needs an authored disclosure object for hosted storage (name/summary of what was observed); no post sent.`);
   }
@@ -290,7 +292,7 @@ export async function hostedListPage(config: ApiConfig, query: { limit: number; 
   const raw: any = await listHostedThreads(config, query);
   requireValue(record(raw) && Array.isArray(raw.threads) && raw.threads.length <= query.limit && (raw.next_cursor === null || typeof raw.next_cursor === "string"));
   const threads = raw.threads.map((t: any) => {
-    requireValue(record(t) && typeof t.thread_id === "string" && HOSTED_THREAD_32.test(t.thread_id) && typeof t.name === "string" && typeof t.closed === "boolean" && seq(t.unread_count));
+    requireValue(record(t) && typeof t.thread_id === "string" && HOSTED_THREAD_ID.test(t.thread_id) && typeof t.name === "string" && typeof t.closed === "boolean" && seq(t.unread_count));
     return { id: t.thread_id, name: t.name, closed: t.closed, unread_count: t.unread_count,
       ...(typeof t.summary === "string" ? { summary: t.summary } : {}),
       ...(seq(t.read_seq) ? { read_seq: t.read_seq } : {}), ...(seq(t.last_seq) ? { last_seq: t.last_seq } : {}),
@@ -374,6 +376,10 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
 }
 
 export async function newVerb(output: Output, json: boolean, flags: Record<string, string | boolean>): Promise<number> {
+  const recipients = str(flags, "recipients")?.split(",").map((r) => r.trim()) ?? [];
+  if (recipients.length > 16 || recipients.some((r) => !/^@[A-Za-z0-9_.-]+$/.test(r) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r)) || new Set(recipients.map((r) => r.toLowerCase())).size !== recipients.length) {
+    throw new HostedError("invalid_request", "--recipients needs up to 16 distinct @handles or email addresses, comma-separated.");
+  }
   const name = singleLine(flags, "name", true)!;
   const summary = singleLine(flags, "summary", true)!;
   const body = messageBody(flags);
@@ -384,12 +390,8 @@ export async function newVerb(output: Output, json: boolean, flags: Record<strin
     throw new HostedError("invalid_request", "The opening Note did not validate; check --name, --summary and --message.");
   }
   return runHosted(output, json, "Opening hosted Threads", "thread", async (config) => {
-    const recipients = str(flags, "recipients")?.split(",").map((r) => r.trim()) ?? [];
-    if (recipients.length > 16 || recipients.some((r) => !/^@[A-Za-z0-9_.-]+$/.test(r) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r)) || new Set(recipients.map((r) => r.toLowerCase())).size !== recipients.length) {
-      throw new HostedError("invalid_request", "--recipients needs up to 16 distinct @handles or email addresses, comma-separated.");
-    }
-    const raw: any = await openHostedThread(config, note, undefined, recipients);
-    requireValue(record(raw) && typeof raw.thread_id === "string" && HOSTED_THREAD_32.test(raw.thread_id));
+    const raw: any = await openHostedThread(config, note, recipients);
+    requireValue(record(raw) && typeof raw.thread_id === "string" && HOSTED_THREAD_ID.test(raw.thread_id));
     const opening = postOf(raw, raw.thread_id);
     requireValue(opening.id === msgId && opening.seq === 1);
     return { data: { schema: "ideaspaces.hosted-thread.new.v1", thread_id: raw.thread_id, post: opening }, text: `Opened ${raw.thread_id}: ${name}` };
@@ -404,7 +406,7 @@ export async function lifecycleVerb(output: Output, json: boolean, id: string, v
   const msgId = postId(flags);
   const note = buildNote({ id: msgId, kind: verb === "close" ? "closure" : "reframe", ...(name ? { name, summary } : {}) }, body);
   return runHosted(output, json, `${verb === "close" ? "Closing" : "Renaming"} hosted Threads`, "thread", async (config) => {
-    if (verb === "close" && !confirmed) return { data: { preview: true, thread_id: id, note }, text: `Close ${id}? This appends a closure Note and stops new replies. Re-run with --yes to confirm.` };
+    if (verb === "close" && !confirmed) return { data: { preview: true, thread_id: id, post_id: msgId, note }, text: `Close ${id}? This appends a closure Note and stops new replies. Re-run with --yes --post-id ${msgId} and the same --message to confirm.` };
     const posted = postOf(await appendHostedThreadPost(config, id, note), id);
     requireValue(posted.id === msgId);
     return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `${verb === "close" ? "Closed" : "Renamed"} ${id} (${posted.id}).` };

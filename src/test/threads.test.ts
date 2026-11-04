@@ -927,3 +927,24 @@ describe("local Threads", () => {
     } finally { process.stdout.write = stdoutWrite; process.chdir(previous); }
   });
 });
+
+it("keeps local x_-prefixed slugs and directory paths local", async () => {
+  const root = fixture(); process.env.HOME = root;
+  const previous = process.cwd(); process.chdir(root);
+  const out = process.stdout.write; const err = process.stderr.write;
+  let text = "";
+  process.stdout.write = ((s: string) => { text += s; return true; }) as typeof out;
+  process.stderr.write = (() => true) as typeof err;
+  const global = { json: true, quiet: true, yes: false, help: false };
+  try {
+    expect(await threadsCommand.run(["new", "x-notes"], { about: "Local x name" }, global)).toBe(0);
+    renameSync(join(root, "_threads/x-notes"), join(root, "_threads/x_notes"));
+    text = "";
+    expect(await threadsCommand.run(["open", "x_notes"], {}, global)).toBe(0);
+    expect(JSON.parse(text).thread.name).toBe("Local x name");
+    text = "";
+    mkdirSync(join(root, "x_dir"));
+    expect(await threadsCommand.run(["list", "x_dir"], {}, global)).toBe(0);
+    expect(JSON.parse(text).hosted_checked).toBe(false);
+  } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); }
+});

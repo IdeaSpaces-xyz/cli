@@ -16,7 +16,7 @@ import {
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { HOSTED_THREAD_ID as HOSTED, hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
-import { ackVerb, hostedListPage, lifecycleVerb, HOSTED_THREAD_32, HostedError, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
+import { ackVerb, hostedListPage, lifecycleVerb, HostedError, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
 
 export { threadFlagError } from "./thread-flags.js";
 
@@ -291,7 +291,7 @@ export const threadsCommand: CommandDef = {
     const output = createOutput(global);
     const [sub, ...rest] = args;
     try {
-      const hostedTarget = HOSTED_THREAD_32.test(rest[0] ?? "");
+      const hostedTarget = HOSTED.test(rest[0] ?? "");
       const hostedFlag = flags.hosted !== undefined;
       if (hostedFlag && flags.hosted !== true) throw new HostedError("invalid_request", "--hosted takes no value.");
       if (["posts", "expand", "add"].includes(sub ?? "")) throw new Error(`threads ${sub} retired with the Inbox; use threads list and open, or manage membership on the web.`);
@@ -312,7 +312,7 @@ export const threadsCommand: CommandDef = {
         if (sub === "close" || sub === "rename") return await lifecycleVerb(output, global.json, rest[0], sub, flags, global.yes);
         return await openVerb(output, global.json, rest[0], flags);
       }
-      if (sub !== "attach" && (rest[0] ?? "").startsWith("x_")) throw new Error("Invalid hosted Thread id: expected x_ plus 24 or 32 hex characters.");
+      if (sub !== "attach" && /^x_[0-9a-f]+$/.test(rest[0] ?? "")) throw new Error("Invalid hosted Thread id: expected x_ plus 24 or 32 hex characters.");
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
       if (sub === "read") return threadsCommand.run(["open", ...rest], flags, global);
@@ -334,7 +334,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "list") {
         if (flags.depth === "children" || flags.depth === "surface") throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
         if (rest.length > 1 || (rest.length && str(flags, "space"))) throw new Error("Usage: threads list [<dir>] [--space n_…] [--new]");
-        const newOnly = yes(flags, "new");
+        const newOnly = yes(flags, "new") || yes(flags, "unread");
         const rung = depth(flags, "summary");
         const space = str(flags, "space");
         if (space || flags.kind !== undefined || flags.since !== undefined) throw new Error("Inbox list filters retired; use threads list --hosted [--unread] [--cursor <cursor>] or an explicit local directory.");
@@ -359,8 +359,8 @@ export const threadsCommand: CommandDef = {
           }
         }
         const config = peekConfig();
+        if (!config && (flags.cursor !== undefined || flags.limit !== undefined)) throw new HostedError("signed_out", "Hosted paging needs sign-in. Use threads list <directory> for local-only listing, or sign in and retry.");
         let hosted: Array<{ source: "hosted"; id: string; name: string; summary?: string; closed: boolean; unread_count: number }> = [];
-        const hostedCursor: string | null = null;
         let hostedChecked = false;
         if (config && !rest.length) {
           try {
@@ -402,7 +402,7 @@ export const threadsCommand: CommandDef = {
         const hint = !config && !rest.length ? isHostAuth()
           ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools."
           : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, hosted_cursor: hostedCursor, local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
+        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
         return 0;
       }
       if (sub === "new") {
@@ -481,7 +481,7 @@ export const threadsCommand: CommandDef = {
 
         const since = str(flags, "since");
         if (flags.since !== undefined && !since) throw new Error("--since requires an ISO date or post id.");
-        const newOnly = yes(flags, "new");
+        const newOnly = yes(flags, "new") || yes(flags, "unread");
         if (newOnly && since) throw new Error("Use either --new or --since, not both.");
         if (since && order === "newer") throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         if (postId && (newOnly || since || limit !== undefined || order)) throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");

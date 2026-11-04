@@ -493,3 +493,27 @@ it("requires the service Map disclosure profile before sending, never fabricatin
   expect(json().error.message).toContain("authored disclosure");
   expect(calls).toEqual([]);
 });
+
+describe("review regressions and hosted validation", () => {
+  it("refuses bare --map, duplicate/invalid/too many recipients without a request", async () => {
+    const base = { hosted: true, name: "Question", summary: "Why", message: "Hello" };
+    expect(await threads(["new"], { ...base, map: true })).toBe(1);
+    expect(json().error.message).toContain("--map");
+    for (const recipients of ["not a handle", "@one,@ONE", Array.from({length:17}, (_,i)=>`@p${i}`).join(",")]) {
+      expect(await threads(["new"], { ...base, recipients })).toBe(1);
+      expect(json().error.message).toContain("--recipients");
+    }
+    expect(calls).toEqual([]);
+  });
+  it("refuses hosted paging when signed out, not silently dropping it", async () => {
+    rmSync(credentials);
+    expect(await threads(["list"], { limit: "10" })).toBe(1);
+    expect(json().error.state).toBe("signed_out");
+    expect(calls).toEqual([]);
+  });
+  it("prints the preview post id to carry into confirmed close", async () => {
+    expect(await threads(["close", T], { message: "Done", "post-id": "msg_close_stable" }, TEXT_FLAGS)).toBe(0);
+    expect(stdout).toContain("--yes --post-id msg_close_stable");
+    expect(calls).toEqual([]);
+  });
+});

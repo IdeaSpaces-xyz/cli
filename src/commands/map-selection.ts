@@ -24,7 +24,7 @@ import {
   pathStatus,
   sanitizedGitEnvironment,
 } from "../git.js";
-import { formatPortableMap, parseExchangeMapSelection } from "../exchange-map-selection.js";
+import { formatPortableMap } from "../portable-map.js";
 import { inspectSpaceMapRoots } from "../local/space-map.js";
 import { canonicalRepoUrl, rootNodeIdFromGitUrl } from "../repo-locator.js";
 import type { Output } from "../output.js";
@@ -50,7 +50,7 @@ function bindingFailure(failure: BindingFailure): string {
   switch (failure) {
     case "unpublished":
     case "local-only":
-      return "This Space is local or unpublished. Publish it before selecting exact Inbox context.";
+      return "This Space is local or unpublished. Publish it before selecting exact Thread context.";
     case "identity-dirty":
       return "The root identity declaration differs from HEAD. Commit or restore it before selecting context.";
     case "identity-drift":
@@ -469,16 +469,12 @@ export async function runMapSelection(
       const detail = built.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ");
       throw new Error(`Could not build the portable selection: ${detail}`);
     }
-    const selection = parseExchangeMapSelection({
-      kind: "exchange-map-selection",
-      target_node_id: targetNodeId,
-      map: built.map,
-    });
+    const selection = built.map;
     output.result(
       selection,
       [
-        `Portable Inbox context — about ${selection.target_node_id}`,
-        ...formatPortableMap(selection.map),
+        `Portable Thread context — about ${targetNodeId}`,
+        ...formatPortableMap(selection),
         "Review this selection, then send it with `ideaspaces threads send … --map <selection.json>`.",
       ].join("\n"),
     );

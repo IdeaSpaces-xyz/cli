@@ -139,3 +139,16 @@ describe("Thread launch (local and hosted)", () => {
     await expect(prepareHostedThreadLaunch(root, "x_0123456789abcdef01234567", { requireAuthor: false })).rejects.toThrow(/closed/);
   });
 });
+
+it("launches on an oversized newest post with a marked bounded reference, not a failure", async () => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "thread-launch-large-")));
+  const id = "x_" + "a".repeat(32);
+  loadConfigMock.mockReturnValue({ apiUrl: "https://api.test", apiKey: "synthetic" });
+  fetchHostedThreadMock.mockResolvedValue({ thread_id: id, name: "Large Note", closed: false });
+  fetchHostedThreadPostsMock.mockResolvedValue({ posts: [{ thread_id: id, post_id: "msg_large", seq: 1, principal_label: "One", actor_label: "One", received_at: "2026-11-04T00:00:00Z", note: "😀[untrusted]".repeat(2200), fields: {} }] });
+  const launch = await prepareHostedThreadLaunch(root, id, { requireAuthor: false });
+  expect(launch.receipt.post_count).toBe(1);
+  expect(launch.receipt.truncated_posts).toEqual(["msg_large"]);
+  expect(launch.orientation).toContain("Note shortened");
+  expect(Buffer.byteLength(launch.orientation)).toBeLessThan(12000);
+});

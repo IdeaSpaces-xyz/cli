@@ -192,3 +192,5 @@ Every server operation the CLI performs is listed in [`contract/api-calls.json`]
 ## License
 
 MIT
+
+`map select --json` now returns the portable Map (`roots`, `members`) directly, ready for `threads new/send --map`; it carries no recipient or owner-default routing.
