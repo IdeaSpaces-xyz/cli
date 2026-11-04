@@ -22737,6 +22737,9 @@ var reposCommand = {
   }
 };
 
+// dist/hosted-thread-id.js
+var HOSTED_THREAD_ID = /^x_(?:[0-9a-f]{24}|[0-9a-f]{32})$/;
+
 // dist/commands/hosted-threads.js
 import { randomUUID as randomUUID7 } from "node:crypto";
 var import_yaml8 = __toESM(require_dist(), 1);
@@ -22784,9 +22787,6 @@ function selectPinnedThreadMember(value2, ordinal) {
     throw new Error("Selected Map root has no authored commit pin.");
   return { root, member: member2 };
 }
-
-// dist/hosted-thread-id.js
-var HOSTED_THREAD_ID = /^x_(?:[0-9a-f]{24}|[0-9a-f]{32})$/;
 
 // dist/commands/hosted-threads.js
 var POST_ID = /^msg_[a-zA-Z0-9_-]{1,60}$/;
@@ -23139,9 +23139,11 @@ async function lifecycleVerb(output, json, id, verb, flags2, confirmed) {
   const body = messageBody(flags2);
   const msgId = postId(flags2);
   const note = buildNote({ id: msgId, kind: verb === "close" ? "closure" : "reframe", ...name ? { name, summary } : {} }, body);
+  if (verb === "close" && !confirmed) {
+    output.result({ schema: "ideaspaces.hosted-thread.close-preview.v1", preview: true, thread_id: id, post_id: msgId, note, access_checked: false }, `Close ${id}? Local preview only; access has not been checked. This appends a closure Note and stops new replies. Re-run with --yes --post-id ${msgId} and the same --message to confirm.`);
+    return 0;
+  }
   return runHosted(output, json, `${verb === "close" ? "Closing" : "Renaming"} hosted Threads`, "thread", async (config) => {
-    if (verb === "close" && !confirmed)
-      return { data: { preview: true, thread_id: id, post_id: msgId, note }, text: `Close ${id}? This appends a closure Note and stops new replies. Re-run with --yes --post-id ${msgId} and the same --message to confirm.` };
     const posted = postOf(await appendHostedThreadPost(config, id, note), id);
     requireValue(posted.id === msgId);
     return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `${verb === "close" ? "Closed" : "Renamed"} ${id} (${posted.id}).` };

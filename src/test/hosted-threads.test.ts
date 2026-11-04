@@ -553,3 +553,10 @@ it("a changed close confirmation is a conflict, not an implicit retry", async ()
   expect(json().error.message).toContain("same --post-id and --message");
   expect(calls).toHaveLength(1);
 });
+
+it("previews close with no credential and a versioned schema, without claiming authority", async () => {
+  rmSync(credentials);
+  expect(await threads(["close", T], { message: "Plan", "post-id": "msg_local_plan" })).toBe(0);
+  expect(json()).toMatchObject({ schema: "ideaspaces.hosted-thread.close-preview.v1", preview: true, post_id: "msg_local_plan", access_checked: false });
+  expect(calls).toEqual([]);
+});
