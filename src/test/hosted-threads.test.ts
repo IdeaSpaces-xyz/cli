@@ -429,6 +429,13 @@ describe("threads new --hosted and threads ack", () => {
     expect(error.message).not.toContain("may or may not");
   });
 
+  it("says try again later when a limit names no wait", async () => {
+    serve({ "POST /api/v1/threads": () => ({ status: 429, body: { detail: "Knock budget exhausted" } }) });
+    expect(await send()).toBe(1);
+    expect(json().error.message).toContain("Try again later.");
+    expect(json().error.retry_after_ms).toBeUndefined();
+  });
+
   it("keeps a posting limit ambiguous: only the named refusals are settled", async () => {
     serve({ "POST /api/v1/threads": () => ({ status: 429, body: { detail: "Thread posting budget exhausted" } }) });
     expect(await send()).toBe(1);
