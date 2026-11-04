@@ -1,4 +1,4 @@
-import type { MapBlock, MapMember, MapAddressMember, MapPositionMember } from "@ideaspaces/protocol";
+import type { MapBlock, MapMember } from "@ideaspaces/protocol";
 
 function quoted(value: unknown): string {
   return JSON.stringify(value);
@@ -20,8 +20,8 @@ function disclosure(member: MapMember): string {
   ].filter((value): value is string => value !== null).join(" ");
 }
 
-export function memberReference(member: MapMember, roots: MapBlock["roots"]): string {
-  if (isAddressMember(member)) {
+function memberReference(member: MapMember, roots: MapBlock["roots"]): string {
+  if ("address" in member) {
     return member.revision ? `${member.address}@${member.revision}` : member.address;
   }
   const root = roots[member.root];
@@ -42,10 +42,3 @@ export function formatPortableMap(map: MapBlock, indent = ""): string[] {
   return lines;
 }
 
-export function isPositionMember(member: MapMember): member is MapPositionMember {
-  return "position" in member;
-}
-
-export function isAddressMember(member: MapMember): member is MapAddressMember {
-  return "address" in member;
-}

@@ -340,6 +340,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "list") {
         if (flags.depth === "children" || flags.depth === "surface") throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
         if (rest.length > 1 || (rest.length && str(flags, "space"))) throw new Error("Usage: threads list [<dir>] [--new|--unread] (or --hosted --limit <n> --cursor <cursor>)");
+        if (flags.limit !== undefined || flags.cursor !== undefined) throw new HostedError("invalid_request", "--limit and --cursor on list require --hosted; use threads list <directory> for local-only listing.");
         const newOnly = yes(flags, "new") || yes(flags, "unread");
         const rung = depth(flags, "summary");
         const space = str(flags, "space");
@@ -365,7 +366,7 @@ export const threadsCommand: CommandDef = {
           }
         }
         const config = peekConfig();
-        if (!config && (flags.cursor !== undefined || flags.limit !== undefined)) throw new HostedError("signed_out", "Hosted paging needs sign-in. Use threads list <directory> for local-only listing, or sign in and retry.");
+
         let hosted: Array<{ source: "hosted"; id: string; name: string; summary?: string; closed: boolean; unread_count: number }> = [];
         let hostedChecked = false;
         let hostedError: string | undefined;
@@ -373,7 +374,6 @@ export const threadsCommand: CommandDef = {
           try {
             // Default list drains all pages so --new/--unread includes the whole account.
             // Explicit cursor/limit paging is available through list --hosted.
-            if (flags.cursor !== undefined || flags.limit !== undefined) return await listVerb(output, global.json, flags);
             let cursor: string | undefined;
             const seen = new Set<string>();
             do {
@@ -491,6 +491,7 @@ export const threadsCommand: CommandDef = {
 
         const since = str(flags, "since");
         if (flags.since !== undefined && !since) throw new Error("--since requires an ISO date or post id.");
+        if (flags.limit !== undefined || flags.cursor !== undefined) throw new HostedError("invalid_request", "--limit and --cursor on list require --hosted; use threads list <directory> for local-only listing.");
         const newOnly = yes(flags, "new") || yes(flags, "unread");
         if (newOnly && since) throw new Error("Use either --new or --since, not both.");
         if (since && order === "newer") throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
@@ -624,7 +625,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "attach") {
         const usage = "Usage: threads attach <slug|path> <post:msg_…|msg_…|_threads/<thread>/<post>.md> --message <why>";
         if (rest.length !== 2) throw new Error(usage);
-        if (rest[0].startsWith("x_")) {
+        if (/^x_[0-9a-f]+$/.test(rest[0])) {
           throw new Error("threads attach moves local Threads only; a hosted Thread's parent is kept by the service.");
         }
         for (const flag of ["message", "author"]) if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);

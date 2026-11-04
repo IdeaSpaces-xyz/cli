@@ -74,7 +74,7 @@ function failureOf(error: unknown, subject: "thread" | "vaults"): HostedError {
     const state = STATUS[error.status] ?? "unavailable";
     let detail = "";
     if (state === "invalid_request") {
-      try { const body = JSON.parse(error.body); if (typeof body.detail === "string") detail = ` Service: ${body.detail.slice(0, 500)}`; } catch { /* no readable detail */ }
+      try { const body = JSON.parse(error.body); if (typeof body.detail === "string") detail = ` Service: ${body.detail.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").slice(0, 500)}`; } catch { /* no readable detail */ }
     }
     return new HostedError(state, messages(state, subject) + detail, error.retryAfterMs);
   }
@@ -226,7 +226,10 @@ function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | 
   if (flags.map === undefined) return {};
   const input = str(flags, "map");
   if (!input?.trim()) throw new HostedError("invalid_request", "--map requires a Map file or inline Map value; no post sent.");
-  const parsed = parseMap(loadLocalThreadMap(input));
+  let value: unknown;
+  try { value = loadLocalThreadMap(input); }
+  catch (error) { throw new HostedError("invalid_request", error instanceof Error ? error.message : String(error)); }
+  const parsed = parseMap(value);
   if (parsed.status !== "valid") throw new HostedError("invalid_request", "--map is not a valid portable Map.");
   const map = parsed.map;
   for (const [i, member] of map.members.entries()) {

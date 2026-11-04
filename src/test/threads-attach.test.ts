@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { attachThread, loadThread, resolveThreadParent } from "../local/threads.js";
@@ -349,4 +349,12 @@ describe("threads attach after the Agreement is written", () => {
     const quiet = await run(["attach", clean.child, B], { message: "Moving.", author: "Tester" }, clean.root);
     expect(JSON.parse(quiet.out).cycle_check_skipped).toEqual([]);
   });
+});
+
+it("attaches an existing x_-prefixed local folder without treating it as hosted", async () => {
+  const f = space();
+  const renamed = join(f.root, "_threads", "x_notes"); renameSync(f.child, renamed);
+  const result = await run(["attach", "x_notes", `post:${B}`], { message: "Move local Thread", author: "Fixture" }, f.root);
+  expect(result.code, result.err).toBe(0);
+  expect(resolveThreadParent(renamed)?.id).toBe(B);
 });

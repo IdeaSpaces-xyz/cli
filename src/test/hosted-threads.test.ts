@@ -507,10 +507,11 @@ describe("review regressions and hosted validation", () => {
     }
     expect(calls).toEqual([]);
   });
-  it("refuses hosted paging when signed out, not silently dropping it", async () => {
+  it("requires --hosted for paging, even when signed out", async () => {
     rmSync(credentials);
     expect(await threads(["list"], { limit: "10" })).toBe(1);
-    expect(json().error.state).toBe("signed_out");
+    expect(json().error.state).toBe("invalid_request");
+    expect(json().error.message).toContain("require --hosted");
     expect(calls).toEqual([]);
   });
   it("prints the preview post id to carry into confirmed close", async () => {
@@ -558,5 +559,15 @@ it("previews close with no credential and a versioned schema, without claiming a
   rmSync(credentials);
   expect(await threads(["close", T], { message: "Plan", "post-id": "msg_local_plan" })).toBe(0);
   expect(json()).toMatchObject({ schema: "ideaspaces.hosted-thread.close-preview.v1", preview: true, post_id: "msg_local_plan", access_checked: false });
+  expect(calls).toEqual([]);
+});
+
+it("does not switch mixed list to hosted-only or overwrite a send recipient", async () => {
+  for (const flags of [{ limit: "10" }, { cursor: "page" }]) {
+    expect(await threads(["list"], flags)).toBe(1);
+    expect(json().error.message).toContain("require --hosted");
+  }
+  expect(await threads(["send", "@one"], { recipients: "@two", name: "Question", summary: "Why", message: "Opening" })).toBe(1);
+  expect(json().error.message).toContain("--recipients is not supported");
   expect(calls).toEqual([]);
 });

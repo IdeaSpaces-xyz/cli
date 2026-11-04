@@ -40,11 +40,12 @@ const HOSTED_VERB_FLAGS: Record<string, ReadonlySet<string>> = {
   new: new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map"]),
   close: new Set(["message", "post-id"]),
   rename: new Set(["message", "name", "summary", "post-id"]),
+  send: new Set(["name", "summary", "message", "post-id", "map"]),
   ack: new Set(["seq", "cursor"]),
 };
 
 export function hostedVerbFlagError(verb: string, flags: Flags): string | undefined {
-  const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb === "send" ? "new" : verb];
+  const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb];
   const unknown = known && Object.keys(flags).find((flag) => !known.has(flag));
   return unknown ? `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.` : undefined;
 }
