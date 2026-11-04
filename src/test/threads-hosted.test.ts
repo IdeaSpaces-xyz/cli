@@ -71,3 +71,22 @@ it("refuses repeated service cursors instead of looping or claiming a complete h
     expect(errors).toContain("repeated a Thread list cursor");
   } finally { process.stderr.write = write; process.chdir(previous); }
 });
+
+it("discards earlier hosted pages when a later page fails, retaining only healthy local rows", async () => {
+  const root = mkdtempSync(join(tmpdir(), "is-threads-partial-")); temp.push(root);
+  process.env.HOME = root;
+  mkdirSync(join(root, "_agent"));
+  writeFileSync(join(root, "_agent/agreement.md"), "---\nname: Test\nsummary: Test\n---\n");
+  const local = createThread("local", "Local only", root); appendPost(local.path, { body: "One", author: "Agent" });
+  loadConfigMock.mockReturnValue({ apiUrl: "https://example.test", apiKey: "synthetic" });
+  listHostedThreadsMock.mockImplementation((_c, query) => query.cursor ? Promise.reject(new Error("offline")) : Promise.resolve({ threads: [{ thread_id: id, name: "Partial remote", closed: false, unread_count: 2 }], next_cursor: "more" }));
+  const previous = process.cwd(); process.chdir(root);
+  const out = process.stdout.write; const err = process.stderr.write; let text = "";
+  process.stdout.write = ((chunk: string) => { text += chunk; return true; }) as typeof out;
+  process.stderr.write = (() => true) as typeof err;
+  try {
+    expect(await threadsCommand.run(["list"], {}, flags)).toBe(0);
+    expect(JSON.parse(text)).toMatchObject({ hosted_checked: false, threads: [{ source: "local" }] });
+    expect(JSON.parse(text).threads).toHaveLength(1);
+  } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); }
+});

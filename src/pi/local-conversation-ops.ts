@@ -1,10 +1,10 @@
-import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 // The LOCAL (Pi) side of the `conversation` / `conversations` commands — the
 // `--local` handlers. Kept here (not in src/commands/) so the core commands stay
 // Pi-free: they dispatch `--local` to this injected `LocalConversationOps`, and
 // only the composition root (router) wires the two together. See src/pi/index.ts
 // for the boundary rule.
 
+import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 import { join } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";

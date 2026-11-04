@@ -20,7 +20,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { parseThreadPost } from "@ideaspaces/protocol";
+import { parseMap, parseThreadPost } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { loadLocalThreadMap } from "../local/thread-map-member.js";
 import {
@@ -225,7 +225,9 @@ function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | 
   if (flags.map === undefined) return {};
   const input = str(flags, "map");
   if (!input?.trim()) throw new HostedError("invalid_request", "--map requires a Map file or inline Map value; no post sent.");
-  const map: any = loadLocalThreadMap(input);
+  const parsed = parseMap(loadLocalThreadMap(input));
+  if (parsed.status !== "valid") throw new HostedError("invalid_request", "--map is not a valid portable Map.");
+  const map = parsed.map;
   for (const [i, member] of map.members.entries()) {
     if (!record(member.disclosure)) throw new HostedError("invalid_request", `--map member ${i} needs an authored disclosure object for hosted storage (name/summary of what was observed); no post sent.`);
   }

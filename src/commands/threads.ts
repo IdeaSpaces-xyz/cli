@@ -339,7 +339,7 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "list") {
         if (flags.depth === "children" || flags.depth === "surface") throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
-        if (rest.length > 1 || (rest.length && str(flags, "space"))) throw new Error("Usage: threads list [<dir>] [--space n_…] [--new]");
+        if (rest.length > 1 || (rest.length && str(flags, "space"))) throw new Error("Usage: threads list [<dir>] [--new|--unread] (or --hosted --limit <n> --cursor <cursor>)");
         const newOnly = yes(flags, "new") || yes(flags, "unread");
         const rung = depth(flags, "summary");
         const space = str(flags, "space");
@@ -385,6 +385,7 @@ export const threadsCommand: CommandDef = {
             hostedChecked = true;
           } catch (error) {
             if (!local.length) throw error;
+            hosted = []; // Never render a partial account list alongside healthy local rows.
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
           }
         }

@@ -453,6 +453,8 @@ describe("Inbox removal: all hosted operations use /threads", () => {
     expect(calls.at(-1)!.body).toContain("in_reply_to: msg_open");
     expect(await threads(["rename", id], { name: "New", summary: "Why", message: "Rationale" })).toBe(0);
     expect(calls.at(-1)!.body).toContain("kind: reframe");
+    expect(calls.at(-1)!.body).toContain("name: New");
+    expect(calls.at(-1)!.body).toContain("summary: Why");
     const before = calls.length;
     expect(await threads(["close", id], { message: "Done" })).toBe(0);
     expect(json().preview).toBe(true);
@@ -523,4 +525,18 @@ it("advertises the hosted route without auth or a remote call", async () => {
   expect(await threads(["capabilities"])).toBe(0);
   expect(json()).toEqual({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false });
   expect(calls).toEqual([]);
+});
+
+it("new passes multiple recipients alongside the exact opening Note", async () => {
+  serve({ "POST /api/v1/threads": call => {
+    const body = JSON.parse(call.body!);
+    expect(body.recipients).toEqual(["@ada", "reader@example.org"]);
+    expect(body.note).toContain("id: msg_multiple");
+    expect(body.note).toContain("name: Question");
+    expect(body.note).toContain("summary: Why");
+    expect(body.note).toContain("Opening body");
+    return { status: 201, body: { ...fixture("thread-posts-latest").posts[0], thread_id: T, post_id: "msg_multiple", seq: 1, note: body.note } };
+  } });
+  expect(await threads(["new"], { hosted: true, recipients: "@ada,reader@example.org", name: "Question", summary: "Why", message: "Opening body", "post-id": "msg_multiple" })).toBe(0);
+  expect(calls.map(path)).toEqual(["POST /api/v1/threads"]);
 });

@@ -22967,7 +22967,10 @@ function hostedMap(flags2) {
   const input = str(flags2, "map");
   if (!input?.trim())
     throw new HostedError("invalid_request", "--map requires a Map file or inline Map value; no post sent.");
-  const map = loadLocalThreadMap(input);
+  const parsed2 = parseMap(loadLocalThreadMap(input));
+  if (parsed2.status !== "valid")
+    throw new HostedError("invalid_request", "--map is not a valid portable Map.");
+  const map = parsed2.map;
   for (const [i, member2] of map.members.entries()) {
     if (!record(member2.disclosure))
       throw new HostedError("invalid_request", `--map member ${i} needs an authored disclosure object for hosted storage (name/summary of what was observed); no post sent.`);
@@ -30493,7 +30496,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
         if (flags2.depth === "children" || flags2.depth === "surface")
           throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
         if (rest.length > 1 || rest.length && str2(flags2, "space"))
-          throw new Error("Usage: threads list [<dir>] [--space n_\u2026] [--new]");
+          throw new Error("Usage: threads list [<dir>] [--new|--unread] (or --hosted --limit <n> --cursor <cursor>)");
         const newOnly = yes(flags2, "new") || yes(flags2, "unread");
         const rung = depth(flags2, "summary");
         const space = str2(flags2, "space");
@@ -30546,6 +30549,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
           } catch (error) {
             if (!local.length)
               throw error;
+            hosted = [];
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
