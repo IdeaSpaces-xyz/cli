@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
+import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 import { readCheckoutAt } from "./map-resolve.js";
 import { checkPostLinks } from "./post-links.js";
 
@@ -152,6 +153,17 @@ export function resolveLocalThread(input: string, cwd = process.cwd()): string {
   const dir = safeDirectory(path);
   if (dirname(dir) !== base) throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
   return dir;
+}
+
+/**
+ * True when `value` means a Thread on the service here. A hosted id is opaque, so its grammar alone
+ * cannot tell it from an older local `x_notes`: a folder of exactly that name stays local. Creation
+ * never mints such a name, so a service id only loses to a folder someone put there by hand.
+ */
+export function isHostedThreadTarget(value: string, cwd = process.cwd()): boolean {
+  if (!HOSTED_THREAD_ID.test(value)) return false;
+  try { return !lexists(join(threadsDirectory(cwd), value)); }
+  catch { return true; }
 }
 
 /** A Thread's own Agreement is optional for reading and posting: an absent one

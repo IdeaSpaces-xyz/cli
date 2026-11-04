@@ -134,7 +134,7 @@ describe("threads list --hosted", () => {
     expect(await threads(["list"], { hosted: true, cursor: foreign })).toBe(1);
     expect(json().error.state).toBe("invalid_request");
     expect(calls).toEqual([]);
-    serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ thread_id: "x_short", name: "Bad" }], next_cursor: null } }) });
+    serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ thread_id: "x_bad/id", name: "Bad" }], next_cursor: null } }) });
     expect(await threads(["list"], { hosted: true })).toBe(1);
     expect(json().error.state).toBe("invalid_response");
   });
@@ -147,6 +147,13 @@ describe("threads list --hosted", () => {
 });
 
 describe("threads open x_<32hex>", () => {
+  it("treats a hosted id as opaque: its form and length never decide, only x_ and the characters", async () => {
+    const minted = "x_Ab-9_Z-a-form-no-client-has-seen-and-longer-than-any-minted-today-0123456789";
+    serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ ...fixture("threads-page-1").threads[0], thread_id: minted }], next_cursor: null } }) });
+    expect(await threads(["list"], { hosted: true })).toBe(0);
+    expect(json().threads[0].id).toBe(minted);
+  });
+
   it("reads the head and the latest page; author and date are the service's, not the Note's", async () => {
     serve({ [`GET /api/v1/threads/${T}`]: "thread-head", [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest" });
     expect(await threads(["open", T], { limit: "2" })).toBe(0);
@@ -306,7 +313,7 @@ describe("threads new --hosted and threads ack", () => {
     const sent = calls.length;
     expect(await threads(["ack", T], {})).toBe(1);
     expect(await threads(["ack", T], { cursor, seq: "4" })).toBe(1);
-    expect(await threads(["ack", "x_short"], { seq: "1" })).toBe(1); // malformed id refuses before any request
+    expect(await threads(["ack", "x_bad.id"], { seq: "1" })).toBe(1); // malformed id refuses before any request
     expect(calls.length).toBe(sent);
   });
 });

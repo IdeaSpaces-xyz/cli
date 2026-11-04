@@ -250,7 +250,7 @@ export async function prepareHostedThreadLaunch(
   options?: { requireAuthor?: boolean },
 ): Promise<HostedThreadLaunch> {
   if (!HOSTED_THREAD_ID.test(threadId)) {
-    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected x_<hex>.`);
+    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected x_ followed by letters, digits, _ or -.`);
   }
   const config = loadConfig();
   if (!config) {

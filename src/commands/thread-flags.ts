@@ -31,7 +31,7 @@ export function threadFlagError(verb: string, flags: Flags): string | undefined 
   return unknown ? `Unknown flag for threads ${verb}: --${unknown}. Run ideaspaces threads --help for supported flags.` : undefined;
 }
 
-/** The only flags each hosted-Thread (x_<32hex>) verb takes; anything else is refused by name.
+/** The only flags each hosted-Thread (x_<id>) verb takes; anything else is refused by name.
  * Checked instead of THREAD_FLAGS when the verb is hosted, so local verbs keep their own set. */
 const HOSTED_VERB_FLAGS: Record<string, ReadonlySet<string>> = {
   list: new Set(["hosted", "limit", "cursor", "new", "unread"]),

@@ -1,5 +1,5 @@
 /**
- * Hosted Threads (`x_<24 or 32 hex>`) and Vaults over /api/v1/threads and /api/v1/vaults.
+ * Hosted Threads (`x_<id>`) and Vaults over /api/v1/threads and /api/v1/vaults.
  *
  * Ported from Idea Explorer's own hosted Thread client rather than rewritten, so a host
  * that swaps its transport for this CLI reads the same shapes:

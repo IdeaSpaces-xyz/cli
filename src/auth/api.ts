@@ -698,7 +698,7 @@ export async function fetchCoordinationSpaces(
   return request<CoordinationSpaceListResponse>(config, "GET", path, undefined, opts);
 }
 
-// ─── Hosted Threads (x_<32hex>) and Vaults ─────────────────────────────
+// ─── Hosted Threads (x_<id>) and Vaults ──────────────────────────────
 // Raw service answers; commands/hosted-threads.ts validates and projects them.
 // Each call throws ApiStatusError on a non-2xx so the verb can name the state.
 

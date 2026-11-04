@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
-import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
+import { acknowledge, appendPost, createThread, initWorktree, isHostedThreadTarget, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
 import { threadsCommand, threadFlagError } from "../commands/threads.js";
 import { searchCommand } from "../commands/search.js";
 import { push as genericPush } from "../git.js";
@@ -946,6 +946,11 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     mkdirSync(join(root, "x_dir"));
     expect(await threadsCommand.run(["list", "x_dir"], {}, global)).toBe(0);
     expect(JSON.parse(text).hosted_checked).toBe(false);
+    expect(isHostedThreadTarget("x_notes")).toBe(false);
+    expect(isHostedThreadTarget("x_elsewhere")).toBe(true);
+    expect(isHostedThreadTarget("x_" + "a".repeat(80))).toBe(true);
+    expect(isHostedThreadTarget("x_notes/README.md")).toBe(false);
+    expect(isHostedThreadTarget("x_")).toBe(false);
   } finally { process.stdout.write = out; process.stderr.write = err; process.chdir(previous); }
 });
 
