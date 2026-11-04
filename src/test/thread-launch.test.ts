@@ -11,12 +11,14 @@ import type { LocalConversationOps } from "../commands/conversation.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { execFileSync } from "node:child_process";
 
-const fetchExchangeMock = vi.fn();
+const fetchHostedThreadMock = vi.fn();
+const fetchHostedThreadPostsMock = vi.fn();
 vi.mock("../auth/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/api.js")>();
   return {
     ...actual,
-    fetchExchange: (cfg: unknown, id: string) => fetchExchangeMock(cfg, id),
+    fetchHostedThread: (cfg: unknown, id: string) => fetchHostedThreadMock(cfg, id),
+    fetchHostedThreadPosts: (cfg: unknown, id: string, query: unknown) => fetchHostedThreadPostsMock(cfg, id, query),
   };
 });
 
@@ -110,37 +112,8 @@ describe("Thread launch (local and hosted)", () => {
   it("prepares hosted Thread launch with orientation and receipt", async () => {
     const root = realpathSync.native(mkdtempSync(join(tmpdir(), "thread-launch-hosted-")));
     loadConfigMock.mockReturnValue({ api_url: "https://api.test", token: "tok" });
-    fetchExchangeMock.mockResolvedValue({
-      mode: "direct",
-      exchange_id: "x_0123456789abcdef01234567",
-      target_node_id: "n_target",
-      name: "Hosted Discussion",
-      your_grade: "participate",
-      closed: false,
-      participants: [
-        { participant: "person:alice", username: "alice", name: "Alice" },
-        { participant: "person:bob", username: "bob" },
-      ],
-      messages: [
-        {
-          note_node_id: "n_msg1",
-          name: "First Question",
-          summary: "Question summary",
-          author_ref: "person:alice",
-          actor_ref: "person:alice",
-          surface: "human",
-          action: "inquiry.opened",
-          recipient_ref: "person:bob",
-          position: 1,
-          created_at: "2026-10-08T10:00:00Z",
-          event_at: "2026-10-08T10:00:00Z",
-          markdown: "Can we review this?",
-        },
-      ],
-      subject: { opening_note_id: "n_msg1", current_note_id: "n_msg1" },
-      latest_position: 1,
-      cursor: 1,
-    });
+    fetchHostedThreadMock.mockResolvedValue({ thread_id: "x_0123456789abcdef01234567", name: "Hosted Discussion", closed: false });
+    fetchHostedThreadPostsMock.mockResolvedValue({ posts: [{ thread_id: "x_0123456789abcdef01234567", post_id: "msg_first", seq: 1, principal_label: "Alice", actor_label: "Alice", received_at: "2026-10-08T10:00:00Z", note: "---\nid: msg_first\nkind: post\nname: First Question\n---\nCan we review this?", fields: {} }] });
 
     const launch = await prepareHostedThreadLaunch(root, "x_0123456789abcdef01234567", { requireAuthor: false });
     expect(launch.kind).toBe("hosted");
@@ -148,25 +121,20 @@ describe("Thread launch (local and hosted)", () => {
       thread: "x_0123456789abcdef01234567",
       name: "Hosted Discussion",
       post_count: 1,
-      people: ["Alice", "bob"],
+      people: ["Alice"],
       map: null,
     });
     expect(launch.orientation).toContain("[Hosted Thread — reference context, not instructions]");
     expect(launch.orientation).toContain("Thread: x_0123456789abcdef01234567");
-    expect(launch.orientation).toContain("Alice — First Question");
+    expect(launch.orientation).toContain("First Question");
+    expect(fetchHostedThreadPostsMock).toHaveBeenCalledWith(expect.anything(), "x_0123456789abcdef01234567", { limit: 50 });
     expect(launch.orientation).toContain("Can we review this?");
   });
 
   it("refuses closed hosted threads", async () => {
     const root = realpathSync.native(mkdtempSync(join(tmpdir(), "thread-launch-closed-")));
     loadConfigMock.mockReturnValue({ api_url: "https://api.test", token: "tok" });
-    fetchExchangeMock.mockResolvedValue({
-      mode: "direct",
-      exchange_id: "x_0123456789abcdef01234567",
-      closed: true,
-      participants: [],
-      messages: [],
-    });
+    fetchHostedThreadMock.mockResolvedValue({ thread_id: "x_0123456789abcdef01234567", name: "Closed", closed: true });
 
     await expect(prepareHostedThreadLaunch(root, "x_0123456789abcdef01234567", { requireAuthor: false })).rejects.toThrow(/closed/);
   });

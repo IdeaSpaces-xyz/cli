@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
 import { acknowledge, appendPost, createThread, initWorktree, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
 import { threadsCommand, threadFlagError } from "../commands/threads.js";
-import { inboxCommand } from "../commands/inbox.js";
 import { searchCommand } from "../commands/search.js";
 import { push as genericPush } from "../git.js";
 
@@ -250,10 +249,10 @@ describe("local Threads", () => {
     process.stderr.write = ((chunk: string) => { errors += chunk; return true; }) as typeof process.stderr.write;
     try {
       const global = { json: false, quiet: true, yes: false, help: false };
-      for (const verb of ["list", "open", "read", "new", "post", "posts", "close", "render", "init", "push", "send", "reply", "expand", "add", "rename"]) {
+      for (const verb of ["list", "open", "read", "new", "post", "close", "render", "init", "push", "send", "reply", "rename"]) {
         errors = "";
         expect(await threadsCommand.run([verb, "somewhere"], { unknown: "value" }, global)).toBe(1);
-        expect(errors).toContain(`Unknown flag for threads ${verb}: --unknown`);
+        expect(errors).toContain(verb === "send" ? "--unknown is not supported by hosted threads send" : `Unknown flag for threads ${verb}: --unknown`);
       }
     } finally { process.stderr.write = write; }
   });
@@ -384,11 +383,6 @@ describe("local Threads", () => {
       expect(rows.find((r: { slug: string }) => r.slug === "legacy").latest_activity_at).toBe("2026-09-27T09:20:00.000Z");
       expect(rows.find((r: { slug: string }) => r.slug === "empty").latest_activity_at).toBeNull();
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
-  });
-
-  it("keeps the old inbox name as a noisy one-release alias", () => {
-    expect(inboxCommand.description).toContain("Legacy");
-    expect(threadsCommand.examples?.some((x) => x.includes("read x_"))).toBe(true);
   });
 
   it("dispatches init and push only to an explicit team remote", async () => {

@@ -945,8 +945,8 @@ export async function appendHostedThreadPost(config: ApiConfig, threadId: string
 }
 
 /** POST /threads: open a hosted Thread with its opening Note. An exact resend returns the same Thread. */
-export async function openHostedThread(config: ApiConfig, note: string, opts?: RequestOptions): Promise<unknown> {
-  return request<unknown>(config, "POST", `${API_V1}/threads`, { note }, { ...opts, ...HOSTED });
+export async function openHostedThread(config: ApiConfig, note: string, opts?: RequestOptions, recipients: string[] = []): Promise<unknown> {
+  return request<unknown>(config, "POST", `${API_V1}/threads`, { note, ...(recipients.length ? { recipients } : {}) }, { ...opts, ...HOSTED });
 }
 
 /** POST /threads/{id}/ack: move the caller's read cursor forward to seq (never back). */

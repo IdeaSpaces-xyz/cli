@@ -162,7 +162,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       output.error("A Thread launch requires --thread <path|x_id>.");
       return 1;
     }
-    if (/^x_[0-9a-f]{12,24}$/.test(threadPath)) {
+    if (/^x_(?:[0-9a-f]{24}|[0-9a-f]{32})$/.test(threadPath)) {
       if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
         output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
         return 1;
