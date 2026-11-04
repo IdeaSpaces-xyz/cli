@@ -194,3 +194,5 @@ Every server operation the CLI performs is listed in [`contract/api-calls.json`]
 MIT
 
 `map select --json` now returns the portable Map (`roots`, `members`) directly, ready for `threads new/send --map`; it carries no recipient or owner-default routing.
+
+`follow` and `unfollow` (including `follow --ack`) are retired compatibility refusals: exit 1, explain the replacement, and send no request or read credentials. They are omitted from general help. Use `threads list --unread`; person-only `threads ack` explicitly marks a Thread read. No subscription API is exposed.

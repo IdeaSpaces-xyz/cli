@@ -111,8 +111,6 @@ const topLevel: CommandDef[] = [
   requestCommand,
   spacesCommand,
   threadsCommand,
-  followCommand,
-  unfollowCommand,
   pullCommand,
   pushCommand,
   syncCommand,
@@ -125,7 +123,8 @@ const power: CommandDef[] = [
 ];
 
 export function findCommand_(name: string): CommandDef | undefined {
-  return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name);
+  return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name)
+    ?? [followCommand, unfollowCommand].find((c) => c.name === name);
 }
 
 export function printHelp(): void {
