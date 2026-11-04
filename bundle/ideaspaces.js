@@ -26334,7 +26334,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
 }
 async function prepareHostedThreadLaunch(pov, threadId, options) {
   if (!HOSTED_THREAD_ID.test(threadId)) {
-    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected ${HOSTED_THREAD_ID.source}.`);
+    throw new Error(`Invalid hosted Thread id: "${threadId}". Expected x_ followed by letters, digits, - or _.`);
   }
   const config = loadConfig();
   if (!config) {
@@ -30473,7 +30473,7 @@ var threadsCommand = {
       if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename"].includes(sub ?? "") || sub === "ack") {
         const hostedFlagError = hostedVerbFlagError(sub, flags2);
         if (hostedFlagError)
-          throw new HostedError("invalid_request", hostedFlagError);
+          throw new HostedError("invalid_request", hostedTarget ? `${hostedFlagError} ${NAMED_THREAD_HINT}` : hostedFlagError);
         if (sub === "list" || sub === "new") {
           if (rest.length)
             throw new HostedError("invalid_request", `threads ${sub} --hosted takes no positional target.`);
@@ -30956,6 +30956,8 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         }
         if (sub === "close" && flags2.kind !== void 0 && flags2.kind !== "closure")
           throw new Error("threads close always appends a closure post; omit --kind.");
+        if (HOSTED_THREAD_ID.test(rest[0]))
+          output.log(`${rest[0]} is a folder in this Space's _threads/, so this writes there. To reach a hosted Thread of that id, run it outside this Space.`);
         selectionFlags(flags2);
         const kind = sub === "close" ? "closure" : str2(flags2, "kind") ?? "post";
         if (!kind.trim() || /[\r\n]/.test(kind))

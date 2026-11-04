@@ -951,8 +951,10 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     // A folder of that name decides, on every path that routes, and nothing reaches the service.
     const fetched = vi.spyOn(globalThis, "fetch");
     text = "";
-    expect(await threadsCommand.run(["post", "x_notes"], { message: "Stays local", author: "Fixture" }, global)).toBe(0);
+    errors = "";
+    expect(await threadsCommand.run(["post", "x_notes"], { message: "Stays local", author: "Fixture" }, { ...global, quiet: false })).toBe(0);
     expect(JSON.parse(text).path).toContain("_threads/x_notes/");
+    expect(errors).toContain("writes there"); // a folder that shadows an id says so on a write
     expect(await threadsCommand.run(["ack", "x_notes"], { seq: "1" }, global)).toBe(1);
     expect(fetched).not.toHaveBeenCalled();
     fetched.mockRestore();
@@ -963,6 +965,9 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     const refusal = JSON.parse(text).error;
     expect(refusal.state).toBe("signed_out");
     expect(refusal.message).toContain("give its path");
+    text = "";
+    expect(await threadsCommand.run(["post", "x_notse"], { kind: "snapshot", message: "Typo" }, global)).toBe(1);
+    expect(JSON.parse(text).error.message).toContain("give its path"); // a local-only flag on a typed name
     text = "";
     expect(await threadsCommand.run(["ack", "x_notse"], { seq: "1" }, global)).toBe(1);
     expect(JSON.parse(text).error.message).not.toContain("give its path"); // ack has no local form

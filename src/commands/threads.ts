@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { assembleContentReference, parseFrontmatter, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
+import { assembleContentReference, HOSTED_THREAD_ID, parseFrontmatter, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
 import { agreementFlag, preferredContractSource } from "../contract-source.js";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
@@ -16,13 +16,13 @@ import {
   isHostedThreadTarget, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
-import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
+import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, NAMED_THREAD_HINT, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
 
 export { threadFlagError } from "./thread-flags.js";
 
 const SURFACE_BODY_BYTES = 800;
 const KNOWN_POST_KINDS = new Set<string>(THREAD_KINDS);
-/** Verbs whose first argument names a Thread; only these need the local-or-hosted decision. */
+/** Verbs whose first argument names a Thread; only these need the local-or-hosted decision. Keep with the dispatch below. */
 const TAKES_THREAD_ID = new Set(["open", "read", "post", "reply", "close", "rename", "ack", "attach"]);
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
@@ -305,7 +305,7 @@ export const threadsCommand: CommandDef = {
       if (["posts", "expand", "add"].includes(sub ?? "")) throw new Error(`threads ${sub} retired with the Inbox; use threads list and open, or manage membership on the web.`);
       if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename"].includes(sub ?? "") || sub === "ack") {
         const hostedFlagError = hostedVerbFlagError(sub!, flags);
-        if (hostedFlagError) throw new HostedError("invalid_request", hostedFlagError);
+        if (hostedFlagError) throw new HostedError("invalid_request", hostedTarget ? `${hostedFlagError} ${NAMED_THREAD_HINT}` : hostedFlagError);
         if (sub === "list" || sub === "new") {
           if (rest.length) throw new HostedError("invalid_request", `threads ${sub} --hosted takes no positional target.`);
           return sub === "list" ? await listVerb(output, global.json, flags) : await newVerb(output, global.json, flags);
@@ -659,6 +659,8 @@ export const threadsCommand: CommandDef = {
           if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
         }
         if (sub === "close" && flags.kind !== undefined && flags.kind !== "closure") throw new Error("threads close always appends a closure post; omit --kind.");
+        // _threads/ arrives by clone, so a folder may carry an id someone means on the service: a write says which it took.
+        if (HOSTED_THREAD_ID.test(rest[0])) output.log(`${rest[0]} is a folder in this Space's _threads/, so this writes there. To reach a hosted Thread of that id, run it outside this Space.`);
         selectionFlags(flags);
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
         if (!kind.trim() || /[\r\n]/.test(kind)) throw new Error("--kind requires a non-empty single-line value (open kinds are supported).");

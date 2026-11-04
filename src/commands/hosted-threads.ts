@@ -254,7 +254,7 @@ type Run = (config: HostedConfig) => Promise<{ data: Record<string, unknown>; te
 const AMBIGUOUS: ReadonlySet<HostedFailure> = new Set(["offline", "unavailable", "rate_limited", "invalid_response"]);
 
 /** A typed-wrong local name asks the service, so a verb on one named Thread says that may be what happened. */
-const NAMED_THREAD_HINT = "An x_ name with no folder in this Space's _threads/ is read as a hosted id; for a local Thread, give its path.";
+export const NAMED_THREAD_HINT = "An x_ name with no folder in this Space's _threads/ is read as a hosted id; for a local Thread, give its path.";
 const HINTED: ReadonlySet<HostedFailure> = new Set(["not_found", "signed_out", "offline", "unavailable"]);
 
 async function runHosted(output: Output, json: boolean, what: string, subject: "thread" | "vaults", work: Run, { retry, namesThread = false }: { retry?: { postId: string; verb: string }; namesThread?: boolean } = {}): Promise<number> {
