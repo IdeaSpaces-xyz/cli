@@ -9,6 +9,7 @@ import {
   fetchLatestVersion,
   isBehind,
   isVersion,
+  knownLatestForCompare,
   mayCheckForUpdates,
   noticeAllowed,
   noticeLine,
@@ -218,10 +219,10 @@ describe("outOfDateMessage", () => {
     );
   });
 
-  it("does not send a person to an update that is not out", () => {
-    const message = outOfDateMessage("0.6.0", NPM, "0.7.1");
-    expect(message).toContain("no newer one is published yet");
-    expect(message).not.toContain("upgrade");
+  it("an old check never claims nothing newer is out", () => {
+    expect(outOfDateMessage("0.6.0", NPM, "0.7.1")).toBe(
+      "This CLI is out of date: you have 0.7.1, and this service needs a newer one.\nRun: ideaspaces upgrade",
+    );
   });
 });
 
@@ -241,19 +242,61 @@ describe("the 410 path", () => {
 
   });
 
-  it("looks the latest up when it may, so every caller of the route gets it", async () => {
-    vi.stubEnv("IDEASPACES_NO_UPDATE_CHECK", "");
-    vi.stubEnv("CI", "");
-    vi.stubEnv("IDEASPACES_AUTH", "");
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => url.includes("/@ideaspaces/cli/latest")
-      ? new Response(JSON.stringify({ version: "99.0.0" }))
-      : new Response(JSON.stringify({ detail: "This endpoint was retired." }), { status: 410 })));
+  it("names what the last check found and makes no call of its own to the registry", async () => {
+    const home = mkdtempSync(join(tmpdir(), "is-410-"));
+    mkdirSync(join(home, ".ideaspaces"));
+    writeFileSync(join(home, ".ideaspaces", "update-check.json"), JSON.stringify({ latest: "99.0.0" }));
+    vi.stubEnv("HOME", home);
+    const fetched = vi.fn(async () => new Response(JSON.stringify({ detail: "gone" }), { status: 410 }));
+    vi.stubGlobal("fetch", fetched);
     try {
       const err = await fetchAuthMe(config, { retry: false }).catch((e: unknown) => e) as RetiredEndpointError;
       expect(err.message).toContain(`you have ${CLI_VERSION}, and the latest is 99.0.0.`);
+      expect(fetched).toHaveBeenCalledOnce();
     } finally {
       vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("knownLatestForCompare", () => {
+  let home: string;
+  const write = (state: unknown) => writeFileSync(join(home, ".ideaspaces", "update-check.json"), JSON.stringify(state));
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "is-compare-"));
+    mkdirSync(join(home, ".ideaspaces"));
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("IDEASPACES_NO_UPDATE_CHECK", "");
+    vi.stubEnv("CI", "");
+    vi.stubEnv("IDEASPACES_AUTH", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("has nothing to say with no check", () => {
+    expect(knownLatestForCompare("0.8.0", NOW)).toBeNull();
+  });
+
+  it("trusts a recent check either way", () => {
+    write({ latest: "0.8.0", checked_at: NOW - DAY });
+    expect(knownLatestForCompare("0.8.0", NOW)).toBe("0.8.0");
+    expect(knownLatestForCompare("0.7.1", NOW)).toBe("0.8.0");
+  });
+
+  it("an old check can still say behind, but not current", () => {
+    write({ latest: "0.8.0", checked_at: NOW - 30 * DAY });
+    expect(knownLatestForCompare("0.7.1", NOW)).toBe("0.8.0");
+    expect(knownLatestForCompare("0.8.0", NOW)).toBeNull();
+  });
+
+  it("says nothing with the check turned off", () => {
+    write({ latest: "0.8.0", checked_at: NOW });
+    vi.stubEnv("IDEASPACES_NO_UPDATE_CHECK", "1");
+    expect(knownLatestForCompare("0.7.1", NOW)).toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@ import { gitAvailability } from "../git.js";
 import type { GitAvailability } from "../git.js";
 import { detectInstall, updateAdvice, type Install, type InstallKind } from "../install-kind.js";
 import { createOutput } from "../output.js";
-import { fetchLatestVersion, isBehind, knownLatest, mayCheckForUpdates } from "../update-check.js";
+import { isBehind, knownLatestForCompare } from "../update-check.js";
 import { CLI_VERSION } from "../version.js";
 import type { CommandDef } from "../types.js";
 
@@ -40,7 +40,7 @@ export interface CliCheck extends DoctorCheck {
 export interface CliAvailability {
   version: string;
   install: Install;
-  /** The latest published version, or null when it could not be, or was not, looked up. */
+  /** The latest published version as of the last check, or null when there is no usable check. */
   latest: string | null;
 }
 
@@ -61,7 +61,7 @@ export interface DoctorRuntime {
   node: () => NodeAvailability;
   git: () => GitAvailability;
   auth: () => { apiUrl: string; apiKey: string } | null;
-  cli: () => Promise<CliAvailability>;
+  cli: () => CliAvailability;
 }
 
 /** Probe the `node` executable on PATH, not the runtime already executing this command. */
@@ -104,18 +104,10 @@ export function nodeAvailability(): NodeAvailability {
   return { state: "usable", version };
 }
 
-/** This CLI against the registry. Never needed for readiness, so a short wait, then the last known answer. */
-export async function cliAvailability(): Promise<CliAvailability> {
+/** This CLI against what the daily check last found. A diagnostic makes no network call of its own. */
+export function cliAvailability(): CliAvailability {
   const install = detectInstall();
-  let latest = knownLatest();
-  if (mayCheckForUpdates() && install.kind !== "app") {
-    try {
-      latest = await fetchLatestVersion({ timeoutMs: 2000 });
-    } catch {
-      // Offline: the last known answer stands.
-    }
-  }
-  return { version: CLI_VERSION, install, latest };
+  return { version: CLI_VERSION, install, latest: install.kind === "app" ? null : knownLatestForCompare() };
 }
 
 function cliCheck(cli: CliAvailability): CliCheck {
@@ -127,7 +119,7 @@ function cliCheck(cli: CliAvailability): CliCheck {
       ok: false,
       detail: cli.install.kind === "app"
         ? updateAdvice(cli.install).text
-        : "Not compared with the latest version: checks are off here, or the npm registry could not be reached.",
+        : "No recent update check to compare with. Run `ideaspaces upgrade --check`.",
       fix: null,
     };
   }
@@ -344,7 +336,7 @@ export function makeDoctorCommand(runtime: DoctorRuntime = defaultRuntime): Comm
         node: runtime.node(),
         git: runtime.git(),
         auth: runtime.auth(),
-        cli: await runtime.cli(),
+        cli: runtime.cli(),
       });
       createOutput(global).result(report, formatDoctorReport(report));
       return report.ok ? 0 : 1;

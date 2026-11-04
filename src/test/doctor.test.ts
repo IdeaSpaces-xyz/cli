@@ -16,7 +16,7 @@ function runtime(overrides: Partial<Parameters<typeof makeDoctorCommand>[0]> = {
     node: () => ({ state: "usable" as const, version: "v22.14.0" }),
     git: () => ({ state: "usable" as const, version: "git version 2.48.0" }),
     auth: () => null,
-    cli: async () => CURRENT_CLI,
+    cli: () => CURRENT_CLI,
     ...overrides,
   };
 }
@@ -256,7 +256,7 @@ describe("ideaspaces doctor", () => {
 
   describe("the CLI check", () => {
     it("says when the CLI is behind, with the command for this install, and stays ready", async () => {
-      const command = makeDoctorCommand(runtime({ cli: async () => ({ ...CURRENT_CLI, latest: "0.9.0" }) }));
+      const command = makeDoctorCommand(runtime({ cli: () => ({ ...CURRENT_CLI, latest: "0.9.0" }) }));
 
       const human = await captureStdout(() => command.run([], {}, HUMAN_GLOBAL));
       const { exit, json } = await captureJson(() => command.run([], {}, JSON_GLOBAL));

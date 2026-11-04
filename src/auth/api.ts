@@ -1,7 +1,7 @@
 import { resolveSessionConfig, refuseSession, SessionAuthError } from "./client-session.js";
 import { HostAuthRefusal, isHostAuth } from "./credentials.js";
 import { hostToken } from "./host-token.js";
-import { latestForFailure, outOfDateMessage } from "../update-check.js";
+import { outOfDateMessage } from "../update-check.js";
 
 /**
  * Thin fetch helpers for the IdeaSpaces server API.
@@ -162,7 +162,7 @@ export interface RequestOptions {
 /** A non-2xx answer, kept typed for callers that map statuses to states (hosted Threads, Vaults). */
 export class ApiStatusError extends Error {
   readonly retryAfterMs?: number;
-  constructor(readonly status: number, readonly body: string, retryAfter: string | null, readonly latest?: string | null) {
+  constructor(readonly status: number, readonly body: string, retryAfter: string | null) {
     super(`HTTP ${status}`);
     this.name = "ApiStatusError";
     const delay = retryAfter === null ? undefined : /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
@@ -185,8 +185,8 @@ export class UnauthorizedError extends Error {
  * missing repo, which is how a month-old bundle once cost a person an
  * afternoon of "404 on every repo". */
 export class RetiredEndpointError extends Error {
-  constructor(method: string, path: string, body: string, latest?: string | null) {
-    super(`${method} ${path} → 410: ${retiredEndpointMessage(body)}\n${outOfDateMessage(latest)}`);
+  constructor(method: string, path: string, body: string) {
+    super(`${method} ${path} → 410: ${retiredEndpointMessage(body)}\n${outOfDateMessage()}`);
     this.name = "RetiredEndpointError";
   }
 }
@@ -341,9 +341,9 @@ async function request<T>(
           if (opts.statusError) throw new ApiStatusError(401, text, r.headers.get("Retry-After"));
           throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
         }
-        if (opts.statusError) throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"), r.status === 410 ? await latestForFailure() : undefined);
+        if (opts.statusError) throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"));
         if (r.status === 410) {
-          throw new RetiredEndpointError(method, path, text, await latestForFailure());
+          throw new RetiredEndpointError(method, path, text);
         }
         throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
       }
@@ -1647,7 +1647,7 @@ export async function* streamConversationMessage(
       await refuseSession(config, headers.Authorization?.slice(7));
       throw new UnauthorizedError(`POST ${path} → 401: ${text || r.statusText}`);
     }
-    if (r.status === 410) throw new RetiredEndpointError("POST", path, text, await latestForFailure());
+    if (r.status === 410) throw new RetiredEndpointError("POST", path, text);
     throw new Error(`POST ${path} → ${r.status}: ${text || r.statusText}`);
   }
   if (!r.body) throw new Error("stream: server returned no response body");

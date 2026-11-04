@@ -14279,20 +14279,17 @@ function knownLatest() {
     return null;
   return readUpdateState().latest ?? null;
 }
-async function latestForFailure() {
+function knownLatestForCompare(current2 = CLI_VERSION, now = Date.now()) {
   if (!mayCheckForUpdates())
-    return knownLatest();
-  try {
-    return await fetchLatestVersion({ timeoutMs: 1500 });
-  } catch {
-    return knownLatest();
-  }
+    return null;
+  const { latest, checked_at: checkedAt } = readUpdateState();
+  if (!latest)
+    return null;
+  const fresh = checkedAt !== void 0 && checkedAt <= now && now - checkedAt < 7 * DAY_MS;
+  return fresh || isBehind(current2, latest) ? latest : null;
 }
 function outOfDateMessage(latest = knownLatest(), install = detectInstall(), current2 = CLI_VERSION) {
-  if (latest && !isBehind(current2, latest)) {
-    return `This CLI is out of date for this service, and no newer one is published yet: you have ${current2}, and the latest is ${latest}.`;
-  }
-  const need = latest ? `the latest is ${latest}` : "this service needs a newer one";
+  const need = latest && isBehind(current2, latest) ? `the latest is ${latest}` : "this service needs a newer one";
   return `This CLI is out of date: you have ${current2}, and ${need}.
 ${updateAdvice(install).text}`;
 }
@@ -14333,16 +14330,9 @@ function nodeAvailability() {
   }
   return { state: "usable", version };
 }
-async function cliAvailability() {
+function cliAvailability() {
   const install = detectInstall();
-  let latest = knownLatest();
-  if (mayCheckForUpdates() && install.kind !== "app") {
-    try {
-      latest = await fetchLatestVersion({ timeoutMs: 2e3 });
-    } catch {
-    }
-  }
-  return { version: CLI_VERSION, install, latest };
+  return { version: CLI_VERSION, install, latest: install.kind === "app" ? null : knownLatestForCompare() };
 }
 function cliCheck(cli) {
   const base = { required: false, version: cli.version, exit_code: null, latest: cli.latest, install: cli.install.kind };
@@ -14351,7 +14341,7 @@ function cliCheck(cli) {
       ...base,
       state: "unchecked",
       ok: false,
-      detail: cli.install.kind === "app" ? updateAdvice(cli.install).text : "Not compared with the latest version: checks are off here, or the npm registry could not be reached.",
+      detail: cli.install.kind === "app" ? updateAdvice(cli.install).text : "No recent update check to compare with. Run `ideaspaces upgrade --check`.",
       fix: null
     };
   }
@@ -14540,7 +14530,7 @@ function makeDoctorCommand(runtime = defaultRuntime) {
         node: runtime.node(),
         git: runtime.git(),
         auth: runtime.auth(),
-        cli: await runtime.cli()
+        cli: runtime.cli()
       });
       createOutput(global3).result(report, formatDoctorReport(report));
       return report.ok ? 0 : 1;
@@ -14625,7 +14615,7 @@ async function sessionRequest(apiUrl, action, params) {
       }
       await response.body?.cancel();
       if (response.status === 410)
-        throw new RefreshUnspent(outOfDateMessage(await latestForFailure()));
+        throw new RefreshUnspent(outOfDateMessage());
       if (action === "token" && [400, 401, 403].includes(response.status))
         throw new SessionAuthError();
       throw new Error(`IdeaSpaces ${action === "token" ? "token exchange" : "sign-out"} failed (HTTP ${response.status}). Try again later.`);
@@ -14762,13 +14752,11 @@ function deriveWebBase(apiUrl) {
 var ApiStatusError = class extends Error {
   status;
   body;
-  latest;
   retryAfterMs;
-  constructor(status, body, retryAfter, latest) {
+  constructor(status, body, retryAfter) {
     super(`HTTP ${status}`);
     this.status = status;
     this.body = body;
-    this.latest = latest;
     this.name = "ApiStatusError";
     const delay = retryAfter === null ? void 0 : /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1e3 : Date.parse(retryAfter) - Date.now();
     if (delay !== void 0 && Number.isFinite(delay))
@@ -14782,9 +14770,9 @@ var UnauthorizedError = class extends Error {
   }
 };
 var RetiredEndpointError = class extends Error {
-  constructor(method, path, body, latest) {
+  constructor(method, path, body) {
     super(`${method} ${path} \u2192 410: ${retiredEndpointMessage(body)}
-${outOfDateMessage(latest)}`);
+${outOfDateMessage()}`);
     this.name = "RetiredEndpointError";
   }
 };
@@ -14900,9 +14888,9 @@ async function request(config, method, path, body, opts = {}) {
           throw new UnauthorizedError(`${method} ${path} \u2192 401: ${text || r.statusText}`);
         }
         if (opts.statusError)
-          throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"), r.status === 410 ? await latestForFailure() : void 0);
+          throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"));
         if (r.status === 410) {
-          throw new RetiredEndpointError(method, path, text, await latestForFailure());
+          throw new RetiredEndpointError(method, path, text);
         }
         throw new Error(`${method} ${path} \u2192 ${r.status}: ${text || r.statusText}`);
       }
@@ -15208,7 +15196,7 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
       throw new UnauthorizedError(`POST ${path} \u2192 401: ${text || r.statusText}`);
     }
     if (r.status === 410)
-      throw new RetiredEndpointError("POST", path, text, await latestForFailure());
+      throw new RetiredEndpointError("POST", path, text);
     throw new Error(`POST ${path} \u2192 ${r.status}: ${text || r.statusText}`);
   }
   if (!r.body)
@@ -24088,7 +24076,7 @@ function failureOf(error, subject) {
     return error.message === error.state ? new HostedError(error.state, messages(error.state, subject), error.retryAfterMs) : error;
   if (error instanceof ApiStatusError) {
     if (error.status === 410)
-      return new HostedError("unavailable", outOfDateMessage(error.latest), error.retryAfterMs);
+      return new HostedError("unavailable", outOfDateMessage(), error.retryAfterMs);
     const state = STATUS[error.status] ?? "unavailable";
     let detail3 = "";
     if (state === "invalid_request") {

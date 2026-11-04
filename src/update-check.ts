@@ -230,33 +230,36 @@ export function afterCommand(
   }
 }
 
-// ─── When a command has already failed ─────────────────────────────
+// ─── What the last check found ─────────────────────────────────────
 
-/** The newest version known without waiting: what the last check found. */
+/**
+ * The newest version known without any network call. Errors and `status doctor` only ever read
+ * this: the daily check is the one lookup the CLI makes on its own, and `upgrade` is the one a
+ * person asks for.
+ */
 export function knownLatest(): string | null {
   if (isHostAuth()) return null;
   return readUpdateState().latest ?? null;
 }
 
-/** On a failed command a short wait is fine, and the answer is what the person needs. */
-export async function latestForFailure(): Promise<string | null> {
-  if (!mayCheckForUpdates()) return knownLatest();
-  try {
-    return await fetchLatestVersion({ timeoutMs: 1500 });
-  } catch {
-    return knownLatest();
-  }
+/** As `knownLatest`, but null when it could only say "current" from an old check. */
+export function knownLatestForCompare(current: string = CLI_VERSION, now: number = Date.now()): string | null {
+  if (!mayCheckForUpdates()) return null;
+  const { latest, checked_at: checkedAt } = readUpdateState();
+  if (!latest) return null;
+  const fresh = checkedAt !== undefined && checkedAt <= now && now - checkedAt < 7 * DAY_MS;
+  return fresh || isBehind(current, latest) ? latest : null;
 }
 
-/** "What you have, what is needed, what to run." */
+/**
+ * "What you have, what is needed, what to run." The latest comes from the last check and may be
+ * old, so it can say a newer version exists but never that none does: `upgrade` asks the registry.
+ */
 export function outOfDateMessage(
   latest: string | null = knownLatest(),
   install: Install = detectInstall(),
   current: string = CLI_VERSION,
 ): string {
-  if (latest && !isBehind(current, latest)) {
-    return `This CLI is out of date for this service, and no newer one is published yet: you have ${current}, and the latest is ${latest}.`;
-  }
-  const need = latest ? `the latest is ${latest}` : "this service needs a newer one";
+  const need = latest && isBehind(current, latest) ? `the latest is ${latest}` : "this service needs a newer one";
   return `This CLI is out of date: you have ${current}, and ${need}.\n${updateAdvice(install).text}`;
 }
