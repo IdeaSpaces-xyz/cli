@@ -164,6 +164,19 @@ describe("threads open x_<id>", () => {
     expect(json().threads[0].id).toBe(minted);
   });
 
+  it("reads a Thread its owner holds, under either word for the owner", async () => {
+    for (const grade of ["Owner", "Editor"]) {
+      serve({ [`GET /api/v1/threads/${T}`]: () => ({ status: 200, body: { ...fixture("thread-head"), grade } }), [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest" });
+      expect(await threads(["open", T], { limit: "2" })).toBe(0);
+      expect(json().thread).toMatchObject({ grade, can_reply: true });
+    }
+  });
+
+  it("refuses a grade it has never been told about", async () => {
+    serve({ [`GET /api/v1/threads/${T}`]: () => ({ status: 200, body: { ...fixture("thread-head"), grade: "Admiral" } }), [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest" });
+    expect(await threads(["open", T], { limit: "2" })).toBe(1);
+  });
+
   it("reads the head and the latest page; author and date are the service's, not the Note's", async () => {
     serve({ [`GET /api/v1/threads/${T}`]: "thread-head", [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest" });
     expect(await threads(["open", T], { limit: "2" })).toBe(0);

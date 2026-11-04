@@ -23841,9 +23841,10 @@ function postOf(raw, thread) {
     marks: raw.marks ?? []
   };
 }
+var THREAD_GRADES = ["Owner", "Editor", "Commenter", "Viewer"];
 async function head(config, id) {
   const h = await fetchHostedThread(config, id);
-  requireValue(record(h) && h.thread_id === id && typeof h.name === "string" && typeof h.closed === "boolean" && seq(h.last_seq) && ["Editor", "Commenter", "Viewer"].includes(h.grade));
+  requireValue(record(h) && h.thread_id === id && typeof h.name === "string" && typeof h.closed === "boolean" && seq(h.last_seq) && THREAD_GRADES.includes(h.grade));
   return { thread: { id, name: h.name, closed: h.closed, grade: h.grade, can_reply: !h.closed && h.grade !== "Viewer" }, lastSeq: h.last_seq };
 }
 async function posts(config, id, query) {

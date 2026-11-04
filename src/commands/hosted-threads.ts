@@ -159,12 +159,15 @@ function postOf(raw: unknown, thread: string): HostedPost {
   };
 }
 
-interface Head { id: string; name: string; closed: boolean; grade: "Editor" | "Commenter" | "Viewer"; can_reply: boolean }
+// Owner is the agreed word for a Thread's owner; the service says Editor until it moves. Accept both.
+const THREAD_GRADES = ["Owner", "Editor", "Commenter", "Viewer"] as const;
+
+interface Head { id: string; name: string; closed: boolean; grade: (typeof THREAD_GRADES)[number]; can_reply: boolean }
 
 async function head(config: ApiConfig, id: string): Promise<{ thread: Head; lastSeq: number }> {
   const h: any = await fetchHostedThread(config, id);
   requireValue(record(h) && h.thread_id === id && typeof h.name === "string" && typeof h.closed === "boolean" && seq(h.last_seq)
-    && ["Editor", "Commenter", "Viewer"].includes(h.grade));
+    && THREAD_GRADES.includes(h.grade));
   return { thread: { id, name: h.name, closed: h.closed, grade: h.grade, can_reply: !h.closed && h.grade !== "Viewer" }, lastSeq: h.last_seq };
 }
 
