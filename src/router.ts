@@ -122,9 +122,12 @@ const power: CommandDef[] = [
   logoutCommand,
 ];
 
+// Hidden compatibility refusals, not active subscription capabilities.
+const retiredCommands = [followCommand, unfollowCommand];
+
 export function findCommand_(name: string): CommandDef | undefined {
   return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name)
-    ?? [followCommand, unfollowCommand].find((c) => c.name === name);
+    ?? retiredCommands.find((c) => c.name === name);
 }
 
 export function printHelp(): void {

@@ -26,6 +26,8 @@ describe("retired subscription commands", () => {
           const text = [...out.mock.calls, ...err.mock.calls].map(c => c[0]).join("");
           expect(text).toContain("retired"); expect(text).toContain("No request was sent");
           expect(text).toContain("threads list --unread");
+          expect(out).not.toHaveBeenCalled();
+          expect(err.mock.calls.map(c => c[0]).join("")).toContain("No request was sent");
         }
       }
     }
@@ -35,6 +37,10 @@ describe("retired subscription commands", () => {
     const err = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     printHelp();
     const help = err.mock.calls.map(c => c[0]).join("");
+    for (const command of [followCommand, unfollowCommand]) {
+      expect(command.help).toContain("No request was sent");
+      expect(command.description).toContain("Retired");
+    }
     expect(help).not.toMatch(/\n  (?:un)?follow\s/);
     for (const name of ["listSubscriptions", "putSubscription", "deleteSubscription", "acknowledgeSubscription"]) expect(api).not.toHaveProperty(name);
   });

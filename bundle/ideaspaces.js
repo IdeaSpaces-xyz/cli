@@ -33872,8 +33872,9 @@ var topLevel = [
 var power = [
   logoutCommand
 ];
+var retiredCommands = [followCommand, unfollowCommand];
 function findCommand_(name) {
-  return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name) ?? [followCommand, unfollowCommand].find((c) => c.name === name);
+  return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name) ?? retiredCommands.find((c) => c.name === name);
 }
 function printHelp() {
   const lines = [

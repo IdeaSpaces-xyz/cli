@@ -30,7 +30,7 @@ describe("router", () => {
     expect(findCommand_("inbox")).toBeUndefined();
   });
 
-  it("exposes follow and unfollow as one subscription verb family", () => {
+  it("resolves retired follow and unfollow for compatibility refusals", () => {
     expect(findCommand_("follow")?.name).toBe("follow");
     expect(findCommand_("unfollow")?.name).toBe("unfollow");
   });
