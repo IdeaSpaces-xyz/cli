@@ -273,6 +273,13 @@ describe("threads open x_<id>", () => {
     expect(await threads(["open", T])).toBe(1);
     expect(json().error.state).toBe("offline");
   });
+
+  it("keeps the state a host parses on a retired route, and says the CLI is out of date", async () => {
+    serve({ [`GET /api/v1/threads/${T}`]: () => ({ status: 410, body: { detail: "gone" } }) });
+    expect(await threads(["open", T])).toBe(1);
+    expect(json().error.state).toBe("unavailable");
+    expect(json().error.message).toContain("This CLI is out of date: you have");
+  });
 });
 
 describe("threads post x_<32hex>", () => {

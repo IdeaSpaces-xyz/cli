@@ -1,6 +1,7 @@
 import { resolveSessionConfig, refuseSession, SessionAuthError } from "./client-session.js";
 import { HostAuthRefusal, isHostAuth } from "./credentials.js";
 import { hostToken } from "./host-token.js";
+import { latestForFailure, outOfDateMessage } from "../update-check.js";
 
 /**
  * Thin fetch helpers for the IdeaSpaces server API.
@@ -184,11 +185,8 @@ export class UnauthorizedError extends Error {
  * missing repo, which is how a month-old bundle once cost a person an
  * afternoon of "404 on every repo". */
 export class RetiredEndpointError extends Error {
-  constructor(method: string, path: string, body: string) {
-    super(
-      `${method} ${path} → 410: ${retiredEndpointMessage(body)}\n` +
-        "This CLI is out of date. Update the ideaspaces CLI, or the plugin that bundles it, and retry.",
-    );
+  constructor(method: string, path: string, body: string, latest?: string | null) {
+    super(`${method} ${path} → 410: ${retiredEndpointMessage(body)}\n${outOfDateMessage(latest)}`);
     this.name = "RetiredEndpointError";
   }
 }
@@ -345,7 +343,7 @@ async function request<T>(
         }
         if (opts.statusError) throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"));
         if (r.status === 410) {
-          throw new RetiredEndpointError(method, path, text);
+          throw new RetiredEndpointError(method, path, text, await latestForFailure());
         }
         throw new Error(`${method} ${path} → ${r.status}: ${text || r.statusText}`);
       }
@@ -1649,7 +1647,7 @@ export async function* streamConversationMessage(
       await refuseSession(config, headers.Authorization?.slice(7));
       throw new UnauthorizedError(`POST ${path} → 401: ${text || r.statusText}`);
     }
-    if (r.status === 410) throw new RetiredEndpointError("POST", path, text);
+    if (r.status === 410) throw new RetiredEndpointError("POST", path, text, await latestForFailure());
     throw new Error(`POST ${path} → ${r.status}: ${text || r.statusText}`);
   }
   if (!r.body) throw new Error("stream: server returned no response body");

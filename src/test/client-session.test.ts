@@ -37,6 +37,16 @@ it("stores a PKCE code exchange as a session, never a long-lived key", async () 
   const file = readFileSync(join(home, ".ideaspaces/credentials.json"), "utf8");
   expect(file).not.toContain("private-verifier"); expect(file).not.toContain("one-time-code");
 });
+it("says the CLI is out of date when sign-in's route is retired, not to check the connection", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("gone", { status: 410 })));
+  const err = await exchangeSignIn(apiUrl, "test-install-1", "one-time-code", "private-verifier", "http://127.0.0.1:12345/callback").catch((e: Error) => e) as Error;
+  expect(err.message).toContain("This CLI is out of date: you have");
+  expect(err.message).not.toContain("Check your connection");
+  saveCredentials(stored());
+  await expect(resolveSessionConfig(config)).rejects.toThrow("This CLI is out of date");
+  expect(loadStoredCredentials()?.session).toMatchObject({ refresh_token: "refresh-one" });
+  expect(loadStoredCredentials()?.session?.refreshing).toBeUndefined();
+});
 it("serializes rotations, persists the next refresh atomically and reuses the new access", async () => {
   saveCredentials(stored());
   const fetcher = vi.fn(async () => { expect(loadStoredCredentials()?.session?.refreshing).toBe(true); return Response.json(tokenResponse()); });
