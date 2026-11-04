@@ -130,6 +130,19 @@ export function deleteCredentials(): void {
 
 const DEFAULT_API_URL = "https://api.ideaspaces.xyz";
 
+let warnedRefusedOverride = false;
+
+/** Every "Not logged in" after this would mislead: the sign-in exists, and it was held back. */
+function warnRefusedOverride(service: string, override: string): void {
+  if (warnedRefusedOverride) return;
+  warnedRefusedOverride = true;
+  const shown = override.replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+  process.stderr.write(
+    `Your stored IdeaSpaces sign-in belongs to ${service}, so it was not sent to ${shown} (IS_API_URL).\n` +
+      "To use your sign-in, unset IS_API_URL. To use that server, set IS_API_KEY to a key for it.\n",
+  );
+}
+
 export interface LoadedConfig {
   apiUrl: string;
   apiKey: string;
@@ -165,9 +178,14 @@ export function loadConfig(): LoadedConfig | null {
 
   const stored = loadStoredCredentials();
   if (stored) {
-    const apiUrl = (process.env.IS_API_URL || stored.api_url || DEFAULT_API_URL).replace(/\/$/, "");
-    // A stored rotating session belongs to its service, never an IS_API_URL override.
-    if (stored.session && apiUrl !== stored.api_url.replace(/\/$/, "")) return null;
+    const apiUrl = (process.env.IS_API_URL || stored.api_url).replace(/\/$/, "");
+    const service = stored.api_url.replace(/\/$/, "");
+    // A stored credential, session or key, belongs to its service, never an IS_API_URL override.
+    // IS_API_KEY is how a caller pairs a key with another server: that pair is theirs to name.
+    if (apiUrl !== service) {
+      warnRefusedOverride(service, apiUrl);
+      return null;
+    }
     return {
       apiUrl,
       apiKey: stored.api_key,
