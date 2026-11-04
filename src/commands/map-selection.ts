@@ -24,7 +24,7 @@ import {
   pathStatus,
   sanitizedGitEnvironment,
 } from "../git.js";
-import { formatPortableMap, parseExchangeMapSelection } from "../exchange-map-selection.js";
+import { formatPortableMap } from "../portable-map.js";
 import { inspectSpaceMapRoots } from "../local/space-map.js";
 import { canonicalRepoUrl, rootNodeIdFromGitUrl } from "../repo-locator.js";
 import type { Output } from "../output.js";
@@ -50,7 +50,7 @@ function bindingFailure(failure: BindingFailure): string {
   switch (failure) {
     case "unpublished":
     case "local-only":
-      return "This Space is local or unpublished. Publish it before selecting exact Inbox context.";
+      return "This Space is local or unpublished. Publish it before selecting exact Thread context.";
     case "identity-dirty":
       return "The root identity declaration differs from HEAD. Commit or restore it before selecting context.";
     case "identity-drift":
@@ -336,19 +336,18 @@ export async function runMapSelection(
         }
         roots = momentRoots;
 
-        members = rawMembers.map((m) => {
+        members = rawMembers.map((m, ordinal) => {
           if (!m || typeof m !== "object") throw new Error("Map member must be an object");
           const mObj = m as Record<string, unknown>;
           if ("address" in mObj && typeof mObj.address === "string") {
-            const disc = mObj.disclosure && typeof mObj.disclosure === "object"
-              ? (mObj.disclosure as { name?: string; summary?: string })
-              : { name: typeof mObj.name === "string" ? mObj.name : mObj.address, summary: typeof mObj.summary === "string" ? mObj.summary : "" };
+            if (!mObj.disclosure || typeof mObj.disclosure !== "object" || Array.isArray(mObj.disclosure)) throw new Error(`Map address member ${ordinal} needs authored disclosure; curated labels are not observations.`);
+            const disc = mObj.disclosure as { name?: string; summary?: string };
             return {
               address: mObj.address,
               ...(mObj.depth ? { depth: mObj.depth as "name" | "summary" } : {}),
               ...(mObj.name ? { name: String(mObj.name) } : {}),
               ...(mObj.summary ? { summary: String(mObj.summary) } : {}),
-              disclosure: { name: disc.name || mObj.address, ...(disc.summary !== undefined ? { summary: disc.summary } : {}) },
+              disclosure: { ...disc },
             };
           }
           const mPos = typeof mObj.position === "string" ? mObj.position : "";
@@ -358,15 +357,13 @@ export async function runMapSelection(
             ? (mObj.disclosure as { name?: string; summary?: string })
             : undefined;
           if (!disc) {
+            const rootSha = roots[mRoot]?.sha;
+            const checkout = located[mRoot]?.checkoutPath;
+            if (!rootSha || !checkout) throw new Error(`Map member ${ordinal} needs authored disclosure or a reachable pinned checkout.`);
             try {
-              const rootSha = roots[mRoot]?.sha ?? headSha;
-              const content = gitRead(repoRoot, ["show", `${rootSha}:${mPos}`]);
-              disc = noteDisclosure(content, mPos);
-            } catch {
-              disc = {
-                name: typeof mObj.name === "string" ? mObj.name : basename(mPos, posix.extname(mPos)),
-                summary: typeof mObj.summary === "string" ? mObj.summary : "",
-              };
+              disc = noteDisclosure(gitRead(checkout, ["show", `${rootSha}:${mPos}`]), mPos);
+            } catch (error) {
+              throw new Error(`Cannot read disclosure for Map member ${ordinal} at ${rootSha}:${mPos}: ${error instanceof Error ? error.message : String(error)}. Supply authored disclosure or repair the pin.`);
             }
           }
           return {
@@ -375,7 +372,7 @@ export async function runMapSelection(
             depth: mDepth,
             ...(mObj.name ? { name: String(mObj.name) } : {}),
             ...(mObj.summary ? { summary: String(mObj.summary) } : {}),
-            disclosure: { name: disc.name || basename(mPos, posix.extname(mPos)), ...(mDepth === "name" ? {} : { summary: disc.summary || "" }) },
+            disclosure: { ...(disc.name !== undefined ? { name: disc.name } : {}), ...(mDepth === "name" || disc.summary === undefined ? {} : { summary: disc.summary }) },
           };
         });
 
@@ -469,16 +466,12 @@ export async function runMapSelection(
       const detail = built.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ");
       throw new Error(`Could not build the portable selection: ${detail}`);
     }
-    const selection = parseExchangeMapSelection({
-      kind: "exchange-map-selection",
-      target_node_id: targetNodeId,
-      map: built.map,
-    });
+    const selection = built.map;
     output.result(
       selection,
       [
-        `Portable Inbox context — about ${selection.target_node_id}`,
-        ...formatPortableMap(selection.map),
+        `Portable Thread context — about ${targetNodeId}`,
+        ...formatPortableMap(selection),
         "Review this selection, then send it with `ideaspaces threads send … --map <selection.json>`.",
       ].join("\n"),
     );

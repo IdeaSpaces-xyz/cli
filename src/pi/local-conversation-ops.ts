@@ -4,6 +4,7 @@
 // only the composition root (router) wires the two together. See src/pi/index.ts
 // for the boundary rule.
 
+import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 import { join } from "node:path";
 import type { Output } from "../output.js";
 import type { LocalConversationOps } from "../commands/conversation.js";
@@ -157,7 +158,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       output.error("A Thread launch requires --thread <path|x_id>.");
       return 1;
     }
-    if (/^x_[0-9a-f]{12,24}$/.test(threadPath)) {
+    if (HOSTED_THREAD_ID.test(threadPath)) {
       if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
         output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
         return 1;

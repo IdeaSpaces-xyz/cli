@@ -119,8 +119,8 @@ describe("threads list --hosted", () => {
     const first = json();
     expect(first.schema).toBe("ideaspaces.hosted-threads.list.v1");
     expect(first.threads).toEqual([
-      { id: T, name: "Launch plan", closed: false, unread_count: 2, last_post_at: "2026-10-29T10:06:00Z" },
-      { id: "x_fedcba9876543210fedcba9876543210", name: "Retro", closed: true, unread_count: 0, last_post_at: "2026-10-29T10:06:00Z" },
+      { id: T, name: "Launch plan", closed: false, unread_count: 2, read_seq: 4, last_seq: 6, last_post_at: "2026-10-29T10:06:00Z" },
+      { id: "x_fedcba9876543210fedcba9876543210", name: "Retro", closed: true, unread_count: 0, read_seq: 4, last_seq: 6, last_post_at: "2026-10-29T10:06:00Z" },
     ]);
     expect(first.cursor).toEqual(expect.any(String));
     expect(first.cursor).not.toBe("c2VydmVyLWN1cnNvcg");
@@ -140,8 +140,8 @@ describe("threads list --hosted", () => {
   });
 
   it("keeps hosted flags apart from local ones", async () => {
-    expect(await threads(["list"], { hosted: true, new: true })).toBe(1);
-    expect(json().error.message).toContain("--new is not supported by hosted threads list");
+    expect(await threads(["list"], { hosted: true, depth: "full" })).toBe(1);
+    expect(json().error.message).toContain("--depth is not supported by hosted threads list");
     expect(calls).toEqual([]);
   });
 });
@@ -306,7 +306,7 @@ describe("threads new --hosted and threads ack", () => {
     const sent = calls.length;
     expect(await threads(["ack", T], {})).toBe(1);
     expect(await threads(["ack", T], { cursor, seq: "4" })).toBe(1);
-    expect(await threads(["ack", "x_0123456789abcdef01234567"], { seq: "1" })).toBe(1); // an exchange id is not a hosted Thread
+    expect(await threads(["ack", "x_short"], { seq: "1" })).toBe(1); // malformed id refuses before any request
     expect(calls.length).toBe(sent);
   });
 });
@@ -433,4 +433,151 @@ describe.skipIf(!existsSync(BUNDLE))("host-run CLI over a real inherited fd (req
       await new Promise((r) => server.close(r));
     }
   }, 20_000);
+});
+
+describe("Inbox removal: all hosted operations use /threads", () => {
+  const legacy = "x_0123456789abcdef01234567";
+  it.each([legacy, T])("reads, replies, renames, closes and acknowledges %s without fallback", async (id) => {
+    serve({
+      [`GET /api/v1/threads/${id}`]: () => ({ status: 200, body: { ...fixture("thread-head"), thread_id: id } }),
+      [`GET /api/v1/threads/${id}/posts`]: () => ({ status: 200, body: { posts: [] } }),
+      [`POST /api/v1/threads/${id}/posts`]: call => {
+        const note = call.body!;
+        const msgId = /^id: (.+)$/m.exec(note)![1];
+        return { status: 201, body: { ...fixture("thread-posts-latest").posts[0], thread_id: id, post_id: msgId, note } };
+      },
+      [`POST /api/v1/threads/${id}/ack`]: () => ({ status: 200, body: { thread_id: id, read_seq: 1 } }),
+    });
+    expect(await threads(["read", id])).toBe(0);
+    expect(await threads(["reply", id], { "reply-to": "msg_open", message: "Reply", "post-id": "msg_reply" })).toBe(0);
+    expect(calls.at(-1)!.body).toContain("in_reply_to: msg_open");
+    expect(await threads(["rename", id], { name: "New", summary: "Why", message: "Rationale" })).toBe(0);
+    expect(calls.at(-1)!.body).toContain("kind: reframe");
+    expect(calls.at(-1)!.body).toContain("name: New");
+    expect(calls.at(-1)!.body).toContain("summary: Why");
+    const before = calls.length;
+    expect(await threads(["close", id], { message: "Done" })).toBe(0);
+    expect(json().preview).toBe(true);
+    expect(calls.length).toBe(before);
+    expect(await threads(["close", id], { message: "Done", "post-id": "msg_close" }, { ...JSON_FLAGS, yes: true })).toBe(0);
+    expect(calls.at(-1)!.body).toContain("kind: closure");
+    expect(await threads(["ack", id], { seq: "1" })).toBe(0);
+    expect(calls.every(c => c.url.pathname.startsWith("/api/v1/threads/"))).toBe(true);
+    const sent = calls.length;
+    expect(await threads(["reply", id], { "reply-to": "n_0123456789abcdef01234567", message: "Old parent" })).toBe(1);
+    expect(json().error.message).toContain("msg_");
+    expect(calls).toHaveLength(sent);
+  });
+  it("starts with a recipient and a Map on the opening Note, not an exchange selection", async () => {
+    const map = { roots: [], members: [{ address: "https://example.org/context", depth: "summary", disclosure: { name: "Context", summary: "Observed link" } }] };
+    serve({ "POST /api/v1/threads": call => {
+      const body = JSON.parse(call.body!);
+      expect(body.recipients).toEqual(["@ada"]);
+      expect(body.note).toContain("map:");
+      return { status: 201, body: { ...fixture("thread-posts-latest").posts[0], thread_id: T, post_id: "msg_open", seq: 1, note: body.note } };
+    } });
+    expect(await threads(["send", "@ada"], { name: "Question", summary: "Why", message: "Hello", map: JSON.stringify(map), "post-id": "msg_open" })).toBe(0);
+    expect(calls.map(path)).toEqual(["POST /api/v1/threads"]);
+  });
+  it("accepts mixed legacy and new ids in a list page and keeps web Unread counts", async () => {
+    serve({ "GET /api/v1/threads": () => ({ status: 200, body: { threads: [{ ...fixture("threads-page-1").threads[0], thread_id: legacy }, fixture("threads-page-1").threads[1]], next_cursor: null } }) });
+    expect(await threads(["list"], { hosted: true, unread: true })).toBe(0);
+    expect(json().threads).toMatchObject([{ id: legacy, unread_count: 2, read_seq: 4, last_seq: 6 }]);
+  });
+  it.each(["posts", "expand", "add"])("retires %s instead of rebuilding it", async verb => {
+    expect(await threads([verb, legacy])).toBe(1);
+    expect(calls).toEqual([]);
+  });
+});
+
+it("requires the service Map disclosure profile before sending, never fabricating observed fields", async () => {
+  expect(await threads(["new"], { hosted: true, name: "Map", summary: "Why", message: "Opening", map: JSON.stringify({ roots: [], members: [{ address: "https://example.org", depth: "summary" }] }) })).toBe(1);
+  expect(json().error.message).toContain("authored disclosure");
+  expect(calls).toEqual([]);
+});
+
+describe("review regressions and hosted validation", () => {
+  it("refuses bare --map, duplicate/invalid/too many recipients without a request", async () => {
+    const base = { hosted: true, name: "Question", summary: "Why", message: "Hello" };
+    expect(await threads(["new"], { ...base, map: true })).toBe(1);
+    expect(json().error.message).toContain("--map");
+    for (const recipients of ["not a handle", "@one,@ONE", Array.from({length:17}, (_,i)=>`@p${i}`).join(",")]) {
+      expect(await threads(["new"], { ...base, recipients })).toBe(1);
+      expect(json().error.message).toContain("--recipients");
+    }
+    expect(calls).toEqual([]);
+  });
+  it("requires --hosted for paging, even when signed out", async () => {
+    rmSync(credentials);
+    expect(await threads(["list"], { limit: "10" })).toBe(1);
+    expect(json().error.state).toBe("invalid_request");
+    expect(json().error.message).toContain("require --hosted");
+    expect(calls).toEqual([]);
+  });
+  it("prints the preview post id to carry into confirmed close", async () => {
+    expect(await threads(["close", T], { message: "Done", "post-id": "msg_close_stable" }, TEXT_FLAGS)).toBe(0);
+    expect(stdout).toContain("--yes --post-id msg_close_stable");
+    expect(calls).toEqual([]);
+  });
+});
+
+it("advertises the hosted route without auth or a remote call", async () => {
+  rmSync(credentials);
+  expect(await threads(["capabilities"])).toBe(0);
+  expect(json()).toEqual({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false });
+  expect(calls).toEqual([]);
+});
+
+it("new passes multiple recipients alongside the exact opening Note", async () => {
+  serve({ "POST /api/v1/threads": call => {
+    const body = JSON.parse(call.body!);
+    expect(body.recipients).toEqual(["@ada", "reader@example.org"]);
+    expect(body.note).toContain("id: msg_multiple");
+    expect(body.note).toContain("name: Question");
+    expect(body.note).toContain("summary: Why");
+    expect(body.note).toContain("Opening body");
+    return { status: 201, body: { ...fixture("thread-posts-latest").posts[0], thread_id: T, post_id: "msg_multiple", seq: 1, note: body.note } };
+  } });
+  expect(await threads(["new"], { hosted: true, recipients: "@ada,reader@example.org", name: "Question", summary: "Why", message: "Opening body", "post-id": "msg_multiple" })).toBe(0);
+  expect(calls.map(path)).toEqual(["POST /api/v1/threads"]);
+});
+
+it("close ambiguous-write guidance retains explicit confirmation", async () => {
+  serve({ [`POST /api/v1/threads/${T}/posts`]: () => new Error("offline") });
+  expect(await threads(["close", T], { message: "Done", "post-id": "msg_close_uncertain" }, { ...JSON_FLAGS, yes: true })).toBe(1);
+  expect(json().error.message).toContain("--post-id msg_close_uncertain --yes");
+});
+it("a changed close confirmation is a conflict, not an implicit retry", async () => {
+  serve({ [`POST /api/v1/threads/${T}/posts`]: () => ({ status: 409, body: { detail: "msg_ id already used with different text or actor" } }) });
+  expect(await threads(["close", T], { message: "Changed", "post-id": "msg_close_existing" }, { ...JSON_FLAGS, yes: true })).toBe(1);
+  expect(json().error.state).toBe("conflict");
+  expect(json().error.message).toContain("same --post-id and --message");
+  expect(calls).toHaveLength(1);
+});
+
+it("previews close with no credential and a versioned schema, without claiming authority", async () => {
+  rmSync(credentials);
+  expect(await threads(["close", T], { message: "Plan", "post-id": "msg_local_plan" })).toBe(0);
+  expect(json()).toMatchObject({ schema: "ideaspaces.hosted-thread.close-preview.v1", preview: true, post_id: "msg_local_plan", access_checked: false });
+  expect(calls).toEqual([]);
+});
+
+it("does not switch mixed list to hosted-only or overwrite a send recipient", async () => {
+  for (const flags of [{ limit: "10" }, { cursor: "page" }]) {
+    expect(await threads(["list"], flags)).toBe(1);
+    expect(json().error.message).toContain("require --hosted");
+  }
+  expect(await threads(["send", "@one"], { recipients: "@two", name: "Question", summary: "Why", message: "Opening" })).toBe(1);
+  expect(json().error.message).toContain("--recipients is not supported");
+  expect(calls).toEqual([]);
+});
+
+it("default list without local rows uses the same named expired-session JSON contract", async () => {
+  const previous = process.cwd(); process.chdir(home);
+  serve({ "GET /api/v1/threads": () => ({ status: 401, body: { detail: "expired" } }) });
+  try {
+    expect(await threads(["list"])).toBe(1);
+    expect(json()).toMatchObject({ schema: "ideaspaces.hosted.error.v1", error: { state: "expired" } });
+    expect(json().error.message).toContain("ideaspaces login");
+  } finally { process.chdir(previous); }
 });

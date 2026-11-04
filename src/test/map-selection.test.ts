@@ -141,9 +141,7 @@ describe("ideaspaces map select", () => {
 
     expect(result.code, result.stderr).toBe(0);
     expect(result.data).toEqual({
-      kind: "exchange-map-selection",
-      target_node_id: TARGET_NODE_ID,
-      map: {
+
         roots: [{
           repo: `https://example.test/repos/${ROOT_NODE_ID}`,
           root_node_id: ROOT_NODE_ID,
@@ -164,7 +162,6 @@ describe("ideaspaces map select", () => {
             disclosure: { name: "Example", summary: "Current entity summary." },
           },
         ],
-      },
     });
     expect(result.stdout).not.toContain(root);
     expect(JSON.stringify(result.data)).not.toContain("local_path");
@@ -241,9 +238,7 @@ describe("ideaspaces map select", () => {
       expect.anything(), ROOT_NODE_ID, "notes", { timeoutMs: 15_000 });
     const data = JSON.parse(stdoutChunks.join(""));
     expect(data).toEqual({
-      kind: "exchange-map-selection",
-      target_node_id: TARGET_NODE_ID,
-      map: {
+
         roots: [{
           repo: `https://example.test/repos/${ROOT_NODE_ID}`,
           root_node_id: ROOT_NODE_ID,
@@ -257,7 +252,6 @@ describe("ideaspaces map select", () => {
             disclosure: { name: "Finding", summary: "Observed at the selected pin." },
           },
         ],
-      },
     });
   });
 
@@ -329,15 +323,15 @@ map:
     expect(fetchContentTreeMock).toHaveBeenCalledExactlyOnceWith(
       expect.anything(), ROOT_NODE_ID, "notes", { timeoutMs: 15_000 });
     const data = JSON.parse(stdoutChunks.join(""));
-    expect(data.target_node_id).toBe("n_112233445566778899aabbcc");
-    expect(data.map.roots).toEqual([
+    expect(data).not.toHaveProperty("target_node_id");
+    expect(data.roots).toEqual([
       {
         repo: `https://example.test/repos/${ROOT_NODE_ID}`,
         root_node_id: ROOT_NODE_ID,
         sha: pinnedSha,
       },
     ]);
-    expect(data.map.members).toEqual([
+    expect(data.members).toEqual([
       {
         root: 0,
         position: "notes/finding.md",
@@ -388,15 +382,15 @@ map:
     expect(fetchContentTreeMock).toHaveBeenCalledExactlyOnceWith(
       expect.anything(), ROOT_NODE_ID, "", { timeoutMs: 15_000 });
     const data = JSON.parse(stdoutChunks.join(""));
-    expect(data.target_node_id).toBe(TARGET_NODE_ID);
-    expect(data.map.roots).toEqual([
+    expect(data).not.toHaveProperty("target_node_id");
+    expect(data.roots).toEqual([
       {
         repo: `https://example.test/repos/${ROOT_NODE_ID}`,
         root_node_id: ROOT_NODE_ID,
         sha: git(["rev-parse", "HEAD"]),
       },
     ]);
-    expect(data.map.members).toEqual([
+    expect(data.members).toEqual([
       {
         root: 0,
         position: "notes/finding.md",
@@ -419,6 +413,21 @@ map:
     );
     expect(code).toBe(0);
     const data = JSON.parse(stdoutChunks.join(""));
-    expect(data.target_node_id).toBe(explicitTarget);
+    expect(data).not.toHaveProperty("target_node_id");
   });
+  it("does not synthesize address disclosure from curated labels", async () => {
+    writeFileSync(join(root, "notes/address.map.md"), `---\nname: Address Map\nmap:\n  roots: []\n  members:\n    - address: https://example.org\n      name: Curated label\n      depth: summary\n---\n# Map\n`);
+    git(["add", "notes/address.map.md"]); git(["commit", "-qm", "map without observed disclosure"]); git(["push", "-q", "origin", "main"]);
+    const result = await run("notes/address.map.md");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("needs authored disclosure");
+  });
+  it("does not hide a missing pinned post behind a fabricated disclosure", async () => {
+    writeFileSync(join(root, "notes/missing.map.md"), `---\nname: Missing Map\nmap:\n  roots:\n    - root_node_id: ${ROOT_NODE_ID}\n  members:\n    - root: 0\n      position: absent.md\n      name: Curated label\n      depth: summary\n---\n# Map\n`);
+    git(["add", "notes/missing.map.md"]); git(["commit", "-qm", "map missing pin content"]); git(["push", "-q", "origin", "main"]);
+    const result = await run("notes/missing.map.md");
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Cannot read disclosure");
+  });
+
 });

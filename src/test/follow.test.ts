@@ -38,8 +38,8 @@ const THREAD = "x_example";
 const NODE = "n_0123456789abcdef01234567";
 const row = {
   id: "fol_0123456789abcdef01234567",
-  source_kind: "exchange" as const,
-  source_id: THREAD,
+  source_kind: "node" as const,
+  source_id: NODE,
   filter: "follow" as const,
   cursor: 0,
   created_at: "2026-09-20T00:00:00Z",
@@ -80,14 +80,10 @@ const stdout = () => stdoutChunks.join("");
 const stderr = () => stderrChunks.join("");
 
 describe("follow", () => {
-  it("follows a Thread through the exchange source", async () => {
-    putSubscriptionMock.mockResolvedValue(row);
-
-    const code = await followCommand.run(["thread", THREAD], {}, JSON_GLOBAL);
-
-    expect(code).toBe(0);
-    expect(putSubscriptionMock).toHaveBeenCalledWith(CFG, { exchange_id: THREAD });
-    expect(JSON.parse(stdout())).toMatchObject({ source_kind: "exchange", source_id: THREAD });
+  it("retires Thread follows before any credential or old-store request", async () => {
+    for (const command of [followCommand, unfollowCommand]) expect(await command.run(["thread", THREAD], {}, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("retired with the Inbox");
+    expect(putSubscriptionMock).not.toHaveBeenCalled(); expect(listSubscriptionsMock).not.toHaveBeenCalled();
   });
 
   it("uses one Node source for node and repo follows", async () => {
@@ -103,7 +99,7 @@ describe("follow", () => {
     listSubscriptionsMock.mockResolvedValue([row]);
     acknowledgeSubscriptionMock.mockResolvedValue({ ...row, cursor: 42 });
 
-    const code = await followCommand.run(["thread", THREAD], { ack: "42" }, TEXT_GLOBAL);
+    const code = await followCommand.run(["node", NODE], { ack: "42" }, TEXT_GLOBAL);
 
     expect(code).toBe(0);
     expect(acknowledgeSubscriptionMock).toHaveBeenCalledWith(CFG, row.id, 42);
@@ -115,7 +111,7 @@ describe("follow", () => {
     listSubscriptionsMock.mockResolvedValue([row]);
     deleteSubscriptionMock.mockResolvedValue(undefined);
 
-    const code = await unfollowCommand.run(["thread", THREAD], {}, JSON_GLOBAL);
+    const code = await unfollowCommand.run(["node", NODE], {}, JSON_GLOBAL);
 
     expect(code).toBe(0);
     expect(deleteSubscriptionMock).toHaveBeenCalledWith(CFG, row.id);
@@ -123,28 +119,28 @@ describe("follow", () => {
   });
 
   it("fails locally for invalid sources, absent follows, and invalid positions", async () => {
-    expect(await followCommand.run(["thread", "nope"], {}, TEXT_GLOBAL)).toBe(1);
-    expect(stderr()).toContain("Invalid thread id");
+    expect(await followCommand.run(["node", "nope"], {}, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Invalid node id");
 
     stderrChunks = [];
-    expect(await followCommand.run(["thread", THREAD], { ack: "-1" }, TEXT_GLOBAL)).toBe(1);
+    expect(await followCommand.run(["node", NODE], { ack: "-1" }, TEXT_GLOBAL)).toBe(1);
     expect(stderr()).toContain("non-negative integer");
 
     stderrChunks = [];
     listSubscriptionsMock.mockResolvedValue([]);
-    expect(await unfollowCommand.run(["thread", THREAD], {}, TEXT_GLOBAL)).toBe(1);
+    expect(await unfollowCommand.run(["node", NODE], {}, TEXT_GLOBAL)).toBe(1);
     expect(stderr()).toContain("Not following");
   });
 
   it("requires a person login and translates an expired session", async () => {
     loadConfigMock.mockReturnValue(null);
-    expect(await followCommand.run(["thread", THREAD], {}, TEXT_GLOBAL)).toBe(1);
+    expect(await followCommand.run(["node", NODE], {}, TEXT_GLOBAL)).toBe(1);
     expect(stderr()).toContain("Not logged in");
 
     stderrChunks = [];
     loadConfigMock.mockReturnValue(CFG);
     putSubscriptionMock.mockRejectedValue(new UnauthorizedError("401"));
-    expect(await followCommand.run(["thread", THREAD], {}, TEXT_GLOBAL)).toBe(1);
+    expect(await followCommand.run(["node", NODE], {}, TEXT_GLOBAL)).toBe(1);
     expect(stderr()).toContain("Session expired");
   });
 });

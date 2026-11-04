@@ -41,7 +41,6 @@ import { timesCommand } from "./commands/times.js";
 import { shareCommand } from "./commands/share.js";
 import { requestCommand } from "./commands/request.js";
 import { spacesCommand } from "./commands/spaces.js";
-import { inboxCommand } from "./commands/inbox.js";
 import { threadsCommand } from "./commands/threads.js";
 import { followCommand, unfollowCommand } from "./commands/follow.js";
 
@@ -112,7 +111,6 @@ const topLevel: CommandDef[] = [
   requestCommand,
   spacesCommand,
   threadsCommand,
-  inboxCommand,
   followCommand,
   unfollowCommand,
   pullCommand,

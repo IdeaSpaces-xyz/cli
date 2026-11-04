@@ -5,11 +5,9 @@ import { assembleContentReference, parseFrontmatter, parseThreadPost, renderCont
 import { agreementFlag, preferredContractSource } from "../contract-source.js";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
-import { apiErrorDetail, fetchExchange, fetchInbox, fetchSpaceThreads, UnauthorizedError, type ThreadGrade } from "../auth/api.js";
-import { HostAuthRefusal, isHostAuth, peekConfig } from "../auth/credentials.js";
+import { isHostAuth, peekConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
-import { exchangeText, hostedThreadsCommand, threadBadges } from "./inbox.js";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, attachThread, createThread, initWorktree, listLocal, loadThread,
@@ -18,7 +16,7 @@ import {
   type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { HOSTED_THREAD_ID as HOSTED, hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
-import { ackVerb, HOSTED_THREAD_32, HostedError, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
+import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
 
 export { threadFlagError } from "./thread-flags.js";
 
@@ -265,81 +263,65 @@ function writerName(explicit?: string): string {
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|posts|locate|open|new|attach|post|close|render|init|push|read|send|reply|expand> ... | threads <add|rename> <hosted-x_id> ... | threads <list|new> --hosted | threads <open|post|ack> x_<32hex> ...",
+  usage: "ideaspaces threads <list|open|read|new|post|send|reply|ack|close|rename|locate|attach|render|init|push> ...",
   examples: [
-    "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>]  # hosted Threads (x_<32hex>) this sign-in can read",
-    "ideaspaces threads open x_<32hex> [--limit 50] [--cursor <older or newer cursor>]  # head + one page; author and date come from the service",
-    "ideaspaces threads post x_<32hex> --reply-to msg_<id> --message '…' [--name '…'] [--summary '…'] [--post-id msg_…]  # never retried; resend with the same --post-id",
-    "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening'  # a hosted Thread with just you in it",
-    "ideaspaces threads ack x_<32hex> --cursor <cursor from threads open>  # or --seq <n>; moves your read cursor forward only",
-    "ideaspaces threads list [<dir>] [--new] [--space n_…]",
-    "ideaspaces threads posts [--space n_…] [--scope inbox|followed] [--limit 10] [--since <id|pos|date>] [--depth name|summary] [--order newer|older]",
-    "ideaspaces threads posts --cursor eyJwIjo2NywibyI6ImRlc2MifQ==",
-    "ideaspaces threads locate msg_<opening-post-id> <space-root> [<space-root> ...]  # --json status: found|not_found|ambiguous; all exit 0", 
-    "ideaspaces threads open <slug|path|x_id> [--depth name|summary|children|surface|full] [--new] [--limit 10] [--order newer|older] [--agreement summary|full]  # local cold default: surface; the Thread's Agreements come first, as reference",
-    "ideaspaces threads new <slug> --about 'What we are deciding' [--attached-to post:msg_parent] [--map moment.map.md]  # opening post captures origin + pinned Map",
-    "ideaspaces threads new <slug> --about 'About this Note' --attached-to note:@home//notes/topic.md  # link, no child edge",
-    "ideaspaces threads attach <slug|path> post:msg_<parent> --message 'Why it moves'  # sets the Agreement's attached_to (current parent) and appends a reframe; the opening post keeps the origin",
-    "ideaspaces threads read <local-slug|path> --json  # alias of open, includes post dates",
-    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to id1,id2|latest] [--tags friction,ux] [--no-check-links]  # max 20 distinct tags, 200 chars each; no reply-to branches from opening; file-relative Markdown links in the body must resolve (an unwritten post is a warning); --no-check-links skips the check",
-    "ideaspaces threads post <slug> --kind mark --mark claimed --reply-to msg_target --message 'Claimed'  # folded onto target, off timeline",
-    `ideaspaces threads post <slug> --kind snapshot --message 'State'  # standard kinds: ${THREAD_KINDS.join(", ")}`,
-    "ideaspaces threads post <slug> --kind my_signal --yes --message 'Intentional'  # a custom kind needs --yes",
-    "ideaspaces threads post <slug> --message 'Decision' --map home.map.md --member 0 --reply-to msg_id [--checkout /absolute/space/root]",
-    "ideaspaces threads open <slug|path> --map home.map.md --member 0  # same-Space authored pin",
-    "ideaspaces threads open <slug> --map home.map.md --member 0 [--checkout /absolute/space/root]  # selected pin only",
-    "ideaspaces threads open <slug|path> --pin <40-hex-sha> --position _threads/<slug>/<post>.md",
-    "ideaspaces threads close <slug|path> --message 'Closing rationale'  # local",
-    "ideaspaces threads close x_<id>  # preview; add --yes to close as owner",
-    "ideaspaces threads add x_<id> @handle --grade view  # preview; add --yes to grant as hosted owner",
-    "ideaspaces threads rename x_<id> --name 'New title'  # applies immediately; hosted owner only",
-    "ideaspaces threads send @handle --grade view --name 'Question' --summary 'One decision' --message '…'",
-    "ideaspaces threads reply x_<id> --name 'Answer' --summary 'Summary' --message '…' [--reply-to n_…]",
-    "ideaspaces threads list --kind message --json  # hosted rows include your_grade and closed",
-    "ideaspaces threads render <slug|path>  # derived timeline; README stays curated",
-    "ideaspaces threads init  # isolated orphan threads worktree at _threads/",
-    "ideaspaces threads push --remote <team-remote>  # never origin/GitHub",
-    "ideaspaces threads read x_<id> --new --ack  # hosted",
-    "ideaspaces threads open <slug> --depth children  # branches/children default newer; post ranges default older",
-    "ideaspaces threads open <slug> --depth surface --limit 5  # head counts toward the limit; --order newer reverses the selected page",
-    "ideaspaces threads open <slug> --depth full --limit 10 --order older  # page history; --since <post-id> continues (older order only)",
-    "ideaspaces threads open <slug> --post msg_<id>  # one exact post plus child Threads attached to it",
-    "ideaspaces threads open <slug|x_id> --post <id>  # one post in full, regardless of --depth",
+    "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
+    "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
+    "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
+    "ideaspaces threads open x_<24-or-32-hex> [--limit 50] [--cursor <cursor>]  # read is an alias",
+    "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--post-id msg_id]",
+    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md]  # alias of new --hosted --recipients",
+    "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
+    "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
+    "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
+    "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
+    "ideaspaces threads list <directory>  # local only, no network",
+    "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
+    "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]",
+    "ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]",
+    "ideaspaces threads close <slug|path> --message 'Rationale'",
+    "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
+    "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'",
+    "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
+    "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
+    "ideaspaces threads render <slug|path>",
+    "ideaspaces threads init",
+    "ideaspaces threads push --remote <team-remote>",
   ],
   async run(args, flags, global) {
     const output = createOutput(global);
     const [sub, ...rest] = args;
     try {
-      // Hosted Threads (x_<32hex>) over /threads, before the exchange (x_<24hex>) paths,
-      // each with its own flag set; local verbs keep theirs.
-      const hostedTarget = HOSTED_THREAD_32.test(rest[0] ?? "");
+      if (sub === "capabilities") {
+        if (rest.length || Object.keys(flags).length) throw new Error("Usage: threads capabilities --json");
+        output.result({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, "Hosted Threads use /threads only (no legacy exchange fallback).");
+        return 0;
+      }
+      const hostedTarget = HOSTED.test(rest[0] ?? "");
       const hostedFlag = flags.hosted !== undefined;
       if (hostedFlag && flags.hosted !== true) throw new HostedError("invalid_request", "--hosted takes no value.");
-      if ((sub === "list" || sub === "new") && hostedFlag || hostedTarget && (sub === "open" || sub === "read" || sub === "post") || sub === "ack") {
+      if (["posts", "expand", "add"].includes(sub ?? "")) throw new Error(`threads ${sub} retired with the Inbox; use threads list and open, or manage membership on the web.`);
+      if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename"].includes(sub ?? "") || sub === "ack") {
         const hostedFlagError = hostedVerbFlagError(sub!, flags);
         if (hostedFlagError) throw new HostedError("invalid_request", hostedFlagError);
         if (sub === "list" || sub === "new") {
-          if (rest.length) throw new HostedError("invalid_request", `Usage: threads ${sub} --hosted ${sub === "new" ? "--name <title> --summary <one line> --message <opening> [--post-id msg_…]" : "[--limit <1-200>] [--cursor <cursor>]"}`);
+          if (rest.length) throw new HostedError("invalid_request", `threads ${sub} --hosted takes no positional target.`);
           return sub === "list" ? await listVerb(output, global.json, flags) : await newVerb(output, global.json, flags);
         }
-        if (rest.length !== 1 || !hostedTarget) {
-          throw new HostedError("invalid_request", `Usage: threads ${sub} x_<32 hex> ${sub === "ack" ? "--cursor <cursor from threads open> | --seq <n>" : sub === "post" ? "--reply-to msg_… --message <body> [--name] [--summary] [--post-id msg_…]" : "[--limit <1-200>] [--cursor <cursor>]"}`);
+        if (sub === "send") {
+          if (rest.length !== 1) throw new HostedError("invalid_request", "Usage: threads send <@handle|email> --name <title> --summary <summary> --message <opening> [--map <Map>]");
+          return await newVerb(output, global.json, { ...flags, recipients: rest[0] });
         }
-        if (sub === "post") return await postVerb(output, global.json, rest[0], flags);
+        if (rest.length !== 1 || !hostedTarget) throw new HostedError("invalid_request", `threads ${sub} needs an x_ Thread id (24 or 32 hex).`);
+        if (sub === "post" || sub === "reply") return await postVerb(output, global.json, rest[0], flags);
         if (sub === "ack") return await ackVerb(output, global.json, rest[0], flags);
+        if (sub === "close" || sub === "rename") return await lifecycleVerb(output, global.json, rest[0], sub, flags, global.yes);
         return await openVerb(output, global.json, rest[0], flags);
       }
+      if (sub !== "attach" && /^x_[0-9a-f]+$/.test(rest[0] ?? "")) throw new Error("Invalid hosted Thread id: expected x_ plus 24 or 32 hex characters.");
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
-      if ((sub === "open" || sub === "read") && HOSTED.test(rest[0] ?? "") && (flags.limit !== undefined || flags.order !== undefined)) {
-        throw new Error("Local open only: --limit and --order are not supported for hosted Threads.");
-      }
-      if (sub === "read" || sub === "send" || sub === "reply" || sub === "expand" || sub === "add" || sub === "rename" || sub === "posts" || (sub === "close" && HOSTED.test(rest[0] ?? ""))) {
-        if (sub === "read" && rest.length === 1 && !HOSTED.test(rest[0])) {
-          return threadsCommand.run(["open", rest[0]], flags, global);
-        }
-        return hostedThreadsCommand.run(args, flags, global);
-      }
+      if (sub === "read") return threadsCommand.run(["open", ...rest], flags, global);
       if (sub === "locate") {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0])) throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
         const matches = [...new Map(rest.slice(1).flatMap((root) => {
@@ -357,16 +339,13 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "list") {
         if (flags.depth === "children" || flags.depth === "surface") throw new Error("threads list supports name, summary or full; use threads open for a Thread rung.");
-        if (rest.length > 1 || (rest.length && str(flags, "space"))) throw new Error("Usage: threads list [<dir>] [--space n_…] [--new]");
-        const newOnly = yes(flags, "new");
+        if (rest.length > 1 || (rest.length && str(flags, "space"))) throw new Error("Usage: threads list [<dir>] [--new|--unread] (or --hosted --limit <n> --cursor <cursor>)");
+        if (flags.limit !== undefined || flags.cursor !== undefined) throw new HostedError("invalid_request", "--limit and --cursor on list require --hosted; use threads list <directory> for local-only listing.");
+        const newOnly = yes(flags, "new") || yes(flags, "unread");
         const rung = depth(flags, "summary");
         const space = str(flags, "space");
-        if (space && newOnly) throw new Error("--space and --new cannot be combined (hosted Space listing has no per-reader cursor).");
-        if (flags.kind === "request") throw new Error("Access requests are notifications, not Threads; use the legacy `ideaspaces inbox list --kind request` for this release.");
-        if (flags.kind !== undefined || flags.since !== undefined || rung === "full" && space) {
-          if (rest.length) throw new Error("Hosted filters cannot be combined with a local directory.");
-          return hostedThreadsCommand.run(args, flags, global);
-        }
+        if (space || flags.kind !== undefined || flags.since !== undefined) throw new Error("Inbox list filters retired; use threads list --hosted [--unread] [--cursor <cursor>] or an explicit local directory.");
+        if ((flags.limit !== undefined || flags.cursor !== undefined || flags.unread !== undefined) && rest.length) throw new Error("Hosted list paging and --unread cannot be combined with a local directory.");
         const cwd = rest[0] ? resolve(rest[0]) : process.cwd();
         let local: ReturnType<typeof localRows> = [];
         let localThreads: LocalThread[] = [];
@@ -386,59 +365,55 @@ export const threadsCommand: CommandDef = {
             if (rest.length || !(error instanceof NoAgreementError)) throw error;
           }
         }
-        if (space && isHostAuth()) throw new HostAuthRefusal("Listing hosted Space Threads");
         const config = peekConfig();
-        if (space && !config) throw new Error("Not logged in. Run `ideaspaces login` to list hosted Space Threads.");
-        let hosted: Array<{ source: "hosted"; id: string; name: string; summary: string; your_grade?: ThreadGrade; closed?: boolean; count?: number; messages?: unknown[]; text?: string }> = [];
-        if (config) {
+
+        let hosted: Array<{ source: "hosted"; id: string; name: string; summary?: string; closed: boolean; unread_count: number }> = [];
+        let hostedChecked = false;
+        let hostedError: string | undefined;
+        if (config && !rest.length) {
           try {
-            if (space) {
-              const result = await fetchSpaceThreads(config, space);
-              hosted = result.threads.map((t) => ({ source: "hosted", id: t.exchange_id, name: t.name, summary: t.summary }));
-            } else if (!rest.length) {
-              const result = await fetchInbox(config);
-              hosted = result.items.filter((t) => t.kind === "inquiry")
-                .filter((t) => !newOnly || t.cursor !== null && t.latest_position > t.cursor)
-                .map((t) => ({ source: "hosted", id: t.exchange_id, name: t.name ?? t.latest_message.name, summary: t.latest_message.summary, your_grade: t.your_grade, closed: t.closed, count: t.message_count }));
-            }
+            // Default list drains all pages so --new/--unread includes the whole account.
+            // Explicit cursor/limit paging is available through list --hosted.
+            let cursor: string | undefined;
+            const seen = new Set<string>();
+            do {
+              if (seen.size >= 100) throw new HostedError("invalid_response", "Hosted list exceeded 100 pages; use threads list --hosted with cursor paging. No complete Unread list is claimed.");
+              const page = await hostedListPage(config, { limit: 200, ...(cursor ? { cursor } : {}) });
+              hosted.push(...page.threads.filter((t: any) => !(newOnly || flags.unread) || t.unread_count > 0).map((t: any) => ({ ...t, source: "hosted" as const })));
+              cursor = page.next_cursor ?? undefined;
+              if (cursor && seen.has(cursor)) throw new HostedError("invalid_response", "Service repeated a Thread list cursor; listing is incomplete.");
+              if (cursor) seen.add(cursor);
+            } while (cursor);
+            hostedChecked = true;
           } catch (error) {
-            if (!local.length) throw error;
+            if (!local.length) throw hostedFailure(error);
+            hostedError = error instanceof Error ? error.message : String(error);
+            hosted = []; // Never render a partial account list alongside healthy local rows.
             output.log(`Hosted Threads unavailable: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
-        if (rung === "full" && config) {
-          hosted = await Promise.all(hosted.map(async (row) => {
-            try {
-              const exchange = await fetchExchange(config, row.id);
-              return { ...row, messages: exchange.messages, text: exchangeText(exchange, exchange.messages, "full") };
-            } catch (error) {
-              if (error instanceof UnauthorizedError) throw error;
-              return { ...row, text: `${row.id}  ${row.name}\n  ${apiErrorDetail(error)}` };
-            }
-          }));
-        }
         const rows = [...local, ...hosted].map((row) => {
           if (rung === "name") return { source: row.source, id: row.id, name: row.name,
-            ...(row.source === "local" ? { slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent } : { ...(row.your_grade ? { your_grade: row.your_grade } : {}), ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
+            ...(row.source === "local" ? { closed: row.closed, slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent } : { unread_count: row.unread_count, ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }
           return row;
         });
         const text = rows.map((row) => {
-          if (rung === "name") return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row && typeof row.closed === "boolean" ? row.closed : undefined)}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}`;
+          if (rung === "name") return `${row.id}  ${row.name}${(row.closed === true ? " · closed" : "") + ("unread_count" in row && row.unread_count ? ` · ${row.unread_count} unread` : "")}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}`;
           if (rung === "full" && "posts" in row && Array.isArray(row.posts)) {
             const thread = localThreads.find((candidate) => candidate.path === row.id)!;
             return localText(thread, row.posts, "full");
           }
           if (rung === "full" && "text" in row && typeof row.text === "string") return row.text;
-          return `${row.id}  ${row.name}${threadBadges("your_grade" in row ? row.your_grade : undefined, "closed" in row && typeof row.closed === "boolean" ? row.closed : undefined)}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
+          return `${row.id}  ${row.name}${(row.closed === true ? " · closed" : "") + ("unread_count" in row && row.unread_count ? ` · ${row.unread_count} unread` : "")}${"closed" in row && row.closed === "unknown" ? " · closed: unknown" : ""}\n  ${"summary" in row ? row.summary : ""} · ${row.source}`;
         }).join("\n\n");
         const hint = !config && !rest.length ? isHostAuth()
           ? "\nHosted Threads not checked: remote work is coming through the IdeaSpaces tools."
           : "\nHosted Threads not checked (not logged in; run `ideaspaces login`)." : "";
-        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: Boolean(config), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
-        return 0;
+        output.result({ schema: "ideaspaces.threads.list.v2", threads: rows, hosted_checked: hostedChecked, ...(hostedError ? { hosted_error: hostedError } : {}), local_complete: localWarnings === 0 }, (text || "No local Threads here.") + (hostedError ? `\nHosted Threads unavailable: ${hostedError}` : "") + (localWarnings ? `\nLocal Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + hint);
+        return newOnly && hostedError ? 1 : 0;
       }
       if (sub === "new") {
         if (rest.length !== 1 || !str(flags, "about")) throw new Error("Usage: threads new <slug> --about <title> [--attached-to <type>:<id>] [--map <pinned-note>]");
@@ -461,7 +436,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");
         if (HOSTED.test(rest[0]) && flags.agreement !== undefined) throw new Error("--agreement applies to local Threads; a hosted Thread's terms are kept by the service.");
-        if (HOSTED.test(rest[0])) return hostedThreadsCommand.run(["read", rest[0]], flags, global);
+
         const referenceSelection = agreementFlag(flags.agreement);
         if (referenceSelection.error) throw new Error(referenceSelection.error);
         // Every pinned read refuses --agreement the same way, before the Thread is resolved.
@@ -649,7 +624,7 @@ export const threadsCommand: CommandDef = {
       if (sub === "attach") {
         const usage = "Usage: threads attach <slug|path> <post:msg_…|msg_…|_threads/<thread>/<post>.md> --message <why>";
         if (rest.length !== 2) throw new Error(usage);
-        if (HOSTED.test(rest[0]) || HOSTED_THREAD_32.test(rest[0])) {
+        if (/^x_[0-9a-f]+$/.test(rest[0])) {
           throw new Error("threads attach moves local Threads only; a hosted Thread's parent is kept by the service.");
         }
         for (const flag of ["message", "author"]) if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);

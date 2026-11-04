@@ -1,5 +1,5 @@
 /**
- * Hosted Threads (`x_<32hex>`) and Vaults over /api/v1/threads and /api/v1/vaults.
+ * Hosted Threads (`x_<24 or 32 hex>`) and Vaults over /api/v1/threads and /api/v1/vaults.
  *
  * Ported from Idea Explorer's own hosted Thread client rather than rewritten, so a host
  * that swaps its transport for this CLI reads the same shapes:
@@ -19,9 +19,11 @@
  * A cursor is never authority; the service checks access on every read.
  */
 
+import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 import { randomUUID } from "node:crypto";
-import { parseThreadPost } from "@ideaspaces/protocol";
+import { parseMap, parseThreadPost } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
+import { loadLocalThreadMap } from "../local/thread-map-member.js";
 import {
   ackHostedThread, ApiStatusError, appendHostedThreadPost, fetchHostedThread, fetchHostedThreadPosts, fetchVaults,
   listHostedThreads, NetworkError, openHostedThread, UnauthorizedError, type ApiConfig,
@@ -29,7 +31,6 @@ import {
 import { HostAuthRefusal, hostedConfig, isHostAuth, type HostedConfig } from "../auth/credentials.js";
 import type { Output } from "../output.js";
 
-export const HOSTED_THREAD_32 = /^x_[0-9a-f]{32}$/;
 const POST_ID = /^msg_[a-zA-Z0-9_-]{1,60}$/;
 const MAX_NOTE_BYTES = 32 * 1024; // the service refuses a larger Note (413)
 
@@ -48,7 +49,7 @@ function messages(state: HostedFailure, subject: "thread" | "vaults"): string {
     case "not_found": return "This hosted Thread could not be found, or this sign-in has no access to it (the service answers 404 for both).";
     case "offline": return "IdeaSpaces could not be reached. Check your connection and retry; keep the same reply id.";
     case "rate_limited": return "IdeaSpaces is busy. Wait before retrying; keep the same reply id.";
-    case "conflict": return "This reply conflicts with the stored post, or the Thread is closed. Reopen the Thread before retrying.";
+    case "conflict": return "This post id conflicts with stored text, or the Thread is closed. An exact resend (including close confirmation) needs the same --post-id and --message. Read the Thread to check its state; closed Threads cannot be reopened.";
     case "invalid_request": return thread
       ? "The Thread request is invalid. Use a cursor from this command for this Thread, and a reply with an explicit parent."
       : "The Vaults request is invalid.";
@@ -71,7 +72,11 @@ function failureOf(error: unknown, subject: "thread" | "vaults"): HostedError {
   if (error instanceof HostedError) return error.message === error.state ? new HostedError(error.state, messages(error.state, subject), error.retryAfterMs) : error;
   if (error instanceof ApiStatusError) {
     const state = STATUS[error.status] ?? "unavailable";
-    return new HostedError(state, messages(state, subject), error.retryAfterMs);
+    let detail = "";
+    if (state === "invalid_request") {
+      try { const body = JSON.parse(error.body); if (typeof body.detail === "string") detail = ` Service: ${body.detail.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").slice(0, 500)}`; } catch { /* no readable detail */ }
+    }
+    return new HostedError(state, messages(state, subject) + detail, error.retryAfterMs);
   }
   // A terminal session's renewal answers with its own instruction ("Retry this command").
   if (error instanceof UnauthorizedError) return new HostedError("expired", error.message);
@@ -79,6 +84,9 @@ function failureOf(error: unknown, subject: "thread" | "vaults"): HostedError {
   if (error instanceof Error && /^Not logged in/.test(error.message)) return new HostedError("signed_out", messages("signed_out", subject));
   return new HostedError("invalid_response", messages("invalid_response", subject));
 }
+
+/** Default combined list shares the same named failure contract as explicit hosted verbs. */
+export function hostedFailure(error: unknown): HostedError { return failureOf(error, "thread"); }
 
 function requireValue(ok: unknown, state: HostedFailure = "invalid_response"): asserts ok {
   if (!ok) throw new HostedError(state);
@@ -215,6 +223,24 @@ function buildNote(fields: Record<string, unknown>, body: string): string {
   return note;
 }
 
+/** The protocol validates optional disclosure fields; this service additionally requires
+ * an authored object on every member. An explicitly empty object is valid; never fill it. */
+function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | Record<string, never> {
+  if (flags.map === undefined) return {};
+  const input = str(flags, "map");
+  if (!input?.trim()) throw new HostedError("invalid_request", "--map requires a Map file or inline Map value; no post sent.");
+  let value: unknown;
+  try { value = loadLocalThreadMap(input); }
+  catch (error) { throw new HostedError("invalid_request", error instanceof Error ? error.message : String(error)); }
+  const parsed = parseMap(value);
+  if (parsed.status !== "valid") throw new HostedError("invalid_request", "--map is not a valid portable Map.");
+  const map = parsed.map;
+  for (const [i, member] of map.members.entries()) {
+    if (!record(member.disclosure)) throw new HostedError("invalid_request", `--map member ${i} needs an authored disclosure object for hosted storage (name/summary of what was observed); no post sent.`);
+  }
+  return { map };
+}
+
 function messageBody(flags: Record<string, string | boolean>): string {
   const body = str(flags, "message");
   if (body === undefined || !body.trim()) throw new HostedError("invalid_request", "--message is required.");
@@ -239,7 +265,7 @@ async function runHosted(output: Output, json: boolean, what: string, subject: "
     if (error instanceof HostAuthRefusal) throw error;
     const failure = failureOf(error, subject);
     const resend = retry && AMBIGUOUS.has(failure.state)
-      ? ` The post may or may not have landed: resend with --post-id ${retry.postId} and the same arguments; the service accepts an exact resend once.`
+      ? ` The post may or may not have landed: resend with --post-id ${retry.postId}${retry.verb === "close" ? " --yes" : ""} and the same arguments; the service accepts an exact resend once.`
       : "";
     if (json) {
       process.stdout.write(JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: {
@@ -270,18 +296,27 @@ export async function vaultsVerb(output: Output, json: boolean): Promise<number>
   });
 }
 
+/** Same per-Thread Unread data as the web; filtering never recalculates counts. */
+export async function hostedListPage(config: ApiConfig, query: { limit: number; cursor?: string }) {
+  const raw: any = await listHostedThreads(config, query);
+  requireValue(record(raw) && Array.isArray(raw.threads) && raw.threads.length <= query.limit && (raw.next_cursor === null || typeof raw.next_cursor === "string"));
+  const threads = raw.threads.map((t: any) => {
+    requireValue(record(t) && typeof t.thread_id === "string" && HOSTED_THREAD_ID.test(t.thread_id) && typeof t.name === "string" && typeof t.closed === "boolean" && seq(t.unread_count));
+    return { id: t.thread_id, name: t.name, closed: t.closed, unread_count: t.unread_count,
+      ...(typeof t.summary === "string" ? { summary: t.summary } : {}),
+      ...(seq(t.read_seq) ? { read_seq: t.read_seq } : {}), ...(seq(t.last_seq) ? { last_seq: t.last_seq } : {}),
+      ...(typeof t.last_post_at === "string" ? { last_post_at: t.last_post_at } : {}) };
+  });
+  return { threads, next_cursor: raw.next_cursor as string | null };
+}
+
 export async function listVerb(output: Output, json: boolean, flags: Record<string, string | boolean>): Promise<number> {
   return runHosted(output, json, "Listing hosted Threads", "thread", async (config) => {
     const limit = pageLimit(flags.limit);
     const given = str(flags, "cursor");
     const cursor = given === undefined ? undefined : String(decode(config, given, ["list"]).value);
-    const raw: any = await listHostedThreads(config, { limit, ...(cursor ? { cursor } : {}) });
-    requireValue(record(raw) && Array.isArray(raw.threads) && raw.threads.length <= limit && (raw.next_cursor === null || typeof raw.next_cursor === "string"));
-    const threads = raw.threads.map((t: any) => {
-      requireValue(record(t) && typeof t.thread_id === "string" && HOSTED_THREAD_32.test(t.thread_id) && typeof t.name === "string" && typeof t.closed === "boolean" && seq(t.unread_count));
-      return { id: t.thread_id, name: t.name, closed: t.closed, unread_count: t.unread_count,
-        ...(typeof t.last_post_at === "string" ? { last_post_at: t.last_post_at } : {}) };
-    });
+    const raw = await hostedListPage(config, { limit, ...(cursor ? { cursor } : {}) });
+    const threads = raw.threads.filter((t: any) => !(flags.new || flags.unread) || t.unread_count > 0);
     const next = raw.next_cursor ? encode(config, "list", raw.next_cursor) : null;
     const text = threads.length
       ? threads.map((t: any) => `${t.id}  ${t.name}${t.closed ? " · closed" : ""}${t.unread_count ? ` · ${t.unread_count} unread` : ""}`).join("\n")
@@ -331,13 +366,14 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
   // Validate before any credential is touched or anything is sent.
   const parents = str(flags, "reply-to")?.split(",").map((p) => p.trim());
   if (!parents?.length || parents.some((p) => !POST_ID.test(p)) || new Set(parents).size !== parents.length || parents.length > 16) {
+    if (parents?.some(p => p.startsWith("n_"))) throw new HostedError("invalid_request", "Old n_ post ids are not /threads post ids. Read the ported Thread and use its returned msg_ id in --reply-to; no id was converted.");
     throw new HostedError("invalid_request", "--reply-to must name one to 16 distinct msg_ post ids in this Thread, separated by commas.");
   }
   const body = messageBody(flags);
   const name = singleLine(flags, "name", false);
   const summary = singleLine(flags, "summary", false);
   const msgId = postId(flags);
-  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...(name ? { name } : {}), ...(summary ? { summary } : {}) }, body);
+  const note = buildNote({ id: msgId, kind: "post", in_reply_to: parents.length === 1 ? parents[0] : parents, ...(name ? { name } : {}), ...(summary ? { summary } : {}), ...hostedMap(flags) }, body);
   const parsed = parseThreadPost(note, "reply.md");
   if (!(parsed.status === "valid" && parsed.post.id === msgId && parsed.post.kind === "post" && parsed.post.inReplyTo.length > 0 && parsed.post.body.trim())) {
     throw new HostedError("invalid_request", "The reply Note did not validate; check --reply-to, --name, --summary and --message.");
@@ -350,22 +386,44 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
 }
 
 export async function newVerb(output: Output, json: boolean, flags: Record<string, string | boolean>): Promise<number> {
+  const recipients = str(flags, "recipients")?.split(",").map((r) => r.trim()) ?? [];
+  if (recipients.length > 16 || recipients.some((r) => !/^@[A-Za-z0-9_.-]+$/.test(r) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r)) || new Set(recipients.map((r) => r.toLowerCase())).size !== recipients.length) {
+    throw new HostedError("invalid_request", "--recipients needs up to 16 distinct @handles or email addresses, comma-separated.");
+  }
   const name = singleLine(flags, "name", true)!;
   const summary = singleLine(flags, "summary", true)!;
   const body = messageBody(flags);
   const msgId = postId(flags);
-  const note = buildNote({ id: msgId, kind: "post", name, summary }, body);
+  const note = buildNote({ id: msgId, kind: "post", name, summary, ...hostedMap(flags) }, body);
   const parsed = parseThreadPost(note, "opening.md");
   if (!(parsed.status === "valid" && parsed.post.id === msgId && parsed.post.inReplyTo.length === 0)) {
     throw new HostedError("invalid_request", "The opening Note did not validate; check --name, --summary and --message.");
   }
   return runHosted(output, json, "Opening hosted Threads", "thread", async (config) => {
-    const raw: any = await openHostedThread(config, note);
-    requireValue(record(raw) && typeof raw.thread_id === "string" && HOSTED_THREAD_32.test(raw.thread_id));
+    const raw: any = await openHostedThread(config, note, recipients);
+    requireValue(record(raw) && typeof raw.thread_id === "string" && HOSTED_THREAD_ID.test(raw.thread_id));
     const opening = postOf(raw, raw.thread_id);
     requireValue(opening.id === msgId && opening.seq === 1);
     return { data: { schema: "ideaspaces.hosted-thread.new.v1", thread_id: raw.thread_id, post: opening }, text: `Opened ${raw.thread_id}: ${name}` };
   }, { postId: msgId, verb: "new" });
+}
+
+/** Lifecycle is an immutable Note on /threads, not an exchange management route. */
+export async function lifecycleVerb(output: Output, json: boolean, id: string, verb: "close" | "rename", flags: Record<string, string | boolean>, confirmed: boolean): Promise<number> {
+  const name = verb === "rename" ? singleLine(flags, "name", true)! : undefined;
+  const summary = verb === "rename" ? singleLine(flags, "summary", true)! : undefined;
+  const body = messageBody(flags);
+  const msgId = postId(flags);
+  const note = buildNote({ id: msgId, kind: verb === "close" ? "closure" : "reframe", ...(name ? { name, summary } : {}) }, body);
+  if (verb === "close" && !confirmed) {
+    output.result({ schema: "ideaspaces.hosted-thread.close-preview.v1", preview: true, thread_id: id, post_id: msgId, note, access_checked: false }, `Close ${id}? Local preview only; access has not been checked. This appends a closure Note and stops new replies. Re-run with --yes --post-id ${msgId} and the same --message to confirm.`);
+    return 0;
+  }
+  return runHosted(output, json, `${verb === "close" ? "Closing" : "Renaming"} hosted Threads`, "thread", async (config) => {
+    const posted = postOf(await appendHostedThreadPost(config, id, note), id);
+    requireValue(posted.id === msgId);
+    return { data: { schema: "ideaspaces.hosted-thread.post.v1", thread_id: id, post: posted }, text: `${verb === "close" ? "Closed" : "Renamed"} ${id} (${posted.id}).` };
+  }, { postId: msgId, verb });
 }
 
 export async function ackVerb(output: Output, json: boolean, id: string, flags: Record<string, string | boolean>): Promise<number> {

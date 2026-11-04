@@ -1,3 +1,4 @@
+import { HOSTED_THREAD_ID } from "../hosted-thread-id.js";
 // The LOCAL (Claude Code) side of the `conversation` / `conversations`
 // commands — the `--local --runtime=claude` handlers. Same seam as the pi ops
 // (`src/pi/local-conversation-ops.ts`); the router picks one by `--runtime`.
@@ -162,7 +163,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
       output.error("A Thread launch requires --thread <path|x_id>.");
       return 1;
     }
-    if (/^x_[0-9a-f]{12,24}$/.test(threadPath)) {
+    if (HOSTED_THREAD_ID.test(threadPath)) {
       if (flags["thread-map"] !== undefined || flags["thread-member"] !== undefined) {
         output.error("Hosted Thread launches use --thread <x_id> alone; omit --thread-map and --thread-member.");
         return 1;

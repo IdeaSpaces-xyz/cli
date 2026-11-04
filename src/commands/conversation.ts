@@ -40,7 +40,7 @@ function rejectRetiredParticipantCommand(sub: string, output: Output): number {
     `The \`conversation ${sub}\` command was removed. ` +
       "Conversations are private to one person and their selected agent. " +
       "Use `ideaspaces share person <email|@handle>` or `ideaspaces share team <hostname>` " +
-      "to share Content; collaborate through Inbox.",
+      "to share Content; collaborate through Threads.",
   );
   return 1;
 }
