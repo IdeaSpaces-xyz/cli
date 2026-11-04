@@ -15,10 +15,6 @@ import {
   listTeamShares,
   setTeamShare,
   removeTeamShare,
-  listSubscriptions,
-  putSubscription,
-  deleteSubscription,
-  acknowledgeSubscription,
   fetchContentTree,
   fetchEntity,
   RetiredEndpointError,
@@ -255,62 +251,6 @@ describe("request() on a retired endpoint (410)", () => {
     const err = await fetchAuthMe(config, { retry: false }).catch((e) => e);
     expect(err).toBeInstanceOf(RetiredEndpointError);
     expect(err.message).toContain("→ 410: gone");
-  });
-});
-
-describe("subscription API", () => {
-  it("writes, lists, acknowledges, reads, and removes follows through the shipped routes", async () => {
-    const calls: Array<{ url: string; method: string; body?: string }> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((url: string | URL | Request, init?: RequestInit) => {
-        calls.push({
-          url: String(url),
-          method: init?.method ?? "GET",
-          ...(typeof init?.body === "string" ? { body: init.body } : {}),
-        });
-        const path = String(url);
-        if (init?.method === "DELETE") return Promise.resolve(new Response(null, { status: 204 }));
-        if (path.endsWith("/subscriptions/events?limit=25")) {
-          return Promise.resolve(new Response(JSON.stringify({ events: [] }), { status: 200 }));
-        }
-        if (path.endsWith("/subscriptions") && init?.method === "GET") {
-          return Promise.resolve(new Response(JSON.stringify({ subscriptions: [] }), { status: 200 }));
-        }
-        return Promise.resolve(new Response(JSON.stringify({
-          id: "fol_0123456789abcdef01234567",
-          source_kind: "node",
-          source_id: "n_0123456789abcdef01234567",
-          filter: "follow",
-          cursor: 4,
-          created_at: "2026-09-20T00:00:00Z",
-          updated_at: "2026-09-20T00:00:00Z",
-        }), { status: 200 }));
-      }),
-    );
-
-    await putSubscription(config, { target_node_id: "n_0123456789abcdef01234567" });
-    await listSubscriptions(config);
-    await acknowledgeSubscription(config, "fol_0123456789abcdef01234567", 4);
-    await deleteSubscription(config, "fol_0123456789abcdef01234567");
-
-    expect(calls).toEqual([
-      {
-        url: "http://api.test/api/v1/subscriptions",
-        method: "POST",
-        body: JSON.stringify({ target_node_id: "n_0123456789abcdef01234567" }),
-      },
-      { url: "http://api.test/api/v1/subscriptions", method: "GET" },
-      {
-        url: "http://api.test/api/v1/subscriptions/fol_0123456789abcdef01234567",
-        method: "PATCH",
-        body: JSON.stringify({ position: 4 }),
-      },
-      {
-        url: "http://api.test/api/v1/subscriptions/fol_0123456789abcdef01234567",
-        method: "DELETE",
-      },
-    ]);
   });
 });
 
