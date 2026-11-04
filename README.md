@@ -2,11 +2,15 @@
 
 > The command line for folders that agents inhabit.
 
-An ideaspace is a folder of Markdown under git that holds **your knowledge** and **how to work with it**. Open an agent inside it and that's who you're talking to. The [protocol](https://github.com/IdeaSpaces-xyz/ideaspace-protocol) defines the shape.
+A Repo is a folder of Markdown under git that holds **your knowledge** and **how to work with it**. Open an agent inside it and that's who you're talking to. The [protocol](https://github.com/IdeaSpaces-xyz/ideaspace-protocol) defines the shape.
 
 Most people use the shape through a plugin for [Claude Code, Codex, or Cowork](https://github.com/IdeaSpaces-xyz/claude-code-plugin), or [Pi](https://github.com/IdeaSpaces-xyz/pi-is-space). The plugins bundle this CLI. Install it yourself for scripts, automation, and other harnesses.
 
-A space is a real git repository on your disk. Nothing leaves your machine until you publish or push.
+A Vault coordinates the wider work. A **Space** is a lens: a view and a boundary made of references. It holds no content and grants no access to it. Grants on a Space govern adding items or people; each owner grants access to their content separately. Asking for access is a **knock**, not yet offered from every reference view.
+
+Local and remote Spaces are separate and update independently. Import and export make copies, not a sync connection. The CLI's publish, push, pull, and clone commands work on Repos, not Space sync. Older examples and filenames here still use "space" for a Repo.
+
+Nothing leaves your machine until you publish, push, or share it.
 
 ## Install
 
