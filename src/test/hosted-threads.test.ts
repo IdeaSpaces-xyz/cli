@@ -319,15 +319,17 @@ describe("threads new --hosted and threads ack", () => {
     expect(await threads(["new"], { hosted: true, name: "n", summary: "s", message: "x", tags: "dispatch", "post-id": "msg_cli_opening" })).toBe(0);
     expect(JSON.parse(calls[0].body!).note).toContain("tags:\n  - dispatch\n");
     calls.length = 0;
-    for (const tags of ["", "ok,", "x".repeat(201)]) {
+    for (const tags of ["", "ok,", "x".repeat(201), Array.from({ length: 21 }, (_, i) => `t${i}`).join(",")]) {
       expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", tags })).toBe(1);
       expect(json().error).toMatchObject({ state: "invalid_request", message: expect.stringContaining("--tags") });
     }
     expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", tags: true })).toBe(1);
     expect(json().error.message).toContain("--tags requires a value");
     expect(await threads(["post", T], { "reply-to": "msg_a", message: "x", kind: "delivery" })).toBe(1);
-    expect(json().error.message).toContain("--kind");
+    expect(json().error.message).toContain("a label goes in --tags");
     expect(calls).toEqual([]);
+    expect(await threads(["send", "@ada"], { name: "n", summary: "s", message: "x", tags: "question", "post-id": "msg_cli_opening" })).toBe(0);
+    expect(calls[0].body).toContain("tags:\n  - question\n");
   });
 
   it("acks by cursor or by seq, exactly one", async () => {

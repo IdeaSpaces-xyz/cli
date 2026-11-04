@@ -223,8 +223,6 @@ function buildNote(fields: Record<string, unknown>, body: string): string {
   return note;
 }
 
-/** The protocol validates optional disclosure fields; this service additionally requires
- * an authored object on every member. An explicitly empty object is valid; never fill it. */
 /** A post's labels, in the Note's own frontmatter: the service stores a Note as written. */
 function hostedTags(flags: Record<string, string | boolean>): { tags: string[] } | Record<string, never> {
   if (flags.tags === undefined) return {};
@@ -235,6 +233,8 @@ function hostedTags(flags: Record<string, string | boolean>): { tags: string[] }
   return { tags };
 }
 
+/** The protocol validates optional disclosure fields; this service additionally requires
+ * an authored object on every member. An explicitly empty object is valid; never fill it. */
 function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | Record<string, never> {
   if (flags.map === undefined) return {};
   const input = str(flags, "map");

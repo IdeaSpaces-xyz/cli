@@ -29164,7 +29164,10 @@ var HOSTED_VERB_FLAGS = {
 function hostedVerbFlagError(verb, flags2) {
   const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb];
   const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
-  return unknown ? `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.` : void 0;
+  if (!unknown)
+    return void 0;
+  const label = unknown === "kind" ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
+  return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
 }
 
 // dist/commands/share.js
@@ -30443,7 +30446,7 @@ var threadsCommand = {
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
     "ideaspaces threads open x_<id> [--limit 50] [--cursor <cursor>]  # read is an alias",
     "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--recipients '@handle,email@example.org'] [--map context.map.md] [--tags label] [--post-id msg_id]",
-    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md]  # alias of new --hosted --recipients",
+    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients",
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",

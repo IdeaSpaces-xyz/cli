@@ -46,5 +46,7 @@ const HOSTED_VERB_FLAGS: Record<string, ReadonlySet<string>> = {
 export function hostedVerbFlagError(verb: string, flags: Flags): string | undefined {
   const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb];
   const unknown = known && Object.keys(flags).find((flag) => !known.has(flag));
-  return unknown ? `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.` : undefined;
+  if (!unknown) return undefined;
+  const label = unknown === "kind" ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
+  return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
 }
