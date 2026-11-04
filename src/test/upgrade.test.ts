@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { makeUpgradeCommand, updateCheckCommand, type UpgradeRuntime } from "../commands/upgrade.js";
-import { findCommand_ } from "../router.js";
+import { findCommand_, printHelp } from "../router.js";
 import type { Install } from "../install-kind.js";
 import type { GlobalFlags } from "../types.js";
 import { captureJson, captureStdout } from "./helpers.js";
@@ -136,7 +136,40 @@ describe("ideaspaces upgrade", () => {
     const { exit, stderr } = await stderrOf(() => makeUpgradeCommand(rt).run([], {}, HUMAN));
 
     expect(exit).toBe(1);
-    expect(stderr).toContain("reports 0.7.1, not 0.8.0");
+    expect(stderr).toContain("still reports 0.7.1");
+  });
+
+  it("a mirror that gives less than the latest still counts as an upgrade, and says what landed", async () => {
+    const rt = runtime({ latest: async () => "0.9.0", installedVersion: () => "0.8.0" });
+    const { exit, json } = await captureJson(() => makeUpgradeCommand(rt).run([], {}, JSON_GLOBAL));
+
+    expect(exit).toBe(0);
+    expect(json).toMatchObject({ upgraded: true, latest: "0.8.0", behind: true });
+  });
+
+  it.each<[string, Partial<UpgradeRuntime>]>([
+    ["the registry is unreachable", { latest: async () => { throw new Error("fetch failed"); } }],
+    ["npm cannot be run", { npmRoot: () => null }],
+    ["npm belongs to another folder", { npmRoot: () => "/elsewhere/node_modules" }],
+    ["npm fails", { npmInstall: vi.fn(() => 1) }],
+    ["the copy does not move", { installedVersion: () => "0.7.1" }],
+  ])("--json answers in the same shape when %s", async (_name, change) => {
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const { exit, json } = await captureJson(() => makeUpgradeCommand(runtime(change)).run([], {}, JSON_GLOBAL));
+      expect(exit).toBe(1);
+      expect(json).toMatchObject({ current: "0.7.1", upgraded: false, install: "npm" });
+      expect(json.error).toEqual(expect.any(String));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("offline, an npm copy still gets the command that needs no check", async () => {
+    const rt = runtime({ latest: async () => { throw new Error("fetch failed"); } });
+    const { stderr } = await stderrOf(() => makeUpgradeCommand(rt).run([], {}, HUMAN));
+
+    expect(stderr).toContain("npm install -g @ideaspaces/cli@latest");
   });
 
   it("offline, says what you have and that nothing changed", async () => {
@@ -155,6 +188,12 @@ describe("the background check command", () => {
     vi.stubGlobal("fetch", fetched);
     try {
       expect(findCommand_("__update-check")).toBe(updateCheckCommand);
+      const help: string[] = [];
+      const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => { help.push(String(chunk)); return true; });
+      printHelp();
+      spy.mockRestore();
+      expect(help.join("")).toContain("upgrade");
+      expect(help.join("")).not.toContain("__update-check");
       await expect(updateCheckCommand.run([], {}, HUMAN)).resolves.toBe(0);
       expect(fetched).not.toHaveBeenCalled();
     } finally {

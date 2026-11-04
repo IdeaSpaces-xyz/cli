@@ -162,7 +162,7 @@ export interface RequestOptions {
 /** A non-2xx answer, kept typed for callers that map statuses to states (hosted Threads, Vaults). */
 export class ApiStatusError extends Error {
   readonly retryAfterMs?: number;
-  constructor(readonly status: number, readonly body: string, retryAfter: string | null) {
+  constructor(readonly status: number, readonly body: string, retryAfter: string | null, readonly latest?: string | null) {
     super(`HTTP ${status}`);
     this.name = "ApiStatusError";
     const delay = retryAfter === null ? undefined : /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
@@ -341,7 +341,7 @@ async function request<T>(
           if (opts.statusError) throw new ApiStatusError(401, text, r.headers.get("Retry-After"));
           throw new UnauthorizedError(`${method} ${path} → 401: ${text || r.statusText}`);
         }
-        if (opts.statusError) throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"));
+        if (opts.statusError) throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"), r.status === 410 ? await latestForFailure() : undefined);
         if (r.status === 410) {
           throw new RetiredEndpointError(method, path, text, await latestForFailure());
         }

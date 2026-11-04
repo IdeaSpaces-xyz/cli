@@ -61,6 +61,7 @@ export function makeUpgradeCommand(runtime: UpgradeRuntime = defaultRuntime): Co
       "Finds how this copy was installed. An npm global install is updated in place with\n" +
       `\`${NPM_INSTALL}\`. A copy that came with Idea Explorer, the IdeaSpaces plugin or Pi\n` +
       "updates with them, and this command names what to run; each copy on a machine updates on its own.\n" +
+      "Running `upgrade` is the go-ahead: it installs at once and takes no --yes.\n" +
       "--check reads the npm registry and changes nothing. `ideaspaces update` is a different\n" +
       "command: it brings source changes into a fork.",
     examples: ["ideaspaces upgrade --check", "ideaspaces upgrade"],
@@ -71,11 +72,21 @@ export function makeUpgradeCommand(runtime: UpgradeRuntime = defaultRuntime): Co
       const advice = updateAdvice(install);
       const current = runtime.current;
 
-      const report = (fields: { latest: string | null; behind: boolean | null; upgraded?: boolean }, text: string): void => {
-        output.result(
-          { current, latest: fields.latest, behind: fields.behind, upgraded: fields.upgraded ?? false, install: install.kind, path: install.path, advice: advice.text },
-          text,
-        );
+      const body = (fields: { latest: string | null; behind: boolean | null; upgraded?: boolean }) => ({
+        current,
+        latest: fields.latest,
+        behind: fields.behind,
+        upgraded: fields.upgraded ?? false,
+        install: install.kind,
+        path: install.path,
+        advice: advice.text,
+      });
+      const report = (fields: Parameters<typeof body>[0], text: string): void => output.result(body(fields), text);
+      // A failure answers in the same shape, so --json never leaves a caller with empty stdout.
+      const fail = (fields: Parameters<typeof body>[0], message: string): number => {
+        if (global.json) process.stdout.write(JSON.stringify({ ...body(fields), error: message }, null, 2) + "\n");
+        output.error(message);
+        return 1;
       };
 
       // The app's copy follows the app, and host mode stays off the network on its own.
@@ -88,11 +99,12 @@ export function makeUpgradeCommand(runtime: UpgradeRuntime = defaultRuntime): Co
       try {
         latest = await runtime.latest();
       } catch (err) {
-        output.error(
+        const manual = install.kind === "npm" && !check ? ` To update without this check, run: ${NPM_INSTALL}` : "";
+        return fail(
+          { latest: null, behind: null },
           `Could not read the latest version from the npm registry: ${err instanceof Error ? err.message : String(err)}\n` +
-            `You have ${current}. Nothing changed. Check your connection and retry.`,
+            `You have ${current}. Nothing changed. Check your connection and retry.${manual}`,
         );
-        return 1;
       }
 
       const behind = isBehind(current, latest);
@@ -115,30 +127,28 @@ export function makeUpgradeCommand(runtime: UpgradeRuntime = defaultRuntime): Co
       // A second Node on PATH has its own global folder: installing there would leave this copy old.
       const npmRoot = runtime.npmRoot();
       if (!npmRoot) {
-        output.error(`${heading}\nCould not run \`npm root -g\`, so nothing changed. With the npm that installed this copy, run: ${NPM_INSTALL}`);
-        return 1;
+        return fail({ latest, behind }, `${heading}\nCould not run \`npm root -g\`, so nothing changed. With the npm that installed this copy, run: ${NPM_INSTALL}`);
       }
       if (!install.owner || !sameGlobalRoot(npmRoot, install.owner)) {
-        output.error(
+        return fail(
+          { latest, behind },
           `${heading}\nThe npm on your PATH installs into ${npmRoot}, but this copy runs from ${install.path}, so nothing changed.\n` +
             `Use the Node that installed this copy, then run: ${NPM_INSTALL}`,
         );
-        return 1;
       }
 
       output.progress(`${heading} Running: ${NPM_INSTALL}`);
       const status = runtime.npmInstall(global.json);
       if (status !== 0) {
-        output.error(`npm exited with ${status}, and this copy may still be ${current}.\nFix what npm reported, then run: ${NPM_INSTALL}`);
-        return 1;
+        return fail({ latest, behind }, `npm exited with ${status}, and this copy may still be ${current}.\nFix what npm reported, then run: ${NPM_INSTALL}`);
       }
 
+      // npm follows your .npmrc and the registry check may not, so a mirror can give less than `latest`.
       const now = runtime.installedVersion(selfPath());
-      if (now !== latest) {
-        output.error(`npm finished, but this copy reports ${now ?? "no version"}, not ${latest}. Check \`which ideaspaces\` and \`npm root -g\`.`);
-        return 1;
+      if (now === null || !isBehind(current, now)) {
+        return fail({ latest, behind }, `npm finished, but this copy still reports ${now ?? "no version"}. Check \`which ideaspaces\` and \`npm root -g\`.`);
       }
-      report({ latest, behind: false, upgraded: true }, `Upgraded ideaspaces ${current} to ${latest}.`);
+      report({ latest: now, behind: isBehind(now, latest), upgraded: true }, `Upgraded ideaspaces ${current} to ${now}.`);
       return 0;
     },
   };

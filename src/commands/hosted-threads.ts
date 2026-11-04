@@ -73,7 +73,7 @@ function failureOf(error: unknown, subject: "thread" | "vaults"): HostedError {
   if (error instanceof HostedError) return error.message === error.state ? new HostedError(error.state, messages(error.state, subject), error.retryAfterMs) : error;
   if (error instanceof ApiStatusError) {
     // A retired route. The state stays what hosts parse; the words say what fixes it.
-    if (error.status === 410) return new HostedError("unavailable", outOfDateMessage(), error.retryAfterMs);
+    if (error.status === 410) return new HostedError("unavailable", outOfDateMessage(error.latest), error.retryAfterMs);
     const state = STATUS[error.status] ?? "unavailable";
     let detail = "";
     if (state === "invalid_request") {

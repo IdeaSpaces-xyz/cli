@@ -30,7 +30,9 @@ ideaspaces upgrade            # update this CLI
 
 `upgrade` finds how this copy was installed. An npm global install is updated in place. Any other copy is left alone, and the command names what to run: Idea Explorer, the IdeaSpaces plugin and the Pi package each carry their own copy and update on their own route. `ideaspaces update` is a different command: it brings source changes into a fork.
 
-Once a day, a global install at a terminal checks the npm registry in the background. If a newer version is out, it prints one line on stderr after a command. It stays silent with `--json` or `--quiet`, when either output is piped, in CI, and in an app or agent session. `IDEASPACES_NO_UPDATE_CHECK=1` (or `NO_UPDATE_NOTIFIER=1`) turns off the notice and the check, and `status doctor` stops comparing.
+Once a day, a global install at a terminal checks the npm registry in the background. If a newer version is out, it prints one line on stderr after a command. It stays silent with `--json` or `--quiet`, when either output is piped, in CI, and in an app or agent session. The check is one anonymous read of the package's public version, sending nothing about your work. `IDEASPACES_NO_UPDATE_CHECK=1` (or `NO_UPDATE_NOTIFIER=1`) turns off the notice and the check, and `status doctor` stops comparing.
+
+The CLI reads `registry.npmjs.org`, or `npm_config_registry` when that is set in the environment. It does not read `.npmrc`, so behind a mirror the version it reports can differ from what `npm install` gives.
 
 ## Five minutes
 

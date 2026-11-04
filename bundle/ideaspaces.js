@@ -14762,11 +14762,13 @@ function deriveWebBase(apiUrl) {
 var ApiStatusError = class extends Error {
   status;
   body;
+  latest;
   retryAfterMs;
-  constructor(status, body, retryAfter) {
+  constructor(status, body, retryAfter, latest) {
     super(`HTTP ${status}`);
     this.status = status;
     this.body = body;
+    this.latest = latest;
     this.name = "ApiStatusError";
     const delay = retryAfter === null ? void 0 : /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1e3 : Date.parse(retryAfter) - Date.now();
     if (delay !== void 0 && Number.isFinite(delay))
@@ -14898,7 +14900,7 @@ async function request(config, method, path, body, opts = {}) {
           throw new UnauthorizedError(`${method} ${path} \u2192 401: ${text || r.statusText}`);
         }
         if (opts.statusError)
-          throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"));
+          throw new ApiStatusError(r.status, text, r.headers.get("Retry-After"), r.status === 410 ? await latestForFailure() : void 0);
         if (r.status === 410) {
           throw new RetiredEndpointError(method, path, text, await latestForFailure());
         }
@@ -24086,7 +24088,7 @@ function failureOf(error, subject) {
     return error.message === error.state ? new HostedError(error.state, messages(error.state, subject), error.retryAfterMs) : error;
   if (error instanceof ApiStatusError) {
     if (error.status === 410)
-      return new HostedError("unavailable", outOfDateMessage(), error.retryAfterMs);
+      return new HostedError("unavailable", outOfDateMessage(error.latest), error.retryAfterMs);
     const state = STATUS[error.status] ?? "unavailable";
     let detail3 = "";
     if (state === "invalid_request") {
@@ -26236,6 +26238,7 @@ function makeUpgradeCommand(runtime = defaultRuntime2) {
     help: `Finds how this copy was installed. An npm global install is updated in place with
 \`${NPM_INSTALL}\`. A copy that came with Idea Explorer, the IdeaSpaces plugin or Pi
 updates with them, and this command names what to run; each copy on a machine updates on its own.
+Running \`upgrade\` is the go-ahead: it installs at once and takes no --yes.
 --check reads the npm registry and changes nothing. \`ideaspaces update\` is a different
 command: it brings source changes into a fork.`,
     examples: ["ideaspaces upgrade --check", "ideaspaces upgrade"],
@@ -26245,8 +26248,21 @@ command: it brings source changes into a fork.`,
       const install = runtime.install();
       const advice = updateAdvice(install);
       const current2 = runtime.current;
-      const report = (fields, text) => {
-        output.result({ current: current2, latest: fields.latest, behind: fields.behind, upgraded: fields.upgraded ?? false, install: install.kind, path: install.path, advice: advice.text }, text);
+      const body = (fields) => ({
+        current: current2,
+        latest: fields.latest,
+        behind: fields.behind,
+        upgraded: fields.upgraded ?? false,
+        install: install.kind,
+        path: install.path,
+        advice: advice.text
+      });
+      const report = (fields, text) => output.result(body(fields), text);
+      const fail = (fields, message) => {
+        if (global3.json)
+          process.stdout.write(JSON.stringify({ ...body(fields), error: message }, null, 2) + "\n");
+        output.error(message);
+        return 1;
       };
       if (install.kind === "app") {
         report({ latest: null, behind: null }, `ideaspaces ${current2}
@@ -26257,9 +26273,9 @@ ${advice.text}`);
       try {
         latest = await runtime.latest();
       } catch (err) {
-        output.error(`Could not read the latest version from the npm registry: ${err instanceof Error ? err.message : String(err)}
-You have ${current2}. Nothing changed. Check your connection and retry.`);
-        return 1;
+        const manual = install.kind === "npm" && !check ? ` To update without this check, run: ${NPM_INSTALL}` : "";
+        return fail({ latest: null, behind: null }, `Could not read the latest version from the npm registry: ${err instanceof Error ? err.message : String(err)}
+You have ${current2}. Nothing changed. Check your connection and retry.${manual}`);
       }
       const behind = isBehind(current2, latest);
       if (!behind) {
@@ -26280,29 +26296,25 @@ ${advice.text}`);
       }
       const npmRoot = runtime.npmRoot();
       if (!npmRoot) {
-        output.error(`${heading}
+        return fail({ latest, behind }, `${heading}
 Could not run \`npm root -g\`, so nothing changed. With the npm that installed this copy, run: ${NPM_INSTALL}`);
-        return 1;
       }
       if (!install.owner || !sameGlobalRoot(npmRoot, install.owner)) {
-        output.error(`${heading}
+        return fail({ latest, behind }, `${heading}
 The npm on your PATH installs into ${npmRoot}, but this copy runs from ${install.path}, so nothing changed.
 Use the Node that installed this copy, then run: ${NPM_INSTALL}`);
-        return 1;
       }
       output.progress(`${heading} Running: ${NPM_INSTALL}`);
       const status = runtime.npmInstall(global3.json);
       if (status !== 0) {
-        output.error(`npm exited with ${status}, and this copy may still be ${current2}.
+        return fail({ latest, behind }, `npm exited with ${status}, and this copy may still be ${current2}.
 Fix what npm reported, then run: ${NPM_INSTALL}`);
-        return 1;
       }
       const now = runtime.installedVersion(selfPath());
-      if (now !== latest) {
-        output.error(`npm finished, but this copy reports ${now ?? "no version"}, not ${latest}. Check \`which ideaspaces\` and \`npm root -g\`.`);
-        return 1;
+      if (now === null || !isBehind(current2, now)) {
+        return fail({ latest, behind }, `npm finished, but this copy still reports ${now ?? "no version"}. Check \`which ideaspaces\` and \`npm root -g\`.`);
       }
-      report({ latest, behind: false, upgraded: true }, `Upgraded ideaspaces ${current2} to ${latest}.`);
+      report({ latest: now, behind: isBehind(now, latest), upgraded: true }, `Upgraded ideaspaces ${current2} to ${now}.`);
       return 0;
     }
   };

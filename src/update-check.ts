@@ -41,7 +41,10 @@ export function isVersion(value: unknown): value is string {
   return typeof value === "string" && value.length <= 64 && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value);
 }
 
-/** True when `latest` is newer than `current`. A prerelease sorts before its release. */
+/**
+ * True when `latest` is newer than `current`. A prerelease sorts before its release; two
+ * prereleases of one release count as equal, since npm's `latest` tag only ever holds releases.
+ */
 export function isBehind(current: string, latest: string): boolean {
   if (!isVersion(current) || !isVersion(latest)) return false;
   const parse = (v: string) => {
