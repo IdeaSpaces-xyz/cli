@@ -32,7 +32,7 @@ ideaspaces upgrade            # update this CLI
 
 Once a day, a global install at a terminal checks the npm registry in the background. If a newer version is out, it prints one line on stderr after a command. It stays silent with `--json` or `--quiet`, when either output is piped, in CI, and in an app or agent session. The check is one anonymous read of the package's public version, sending nothing about your work. `IDEASPACES_NO_UPDATE_CHECK=1` (or `NO_UPDATE_NOTIFIER=1`) turns off the notice and the check. `status doctor` and the out-of-date message show what the last check found and make no call of their own; `upgrade` and `--check` ask the registry because you asked them to.
 
-The check reads `registry.npmjs.org`, or `npm_config_registry` when you set that in the environment. It does not read `.npmrc`, so behind a mirror the version it reports can differ from what `npm install` gives.
+The daily check only ever reads `registry.npmjs.org`. `upgrade` and `--check` also follow `npm_config_registry` when you set it in the environment. None of them read `.npmrc`, so behind a mirror the version they report can differ from what `npm install` gives.
 
 ## Five minutes
 

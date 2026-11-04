@@ -15,6 +15,7 @@ import {
   noticeLine,
   outOfDateMessage,
   readUpdateState,
+  refreshUpdateState,
   type NoticeContext,
 } from "../update-check.js";
 import { CLI_VERSION } from "../version.js";
@@ -68,6 +69,22 @@ describe("fetchLatestVersion", () => {
     await fetchLatestVersion({ timeoutMs: 100, env: { npm_config_registry: "https://mirror.example/npm/" } });
 
     expect((fetched.mock.calls[0] as unknown as [string])[0]).toBe("https://mirror.example/npm/@ideaspaces/cli/latest");
+  });
+
+  it("the background check stays on the public registry, whatever the environment names", async () => {
+    const home = mkdtempSync(join(tmpdir(), "is-refresh-"));
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("npm_config_registry", "https://mirror.example/npm/");
+    const fetched = vi.fn(async () => new Response(JSON.stringify({ version: "0.8.0" })));
+    vi.stubGlobal("fetch", fetched);
+    try {
+      await refreshUpdateState();
+      expect((fetched.mock.calls[0] as unknown as [string])[0]).toBe("https://registry.npmjs.org/@ideaspaces/cli/latest");
+      expect(readUpdateState().latest).toBe("0.8.0");
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it("throws on a refusal or an unusable version", async () => {

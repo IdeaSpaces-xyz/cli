@@ -14227,7 +14227,7 @@ function noticeLine(latest, install, current2 = CLI_VERSION) {
   return `ideaspaces ${latest} is available (you have ${current2}). ${updateAdvice(install).text}`;
 }
 async function refreshUpdateState() {
-  const latest = await fetchLatestVersion({ timeoutMs: 5e3 });
+  const latest = await fetchLatestVersion({ timeoutMs: 5e3, env: {} });
   writeUpdateState({ ...readUpdateState(), latest });
 }
 function startRefresh() {

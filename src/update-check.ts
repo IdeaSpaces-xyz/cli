@@ -171,7 +171,9 @@ export function noticeLine(latest: string, install: Install, current: string = C
 
 /** The refresh, in a detached child that outlives this command. Called `__update-check`. */
 export async function refreshUpdateState(): Promise<void> {
-  const latest = await fetchLatestVersion({ timeoutMs: 5000 });
+  // Pinned to the public registry: what the CLI does unasked goes to one known host.
+  // Only an explicit `upgrade` follows `npm_config_registry`.
+  const latest = await fetchLatestVersion({ timeoutMs: 5000, env: {} });
   writeUpdateState({ ...readUpdateState(), latest });
 }
 
@@ -235,7 +237,7 @@ export function afterCommand(
 /**
  * The newest version known without any network call. Errors and `status doctor` only ever read
  * this: the daily check is the one lookup the CLI makes on its own, and `upgrade` is the one a
- * person asks for.
+ * person asks for. An opt-out stops the check; a file it left behind is still only a local read.
  */
 export function knownLatest(): string | null {
   if (isHostAuth()) return null;
