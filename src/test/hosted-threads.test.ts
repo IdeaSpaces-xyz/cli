@@ -340,6 +340,161 @@ describe("threads new --hosted and threads ack", () => {
     expect(json().error.message).toContain("--summary is required");
   });
 
+  // The shape of a knock's opening: the service keeps the body, and names it itself (msg_545c1df8).
+  const knockOpening = (id: string, extra: Record<string, unknown> = { reach: "knocked" }) => ({
+    ...fixture("thread-opened"), post_id: id, fields: { id, kind: "post", name: "A knock from @ada", summary: "Hello" },
+    note: `---\nid: ${id}\nkind: post\nname: A knock from @ada\nsummary: Hello\n---\n\nHello\n`, ...extra,
+  });
+  const send = () => threads(["send", "@bea"], { name: "Form name", summary: "One line", message: "Hello", "post-id": "msg_cli_opening" });
+
+  it("prints a knock as a knock, under the name the service gave it", async () => {
+    serve({ "POST /api/v1/threads": () => ({ status: 201, body: knockOpening("msg_cli_opening") }) });
+    expect(await threads(["send", "@bea"], { name: "Form name", summary: "One line", message: "Hello", "post-id": "msg_cli_opening" }, TEXT_FLAGS)).toBe(0);
+    expect(stdout).toContain(`Knocked on @bea: ${T}  A knock from @ada`);
+    expect(stdout).toContain("Neither of you can post until they let you in.");
+    expect(stdout).toContain(`ideaspaces threads open ${T}`);
+    expect(stdout).not.toContain("Opened");
+    expect(stdout).not.toContain("Form name");
+    expect(JSON.parse(calls[0].body!)).toEqual({ note: expect.stringContaining("Hello"), recipients: ["@bea"] });
+    stdout = "";
+    expect(await send()).toBe(0);
+    expect(json()).toMatchObject({ thread_id: T, reach: "knocked", message_stored: true, post: { id: "msg_cli_opening", fields: { name: "A knock from @ada" } } });
+  });
+
+  it("says when a knock was already open and the new message was not stored", async () => {
+    serve({ "POST /api/v1/threads": () => ({ status: 201, body: knockOpening("msg_first_knock") }) });
+    expect(await threads(["send", "@bea"], { name: "n", summary: "s", message: "Again", "post-id": "msg_cli_opening" }, TEXT_FLAGS)).toBe(0);
+    expect(stdout).toContain(`You already have a knock open with @bea: ${T}  A knock from @ada`);
+    expect(stdout).toContain("This message was not stored.");
+    stdout = "";
+    expect(await send()).toBe(0);
+    expect(json()).toMatchObject({ reach: "knocked", message_stored: false, post: { id: "msg_first_knock" } });
+  });
+
+  it("reads reach as possibly absent, and direct as an ordinary opening", async () => {
+    for (const [body, reach] of [[fixture("thread-opened"), undefined], [{ ...fixture("thread-opened"), reach: "direct" }, "direct"]] as const) {
+      serve({ "POST /api/v1/threads": () => ({ status: 201, body }) });
+      stdout = "";
+      expect(await threads(["new"], { hosted: true, name: "New plan", summary: "One line", message: "Opening.", "post-id": "msg_cli_opening" }, TEXT_FLAGS)).toBe(0);
+      expect(stdout).toContain(`Opened ${T}: New plan`);
+      stdout = "";
+      expect(await threads(["new"], { hosted: true, name: "New plan", summary: "One line", message: "Opening.", "post-id": "msg_cli_opening" })).toBe(0);
+      const parsed = json();
+      expect(parsed.reach).toBe(reach);
+      expect(parsed.message_stored).toBeUndefined();
+    }
+  });
+
+  it("still refuses an ordinary opening that answers with another post", async () => {
+    serve({ "POST /api/v1/threads": () => ({ status: 201, body: { ...fixture("thread-opened"), post_id: "msg_someone_else", reach: "direct" } }) });
+    expect(await send()).toBe(1);
+    expect(json().error.state).toBe("invalid_response");
+  });
+
+  // Every refusal of a first contact in msg_545c1df8, with the service's own detail.
+  it.each([
+    [409, "Knock first: a new person takes a Thread of their own", "conflict", "threads send @handle"],
+    [409, "This person answered your knock", "conflict", "can't knock on them again"],
+    [409, "Opening msg_ id already used with different input", "conflict", "already used with different text or a different person"],
+    [400, "A first contact carries no agents", "invalid_request", "can't bring agents"],
+    [400, "A first contact is text only", "invalid_request", "Resend without --map"],
+    [400, "A knock needs a message of 1 to 1000 characters", "invalid_request", "1 to 1,000 characters"],
+    [400, "Recipient handle not found", "invalid_request", "Nobody has that @handle"],
+    [400, "Cannot address yourself", "invalid_request", "can't name yourself"],
+  ] as const)("reads %i %s plainly, and says nothing was sent", async (status, detail, state, words) => {
+    serve({ "POST /api/v1/threads": () => ({ status, body: { detail } }) });
+    expect(await send()).toBe(1);
+    const { error } = json();
+    expect(error.state).toBe(state);
+    expect(error.message).toContain(words);
+    expect(error.message).toContain("Nothing was sent");
+    expect(error.message).not.toContain("Service:");
+    expect(error.message).not.toContain("cursor");
+    expect(error.message).not.toContain("may or may not");
+  });
+
+  it.each([
+    ["Knock budget exhausted", "limit on reaching new people", "2400", "Try again in 40 minutes."],
+    ["Invitation budget exhausted", "limit on inviting new people", "3600", "Try again in 60 minutes."],
+    ["This person takes no more knocks for now", "isn't taking more knocks", "18000", "Try again in about 5 hours."],
+    ["Knock budget exhausted", "limit on reaching new people", "20", "Try again in a minute."],
+  ])("reads a 429 %s plainly with its wait, and never says the post may have landed", async (detail, words, seconds, wait) => {
+    serve({ "POST /api/v1/threads": () => ({ status: 429, body: { detail }, headers: { "Retry-After": seconds } }) });
+    expect(await send()).toBe(1);
+    const { error } = json();
+    expect(error).toMatchObject({ state: "rate_limited", retry_after_ms: Number(seconds) * 1000 });
+    expect(error.message).toContain(words);
+    expect(error.message).toContain(wait);
+    expect(error.message).toContain("Nothing was sent");
+    expect(error.message).not.toContain("may or may not");
+  });
+
+  it("says try again later when a limit names no wait", async () => {
+    serve({ "POST /api/v1/threads": () => ({ status: 429, body: { detail: "Knock budget exhausted" } }) });
+    expect(await send()).toBe(1);
+    expect(json().error.message).toContain("Try again later.");
+    expect(json().error.retry_after_ms).toBeUndefined();
+  });
+
+  it("keeps a posting limit ambiguous: only the named refusals are settled", async () => {
+    serve({ "POST /api/v1/threads": () => ({ status: 429, body: { detail: "Thread posting budget exhausted" } }) });
+    expect(await send()).toBe(1);
+    expect(json().error.message).toContain("may or may not have landed");
+    expect(json().error.message).toContain("Service: Thread posting budget exhausted");
+  });
+
+  it("shows a refusal this CLI doesn't know in the service's words", async () => {
+    serve({ "POST /api/v1/threads": () => ({ status: 409, body: { detail: "A rule from a later service" } }) });
+    expect(await send()).toBe(1);
+    expect(json().error.message).toContain("Service: A rule from a later service");
+    serve({ "POST /api/v1/threads": () => ({ status: 403, body: { detail: "Finish signing up to knock" } }) });
+    stdout = "";
+    expect(await send()).toBe(1);
+    expect(json().error).toMatchObject({ state: "forbidden", message: expect.stringContaining("Finish signing up to knock") });
+  });
+
+  it.each([
+    ["A knock takes no posts until it is answered", "until it's let in"],
+    ["This knock lapsed", "lapsed without an answer"],
+  ])("reads a held post's 409 %s plainly", async (detail, words) => {
+    serve({ [`POST /api/v1/threads/${T}/posts`]: () => ({ status: 409, body: { detail } }) });
+    expect(await threads(["post", T], { "reply-to": "msg_a", message: "Hello", "post-id": "msg_cli_reply" })).toBe(1);
+    const { error } = json();
+    expect(error).toMatchObject({ state: "conflict", message: expect.stringContaining(words) });
+    expect(error.message).toContain("Nothing was posted");
+  });
+
+  it("says a knock can't be renamed", async () => {
+    serve({ [`POST /api/v1/threads/${T}/posts`]: () => ({ status: 403, body: { detail: "A knock's name is set by the server" } }) });
+    expect(await threads(["rename", T], { name: "n", summary: "s", message: "why" })).toBe(1);
+    expect(json().error).toMatchObject({ state: "forbidden", message: expect.stringContaining("can't be renamed") });
+  });
+
+  it("takes can_reply from the service, and shows a knock's state in the read", async () => {
+    const page = (head: Record<string, unknown>) => ({
+      [`GET /api/v1/threads/${T}`]: () => ({ status: 200, body: { ...fixture("thread-head"), ...head } }),
+      [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest",
+    });
+    const read = async (head: Record<string, unknown>, flags = JSON_FLAGS) => {
+      serve(page(head));
+      stdout = "";
+      expect(await threads(["open", T], {}, flags)).toBe(0);
+      return stdout;
+    };
+    const knock = { state: "open", visitor_ref: "person:user_3", target_person_ref: "person:user_7", can_answer: true };
+    expect(JSON.parse(await read({ grade: "Commenter", can_reply: false, knock })).thread).toMatchObject({ can_reply: false, knock: { state: "open", can_answer: true } });
+    expect(await read({ grade: "Commenter", can_reply: false, knock }, TEXT_FLAGS)).toContain("read only · knock waiting for you · answer on the web");
+    expect(await read({ grade: "Owner", can_reply: false, knock: { ...knock, can_answer: false } }, TEXT_FLAGS)).toContain("read only · knock waiting for an answer");
+    expect(await read({ grade: "Owner", can_reply: false, knock: { ...knock, state: "lapsed", can_answer: false } }, TEXT_FLAGS)).toContain("read only · knock lapsed");
+    expect(JSON.parse(await read({ grade: "Viewer", can_reply: true })).thread.can_reply).toBe(true);
+    // An older service sends neither field, and a later state says nothing it can't mean.
+    const older = JSON.parse(await read({ grade: "Owner" })).thread;
+    expect(older.can_reply).toBe(true);
+    expect(older.knock).toBeUndefined();
+    expect(await read({ grade: "Owner", knock: null, can_reply: true }, TEXT_FLAGS)).not.toContain("knock");
+    expect(await read({ grade: "Owner", knock: { state: "held by a later rule" } }, TEXT_FLAGS)).not.toContain("knock");
+  });
+
   it("writes a label as tags in the Note, and refuses a kind or a bad tag before calling", async () => {
     serve({ [`POST /api/v1/threads/${T}/posts`]: "post-created", "POST /api/v1/threads": "thread-opened" });
     expect(await threads(["post", T], { "reply-to": "msg_a", message: "Shipped", tags: "delivery, ux,delivery", "post-id": "msg_cli_fixed" })).toBe(0);
