@@ -633,10 +633,10 @@ export async function fetchAgents(
 /** Pull the clean message or detail string out of an API error. */
 export function apiErrorDetail(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
-  const match = err instanceof ApiStatusError ? [err.message, err.body.trim() ? err.body : err.message] : err.message.match(/→ \d+:\s*(.+)$/);
-  if (match) {
+  const raw = err instanceof ApiStatusError ? (err.body.trim() || err.message) : err.message.match(/→ \d+:\s*(.+)$/)?.[1];
+  if (raw) {
     try {
-      const parsed = JSON.parse(match[1]!) as { detail?: unknown; message?: unknown };
+      const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown };
       if (typeof parsed.detail === "string") return parsed.detail;
       if (
         parsed.detail &&
@@ -648,7 +648,7 @@ export function apiErrorDetail(err: unknown): string {
       }
       if (typeof parsed.message === "string") return parsed.message;
     } catch {
-      return match[1]!;
+      return raw;
     }
   }
   return err.message;
@@ -1741,3 +1741,10 @@ export async function fetchHostedSpace(config: ApiConfig, id: string): Promise<H
   }
   return result;
 }
+
+export async function removeHostedSpaceMember(config: ApiConfig, id: string, ordinal: number, body: {
+  command_id: string; expected_head_version_id: string;
+}): Promise<{ map_id: string; version_id: string; ordinal: number; owner: string; core_thread_id: string | null }> {
+  return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body, { statusError: true });
+}
+

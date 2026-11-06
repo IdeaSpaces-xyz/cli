@@ -70,7 +70,7 @@ it("uses typed 5xx status for uncertain outcomes without replay", async () => {
 
 it("accepts its documented example through the real argument parser", async () => {
   const { parseArgs } = await import("../argv.js");
-  const parsed = parseArgs(spacesCommand.examples![0].split(" ").slice(1));
+  const parsed = parseArgs(spacesCommand.examples!.find(e => e.startsWith("ideaspaces spaces add "))!.split(" ").slice(1));
   expect(await spacesCommand.run(parsed.args, parsed.flags, parsed.global)).toBe(0);
 });
 

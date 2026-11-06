@@ -14972,10 +14972,10 @@ async function fetchAgents(config, owner, opts) {
 function apiErrorDetail(err) {
   if (!(err instanceof Error))
     return String(err);
-  const match = err instanceof ApiStatusError ? [err.message, err.body.trim() ? err.body : err.message] : err.message.match(/→ \d+:\s*(.+)$/);
-  if (match) {
+  const raw = err instanceof ApiStatusError ? err.body.trim() || err.message : err.message.match(/→ \d+:\s*(.+)$/)?.[1];
+  if (raw) {
     try {
-      const parsed2 = JSON.parse(match[1]);
+      const parsed2 = JSON.parse(raw);
       if (typeof parsed2.detail === "string")
         return parsed2.detail;
       if (parsed2.detail && typeof parsed2.detail === "object" && "message" in parsed2.detail && typeof parsed2.detail.message === "string") {
@@ -14984,7 +14984,7 @@ function apiErrorDetail(err) {
       if (typeof parsed2.message === "string")
         return parsed2.message;
     } catch {
-      return match[1];
+      return raw;
     }
   }
   return err.message;
@@ -15260,6 +15260,9 @@ async function fetchHostedSpace(config, id) {
     throw new Error("IdeaSpaces returned an unreadable Space. Retry, or update the CLI.");
   }
   return result;
+}
+async function removeHostedSpaceMember(config, id, ordinal, body) {
+  return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body, { statusError: true });
 }
 
 // dist/auth/identity.js
@@ -30678,8 +30681,57 @@ var requestCommand = {
   }
 };
 
-// dist/commands/hosted-space-writes.js
+// dist/commands/hosted-space-remove.js
 import { randomUUID as randomUUID13 } from "node:crypto";
+var SPACE_REMOVE_USAGE = "ideaspaces spaces remove <map-id> <member-ordinal> --if-match <head-version-id> [--command-id <id>] [--yes]";
+async function runHostedSpaceRemove(args2, flags2, global3) {
+  const output = createOutput(global3);
+  let commandId;
+  let attempted = false;
+  try {
+    const unknown = Object.keys(flags2).find((f) => !["if-match", "command-id"].includes(f));
+    if (unknown)
+      throw new Error(`Unknown flag for spaces remove: --${unknown}.`);
+    const [id, rawOrdinal] = args2;
+    if (args2.length !== 2 || !NODE_ID.test(id ?? "") || !/^(0|[1-9]\d*)$/.test(rawOrdinal ?? "") || !Number.isSafeInteger(Number(rawOrdinal)))
+      throw new Error(SPACE_REMOVE_USAGE);
+    const head2 = flags2["if-match"];
+    if (typeof head2 !== "string" || !NODE_ID.test(head2))
+      throw new Error("--if-match needs the head version_id from spaces open <map-id> --json. Ordinals belong to that exact head; reload and review if stale.");
+    const given = flags2["command-id"];
+    if (given !== void 0 && (typeof given !== "string" || !given.trim() || given.length > 64))
+      throw new Error("--command-id needs a value of at most 64 characters.");
+    commandId = typeof given === "string" ? given : randomUUID13();
+    const ordinal = Number(rawOrdinal);
+    const body = { command_id: commandId, expected_head_version_id: head2 };
+    if (!global3.yes) {
+      output.result({ preview: true, map_id: id, member_ordinal: ordinal, ...body, access_checked: false }, `Remove reference ${ordinal} from ${id} at head ${head2}? This deletes no content. The Core reference cannot be removed.
+Local preview only; access has not been checked. Confirm with --yes --command-id ${commandId} and the same --if-match.`);
+      return 0;
+    }
+    const config = loadConfig();
+    if (!config)
+      throw new Error("Not logged in. Run `ideaspaces login`.");
+    attempted = true;
+    const result = await removeHostedSpaceMember(config, id, ordinal, body);
+    output.result({ ...result, command_id: commandId }, `Removed reference ${ordinal} from ${id}. No content was deleted.
+Version: ${result.version_id}
+Command: ${commandId}
+Read spaces open ${id} --json for the current head, especially after an exact retry.`);
+    return 0;
+  } catch (error) {
+    output.error(error instanceof UnauthorizedError ? error.message : error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+    if (attempted && commandId)
+      output.error(`Command: ${commandId}.`);
+    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || error instanceof ApiStatusError && error.status >= 500)) {
+      output.error("The outcome may be uncertain. Keep the same --command-id, --if-match and arguments on retry. Never use a newer head without reviewing it.");
+    }
+    return 1;
+  }
+}
+
+// dist/commands/hosted-space-writes.js
+import { randomUUID as randomUUID14 } from "node:crypto";
 var SPACE_ADD_USAGE = "ideaspaces spaces add <map-id> <address> --if-match <head-version-id> [--command-id <id>] [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces spaces add <map-id> --position <path> --root-node-id <id> [--sha <commit>] --if-match <head-version-id> [--command-id <id>] [--depth name|summary|surface|children|full]";
 function value2(flags2, key2) {
   if (flags2[key2] === void 0)
@@ -30703,7 +30755,7 @@ async function runHostedSpaceAdd(args2, flags2, global3) {
     const head2 = value2(flags2, "if-match");
     if (!head2 || !NODE_ID.test(head2))
       throw new Error("--if-match needs the head version_id from spaces open <map-id> --json. A stale head is refused; reload and review before trying again.");
-    commandId = value2(flags2, "command-id") ?? randomUUID13();
+    commandId = value2(flags2, "command-id") ?? randomUUID14();
     if (commandId.length > 64)
       throw new Error("--command-id must be at most 64 characters.");
     const position = value2(flags2, "position");
@@ -30776,9 +30828,11 @@ var spacesCommand = {
   usage: `ideaspaces spaces list --hosted [--json]
        ideaspaces spaces open <map-id> [--json]
        ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
-       ${SPACE_ADD_USAGE}`,
-  help: "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+       ${SPACE_ADD_USAGE}
+       ${SPACE_REMOVE_USAGE}`,
+  help: "Remove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed. Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
+    "ideaspaces spaces remove n_0123456789abcdef01234567 1 --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces list --hosted --json",
     "ideaspaces spaces open n_0123456789abcdef01234567 --json",
@@ -30789,6 +30843,8 @@ var spacesCommand = {
   ],
   async run(args2, flags2, global3) {
     const output = createOutput(global3);
+    if (args2[0] === "remove")
+      return runHostedSpaceRemove(args2.slice(1), flags2, global3);
     if (args2[0] === "add")
       return runHostedSpaceAdd(args2.slice(1), flags2, global3);
     const config = loadConfig();
@@ -33236,7 +33292,7 @@ async function* runLocalTurn(opts) {
 
 // dist/pi/local-conversations.js
 import { existsSync as existsSync38, readdirSync as readdirSync6, readFileSync as readFileSync24, realpathSync as realpathSync27, statSync as statSync19 } from "node:fs";
-import { randomUUID as randomUUID14 } from "node:crypto";
+import { randomUUID as randomUUID15 } from "node:crypto";
 import { join as join47 } from "node:path";
 
 // dist/local/task-notification.js
@@ -33250,7 +33306,7 @@ function localSessionDir(contextRoot) {
   return join47(contextRoot, ".pi", "sessions");
 }
 function mintConversationId() {
-  return `local-${randomUUID14()}`;
+  return `local-${randomUUID15()}`;
 }
 function textOf(content) {
   if (typeof content === "string")
@@ -33693,7 +33749,7 @@ import { spawn as spawn5 } from "node:child_process";
 
 // dist/claude/local-conversations.js
 import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync25, realpathSync as realpathSync29, statSync as statSync21 } from "node:fs";
-import { randomUUID as randomUUID15 } from "node:crypto";
+import { randomUUID as randomUUID16 } from "node:crypto";
 import { homedir as homedir7 } from "node:os";
 import { basename as basename22, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
 function claudeConfigDir(env = process.env) {
@@ -33717,7 +33773,7 @@ function legacyClaudeProjectDir(cwd, env = process.env) {
   return join49(claudeConfigDir(env), "projects", slugOf(resolve44(cwd)));
 }
 function mintClaudeConversationId() {
-  return randomUUID15();
+  return randomUUID16();
 }
 var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 var CMD_NAME = /<command-name>([\s\S]*?)<\/command-name>/u;
