@@ -1748,3 +1748,8 @@ export async function removeHostedSpaceMember(config: ApiConfig, id: string, ord
   return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body, { statusError: true });
 }
 
+
+export async function importHostedSpace(config: ApiConfig, markdown: string): Promise<unknown> {
+  return request(config, "POST", `${API_V1}/maps/import`, markdown, { text: true, statusError: true });
+}
+

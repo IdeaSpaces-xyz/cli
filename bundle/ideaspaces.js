@@ -15264,6 +15264,9 @@ async function fetchHostedSpace(config, id) {
 async function removeHostedSpaceMember(config, id, ordinal, body) {
   return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body, { statusError: true });
 }
+async function importHostedSpace(config, markdown) {
+  return request(config, "POST", `${API_V1}/maps/import`, markdown, { text: true, statusError: true });
+}
 
 // dist/auth/identity.js
 function identityEmail(username) {
@@ -18729,6 +18732,7 @@ function loadMapNote(reference, contextRoot) {
   const name = scalar(frontmatter.name);
   const summary = scalar(frontmatter.summary);
   return {
+    content,
     path: displayPath(absolutePath, resolve14(contextRoot), reference),
     absolutePath,
     fileSha: createHash5("sha256").update(content).digest("hex"),
@@ -30829,9 +30833,11 @@ var spacesCommand = {
        ideaspaces spaces open <map-id> [--json]
        ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
        ${SPACE_ADD_USAGE}
-       ${SPACE_REMOVE_USAGE}`,
-  help: "Remove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed. Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+       ${SPACE_REMOVE_USAGE}
+       ideaspaces spaces import <file.map.md> [--json]`,
+  help: "Import creates an independent personal hosted copy with no new Core. It grants nothing and never synchronizes the local Map. Remove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed. Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
+    "ideaspaces spaces import research.map.md --json",
     "ideaspaces spaces remove n_0123456789abcdef01234567 1 --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces list --hosted --json",
@@ -30847,6 +30853,10 @@ var spacesCommand = {
       return runHostedSpaceRemove(args2.slice(1), flags2, global3);
     if (args2[0] === "add")
       return runHostedSpaceAdd(args2.slice(1), flags2, global3);
+    if (args2[0] === "import" && (args2.length !== 2 || Object.keys(flags2).length)) {
+      output.error("Usage: ideaspaces spaces import <file.map.md> [--json]. The copy goes into your personal Vault.");
+      return 1;
+    }
     const config = loadConfig();
     if (!config) {
       output.error("Not logged in. Run `ideaspaces login`.");
@@ -30856,6 +30866,26 @@ var spacesCommand = {
     if (flags2.hosted !== void 0 && flags2.hosted !== true) {
       output.error("--hosted takes no value. Leave it out for legacy coordination objects; local Maps use ideaspaces map.");
       return 1;
+    }
+    if (sub === "import") {
+      let sent = false;
+      try {
+        const local = loadMapNote(args2[1], process.cwd());
+        const markdown = local.content;
+        if (Buffer.byteLength(markdown, "utf8") > 1024 * 1024)
+          throw new Error("Map copy exceeds the 1 MiB import limit.");
+        await fetchVaults(config);
+        sent = true;
+        const result = await importHostedSpace(config, markdown);
+        output.result(result, "Imported a hosted copy into your personal Vault. Local and hosted Spaces update independently. No new Core Thread or content access was created.");
+        return 0;
+      } catch (error) {
+        output.error(error instanceof UnauthorizedError ? error.message : error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+        const uncertain = error instanceof NetworkError || error instanceof SyntaxError || error instanceof ApiStatusError && error.status >= 500;
+        if (sent && uncertain)
+          output.error("Import was not retried. If its outcome is uncertain, check spaces list --hosted before importing again; another import creates another copy.");
+        return 1;
+      }
     }
     const hosted = flags2.hosted === true;
     if (sub === "open" || hosted) {

@@ -10,6 +10,8 @@ import {
 } from "@ideaspaces/protocol";
 
 export interface LoadedMapNote {
+  /** Exact validated bytes, for explicit portable-copy uploads. Never resolve a second read. */
+  content: string;
   /** For display: relative to the context it was loaded from when inside it. */
   path: string;
   /** Where the note is on disk; a Map's roots are looked for from its folder. */
@@ -73,6 +75,7 @@ export function loadMapNote(reference: string, contextRoot: string): LoadedMapNo
   const name = scalar(frontmatter.name);
   const summary = scalar(frontmatter.summary);
   return {
+    content,
     path: displayPath(absolutePath, resolve(contextRoot), reference),
     absolutePath,
     fileSha: createHash("sha256").update(content).digest("hex"),
