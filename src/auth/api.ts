@@ -1709,9 +1709,20 @@ export interface HostedSpaceRead {
 }
 
 export async function fetchHostedSpaces(config: ApiConfig): Promise<{ maps: HostedSpaceSummary[] }> {
-  return request(config, "GET", `${API_V1}/maps`);
+  const result = await request<{ maps: HostedSpaceSummary[] }>(config, "GET", `${API_V1}/maps`);
+  if (!result || !Array.isArray(result.maps) || result.maps.some(m => !m || typeof m.node_id !== "string" || typeof m.name !== "string" || typeof m.owner !== "string")) {
+    throw new Error("IdeaSpaces returned an unreadable Spaces list. Retry, or update the CLI.");
+  }
+  return result;
 }
 
 export async function fetchHostedSpace(config: ApiConfig, id: string): Promise<HostedSpaceRead> {
-  return request(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}?detail=members`);
+  const result = await request<HostedSpaceRead>(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}?detail=members`);
+  if (!result || typeof result.map_id !== "string" || typeof result.version_id !== "string" ||
+      !result.authored || typeof result.authored.label !== "string" ||
+      !Number.isSafeInteger(result.omitted_members) || result.omitted_members < 0 ||
+      (result.members !== null && (!Array.isArray(result.members) || result.members.some(m => !m?.address || !Number.isInteger(m.address.ordinal) || typeof m.state !== "string")))) {
+    throw new Error("IdeaSpaces returned an unreadable Space. Retry, or update the CLI.");
+  }
+  return result;
 }

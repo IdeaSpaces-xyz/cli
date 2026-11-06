@@ -1,3 +1,4 @@
+import { NODE_ID } from "./thread-flags.js";
 import { parseBool } from "../argv.js";
 import { apiErrorDetail, fetchCoordinationSpaces, fetchHostedSpaces, fetchHostedSpace, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
@@ -8,6 +9,19 @@ type Flags = Record<string, string | boolean>;
 
 function flagString(flags: Flags, name: string): string | undefined {
   return typeof flags[name] === "string" ? flags[name] : undefined;
+}
+
+function hostedArgsError(args: string[], flags: Flags): string | undefined {
+  if (flags["attached-to"] !== undefined || flags["include-dormant"] !== undefined) return "Legacy list filters do not apply to hosted Spaces. Use spaces list --hosted.";
+  const unknown = Object.keys(flags).find(f => f !== "hosted");
+  if (unknown) return `Unknown flag for hosted Spaces: --${unknown}.`;
+  if (args[0] === "open") {
+    if (args.length !== 2) return "Usage: ideaspaces spaces open <map-id> [--json]";
+    if (!NODE_ID.test(args[1])) return "Map IDs look like n_<12 or 24 lowercase hex digits>. Use spaces list --hosted to find one.";
+  } else if (args.length > 1 || (args[0] !== undefined && args[0] !== "list")) {
+    return "Usage: ideaspaces spaces list --hosted [--json]";
+  }
+  return undefined;
 }
 
 export const spacesCommand: CommandDef = {
@@ -33,14 +47,14 @@ export const spacesCommand: CommandDef = {
     }
 
     const [sub, id] = args;
-    const hosted = flags.hosted !== undefined && parseBool(flags.hosted);
+    if (flags.hosted !== undefined && flags.hosted !== true) {
+      output.error("--hosted takes no value. Leave it out for legacy coordination objects; local Maps use ideaspaces map.");
+      return 1;
+    }
+    const hosted = flags.hosted === true;
     if (sub === "open" || hosted) {
-      if ((sub === "open" && (args.length !== 2 || !/^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/.test(id ?? ""))) ||
-          (sub !== "open" && (args.length > 1 || (sub !== undefined && sub !== "list"))) ||
-          flags["attached-to"] !== undefined || flags["include-dormant"] !== undefined) {
-        output.error("Usage: ideaspaces spaces list --hosted | spaces open <map-id>. Legacy list filters do not apply to hosted Spaces.");
-        return 1;
-      }
+      const error = hostedArgsError(args, flags);
+      if (error) { output.error(error); return 1; }
       try {
         if (sub === "open") {
           const space = await fetchHostedSpace(config, id);
@@ -48,7 +62,7 @@ export const spacesCommand: CommandDef = {
           output.result(space, [
             `${space.authored.label} (${space.map_id})`,
             space.authored.summary ?? "", `Head: ${space.version_id}`,
-            ...members, "References do not grant access. Local Maps are unchanged.",
+            ...members, ...(space.omitted_members ? [`…and ${space.omitted_members} more references not shown.`] : []), "References do not grant access. Local Maps are unchanged.",
           ].filter(Boolean).join("\n"));
         } else {
           const result = await fetchHostedSpaces(config);

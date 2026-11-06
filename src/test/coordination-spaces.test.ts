@@ -189,3 +189,20 @@ describe("hosted Spaces", () => {
     expect(stderr()).toContain("Forbidden"); expect(fetchCoordinationSpacesMock).not.toHaveBeenCalled();
   });
 });
+
+it("shows empty and truncated hosted views without implying completeness", async () => {
+  fetchHostedSpacesMock.mockResolvedValue({ maps: [] });
+  expect(await spacesCommand.run(["list"], { hosted: true }, TEXT_GLOBAL)).toBe(0);
+  expect(stdout()).toContain("No hosted Spaces found.");
+  fetchHostedSpaceMock.mockResolvedValue({ map_id: "n_" + "a".repeat(24), version_id: "v", authored: { label: "Limited" }, members: null, omitted_members: 3 });
+  expect(await spacesCommand.run(["open", "n_" + "a".repeat(24)], {}, TEXT_GLOBAL)).toBe(0);
+  expect(stdout()).toContain("3 more references not shown");
+});
+it("parses hosted before the subcommand and refuses false rather than falling back", async () => {
+  const { parseArgs } = await import("../argv.js");
+  const parsed = parseArgs(["spaces", "--hosted", "list"]);
+  expect(parsed.args).toEqual(["list"]); expect(parsed.flags.hosted).toBe(true);
+  fetchCoordinationSpacesMock.mockClear();
+  expect(await spacesCommand.run(["list"], { hosted: "false" }, TEXT_GLOBAL)).toBe(1);
+  expect(fetchCoordinationSpacesMock).not.toHaveBeenCalled();
+});

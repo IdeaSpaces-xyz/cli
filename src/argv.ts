@@ -2,7 +2,7 @@ import { normalizeGitBin } from "./git.js";
 import type { GlobalFlags } from "./types.js";
 
 // Flags that take no argument on any command (e.g. `ideaspaces map --orientation`).
-const BOOLEAN_COMMAND_FLAGS = new Set(["read-only", "orientation", "threads", "no-check-links"]);
+const BOOLEAN_COMMAND_FLAGS = new Set(["hosted", "read-only", "orientation", "threads", "no-check-links"]);
 // Flags one command repeats to give a list. Elsewhere the same name keeps its
 // single value (`map add --root <index>` is not `search --root <dir>`).
 const LIST_FLAGS: Record<string, string> = { root: "search" };
