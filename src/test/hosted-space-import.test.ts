@@ -82,3 +82,11 @@ it("maps post-send 401 and 5xx without replay", async () => {
   expect(stderr).toContain("another import creates another copy");
   expect(calls.filter(c => c.init.method === "POST")).toHaveLength(1);
 });
+
+it("preserves shared API error details for JSON, plain, empty and existing untyped callers", async () => {
+  const { apiErrorDetail, ApiStatusError } = await import("../auth/api.js");
+  for (const [body, expected] of [[JSON.stringify({ detail: "Denied" }), "Denied"], ["plain refusal", "plain refusal"], ["", "HTTP 403"], ["   ", "HTTP 403"]]) {
+    expect(apiErrorDetail(new ApiStatusError(403, body, null))).toBe(expected);
+  }
+  expect(apiErrorDetail(new Error('GET /example → 403: {"detail":"Existing refusal"}'))).toBe("Existing refusal");
+});
