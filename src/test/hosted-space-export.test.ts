@@ -29,6 +29,7 @@ describe("Space export copy", () => {
     const path = join(dir, "research.map.md"); writeFileSync(path, "keep me");
     expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
     expect(readFileSync(path, "utf8")).toBe("keep me");
+    expect(stderr).toContain("Choose a new path");
   });
   it("refuses invalid documents and non-Map destinations without writing", async () => {
     const path = join(dir, "research.map.md"); payload = "not a Map";
@@ -44,4 +45,13 @@ describe("Space export copy", () => {
     expect(await runMapEdit(["create", path], { name: "Other", summary: "Other" }, global)).toBe(1);
     expect(readFileSync(path, "utf8")).toBe(before);
   });
+});
+
+it("preserves the pre-existing local map create filename rule", async () => {
+  expect(await runMapEdit(["create", join(dir, "arbitrary.txt")], { name: "Local", summary: "View" }, global)).toBe(1);
+  expect(existsSync(join(dir, "arbitrary.txt"))).toBe(false);
+});
+it("explains a missing destination folder", async () => {
+  expect(await spacesCommand.run(["export", ID, join(dir, "missing", "copy.map.md")], {}, global)).toBe(1);
+  expect(stderr).toContain("Create the folder first");
 });

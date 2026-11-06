@@ -48,6 +48,14 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/maps"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/maps/{id}"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/maps/{id}/export"
     },
     {

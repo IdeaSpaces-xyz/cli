@@ -87,13 +87,19 @@ export function loadMapNote(reference: string, contextRoot: string): LoadedMapNo
 export async function writeNewMapNote(reference: string, content: string): Promise<{ path: string; sha: string }> {
   const path = resolve(reference);
   if (basename(path) !== "README.md" && !basename(path).endsWith(".map.md")) {
-    throw new Error("A local Map copy needs a *.map.md or README.md path.");
+    throw new Error("A local Map needs a *.map.md or README.md path.");
   }
   const syntax = inspectFrontmatterSyntax(content);
   const frontmatter = parseFrontmatter(content);
   if (syntax.status !== "valid" || !frontmatter || parseMap(frontmatter.map).status !== "valid") {
-    throw new Error("The exported document is not a valid Map note; nothing was written.");
+    throw new Error("The document is not a valid Map note; nothing was written.");
   }
-  await fs.writeFile(path, content, { flag: "wx" });
+  try { await fs.writeFile(path, content, { flag: "wx" }); }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") throw new Error(`Local Map already exists: ${path}. Choose a new path; existing files are never replaced.`);
+    if (code === "ENOENT") throw new Error(`The destination folder does not exist: ${path}. Create the folder first; nothing was written.`);
+    throw error;
+  }
   return { path, sha: createHash("sha256").update(content).digest("hex") };
 }
