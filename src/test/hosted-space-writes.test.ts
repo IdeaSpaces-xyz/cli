@@ -67,3 +67,9 @@ it("uses typed 5xx status for uncertain outcomes without replay", async () => {
   expect(await run(["add", ID, "https://example.com"])).toBe(1);
   expect(calls).toHaveLength(1); expect(stderr).toContain("outcome may be uncertain");
 });
+
+it("accepts its documented example through the real argument parser", async () => {
+  const { parseArgs } = await import("../argv.js");
+  const parsed = parseArgs(spacesCommand.examples![0].split(" ").slice(1));
+  expect(await spacesCommand.run(parsed.args, parsed.flags, parsed.global)).toBe(0);
+});

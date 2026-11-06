@@ -34,7 +34,7 @@ export const spacesCommand: CommandDef = {
        ${SPACE_ADD_USAGE}`,
   help: "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
-    "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_abcdef0123456789abcdef0123",
+    "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces list --hosted --json",
     "ideaspaces spaces open n_0123456789abcdef01234567 --json",
     "ideaspaces spaces",
