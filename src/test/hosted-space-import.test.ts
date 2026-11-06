@@ -6,16 +6,16 @@ import { spacesCommand } from "../commands/spaces.js";
 const global = { json: true, quiet: true, yes: false, help: false };
 const DOC = "---\nname: Research\nsummary: A copy\nmap:\n  roots: []\n  members:\n    - address: thread:x_original\n      depth: summary\n---\n\nOur legend.\n";
 let dir: string, path: string, stdout: string, stderr: string, calls: Array<{ url: string; init: RequestInit }>;
-let refusal: boolean, failWrite: boolean;
+let refusal: boolean, failWrite: boolean, writeStatus: number;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "space-import-")); path = join(dir, "research.map.md"); writeFileSync(path, DOC);
-  stdout = ""; stderr = ""; calls = []; refusal = false; failWrite = false;
+  stdout = ""; stderr = ""; calls = []; refusal = false; failWrite = false; writeStatus = 201;
   vi.stubEnv("HOME", dir); vi.stubEnv("IDEASPACES_AUTH", ""); vi.stubEnv("IS_API_KEY", "fixture"); vi.stubEnv("IS_API_URL", "http://localhost:1234");
   vi.stubGlobal("fetch", vi.fn(async (url, init) => {
     calls.push({ url: String(url), init });
     if (String(url).endsWith("/vaults")) return new Response(JSON.stringify(refusal ? { detail: "Person sign-in required" } : { personal: {}, orgs: [], shared_with_me: [] }), { status: refusal ? 403 : 200 });
     if (failWrite) throw new TypeError("fetch failed");
-    return new Response(JSON.stringify({ map_id: "n_new_copy", version_id: "n_version", members: [] }), { status: 201 });
+    return new Response(JSON.stringify(writeStatus === 201 ? { map_id: "n_new_copy", version_id: "n_version", members: [] } : { detail: "Import refused" }), { status: writeStatus });
   }));
   vi.spyOn(process.stdout, "write").mockImplementation(((s: string) => { stdout += s; return true; }) as typeof process.stdout.write);
   vi.spyOn(process.stderr, "write").mockImplementation(((s: string) => { stderr += s; return true; }) as typeof process.stderr.write);
@@ -47,4 +47,20 @@ describe("Space import copy", () => {
     expect(calls.filter(c => c.init.method === "POST")).toHaveLength(1);
     expect(stderr).toContain("another import creates another copy");
   });
+});
+
+it("reports settled import refusal without suggesting a duplicate copy may exist", async () => {
+  writeStatus = 422;
+  expect(await spacesCommand.run(["import", path], {}, global)).toBe(1);
+  expect(stderr).toContain("Import refused"); expect(stderr).not.toContain("another copy");
+});
+it("rejects missing and oversized documents before network access", async () => {
+  expect(await spacesCommand.run(["import", join(dir, "missing.map.md")], {}, global)).toBe(1);
+  writeFileSync(path, DOC + "x".repeat(1024 * 1024));
+  expect(await spacesCommand.run(["import", path], {}, global)).toBe(1);
+  expect(stderr).toContain("1 MiB"); expect(calls).toHaveLength(0);
+});
+it("extracts a typed API refusal's human detail", async () => {
+  const { apiErrorDetail, ApiStatusError } = await import("../auth/api.js");
+  expect(apiErrorDetail(new ApiStatusError(403, JSON.stringify({ detail: { code: "person_required", message: "Person required" } }), null))).toBe("Person required");
 });

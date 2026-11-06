@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
-import { ApiStatusError, fetchVaults, importHostedSpace } from "../auth/api.js";
 import { loadMapNote } from "../local/map-note.js";
+import { NODE_ID } from "./thread-flags.js";
 import { parseBool } from "../argv.js";
-import { apiErrorDetail, fetchCoordinationSpaces, UnauthorizedError } from "../auth/api.js";
+import { ApiStatusError, NetworkError, fetchVaults, importHostedSpace, apiErrorDetail, fetchCoordinationSpaces, fetchHostedSpaces, fetchHostedSpace, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
@@ -13,13 +13,28 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof flags[name] === "string" ? flags[name] : undefined;
 }
 
+function hostedArgsError(args: string[], flags: Flags): string | undefined {
+  if (flags["attached-to"] !== undefined || flags["include-dormant"] !== undefined) return "Legacy list filters do not apply to hosted Spaces. Use spaces list --hosted.";
+  const unknown = Object.keys(flags).find(f => f !== "hosted");
+  if (unknown) return `Unknown flag for hosted Spaces: --${unknown}.`;
+  if (args[0] === "open") {
+    if (args.length !== 2) return "Usage: ideaspaces spaces open <map-id> [--json]";
+    if (!NODE_ID.test(args[1])) return "Map IDs look like n_<12 or 24 lowercase hex digits>. Use spaces list --hosted to find one.";
+  } else if (args.length > 1 || (args[0] !== undefined && args[0] !== "list")) {
+    return "Usage: ideaspaces spaces list --hosted [--json]";
+  }
+  return undefined;
+}
+
 export const spacesCommand: CommandDef = {
   name: "spaces",
-  description: "Work with hosted Spaces (named Maps), not Repos",
-  usage: "ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]",
-  help: "ideaspaces spaces import <file.map.md>\nImport creates an independent hosted copy in your personal Vault. It creates no new Core Thread, grants no access and never synchronizes your local Map. Company import is not supported by this endpoint.",
+  description: "List or open hosted Spaces (named Maps); local Maps stay separate",
+  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]" + "\n       " + "ideaspaces spaces import <file.map.md> [--json]",
+  help: "Import creates a personal hosted copy with no new Core; no company import or synchronization. " + "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
-    "ideaspaces spaces import research.map.md --json",
+    "ideaspaces spaces import research.map.md",
+    "ideaspaces spaces list --hosted --json",
+    "ideaspaces spaces open n_0123456789abcdef01234567 --json",
     "ideaspaces spaces",
     "ideaspaces spaces --json",
     "ideaspaces spaces --attached-to repo:n_0123456789abcdef01234567",
@@ -28,13 +43,21 @@ export const spacesCommand: CommandDef = {
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
 
+    if (args[0] === "import" && (args.length !== 2 || Object.keys(flags).length)) {
+      output.error("Usage: ideaspaces spaces import <file.map.md> [--json]");
+      return 1;
+    }
     const config = loadConfig();
     if (!config) {
       output.error("Not logged in. Run `ideaspaces login`.");
       return 1;
     }
 
-    const [sub] = args;
+    const [sub, id] = args;
+    if (flags.hosted !== undefined && flags.hosted !== true) {
+      output.error("--hosted takes no value. Leave it out for legacy coordination objects; local Maps use ideaspaces map.");
+      return 1;
+    }
     if (sub === "import") {
       let sent = false;
       try {
@@ -52,7 +75,35 @@ export const spacesCommand: CommandDef = {
         return 0;
       } catch (error) {
         output.error(error instanceof UnauthorizedError || (error instanceof ApiStatusError && error.status === 401) ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
-        if (sent) output.error("Import was not retried. If its outcome is uncertain, check spaces list --hosted before importing again; another import creates another copy.");
+        const uncertain = error instanceof NetworkError || error instanceof SyntaxError ||
+          (error instanceof ApiStatusError && error.status >= 500) ||
+          (error instanceof Error && /→ 5\d\d:/.test(error.message));
+        if (sent && uncertain) output.error("Import was not retried. If its outcome is uncertain, check spaces list --hosted before importing again; another import creates another copy.");
+        return 1;
+      }
+    }
+    const hosted = flags.hosted === true;
+    if (sub === "open" || hosted) {
+      const error = hostedArgsError(args, flags);
+      if (error) { output.error(error); return 1; }
+      try {
+        if (sub === "open") {
+          const space = await fetchHostedSpace(config, id);
+          const members = (space.members ?? []).map(m => `  ${m.address.ordinal}: ${m.address.authored_name ?? m.address.address ?? m.address.position_at_pin ?? "Reference"} · ${m.state}`);
+          output.result(space, [
+            `${space.authored.label} (${space.map_id})`,
+            space.authored.summary ?? "", `Head: ${space.version_id}`,
+            ...members, ...(space.omitted_members ? [`…and ${space.omitted_members} more references not shown.`] : []), "References do not grant access. Local Maps are unchanged.",
+          ].filter(Boolean).join("\n"));
+        } else {
+          const result = await fetchHostedSpaces(config);
+          output.result(result, result.maps.length ? result.maps.map(s =>
+            `${s.name} (${s.node_id}) · ${s.owner}${s.summary ? `\n  ${s.summary}` : ""}`
+          ).join("\n") : "No hosted Spaces found.");
+        }
+        return 0;
+      } catch (err) {
+        output.error(err instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(err));
         return 1;
       }
     }
