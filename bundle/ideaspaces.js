@@ -30690,7 +30690,7 @@ var spacesCommand = {
     const [sub, id] = args2;
     const hosted = flags2.hosted !== void 0 && parseBool(flags2.hosted);
     if (sub === "open" || hosted) {
-      if (sub === "open" && (args2.length !== 2 || !/^n_[0-9a-f]{24}$/.test(id ?? "")) || sub !== "open" && (args2.length > 1 || sub !== void 0 && sub !== "list") || flags2["attached-to"] !== void 0 || flags2["include-dormant"] !== void 0) {
+      if (sub === "open" && (args2.length !== 2 || !/^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/.test(id ?? "")) || sub !== "open" && (args2.length > 1 || sub !== void 0 && sub !== "list") || flags2["attached-to"] !== void 0 || flags2["include-dormant"] !== void 0) {
         output.error("Usage: ideaspaces spaces list --hosted | spaces open <map-id>. Legacy list filters do not apply to hosted Spaces.");
         return 1;
       }

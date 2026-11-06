@@ -35,7 +35,7 @@ export const spacesCommand: CommandDef = {
     const [sub, id] = args;
     const hosted = flags.hosted !== undefined && parseBool(flags.hosted);
     if (sub === "open" || hosted) {
-      if ((sub === "open" && (args.length !== 2 || !/^n_[0-9a-f]{24}$/.test(id ?? ""))) ||
+      if ((sub === "open" && (args.length !== 2 || !/^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/.test(id ?? ""))) ||
           (sub !== "open" && (args.length > 1 || (sub !== undefined && sub !== "list"))) ||
           flags["attached-to"] !== undefined || flags["include-dormant"] !== undefined) {
         output.error("Usage: ideaspaces spaces list --hosted | spaces open <map-id>. Legacy list filters do not apply to hosted Spaces.");
