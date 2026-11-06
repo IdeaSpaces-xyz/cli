@@ -97,8 +97,8 @@ export async function writeNewMapNote(reference: string, content: string): Promi
   try { await fs.writeFile(path, content, { flag: "wx" }); }
   catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EEXIST") throw new Error(`Local Map already exists: ${path}. Choose a new path; existing files are never replaced.`);
-    if (code === "ENOENT") throw new Error(`The destination folder does not exist: ${path}. Create the folder first; nothing was written.`);
+    if (code === "EEXIST") throw Object.assign(new Error(`Local Map already exists: ${path}. Choose a new path; existing files are never replaced.`), { code });
+    if (code === "ENOENT") throw Object.assign(new Error(`The destination folder does not exist: ${path}. Create the folder first; nothing was written.`), { code });
     throw error;
   }
   return { path, sha: createHash("sha256").update(content).digest("hex") };

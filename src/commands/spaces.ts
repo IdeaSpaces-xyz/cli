@@ -28,8 +28,8 @@ function hostedArgsError(args: string[], flags: Flags): string | undefined {
 export const spacesCommand: CommandDef = {
   name: "spaces",
   description: "List or open hosted Spaces (named Maps); local Maps stay separate",
-  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]" + "\n       " + "ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]",
-  help: "Export creates an independent local copy and never overwrites an existing file. " + "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]\n       ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]",
+  help: "Export creates an independent local copy and never overwrites an existing file. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
     "ideaspaces spaces export n_0123456789abcdef01234567 research.map.md",
     "ideaspaces spaces list --hosted --json",
