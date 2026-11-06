@@ -73,3 +73,32 @@ it("accepts its documented example through the real argument parser", async () =
   const parsed = parseArgs(spacesCommand.examples![0].split(" ").slice(1));
   expect(await spacesCommand.run(parsed.args, parsed.flags, parsed.global)).toBe(0);
 });
+
+it("preserves the real renewed-session retry message without replaying the write", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { saveCredentials, loadStoredCredentials } = await import("../auth/credentials.js");
+  const home = mkdtempSync(join(tmpdir(), "spaces-add-renewal-"));
+  vi.stubEnv("HOME", home); vi.stubEnv("IS_API_KEY", ""); vi.stubEnv("IS_API_URL", "");
+  try {
+    saveCredentials({ api_url: "https://api.test.invalid", api_key: "old-access", session: {
+      id: "session-one", install_id: "test-install-1", refresh_token: "refresh-one",
+      expires_at: Date.now() + 3600000, refresh_expires_at: Date.now() + 86400000,
+    } });
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith("/auth/desktop/token")) return Response.json({
+        access_token: "new-access", refresh_token: "refresh-two", token_type: "Bearer", expires_in: 3600,
+        refresh_expires_in: 86400, session: { id: "session-one", install_id: "test-install-1", client: "cli" },
+      });
+      return Response.json({ detail: "Expired access" }, { status: 401 });
+    }));
+    expect(await run(["add", ID, "https://example.com"])).toBe(1);
+    expect(stderr).toContain("Your sign-in was renewed. Retry this command; its write was not replayed.");
+    expect(stderr).not.toContain("Session expired");
+    expect(calls.filter(c => c.url.endsWith("/members"))).toHaveLength(1);
+    expect(calls.filter(c => c.url.endsWith("/auth/desktop/token"))).toHaveLength(1);
+    expect(loadStoredCredentials()?.api_key).toBe("new-access");
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});

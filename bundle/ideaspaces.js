@@ -30740,7 +30740,7 @@ Command: ${commandId}
 Read spaces open ${id} --json for the current head, especially after an exact retry.`);
     return 0;
   } catch (error) {
-    output.error(error instanceof UnauthorizedError || error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+    output.error(error instanceof UnauthorizedError ? error.message : error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
     if (attempted && commandId)
       output.error(`Command: ${commandId}.`);
     if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || error instanceof ApiStatusError && error.status >= 500)) {
