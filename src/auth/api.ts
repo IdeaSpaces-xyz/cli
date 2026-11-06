@@ -633,7 +633,7 @@ export async function fetchAgents(
 /** Pull the clean message or detail string out of an API error. */
 export function apiErrorDetail(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
-  const match = err.message.match(/→ \d+:\s*(.+)$/);
+  const match = err instanceof ApiStatusError ? [err.message, err.body.trim() ? err.body : err.message] : err.message.match(/→ \d+:\s*(.+)$/);
   if (match) {
     try {
       const parsed = JSON.parse(match[1]!) as { detail?: unknown; message?: unknown };
@@ -1687,7 +1687,7 @@ export async function* streamConversationMessage(
 export async function removeHostedSpaceMember(config: ApiConfig, id: string, ordinal: number, body: {
   command_id: string; expected_head_version_id: string;
 }): Promise<{ map_id: string; version_id: string; ordinal: number; owner: string; core_thread_id: string | null }> {
-  return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body);
+  return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body, { statusError: true });
 }
 
 /** A hosted Space is a named Map, not a Repo or a local folder. */

@@ -38,3 +38,24 @@ describe("hosted Space pointer removal", () => {
     }
   });
 });
+
+it("distinguishes settled 4xx from ambiguous 5xx, network and unreadable writes", async () => {
+  status = 403;
+  expect(await spacesCommand.run(["remove", ID, "1"], flags, { ...global, yes: true })).toBe(1);
+  expect(stderr).not.toContain("outcome may be uncertain");
+  status = 503; stderr = "";
+  expect(await spacesCommand.run(["remove", ID, "1"], flags, { ...global, yes: true })).toBe(1);
+  expect(stderr).toContain("outcome may be uncertain");
+  for (const failure of [() => { throw new TypeError("fetch failed"); }, () => new Response("not JSON", { status: 200 })]) {
+    stderr = ""; vi.stubGlobal("fetch", vi.fn(async () => failure()));
+    expect(await spacesCommand.run(["remove", ID, "1"], flags, { ...global, yes: true })).toBe(1);
+    expect(fetch).toHaveBeenCalledOnce(); expect(stderr).toContain("outcome may be uncertain");
+  }
+});
+it("maps 401 and rejects unknown flags and long command ids before writes", async () => {
+  expect(await spacesCommand.run(["remove", ID, "1"], { ...flags, bad: true }, global)).toBe(1);
+  expect(await spacesCommand.run(["remove", ID, "1"], { ...flags, "command-id": "x".repeat(65) }, global)).toBe(1);
+  expect(fetch).not.toHaveBeenCalled(); status = 401;
+  expect(await spacesCommand.run(["remove", ID, "1"], flags, { ...global, yes: true })).toBe(1);
+  expect(stderr).toContain("Session expired");
+});

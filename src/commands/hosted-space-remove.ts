@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { apiErrorDetail, removeHostedSpaceMember, NetworkError, UnauthorizedError } from "../auth/api.js";
+import { ApiStatusError, apiErrorDetail, removeHostedSpaceMember, NetworkError, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { GlobalFlags } from "../types.js";
@@ -35,9 +35,9 @@ export async function runHostedSpaceRemove(args: string[], flags: Flags, global:
     output.result({ ...result, command_id: commandId }, `Removed reference ${ordinal} from ${id}. No content was deleted.\nHead: ${result.version_id}\nCommand: ${commandId}`);
     return 0;
   } catch (error) {
-    output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+    output.error(error instanceof UnauthorizedError || (error instanceof ApiStatusError && error.status === 401) ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
     if (attempted && commandId) output.error(`Command: ${commandId}.`);
-    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || (error instanceof Error && /→ 5\d\d:/.test(error.message)))) {
+    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || (error instanceof ApiStatusError && error.status >= 500))) {
       output.error("The outcome may be uncertain. Keep the same --command-id, --if-match and arguments on retry. Never use a newer head without reviewing it.");
     }
     return 1;
