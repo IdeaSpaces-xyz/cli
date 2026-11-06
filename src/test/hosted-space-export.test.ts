@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, promises as fsPromises, renameSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,4 +80,50 @@ it("validates usage before sign-in and accepts a README Map destination", async 
   vi.stubEnv("IS_API_KEY", "fixture");
   expect(await spacesCommand.run(["export", ID, join(dir, "README.md")], {}, global)).toBe(0);
   expect(readFileSync(join(dir, "README.md"), "utf8")).toBe(DOC);
+});
+
+it("cleans up its own partially written copy on a write failure", async () => {
+  const path = join(dir, "partial.map.md");
+  const open = fsPromises.open.bind(fsPromises);
+  vi.spyOn(fsPromises, "open").mockImplementation(async (...args) => {
+    const file = await open(...args);
+    const write = file.writeFile.bind(file);
+    vi.spyOn(file, "writeFile").mockImplementation(async () => {
+      await write("partial");
+      throw Object.assign(new Error("Disk full"), { code: "ENOSPC" });
+    });
+    return file;
+  });
+  expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+  expect(existsSync(path)).toBe(false);
+  expect(stderr).toContain("Disk full");
+});
+it("never deletes a replacement at the failed creation's path", async () => {
+  const path = join(dir, "replaced.map.md");
+  const open = fsPromises.open.bind(fsPromises);
+  vi.spyOn(fsPromises, "open").mockImplementation(async (...args) => {
+    const file = await open(...args);
+    const write = file.writeFile.bind(file);
+    vi.spyOn(file, "writeFile").mockImplementation(async () => {
+      await write("partial");
+      renameSync(path, join(dir, "moved-partial.map.md"));
+      writeFileSync(path, "another writer's content");
+      throw Object.assign(new Error("Disk full"), { code: "ENOSPC" });
+    });
+    return file;
+  });
+  expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+  expect(readFileSync(path, "utf8")).toBe("another writer's content");
+});
+it.skipIf(process.platform === "win32")("refuses a destination symlink without changing its target", async () => {
+  const target = join(dir, "target.md"), path = join(dir, "linked.map.md");
+  writeFileSync(target, "keep the target");
+  symlinkSync(target, path);
+  expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+  expect(readFileSync(target, "utf8")).toBe("keep the target");
+});
+it("explains a human-mode export as an independent copy", async () => {
+  expect(await spacesCommand.run(["export", ID, join(dir, "human.map.md")], {}, { ...global, json: false })).toBe(0);
+  expect(stdout).toContain("Exported a local copy");
+  expect(stdout).toContain("update independently");
 });

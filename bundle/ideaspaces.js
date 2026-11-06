@@ -18747,9 +18747,24 @@ async function writeNewMapNote(reference, content) {
   if (syntax.status !== "valid" || !frontmatter || parseMap(frontmatter.map).status !== "valid") {
     throw new Error("The document is not a valid Map note; nothing was written.");
   }
+  let file2;
+  let owned;
   try {
-    await fs11.writeFile(path, content, { flag: "wx" });
+    file2 = await fs11.open(path, "wx");
+    owned = await file2.stat({ bigint: true });
+    await file2.writeFile(content);
+    await file2.close();
+    file2 = void 0;
   } catch (error) {
+    await file2?.close().catch(() => {
+    });
+    if (owned && owned.ino !== 0n) {
+      const current2 = await fs11.lstat(path, { bigint: true }).catch(() => void 0);
+      if (current2 && !current2.isSymbolicLink() && current2.dev === owned.dev && current2.ino === owned.ino) {
+        await fs11.unlink(path).catch(() => {
+        });
+      }
+    }
     const code = error.code;
     if (code === "EEXIST")
       throw Object.assign(new Error(`Local Map already exists: ${path}. Choose a new path; existing files are never replaced.`), { code });
@@ -21425,8 +21440,8 @@ ${(0, import_yaml5.stringify)({ name, summary, map: { roots: [], members: [] } }
 
 # ${name}
 `;
-      await writeNewMapNote(requested, content);
-      output.result({ path: requested, sha: hash(content) }, `Created Space Map: ${requested}`);
+      const result = await writeNewMapNote(requested, content);
+      output.result(result, `Created Space Map: ${result.path}`);
       return 0;
     }
     const file2 = await fs12.realpath(requested);
@@ -30720,9 +30735,9 @@ function hostedArgsError(args2, flags2) {
 }
 var spacesCommand = {
   name: "spaces",
-  description: "List or open hosted Spaces (named Maps); local Maps stay separate",
+  description: "Read, edit and copy hosted Spaces (named Maps); local Maps stay separate",
   usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]\n       ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]",
-  help: "Export creates an independent local copy and never overwrites an existing file. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open shows the hosted Map; each referenced item keeps its own access checks.",
+  help: "Export creates an independent local copy and never overwrites an existing file. Choose a new path to replace a copy. Pass version_id from spaces open --json to copy an exact version. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open shows the hosted Map; each referenced item keeps its own access checks.",
   examples: [
     "ideaspaces spaces export n_0123456789abcdef01234567 research.map.md",
     "ideaspaces spaces list --hosted --json",
