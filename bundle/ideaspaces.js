@@ -30735,8 +30735,9 @@ async function runHostedSpaceAdd(args2, flags2, global3) {
     attempted = true;
     const result = await appendHostedSpaceMember(config, id, { command_id: commandId, expected_head_version_id: head2, member: hostedMember });
     output.result({ ...result, command_id: commandId }, `Added a reference to ${id}. Nothing was shared.
-Head: ${result.version_id}
-Command: ${commandId}`);
+Version: ${result.version_id}
+Command: ${commandId}
+Read spaces open ${id} --json for the current head, especially after an exact retry.`);
     return 0;
   } catch (error) {
     output.error(error instanceof UnauthorizedError || error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
