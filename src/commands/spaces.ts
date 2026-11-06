@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { loadMapNote } from "../local/map-note.js";
 import { NODE_ID } from "./thread-flags.js";
 import { parseBool } from "../argv.js";
@@ -29,8 +28,8 @@ function hostedArgsError(args: string[], flags: Flags): string | undefined {
 export const spacesCommand: CommandDef = {
   name: "spaces",
   description: "List or open hosted Spaces (named Maps); local Maps stay separate",
-  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]" + "\n       " + "ideaspaces spaces import <file.map.md> [--json]",
-  help: "Import creates a personal hosted copy with no new Core; no company import or synchronization. " + "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]\n       ideaspaces spaces import <file.map.md> [--json]",
+  help: "Import creates a personal hosted copy with no new Core; no company import or synchronization. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
     "ideaspaces spaces import research.map.md",
     "ideaspaces spaces list --hosted --json",
@@ -61,10 +60,9 @@ export const spacesCommand: CommandDef = {
     if (sub === "import") {
       let sent = false;
       try {
-        if (args.length !== 2 || Object.keys(flags).length) throw new Error("Usage: ideaspaces spaces import <file.map.md> [--json]. The copy goes into your personal Vault.");
         // Shape read only: never resolve/fetch referenced content or change the source.
         const local = loadMapNote(args[1], process.cwd());
-        const markdown = readFileSync(local.absolutePath, "utf8");
+        const markdown = local.content;
         if (Buffer.byteLength(markdown, "utf8") > 1024 * 1024) throw new Error("Map copy exceeds the 1 MiB import limit.");
         // The import endpoint predates person-only writes. Refuse agent credentials
         // through the existing person-only Vaults authority before attempting it.
@@ -75,9 +73,9 @@ export const spacesCommand: CommandDef = {
         return 0;
       } catch (error) {
         output.error(error instanceof UnauthorizedError || (error instanceof ApiStatusError && error.status === 401) ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+        // A successful write with unreadable JSON can have committed, just like a lost response.
         const uncertain = error instanceof NetworkError || error instanceof SyntaxError ||
-          (error instanceof ApiStatusError && error.status >= 500) ||
-          (error instanceof Error && /→ 5\d\d:/.test(error.message));
+          (error instanceof ApiStatusError && error.status >= 500);
         if (sent && uncertain) output.error("Import was not retried. If its outcome is uncertain, check spaces list --hosted before importing again; another import creates another copy.");
         return 1;
       }

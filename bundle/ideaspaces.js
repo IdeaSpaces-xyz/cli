@@ -14972,7 +14972,7 @@ async function fetchAgents(config, owner, opts) {
 function apiErrorDetail(err) {
   if (!(err instanceof Error))
     return String(err);
-  const match = err instanceof ApiStatusError ? [err.message, err.body] : err.message.match(/→ \d+:\s*(.+)$/);
+  const match = err instanceof ApiStatusError ? [err.message, err.body.trim() ? err.body : err.message] : err.message.match(/→ \d+:\s*(.+)$/);
   if (match) {
     try {
       const parsed2 = JSON.parse(match[1]);
@@ -15245,7 +15245,7 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
   }
 }
 async function importHostedSpace(config, markdown) {
-  return request(config, "POST", `${API_V1}/maps/import`, markdown, { text: true });
+  return request(config, "POST", `${API_V1}/maps/import`, markdown, { text: true, statusError: true });
 }
 async function fetchHostedSpaces(config) {
   const result = await request(config, "GET", `${API_V1}/maps`);
@@ -18726,6 +18726,7 @@ function loadMapNote(reference, contextRoot) {
   const name = scalar(frontmatter.name);
   const summary = scalar(frontmatter.summary);
   return {
+    content,
     path: displayPath(absolutePath, resolve14(contextRoot), reference),
     absolutePath,
     fileSha: createHash5("sha256").update(content).digest("hex"),
@@ -30675,7 +30676,6 @@ var requestCommand = {
 };
 
 // dist/commands/spaces.js
-import { readFileSync as readFileSync20 } from "node:fs";
 function flagString4(flags2, name) {
   return typeof flags2[name] === "string" ? flags2[name] : void 0;
 }
@@ -30728,10 +30728,8 @@ var spacesCommand = {
     if (sub === "import") {
       let sent = false;
       try {
-        if (args2.length !== 2 || Object.keys(flags2).length)
-          throw new Error("Usage: ideaspaces spaces import <file.map.md> [--json]. The copy goes into your personal Vault.");
         const local = loadMapNote(args2[1], process.cwd());
-        const markdown = readFileSync20(local.absolutePath, "utf8");
+        const markdown = local.content;
         if (Buffer.byteLength(markdown, "utf8") > 1024 * 1024)
           throw new Error("Map copy exceeds the 1 MiB import limit.");
         await fetchVaults(config);
@@ -30741,7 +30739,7 @@ var spacesCommand = {
         return 0;
       } catch (error) {
         output.error(error instanceof UnauthorizedError || error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
-        const uncertain = error instanceof NetworkError || error instanceof SyntaxError || error instanceof ApiStatusError && error.status >= 500 || error instanceof Error && /→ 5\d\d:/.test(error.message);
+        const uncertain = error instanceof NetworkError || error instanceof SyntaxError || error instanceof ApiStatusError && error.status >= 500;
         if (sent && uncertain)
           output.error("Import was not retried. If its outcome is uncertain, check spaces list --hosted before importing again; another import creates another copy.");
         return 1;
@@ -30809,13 +30807,13 @@ var spacesCommand = {
 };
 
 // dist/commands/threads.js
-import { existsSync as existsSync32, lstatSync as lstatSync9, readFileSync as readFileSync22, realpathSync as realpathSync25 } from "node:fs";
+import { existsSync as existsSync32, lstatSync as lstatSync9, readFileSync as readFileSync21, realpathSync as realpathSync25 } from "node:fs";
 import { spawnSync as spawnSync17 } from "node:child_process";
 import { dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
 
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync16 } from "node:child_process";
-import { existsSync as existsSync31, lstatSync as lstatSync8, readFileSync as readFileSync21, realpathSync as realpathSync24 } from "node:fs";
+import { existsSync as existsSync31, lstatSync as lstatSync8, readFileSync as readFileSync20, realpathSync as realpathSync24 } from "node:fs";
 import { basename as basename20, isAbsolute as isAbsolute21, join as join41 } from "node:path";
 function physical(path) {
   if (!isAbsolute21(path))
@@ -30915,7 +30913,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
       if (!existsSync31(path))
         return false;
       const entry = lstatSync8(path);
-      return !entry.isSymbolicLink() && entry.isFile() && readFileSync21(path, "utf8") === content;
+      return !entry.isSymbolicLink() && entry.isFile() && readFileSync20(path, "utf8") === content;
     };
     if (!safeEqual(join41(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join41(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename20(position))) {
       throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
@@ -31027,7 +31025,7 @@ function threadSection(markdown, heading) {
 function threadFrame(thread) {
   let agreement = "";
   try {
-    agreement = readFileSync22(join42(thread.path, "_agent", "agreement.md"), "utf8");
+    agreement = readFileSync21(join42(thread.path, "_agent", "agreement.md"), "utf8");
   } catch (error) {
     if (error.code !== "ENOENT")
       throw error;
@@ -31138,7 +31136,7 @@ function selectedWriterName() {
       if (!existsSync32(agentDir) || lstatSync9(agentDir).isSymbolicLink() || !lstatSync9(agentDir).isDirectory() || !existsSync32(agreement) || lstatSync9(agreement).isSymbolicLink() || !lstatSync9(agreement).isFile()) {
         throw new Error("Caller POV needs a regular _agent/agreement.md with a name to author a selected Thread post.");
       }
-      const fm = parseFrontmatter(readFileSync22(agreement, "utf8"));
+      const fm = parseFrontmatter(readFileSync21(agreement, "utf8"));
       if (typeof fm?.name !== "string" || !fm.name.trim() || fm.agreement !== void 0 && (typeof fm.agreement !== "string" || !fm.agreement.startsWith("agent:repo:"))) {
         throw new Error("Caller POV _agent/agreement.md needs an agent name (and agent:repo: kind if declared) to author a selected Thread post.");
       }
@@ -31160,7 +31158,7 @@ function writerName(explicit) {
   while (true) {
     const agreement = join42(at, "_agent", "agreement.md");
     if (existsSync32(agreement)) {
-      const fm = parseFrontmatter(readFileSync22(agreement, "utf8"));
+      const fm = parseFrontmatter(readFileSync21(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
       }
@@ -31651,7 +31649,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
         } : p);
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
-        const rawPost = postId2 && posts2.length ? readFileSync22(join42(thread.path, posts2[0].path), "utf8") : void 0;
+        const rawPost = postId2 && posts2.length ? readFileSync21(join42(thread.path, posts2[0].path), "utf8") : void 0;
         let humanText;
         if (pinned && effectiveRung === "full") {
           humanText = pinned;
@@ -31917,7 +31915,7 @@ var logoutCommand = {
 };
 
 // dist/pi/pi-status.js
-import { existsSync as existsSync35, readFileSync as readFileSync24 } from "node:fs";
+import { existsSync as existsSync35, readFileSync as readFileSync23 } from "node:fs";
 import { basename as basename21, join as join45 } from "node:path";
 
 // dist/local/probe-binary.js
@@ -31935,7 +31933,7 @@ function probeBinary(bin, env = process.env) {
 }
 
 // dist/pi/pi-auth.js
-import { chmodSync, existsSync as existsSync34, mkdirSync as mkdirSync12, readFileSync as readFileSync23, writeFileSync as writeFileSync13 } from "node:fs";
+import { chmodSync, existsSync as existsSync34, mkdirSync as mkdirSync12, readFileSync as readFileSync22, writeFileSync as writeFileSync13 } from "node:fs";
 import { homedir as homedir6 } from "node:os";
 import { dirname as dirname25, join as join44 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
@@ -31970,7 +31968,7 @@ function removeProvider(current2, provider) {
 function readAuthFile(path) {
   if (!existsSync34(path))
     return {};
-  return parseAuth(readFileSync23(path, "utf8"));
+  return parseAuth(readFileSync22(path, "utf8"));
 }
 function writeAuthFile(path, auth) {
   const dir = dirname25(path);
@@ -32009,7 +32007,7 @@ function resolveExtension(path) {
   const pkgPath = join45(path, "package.json");
   if (existsSync35(pkgPath)) {
     try {
-      const pkg = JSON.parse(readFileSync24(pkgPath, "utf8"));
+      const pkg = JSON.parse(readFileSync23(pkgPath, "utf8"));
       const exts = pkg.pi?.extensions;
       if (Array.isArray(exts) && exts.length > 0)
         return check(true);
@@ -33180,7 +33178,7 @@ async function* runLocalTurn(opts) {
 }
 
 // dist/pi/local-conversations.js
-import { existsSync as existsSync38, readdirSync as readdirSync6, readFileSync as readFileSync25, realpathSync as realpathSync27, statSync as statSync19 } from "node:fs";
+import { existsSync as existsSync38, readdirSync as readdirSync6, readFileSync as readFileSync24, realpathSync as realpathSync27, statSync as statSync19 } from "node:fs";
 import { randomUUID as randomUUID13 } from "node:crypto";
 import { join as join47 } from "node:path";
 
@@ -33292,7 +33290,7 @@ function findSessionFile(dir, convId) {
     return join47(dir, bySuffix);
   for (const f of files) {
     try {
-      const first = readFileSync25(join47(dir, f), "utf8").split("\n", 1)[0];
+      const first = readFileSync24(join47(dir, f), "utf8").split("\n", 1)[0];
       if (JSON.parse(first).id === convId)
         return join47(dir, f);
     } catch {
@@ -33310,7 +33308,7 @@ function canResumePiConversation(contextRoot, convId) {
   try {
     if (!isContained(realpathSync27(contextRoot), realpathSync27(dir)) || !isContained(realpathSync27(dir), realpathSync27(file2)))
       return false;
-    const text = readFileSync25(file2, "utf8");
+    const text = readFileSync24(file2, "utf8");
     const header = JSON.parse(text.split("\n", 1)[0] ?? "");
     if (header.type !== "session" || header.id !== convId || !header.cwd || realpathSync27(header.cwd) !== realpathSync27(contextRoot))
       return false;
@@ -33325,7 +33323,7 @@ function getLocalConversation(contextRoot, convId) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
   const mtime = statSync19(file2).mtime.toISOString();
-  const s = parseSessionJsonl(readFileSync25(file2, "utf8"), mtime);
+  const s = parseSessionJsonl(readFileSync24(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -33346,7 +33344,7 @@ function listLocalConversations(contextRoot) {
     const path = join47(dir, f);
     let text;
     try {
-      text = readFileSync25(path, "utf8");
+      text = readFileSync24(path, "utf8");
     } catch {
       continue;
     }
@@ -33637,7 +33635,7 @@ import { spawnSync as spawnSync19 } from "node:child_process";
 import { spawn as spawn5 } from "node:child_process";
 
 // dist/claude/local-conversations.js
-import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync26, realpathSync as realpathSync29, statSync as statSync21 } from "node:fs";
+import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync25, realpathSync as realpathSync29, statSync as statSync21 } from "node:fs";
 import { randomUUID as randomUUID14 } from "node:crypto";
 import { homedir as homedir7 } from "node:os";
 import { basename as basename22, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
@@ -33827,7 +33825,7 @@ function canResumeClaudeConversation(contextRoot, convId) {
   try {
     if (!isContained(realpathSync29(dirname28(file2)), realpathSync29(file2)))
       return false;
-    const text = readFileSync26(file2, "utf8");
+    const text = readFileSync25(file2, "utf8");
     let sawIdentity = false;
     let sawRoot = false;
     const root = realpathSync29(contextRoot);
@@ -33864,7 +33862,7 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
   const mtime = statSync21(file2).mtime.toISOString();
-  const s = parseClaudeSessionJsonl(readFileSync26(file2, "utf8"), mtime);
+  const s = parseClaudeSessionJsonl(readFileSync25(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
     repo_id: contextRoot,
@@ -33889,7 +33887,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
     seen.add(fileId);
     let text;
     try {
-      text = readFileSync26(path, "utf8");
+      text = readFileSync25(path, "utf8");
     } catch {
       continue;
     }

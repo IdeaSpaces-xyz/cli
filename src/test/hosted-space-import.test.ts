@@ -64,3 +64,21 @@ it("extracts a typed API refusal's human detail", async () => {
   const { apiErrorDetail, ApiStatusError } = await import("../auth/api.js");
   expect(apiErrorDetail(new ApiStatusError(403, JSON.stringify({ detail: { code: "person_required", message: "Person required" } }), null))).toBe("Person required");
 });
+
+it("keeps empty typed refusals readable and tests real --json argv", async () => {
+  const { apiErrorDetail, ApiStatusError } = await import("../auth/api.js");
+  expect(apiErrorDetail(new ApiStatusError(503, "", null))).toBe("HTTP 503");
+  const { parseArgs } = await import("../argv.js");
+  const parsed = parseArgs(["spaces", "import", path, "--json"]);
+  expect(await spacesCommand.run(parsed.args, parsed.flags, parsed.global)).toBe(0);
+  expect(JSON.parse(stdout).map_id).toBe("n_new_copy");
+});
+it("maps post-send 401 and 5xx without replay", async () => {
+  writeStatus = 401;
+  expect(await spacesCommand.run(["import", path], {}, global)).toBe(1);
+  expect(stderr).toContain("Session expired"); expect(stderr).not.toContain("another copy");
+  stdout = ""; stderr = ""; calls = []; writeStatus = 503;
+  expect(await spacesCommand.run(["import", path], {}, global)).toBe(1);
+  expect(stderr).toContain("another import creates another copy");
+  expect(calls.filter(c => c.init.method === "POST")).toHaveLength(1);
+});
