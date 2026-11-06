@@ -1,3 +1,4 @@
+import { writeNewMapNote } from "../local/map-note.js";
 import { createHash, randomUUID } from "node:crypto";
 import { promises as fs, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -221,10 +222,10 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       const name = value(flags, "name");
       const summary = value(flags, "summary");
       if (!name || !summary || members.length) throw new Error("map create needs --name and --summary and no member.");
-      // wx is the create CAS: an existing file is never replaced.
+      // The shared exclusive-create writer never replaces an existing path.
       const content = `---\n${stringify({ name, summary, map: { roots: [], members: [] } })}---\n\n# ${name}\n`;
-      await fs.writeFile(requested, content, { flag: "wx" });
-      output.result({ path: requested, sha: hash(content) }, `Created Space Map: ${requested}`);
+      const result = await writeNewMapNote(requested, content);
+      output.result(result, `Created Space Map: ${result.path}`);
       return 0;
     }
     // Resolve aliases before locking: two paths to the same existing file must

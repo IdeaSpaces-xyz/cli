@@ -109,3 +109,9 @@ it("shows copy recovery guidance on an actual request deadline without replay", 
     expect(calls.filter(c => c.init.method === "POST")).toHaveLength(1);
   } finally { vi.useRealTimers(); }
 });
+
+it("names the imported Map in human output", async () => {
+  expect(await spacesCommand.run(["import", path], {}, { ...global, json: false })).toBe(0);
+  expect(stdout).toContain("n_new_copy");
+  expect(stdout).toContain("update independently");
+});

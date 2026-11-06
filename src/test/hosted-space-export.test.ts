@@ -1,0 +1,129 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, promises as fsPromises, renameSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { spacesCommand } from "../commands/spaces.js";
+import { runMapEdit } from "../commands/map-edit.js";
+const ID = "n_" + "a".repeat(24);
+const global = { json: true, quiet: true, yes: false, help: false };
+const DOC = "---\nname: Research\nsummary: A copy\nmap:\n  roots: []\n  members:\n    - address: thread:x_original\n      depth: summary\n---\n\nOur legend.\n";
+let dir: string, stdout: string, stderr: string, payload: string;
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "space-export-")); stdout = ""; stderr = ""; payload = DOC;
+  vi.stubEnv("HOME", dir); vi.stubEnv("IDEASPACES_AUTH", ""); vi.stubEnv("IS_API_KEY", "fixture"); vi.stubEnv("IS_API_URL", "http://localhost:1234");
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(payload, { status: 200 })));
+  vi.spyOn(process.stdout, "write").mockImplementation(((s: string) => { stdout += s; return true; }) as typeof process.stdout.write);
+  vi.spyOn(process.stderr, "write").mockImplementation(((s: string) => { stderr += s; return true; }) as typeof process.stderr.write);
+});
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); rmSync(dir, { recursive: true, force: true }); });
+describe("Space export copy", () => {
+  it("writes the portable document verbatim, without a binding", async () => {
+    const path = join(dir, "research.map.md");
+    expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(0);
+    expect(readFileSync(path, "utf8")).toBe(DOC);
+    expect(JSON.parse(stdout)).toMatchObject({ path, source: ID, copy: true });
+    expect(existsSync(join(dir, ".ideaspaces"))).toBe(false);
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(`http://localhost:1234/api/v1/maps/${ID}/export`);
+  });
+  it("never overwrites a path, including a local Map", async () => {
+    const path = join(dir, "research.map.md"); writeFileSync(path, "keep me");
+    expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+    expect(readFileSync(path, "utf8")).toBe("keep me");
+    expect(stderr).toContain("Choose a new path");
+  });
+  it("refuses invalid documents and non-Map destinations without writing", async () => {
+    const path = join(dir, "research.map.md"); payload = "not a Map";
+    expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+    expect(existsSync(path)).toBe(false);
+    payload = DOC;
+    expect(await spacesCommand.run(["export", ID, join(dir, "anything.txt")], {}, global)).toBe(1);
+  });
+  it("shares the exclusive-create writer with local Map creation", async () => {
+    const path = join(dir, "local.map.md");
+    expect(await runMapEdit(["create", path], { name: "Local", summary: "A view" }, global)).toBe(0);
+    const before = readFileSync(path, "utf8");
+    expect(await runMapEdit(["create", path], { name: "Other", summary: "Other" }, global)).toBe(1);
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+});
+
+it("preserves the pre-existing local map create filename rule", async () => {
+  expect(await runMapEdit(["create", join(dir, "arbitrary.txt")], { name: "Local", summary: "View" }, global)).toBe(1);
+  expect(existsSync(join(dir, "arbitrary.txt"))).toBe(false);
+});
+it("explains a missing destination folder", async () => {
+  expect(await spacesCommand.run(["export", ID, join(dir, "missing", "copy.map.md")], {}, global)).toBe(1);
+  expect(stderr).toContain("Create the folder first");
+});
+
+it("refuses an empty service response without touching the destination", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
+  const path = join(dir, "empty.map.md");
+  expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+  expect(stderr).toContain("No readable Map document");
+  expect(existsSync(path)).toBe(false);
+});
+it("reports expired and unavailable exports clearly", async () => {
+  for (const status of [401, 403, 404]) {
+    stderr = "";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "Map not available" }), { status })));
+    expect(await spacesCommand.run(["export", ID, join(dir, "refused.map.md")], {}, global)).toBe(1);
+    expect(stderr).toContain(status === 401 ? "Session expired" : "Map not available");
+  }
+});
+it("validates usage before sign-in and accepts a README Map destination", async () => {
+  vi.stubEnv("IS_API_KEY", "");
+  expect(await spacesCommand.run(["export", "bad-id"], {}, global)).toBe(1);
+  expect(stderr).toContain("Usage:");
+  expect(await spacesCommand.run(["export", ID, join(dir, "copy.map.md")], {}, global)).toBe(1);
+  expect(stderr).toContain("Not logged in");
+  vi.stubEnv("IS_API_KEY", "fixture");
+  expect(await spacesCommand.run(["export", ID, join(dir, "README.md")], {}, global)).toBe(0);
+  expect(readFileSync(join(dir, "README.md"), "utf8")).toBe(DOC);
+});
+
+it("cleans up its own partially written copy on a write failure", async () => {
+  const path = join(dir, "partial.map.md");
+  const open = fsPromises.open.bind(fsPromises);
+  vi.spyOn(fsPromises, "open").mockImplementation(async (...args) => {
+    const file = await open(...args);
+    const write = file.writeFile.bind(file);
+    vi.spyOn(file, "writeFile").mockImplementation(async () => {
+      await write("partial");
+      throw Object.assign(new Error("Disk full"), { code: "ENOSPC" });
+    });
+    return file;
+  });
+  expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+  expect(existsSync(path)).toBe(false);
+  expect(stderr).toContain("Disk full");
+});
+it("never deletes a replacement at the failed creation's path", async () => {
+  const path = join(dir, "replaced.map.md");
+  const open = fsPromises.open.bind(fsPromises);
+  vi.spyOn(fsPromises, "open").mockImplementation(async (...args) => {
+    const file = await open(...args);
+    const write = file.writeFile.bind(file);
+    vi.spyOn(file, "writeFile").mockImplementation(async () => {
+      await write("partial");
+      renameSync(path, join(dir, "moved-partial.map.md"));
+      writeFileSync(path, "another writer's content");
+      throw Object.assign(new Error("Disk full"), { code: "ENOSPC" });
+    });
+    return file;
+  });
+  expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+  expect(readFileSync(path, "utf8")).toBe("another writer's content");
+});
+it.skipIf(process.platform === "win32")("refuses a destination symlink without changing its target", async () => {
+  const target = join(dir, "target.md"), path = join(dir, "linked.map.md");
+  writeFileSync(target, "keep the target");
+  symlinkSync(target, path);
+  expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+  expect(readFileSync(target, "utf8")).toBe("keep the target");
+});
+it("explains a human-mode export as an independent copy", async () => {
+  expect(await spacesCommand.run(["export", ID, join(dir, "human.map.md")], {}, { ...global, json: false })).toBe(0);
+  expect(stdout).toContain("Exported a local copy");
+  expect(stdout).toContain("update independently");
+});

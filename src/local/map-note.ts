@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { readFileSync, promises as fs, type BigIntStats } from "node:fs";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   inspectFrontmatterSyntax,
   parseFrontmatter,
@@ -84,4 +84,41 @@ export function loadMapNote(reference: string, contextRoot: string): LoadedMapNo
     legend: stripFrontmatter(content).trim(),
     map: parsed.map,
   };
+}
+
+/** The shared local Map create boundary: validate first, never replace an existing path. */
+export async function writeNewMapNote(reference: string, content: string): Promise<{ path: string; sha: string }> {
+  const path = resolve(reference);
+  if (basename(path) !== "README.md" && !basename(path).endsWith(".map.md")) {
+    throw new Error("A local Map needs a *.map.md or README.md path.");
+  }
+  if (typeof content !== "string") throw new Error("No readable Map document was returned; nothing was written.");
+  const syntax = inspectFrontmatterSyntax(content);
+  const frontmatter = parseFrontmatter(content);
+  if (syntax.status !== "valid" || !frontmatter || parseMap(frontmatter.map).status !== "valid") {
+    throw new Error("The document is not a valid Map note; nothing was written.");
+  }
+  let file: Awaited<ReturnType<typeof fs.open>> | undefined;
+  let owned: BigIntStats | undefined;
+  try {
+    file = await fs.open(path, "wx");
+    owned = await file.stat({ bigint: true });
+    await file.writeFile(content);
+    await file.close();
+    file = undefined;
+  } catch (error) {
+    await file?.close().catch(() => {});
+    // Remove only our failed creation, never a path another writer has replaced.
+    if (owned && owned.ino !== 0n) {
+      const current = await fs.lstat(path, { bigint: true }).catch(() => undefined);
+      if (current && !current.isSymbolicLink() && current.dev === owned.dev && current.ino === owned.ino) {
+        await fs.unlink(path).catch(() => {});
+      }
+    }
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST") throw Object.assign(new Error(`Local Map already exists: ${path}. Choose a new path; existing files are never replaced.`), { code });
+    if (code === "ENOENT") throw Object.assign(new Error(`The destination folder does not exist: ${path}. Create the folder first; nothing was written.`), { code });
+    throw error;
+  }
+  return { path, sha: createHash("sha256").update(content).digest("hex") };
 }

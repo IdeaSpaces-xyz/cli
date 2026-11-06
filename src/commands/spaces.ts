@@ -1,9 +1,10 @@
+import { writeNewMapNote } from "../local/map-note.js";
 import { loadMapNote } from "../local/map-note.js";
 import { runHostedSpaceRemove, SPACE_REMOVE_USAGE } from "./hosted-space-remove.js";
 import { runHostedSpaceAdd, SPACE_ADD_USAGE } from "./hosted-space-writes.js";
 import { NODE_ID } from "./thread-flags.js";
 import { parseBool } from "../argv.js";
-import { ApiStatusError, NetworkError, fetchVaults, importHostedSpace, apiErrorDetail, fetchCoordinationSpaces, fetchHostedSpaces, fetchHostedSpace, UnauthorizedError } from "../auth/api.js";
+import { ApiStatusError, NetworkError, fetchVaults, importHostedSpace, exportHostedSpace, apiErrorDetail, fetchCoordinationSpaces, fetchHostedSpaces, fetchHostedSpace, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
@@ -29,15 +30,18 @@ function hostedArgsError(args: string[], flags: Flags): string | undefined {
 
 export const spacesCommand: CommandDef = {
   name: "spaces",
-  description: "List or open hosted Spaces (named Maps); local Maps stay separate",
+  description: "Read, edit and copy hosted Spaces (named Maps); local Maps stay separate",
   usage: `ideaspaces spaces list --hosted [--json]
        ideaspaces spaces open <map-id> [--json]
        ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
        ${SPACE_ADD_USAGE}
        ${SPACE_REMOVE_USAGE}
-       ideaspaces spaces import <file.map.md> [--json]`,
-  help: "Import creates an independent personal hosted copy with no new Core. It grants nothing and never synchronizes the local Map. " + "Remove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed. " + "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+       ideaspaces spaces import <file.map.md> [--json]
+       ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]`,
+  help: "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces update independently. Each referenced item keeps its own access checks.\n\nWithout --hosted, list shows legacy coordination objects. Hosted edits are owner-only. --if-match is the hosted version_id from spaces open --json, not a local file hash. Keep the original --command-id (up to 64 characters) and arguments for exact retries; read the current head afterwards.\n\nRemove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed.\n\nImport creates a personal hosted copy with no new Core. Export creates an independent local UTF-8 Markdown copy and never overwrites an existing path; choose a new path to replace a copy. Use version_id from spaces open --json to export an exact version.",
   examples: [
+    "ideaspaces spaces export n_0123456789abcdef01234567 research.map.md",
+    "ideaspaces spaces export n_bbbbbbbbbbbbbbbbbbbbbbbb exact-version.map.md",
     "ideaspaces spaces import research.map.md --json",
     "ideaspaces spaces remove n_0123456789abcdef01234567 1 --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
@@ -55,6 +59,10 @@ export const spacesCommand: CommandDef = {
 
     if (args[0] === "import" && (args.length !== 2 || Object.keys(flags).length)) {
       output.error("Usage: ideaspaces spaces import <file.map.md> [--json]. The copy goes into your personal Vault.");
+      return 1;
+    }
+    if (args[0] === "export" && (args.length !== 3 || Object.keys(flags).length || !NODE_ID.test(args[1] ?? ""))) {
+      output.error("Usage: ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]");
       return 1;
     }
     const config = loadConfig();
@@ -80,7 +88,8 @@ export const spacesCommand: CommandDef = {
         await fetchVaults(config);
         sent = true;
         const result = await importHostedSpace(config, markdown);
-        output.result(result, "Imported a hosted copy into your personal Vault. Local and hosted Spaces update independently. No new Core Thread or content access was created.");
+        const copiedId = result !== null && typeof result === "object" && "map_id" in result && typeof result.map_id === "string" ? result.map_id : undefined;
+        output.result(result, `Imported a hosted copy${copiedId ? `: ${copiedId}` : ""} into your personal Vault. Local and hosted Spaces update independently. No new Core Thread or content access was created.`);
         return 0;
       } catch (error) {
         output.error(error instanceof UnauthorizedError ? error.message : error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
@@ -88,6 +97,17 @@ export const spacesCommand: CommandDef = {
         const uncertain = error instanceof NetworkError || error instanceof SyntaxError ||
           (error instanceof ApiStatusError && error.status >= 500);
         if (sent && uncertain) output.error("Import was not retried. If its outcome is uncertain, check spaces list --hosted before importing again; another import creates another copy.");
+        return 1;
+      }
+    }
+    if (sub === "export") {
+      try {
+        const content = await exportHostedSpace(config, args[1]);
+        const result = await writeNewMapNote(args[2], content);
+        output.result({ ...result, source: args[1], copy: true }, `Exported a local copy: ${result.path}. Local and hosted Spaces update independently; nothing was shared.`);
+        return 0;
+      } catch (error) {
+        output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
         return 1;
       }
     }
@@ -101,7 +121,7 @@ export const spacesCommand: CommandDef = {
           const members = (space.members ?? []).map(m => `  ${m.address.ordinal}: ${m.address.authored_name ?? m.address.address ?? m.address.position_at_pin ?? "Reference"} · ${m.state}`);
           output.result(space, [
             `${space.authored.label} (${space.map_id})`,
-            space.authored.summary ?? "", `Head: ${space.version_id}`,
+            space.authored.summary ?? "", `Version: ${space.version_id}`,
             ...members, ...(space.omitted_members ? [`…and ${space.omitted_members} more references not shown.`] : []), "References do not grant access. Local Maps are unchanged.",
           ].filter(Boolean).join("\n"));
         } else {
