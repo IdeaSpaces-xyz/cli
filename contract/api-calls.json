@@ -47,6 +47,10 @@
       "path": "/api/v1/entities/{entityType}/{entityKey}"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/maps/{id}/members"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/nodes/{rootNodeId}/team-shares"
     },
