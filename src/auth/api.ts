@@ -739,8 +739,8 @@ export async function appendHostedThreadPost(config: ApiConfig, threadId: string
 }
 
 /** POST /threads: open a hosted Thread with its opening Note. An exact resend returns the same Thread. */
-export async function openHostedThread(config: ApiConfig, note: string, recipients: string[] = [], opts?: RequestOptions): Promise<unknown> {
-  return request<unknown>(config, "POST", `${API_V1}/threads`, { note, ...(recipients.length ? { recipients } : {}) }, { ...opts, ...HOSTED });
+export async function openHostedThread(config: ApiConfig, note: string, recipients: string[] = [], opts?: RequestOptions & { homeRef?: string }): Promise<unknown> {
+  return request<unknown>(config, "POST", `${API_V1}/threads`, { note, ...(recipients.length ? { recipients } : {}), ...(opts?.homeRef ? { home_ref: opts.homeRef } : {}) }, { ...opts, ...HOSTED });
 }
 
 /** POST /threads/{id}/ack: move the caller's read cursor forward to seq (never back). */
@@ -1683,11 +1683,19 @@ export async function* streamConversationMessage(
   }
 }
 
-/** Owner-only pointer removal. The ordinal is meaningful only at this reviewed head. */
-export async function removeHostedSpaceMember(config: ApiConfig, id: string, ordinal: number, body: {
-  command_id: string; expected_head_version_id: string;
-}): Promise<{ map_id: string; version_id: string; ordinal: number; owner: string; core_thread_id: string | null }> {
-  return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body, { statusError: true });
+export interface HostedSpaceWriteResult {
+  map_id: string;
+  version_id: string;
+  ordinal: number;
+  owner: string;
+  core_thread_id: string | null;
+}
+
+/** Owner-only immutable edit, bound to the caller-reviewed head. Never replayed automatically. */
+export async function appendHostedSpaceMember(config: ApiConfig, id: string, body: {
+  command_id: string; expected_head_version_id: string; member: unknown;
+}): Promise<HostedSpaceWriteResult> {
+  return request(config, "POST", `${API_V1}/maps/${encodeURIComponent(id)}/members`, body, { statusError: true });
 }
 
 /** A hosted Space is a named Map, not a Repo or a local folder. */
@@ -1733,3 +1741,10 @@ export async function fetchHostedSpace(config: ApiConfig, id: string): Promise<H
   }
   return result;
 }
+
+export async function removeHostedSpaceMember(config: ApiConfig, id: string, ordinal: number, body: {
+  command_id: string; expected_head_version_id: string;
+}): Promise<{ map_id: string; version_id: string; ordinal: number; owner: string; core_thread_id: string | null }> {
+  return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body, { statusError: true });
+}
+

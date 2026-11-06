@@ -32,10 +32,10 @@ export async function runHostedSpaceRemove(args: string[], flags: Flags, global:
     if (!config) throw new Error("Not logged in. Run `ideaspaces login`.");
     attempted = true;
     const result = await removeHostedSpaceMember(config, id, ordinal, body);
-    output.result({ ...result, command_id: commandId }, `Removed reference ${ordinal} from ${id}. No content was deleted.\nHead: ${result.version_id}\nCommand: ${commandId}`);
+    output.result({ ...result, command_id: commandId }, `Removed reference ${ordinal} from ${id}. No content was deleted.\nVersion: ${result.version_id}\nCommand: ${commandId}\nRead spaces open ${id} --json for the current head, especially after an exact retry.`);
     return 0;
   } catch (error) {
-    output.error(error instanceof UnauthorizedError || (error instanceof ApiStatusError && error.status === 401) ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+    output.error(error instanceof UnauthorizedError ? error.message : error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
     if (attempted && commandId) output.error(`Command: ${commandId}.`);
     if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || (error instanceof ApiStatusError && error.status >= 500))) {
       output.error("The outcome may be uncertain. Keep the same --command-id, --if-match and arguments on retry. Never use a newer head without reviewing it.");

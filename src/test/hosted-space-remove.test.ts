@@ -62,7 +62,7 @@ it("maps 401 and rejects unknown flags and long command ids before writes", asyn
 
 it("accepts its documented example through the real argument parser", async () => {
   const { parseArgs } = await import("../argv.js");
-  const parsed = parseArgs(spacesCommand.examples![0].split(" ").slice(1));
+  const parsed = parseArgs(spacesCommand.examples!.find(e => e.startsWith("ideaspaces spaces remove "))!.split(" ").slice(1));
   expect(await spacesCommand.run(parsed.args, parsed.flags, parsed.global)).toBe(0);
 });
 

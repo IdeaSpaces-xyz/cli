@@ -1,4 +1,5 @@
 import { runHostedSpaceRemove, SPACE_REMOVE_USAGE } from "./hosted-space-remove.js";
+import { runHostedSpaceAdd, SPACE_ADD_USAGE } from "./hosted-space-writes.js";
 import { NODE_ID } from "./thread-flags.js";
 import { parseBool } from "../argv.js";
 import { apiErrorDetail, fetchCoordinationSpaces, fetchHostedSpaces, fetchHostedSpace, UnauthorizedError } from "../auth/api.js";
@@ -31,10 +32,12 @@ export const spacesCommand: CommandDef = {
   usage: `ideaspaces spaces list --hosted [--json]
        ideaspaces spaces open <map-id> [--json]
        ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
+       ${SPACE_ADD_USAGE}
        ${SPACE_REMOVE_USAGE}`,
-  help: "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+  help: "Remove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed. " + "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
     "ideaspaces spaces remove n_0123456789abcdef01234567 1 --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
+    "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces list --hosted --json",
     "ideaspaces spaces open n_0123456789abcdef01234567 --json",
     "ideaspaces spaces",
@@ -45,6 +48,7 @@ export const spacesCommand: CommandDef = {
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
     if (args[0] === "remove") return runHostedSpaceRemove(args.slice(1), flags, global);
+    if (args[0] === "add") return runHostedSpaceAdd(args.slice(1), flags, global);
 
     const config = loadConfig();
     if (!config) {
