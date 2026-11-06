@@ -59,54 +59,54 @@ var require_polyfills = __commonJS({
     }
     var chdir;
     module.exports = patch;
-    function patch(fs13) {
+    function patch(fs14) {
       if (constants.hasOwnProperty("O_SYMLINK") && process.version.match(/^v0\.6\.[0-2]|^v0\.5\./)) {
-        patchLchmod(fs13);
+        patchLchmod(fs14);
       }
-      if (!fs13.lutimes) {
-        patchLutimes(fs13);
+      if (!fs14.lutimes) {
+        patchLutimes(fs14);
       }
-      fs13.chown = chownFix(fs13.chown);
-      fs13.fchown = chownFix(fs13.fchown);
-      fs13.lchown = chownFix(fs13.lchown);
-      fs13.chmod = chmodFix(fs13.chmod);
-      fs13.fchmod = chmodFix(fs13.fchmod);
-      fs13.lchmod = chmodFix(fs13.lchmod);
-      fs13.chownSync = chownFixSync(fs13.chownSync);
-      fs13.fchownSync = chownFixSync(fs13.fchownSync);
-      fs13.lchownSync = chownFixSync(fs13.lchownSync);
-      fs13.chmodSync = chmodFixSync(fs13.chmodSync);
-      fs13.fchmodSync = chmodFixSync(fs13.fchmodSync);
-      fs13.lchmodSync = chmodFixSync(fs13.lchmodSync);
-      fs13.stat = statFix(fs13.stat);
-      fs13.fstat = statFix(fs13.fstat);
-      fs13.lstat = statFix(fs13.lstat);
-      fs13.statSync = statFixSync(fs13.statSync);
-      fs13.fstatSync = statFixSync(fs13.fstatSync);
-      fs13.lstatSync = statFixSync(fs13.lstatSync);
-      if (fs13.chmod && !fs13.lchmod) {
-        fs13.lchmod = function(path, mode, cb) {
+      fs14.chown = chownFix(fs14.chown);
+      fs14.fchown = chownFix(fs14.fchown);
+      fs14.lchown = chownFix(fs14.lchown);
+      fs14.chmod = chmodFix(fs14.chmod);
+      fs14.fchmod = chmodFix(fs14.fchmod);
+      fs14.lchmod = chmodFix(fs14.lchmod);
+      fs14.chownSync = chownFixSync(fs14.chownSync);
+      fs14.fchownSync = chownFixSync(fs14.fchownSync);
+      fs14.lchownSync = chownFixSync(fs14.lchownSync);
+      fs14.chmodSync = chmodFixSync(fs14.chmodSync);
+      fs14.fchmodSync = chmodFixSync(fs14.fchmodSync);
+      fs14.lchmodSync = chmodFixSync(fs14.lchmodSync);
+      fs14.stat = statFix(fs14.stat);
+      fs14.fstat = statFix(fs14.fstat);
+      fs14.lstat = statFix(fs14.lstat);
+      fs14.statSync = statFixSync(fs14.statSync);
+      fs14.fstatSync = statFixSync(fs14.fstatSync);
+      fs14.lstatSync = statFixSync(fs14.lstatSync);
+      if (fs14.chmod && !fs14.lchmod) {
+        fs14.lchmod = function(path, mode, cb) {
           if (cb) process.nextTick(cb);
         };
-        fs13.lchmodSync = function() {
+        fs14.lchmodSync = function() {
         };
       }
-      if (fs13.chown && !fs13.lchown) {
-        fs13.lchown = function(path, uid, gid, cb) {
+      if (fs14.chown && !fs14.lchown) {
+        fs14.lchown = function(path, uid, gid, cb) {
           if (cb) process.nextTick(cb);
         };
-        fs13.lchownSync = function() {
+        fs14.lchownSync = function() {
         };
       }
       if (platform2 === "win32") {
-        fs13.rename = typeof fs13.rename !== "function" ? fs13.rename : (function(fs$rename) {
+        fs14.rename = typeof fs14.rename !== "function" ? fs14.rename : (function(fs$rename) {
           function rename2(from, to, cb) {
             var start = Date.now();
             var backoff = 0;
             fs$rename(from, to, function CB(er) {
               if (er && (er.code === "EACCES" || er.code === "EPERM" || er.code === "EBUSY") && Date.now() - start < 6e4) {
                 setTimeout(function() {
-                  fs13.stat(to, function(stater, st) {
+                  fs14.stat(to, function(stater, st) {
                     if (stater && stater.code === "ENOENT")
                       fs$rename(from, to, CB);
                     else
@@ -122,9 +122,9 @@ var require_polyfills = __commonJS({
           }
           if (Object.setPrototypeOf) Object.setPrototypeOf(rename2, fs$rename);
           return rename2;
-        })(fs13.rename);
+        })(fs14.rename);
       }
-      fs13.read = typeof fs13.read !== "function" ? fs13.read : (function(fs$read) {
+      fs14.read = typeof fs14.read !== "function" ? fs14.read : (function(fs$read) {
         function read(fd, buffer, offset, length, position, callback_) {
           var callback;
           if (callback_ && typeof callback_ === "function") {
@@ -132,22 +132,22 @@ var require_polyfills = __commonJS({
             callback = function(er, _, __) {
               if (er && er.code === "EAGAIN" && eagCounter < 10) {
                 eagCounter++;
-                return fs$read.call(fs13, fd, buffer, offset, length, position, callback);
+                return fs$read.call(fs14, fd, buffer, offset, length, position, callback);
               }
               callback_.apply(this, arguments);
             };
           }
-          return fs$read.call(fs13, fd, buffer, offset, length, position, callback);
+          return fs$read.call(fs14, fd, buffer, offset, length, position, callback);
         }
         if (Object.setPrototypeOf) Object.setPrototypeOf(read, fs$read);
         return read;
-      })(fs13.read);
-      fs13.readSync = typeof fs13.readSync !== "function" ? fs13.readSync : /* @__PURE__ */ (function(fs$readSync) {
+      })(fs14.read);
+      fs14.readSync = typeof fs14.readSync !== "function" ? fs14.readSync : /* @__PURE__ */ (function(fs$readSync) {
         return function(fd, buffer, offset, length, position) {
           var eagCounter = 0;
           while (true) {
             try {
-              return fs$readSync.call(fs13, fd, buffer, offset, length, position);
+              return fs$readSync.call(fs14, fd, buffer, offset, length, position);
             } catch (er) {
               if (er.code === "EAGAIN" && eagCounter < 10) {
                 eagCounter++;
@@ -157,10 +157,10 @@ var require_polyfills = __commonJS({
             }
           }
         };
-      })(fs13.readSync);
-      function patchLchmod(fs14) {
-        fs14.lchmod = function(path, mode, callback) {
-          fs14.open(
+      })(fs14.readSync);
+      function patchLchmod(fs15) {
+        fs15.lchmod = function(path, mode, callback) {
+          fs15.open(
             path,
             constants.O_WRONLY | constants.O_SYMLINK,
             mode,
@@ -169,80 +169,80 @@ var require_polyfills = __commonJS({
                 if (callback) callback(err);
                 return;
               }
-              fs14.fchmod(fd, mode, function(err2) {
-                fs14.close(fd, function(err22) {
+              fs15.fchmod(fd, mode, function(err2) {
+                fs15.close(fd, function(err22) {
                   if (callback) callback(err2 || err22);
                 });
               });
             }
           );
         };
-        fs14.lchmodSync = function(path, mode) {
-          var fd = fs14.openSync(path, constants.O_WRONLY | constants.O_SYMLINK, mode);
+        fs15.lchmodSync = function(path, mode) {
+          var fd = fs15.openSync(path, constants.O_WRONLY | constants.O_SYMLINK, mode);
           var threw = true;
           var ret;
           try {
-            ret = fs14.fchmodSync(fd, mode);
+            ret = fs15.fchmodSync(fd, mode);
             threw = false;
           } finally {
             if (threw) {
               try {
-                fs14.closeSync(fd);
+                fs15.closeSync(fd);
               } catch (er) {
               }
             } else {
-              fs14.closeSync(fd);
+              fs15.closeSync(fd);
             }
           }
           return ret;
         };
       }
-      function patchLutimes(fs14) {
-        if (constants.hasOwnProperty("O_SYMLINK") && fs14.futimes) {
-          fs14.lutimes = function(path, at, mt, cb) {
-            fs14.open(path, constants.O_SYMLINK, function(er, fd) {
+      function patchLutimes(fs15) {
+        if (constants.hasOwnProperty("O_SYMLINK") && fs15.futimes) {
+          fs15.lutimes = function(path, at, mt, cb) {
+            fs15.open(path, constants.O_SYMLINK, function(er, fd) {
               if (er) {
                 if (cb) cb(er);
                 return;
               }
-              fs14.futimes(fd, at, mt, function(er2) {
-                fs14.close(fd, function(er22) {
+              fs15.futimes(fd, at, mt, function(er2) {
+                fs15.close(fd, function(er22) {
                   if (cb) cb(er2 || er22);
                 });
               });
             });
           };
-          fs14.lutimesSync = function(path, at, mt) {
-            var fd = fs14.openSync(path, constants.O_SYMLINK);
+          fs15.lutimesSync = function(path, at, mt) {
+            var fd = fs15.openSync(path, constants.O_SYMLINK);
             var ret;
             var threw = true;
             try {
-              ret = fs14.futimesSync(fd, at, mt);
+              ret = fs15.futimesSync(fd, at, mt);
               threw = false;
             } finally {
               if (threw) {
                 try {
-                  fs14.closeSync(fd);
+                  fs15.closeSync(fd);
                 } catch (er) {
                 }
               } else {
-                fs14.closeSync(fd);
+                fs15.closeSync(fd);
               }
             }
             return ret;
           };
-        } else if (fs14.futimes) {
-          fs14.lutimes = function(_a, _b, _c, cb) {
+        } else if (fs15.futimes) {
+          fs15.lutimes = function(_a, _b, _c, cb) {
             if (cb) process.nextTick(cb);
           };
-          fs14.lutimesSync = function() {
+          fs15.lutimesSync = function() {
           };
         }
       }
       function chmodFix(orig) {
         if (!orig) return orig;
         return function(target, mode, cb) {
-          return orig.call(fs13, target, mode, function(er) {
+          return orig.call(fs14, target, mode, function(er) {
             if (chownErOk(er)) er = null;
             if (cb) cb.apply(this, arguments);
           });
@@ -252,7 +252,7 @@ var require_polyfills = __commonJS({
         if (!orig) return orig;
         return function(target, mode) {
           try {
-            return orig.call(fs13, target, mode);
+            return orig.call(fs14, target, mode);
           } catch (er) {
             if (!chownErOk(er)) throw er;
           }
@@ -261,7 +261,7 @@ var require_polyfills = __commonJS({
       function chownFix(orig) {
         if (!orig) return orig;
         return function(target, uid, gid, cb) {
-          return orig.call(fs13, target, uid, gid, function(er) {
+          return orig.call(fs14, target, uid, gid, function(er) {
             if (chownErOk(er)) er = null;
             if (cb) cb.apply(this, arguments);
           });
@@ -271,7 +271,7 @@ var require_polyfills = __commonJS({
         if (!orig) return orig;
         return function(target, uid, gid) {
           try {
-            return orig.call(fs13, target, uid, gid);
+            return orig.call(fs14, target, uid, gid);
           } catch (er) {
             if (!chownErOk(er)) throw er;
           }
@@ -291,13 +291,13 @@ var require_polyfills = __commonJS({
             }
             if (cb) cb.apply(this, arguments);
           }
-          return options ? orig.call(fs13, target, options, callback) : orig.call(fs13, target, callback);
+          return options ? orig.call(fs14, target, options, callback) : orig.call(fs14, target, callback);
         };
       }
       function statFixSync(orig) {
         if (!orig) return orig;
         return function(target, options) {
-          var stats = options ? orig.call(fs13, target, options) : orig.call(fs13, target);
+          var stats = options ? orig.call(fs14, target, options) : orig.call(fs14, target);
           if (stats) {
             if (stats.uid < 0) stats.uid += 4294967296;
             if (stats.gid < 0) stats.gid += 4294967296;
@@ -326,7 +326,7 @@ var require_legacy_streams = __commonJS({
   "node_modules/graceful-fs/legacy-streams.js"(exports, module) {
     var Stream = __require("stream").Stream;
     module.exports = legacy;
-    function legacy(fs13) {
+    function legacy(fs14) {
       return {
         ReadStream,
         WriteStream
@@ -369,7 +369,7 @@ var require_legacy_streams = __commonJS({
           });
           return;
         }
-        fs13.open(this.path, this.flags, this.mode, function(err, fd) {
+        fs14.open(this.path, this.flags, this.mode, function(err, fd) {
           if (err) {
             self.emit("error", err);
             self.readable = false;
@@ -408,7 +408,7 @@ var require_legacy_streams = __commonJS({
         this.busy = false;
         this._queue = [];
         if (this.fd === null) {
-          this._open = fs13.open;
+          this._open = fs14.open;
           this._queue.push([this._open, this.path, this.flags, this.mode, void 0]);
           this.flush();
         }
@@ -443,7 +443,7 @@ var require_clone = __commonJS({
 // node_modules/graceful-fs/graceful-fs.js
 var require_graceful_fs = __commonJS({
   "node_modules/graceful-fs/graceful-fs.js"(exports, module) {
-    var fs13 = __require("fs");
+    var fs14 = __require("fs");
     var polyfills = require_polyfills();
     var legacy = require_legacy_streams();
     var clone = require_clone();
@@ -475,12 +475,12 @@ var require_graceful_fs = __commonJS({
         m = "GFS4: " + m.split(/\n/).join("\nGFS4: ");
         console.error(m);
       };
-    if (!fs13[gracefulQueue]) {
+    if (!fs14[gracefulQueue]) {
       queue = global[gracefulQueue] || [];
-      publishQueue(fs13, queue);
-      fs13.close = (function(fs$close) {
+      publishQueue(fs14, queue);
+      fs14.close = (function(fs$close) {
         function close(fd, cb) {
-          return fs$close.call(fs13, fd, function(err) {
+          return fs$close.call(fs14, fd, function(err) {
             if (!err) {
               resetQueue();
             }
@@ -492,40 +492,40 @@ var require_graceful_fs = __commonJS({
           value: fs$close
         });
         return close;
-      })(fs13.close);
-      fs13.closeSync = (function(fs$closeSync) {
+      })(fs14.close);
+      fs14.closeSync = (function(fs$closeSync) {
         function closeSync3(fd) {
-          fs$closeSync.apply(fs13, arguments);
+          fs$closeSync.apply(fs14, arguments);
           resetQueue();
         }
         Object.defineProperty(closeSync3, previousSymbol, {
           value: fs$closeSync
         });
         return closeSync3;
-      })(fs13.closeSync);
+      })(fs14.closeSync);
       if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || "")) {
         process.on("exit", function() {
-          debug(fs13[gracefulQueue]);
-          __require("assert").equal(fs13[gracefulQueue].length, 0);
+          debug(fs14[gracefulQueue]);
+          __require("assert").equal(fs14[gracefulQueue].length, 0);
         });
       }
     }
     var queue;
     if (!global[gracefulQueue]) {
-      publishQueue(global, fs13[gracefulQueue]);
+      publishQueue(global, fs14[gracefulQueue]);
     }
-    module.exports = patch(clone(fs13));
-    if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs13.__patched) {
-      module.exports = patch(fs13);
-      fs13.__patched = true;
+    module.exports = patch(clone(fs14));
+    if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs14.__patched) {
+      module.exports = patch(fs14);
+      fs14.__patched = true;
     }
-    function patch(fs14) {
-      polyfills(fs14);
-      fs14.gracefulify = patch;
-      fs14.createReadStream = createReadStream;
-      fs14.createWriteStream = createWriteStream;
-      var fs$readFile = fs14.readFile;
-      fs14.readFile = readFile3;
+    function patch(fs15) {
+      polyfills(fs15);
+      fs15.gracefulify = patch;
+      fs15.createReadStream = createReadStream;
+      fs15.createWriteStream = createWriteStream;
+      var fs$readFile = fs15.readFile;
+      fs15.readFile = readFile3;
       function readFile3(path, options, cb) {
         if (typeof options === "function")
           cb = options, options = null;
@@ -541,8 +541,8 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      var fs$writeFile = fs14.writeFile;
-      fs14.writeFile = writeFile;
+      var fs$writeFile = fs15.writeFile;
+      fs15.writeFile = writeFile;
       function writeFile(path, data, options, cb) {
         if (typeof options === "function")
           cb = options, options = null;
@@ -558,9 +558,9 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      var fs$appendFile = fs14.appendFile;
+      var fs$appendFile = fs15.appendFile;
       if (fs$appendFile)
-        fs14.appendFile = appendFile;
+        fs15.appendFile = appendFile;
       function appendFile(path, data, options, cb) {
         if (typeof options === "function")
           cb = options, options = null;
@@ -576,9 +576,9 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      var fs$copyFile = fs14.copyFile;
+      var fs$copyFile = fs15.copyFile;
       if (fs$copyFile)
-        fs14.copyFile = copyFile;
+        fs15.copyFile = copyFile;
       function copyFile(src, dest, flags2, cb) {
         if (typeof flags2 === "function") {
           cb = flags2;
@@ -596,8 +596,8 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      var fs$readdir = fs14.readdir;
-      fs14.readdir = readdir2;
+      var fs$readdir = fs15.readdir;
+      fs15.readdir = readdir2;
       var noReaddirOptionVersions = /^v[0-5]\./;
       function readdir2(path, options, cb) {
         if (typeof options === "function")
@@ -638,21 +638,21 @@ var require_graceful_fs = __commonJS({
         }
       }
       if (process.version.substr(0, 4) === "v0.8") {
-        var legStreams = legacy(fs14);
+        var legStreams = legacy(fs15);
         ReadStream = legStreams.ReadStream;
         WriteStream = legStreams.WriteStream;
       }
-      var fs$ReadStream = fs14.ReadStream;
+      var fs$ReadStream = fs15.ReadStream;
       if (fs$ReadStream) {
         ReadStream.prototype = Object.create(fs$ReadStream.prototype);
         ReadStream.prototype.open = ReadStream$open;
       }
-      var fs$WriteStream = fs14.WriteStream;
+      var fs$WriteStream = fs15.WriteStream;
       if (fs$WriteStream) {
         WriteStream.prototype = Object.create(fs$WriteStream.prototype);
         WriteStream.prototype.open = WriteStream$open;
       }
-      Object.defineProperty(fs14, "ReadStream", {
+      Object.defineProperty(fs15, "ReadStream", {
         get: function() {
           return ReadStream;
         },
@@ -662,7 +662,7 @@ var require_graceful_fs = __commonJS({
         enumerable: true,
         configurable: true
       });
-      Object.defineProperty(fs14, "WriteStream", {
+      Object.defineProperty(fs15, "WriteStream", {
         get: function() {
           return WriteStream;
         },
@@ -673,7 +673,7 @@ var require_graceful_fs = __commonJS({
         configurable: true
       });
       var FileReadStream = ReadStream;
-      Object.defineProperty(fs14, "FileReadStream", {
+      Object.defineProperty(fs15, "FileReadStream", {
         get: function() {
           return FileReadStream;
         },
@@ -684,7 +684,7 @@ var require_graceful_fs = __commonJS({
         configurable: true
       });
       var FileWriteStream = WriteStream;
-      Object.defineProperty(fs14, "FileWriteStream", {
+      Object.defineProperty(fs15, "FileWriteStream", {
         get: function() {
           return FileWriteStream;
         },
@@ -733,13 +733,13 @@ var require_graceful_fs = __commonJS({
         });
       }
       function createReadStream(path, options) {
-        return new fs14.ReadStream(path, options);
+        return new fs15.ReadStream(path, options);
       }
       function createWriteStream(path, options) {
-        return new fs14.WriteStream(path, options);
+        return new fs15.WriteStream(path, options);
       }
-      var fs$open = fs14.open;
-      fs14.open = open2;
+      var fs$open = fs15.open;
+      fs15.open = open2;
       function open2(path, flags2, mode, cb) {
         if (typeof mode === "function")
           cb = mode, mode = null;
@@ -755,20 +755,20 @@ var require_graceful_fs = __commonJS({
           });
         }
       }
-      return fs14;
+      return fs15;
     }
     function enqueue(elem) {
       debug("ENQUEUE", elem[0].name, elem[1]);
-      fs13[gracefulQueue].push(elem);
+      fs14[gracefulQueue].push(elem);
       retry();
     }
     var retryTimer;
     function resetQueue() {
       var now = Date.now();
-      for (var i = 0; i < fs13[gracefulQueue].length; ++i) {
-        if (fs13[gracefulQueue][i].length > 2) {
-          fs13[gracefulQueue][i][3] = now;
-          fs13[gracefulQueue][i][4] = now;
+      for (var i = 0; i < fs14[gracefulQueue].length; ++i) {
+        if (fs14[gracefulQueue][i].length > 2) {
+          fs14[gracefulQueue][i][3] = now;
+          fs14[gracefulQueue][i][4] = now;
         }
       }
       retry();
@@ -776,9 +776,9 @@ var require_graceful_fs = __commonJS({
     function retry() {
       clearTimeout(retryTimer);
       retryTimer = void 0;
-      if (fs13[gracefulQueue].length === 0)
+      if (fs14[gracefulQueue].length === 0)
         return;
-      var elem = fs13[gracefulQueue].shift();
+      var elem = fs14[gracefulQueue].shift();
       var fn = elem[0];
       var args2 = elem[1];
       var err = elem[2];
@@ -800,7 +800,7 @@ var require_graceful_fs = __commonJS({
           debug("RETRY", fn.name, args2);
           fn.apply(null, args2.concat([startTime]));
         } else {
-          fs13[gracefulQueue].push(elem);
+          fs14[gracefulQueue].push(elem);
         }
       }
       if (retryTimer === void 0) {
@@ -1235,10 +1235,10 @@ var require_mtime_precision = __commonJS({
   "node_modules/proper-lockfile/lib/mtime-precision.js"(exports, module) {
     "use strict";
     var cacheSymbol = /* @__PURE__ */ Symbol();
-    function probe(file2, fs13, callback) {
-      const cachedPrecision = fs13[cacheSymbol];
+    function probe(file2, fs14, callback) {
+      const cachedPrecision = fs14[cacheSymbol];
       if (cachedPrecision) {
-        return fs13.stat(file2, (err, stat2) => {
+        return fs14.stat(file2, (err, stat2) => {
           if (err) {
             return callback(err);
           }
@@ -1246,16 +1246,16 @@ var require_mtime_precision = __commonJS({
         });
       }
       const mtime = new Date(Math.ceil(Date.now() / 1e3) * 1e3 + 5);
-      fs13.utimes(file2, mtime, mtime, (err) => {
+      fs14.utimes(file2, mtime, mtime, (err) => {
         if (err) {
           return callback(err);
         }
-        fs13.stat(file2, (err2, stat2) => {
+        fs14.stat(file2, (err2, stat2) => {
           if (err2) {
             return callback(err2);
           }
           const precision = stat2.mtime.getTime() % 1e3 === 0 ? "s" : "ms";
-          Object.defineProperty(fs13, cacheSymbol, { value: precision });
+          Object.defineProperty(fs14, cacheSymbol, { value: precision });
           callback(null, stat2.mtime, precision);
         });
       });
@@ -1277,7 +1277,7 @@ var require_lockfile = __commonJS({
   "node_modules/proper-lockfile/lib/lockfile.js"(exports, module) {
     "use strict";
     var path = __require("path");
-    var fs13 = require_graceful_fs();
+    var fs14 = require_graceful_fs();
     var retry = require_retry2();
     var onExit = require_signal_exit();
     var mtimePrecision = require_mtime_precision();
@@ -1408,7 +1408,7 @@ var require_lockfile = __commonJS({
         update: null,
         realpath: true,
         retries: 0,
-        fs: fs13,
+        fs: fs14,
         onCompromised: (err) => {
           throw err;
         },
@@ -1452,7 +1452,7 @@ var require_lockfile = __commonJS({
     }
     function unlock(file2, options, callback) {
       options = {
-        fs: fs13,
+        fs: fs14,
         realpath: true,
         ...options
       };
@@ -1474,7 +1474,7 @@ var require_lockfile = __commonJS({
       options = {
         stale: 1e4,
         realpath: true,
-        fs: fs13,
+        fs: fs14,
         ...options
       };
       options.stale = Math.max(options.stale || 0, 2e3);
@@ -1513,16 +1513,16 @@ var require_lockfile = __commonJS({
 var require_adapter = __commonJS({
   "node_modules/proper-lockfile/lib/adapter.js"(exports, module) {
     "use strict";
-    var fs13 = require_graceful_fs();
-    function createSyncFs(fs14) {
+    var fs14 = require_graceful_fs();
+    function createSyncFs(fs15) {
       const methods = ["mkdir", "realpath", "stat", "rmdir", "utimes"];
-      const newFs = { ...fs14 };
+      const newFs = { ...fs15 };
       methods.forEach((method) => {
         newFs[method] = (...args2) => {
           const callback = args2.pop();
           let ret;
           try {
-            ret = fs14[`${method}Sync`](...args2);
+            ret = fs15[`${method}Sync`](...args2);
           } catch (err) {
             return callback(err);
           }
@@ -1560,7 +1560,7 @@ var require_adapter = __commonJS({
     }
     function toSyncOptions(options) {
       options = { ...options };
-      options.fs = createSyncFs(options.fs || fs13);
+      options.fs = createSyncFs(options.fs || fs14);
       if (typeof options.retries === "number" && options.retries > 0 || options.retries && typeof options.retries.retries === "number" && options.retries.retries > 0) {
         throw Object.assign(new Error("Cannot use retries with the sync api"), { code: "ESYNC" });
       }
@@ -8488,14 +8488,14 @@ var require_parser = __commonJS({
             case "scalar":
             case "single-quoted-scalar":
             case "double-quoted-scalar": {
-              const fs13 = this.flowScalar(this.type);
+              const fs14 = this.flowScalar(this.type);
               if (atNextItem || it.value) {
-                map.items.push({ start, key: fs13, sep: [] });
+                map.items.push({ start, key: fs14, sep: [] });
                 this.onKeyLine = true;
               } else if (it.sep) {
-                this.stack.push(fs13);
+                this.stack.push(fs14);
               } else {
-                Object.assign(it, { key: fs13, sep: [] });
+                Object.assign(it, { key: fs14, sep: [] });
                 this.onKeyLine = true;
               }
               return;
@@ -8623,13 +8623,13 @@ var require_parser = __commonJS({
             case "scalar":
             case "single-quoted-scalar":
             case "double-quoted-scalar": {
-              const fs13 = this.flowScalar(this.type);
+              const fs14 = this.flowScalar(this.type);
               if (!it || it.value)
-                fc.items.push({ start: [], key: fs13, sep: [] });
+                fc.items.push({ start: [], key: fs14, sep: [] });
               else if (it.sep)
-                this.stack.push(fs13);
+                this.stack.push(fs14);
               else
-                Object.assign(it, { key: fs13, sep: [] });
+                Object.assign(it, { key: fs14, sep: [] });
               return;
             }
             case "flow-map-end":
@@ -14910,7 +14910,7 @@ async function request(config, method, path, body, opts = {}) {
       if (r.status === 204)
         return void 0;
       const payload = await r.text();
-      return payload ? JSON.parse(payload) : void 0;
+      return opts.responseText ? payload : payload ? JSON.parse(payload) : void 0;
     } catch (err) {
       const timedOut = err instanceof Error && err.name === "AbortError";
       if (timedOut && attempt < maxAttempts)
@@ -15243,6 +15243,9 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
     } catch {
     }
   }
+}
+async function exportHostedSpace(config, id) {
+  return request(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}/export`, void 0, { responseText: true });
 }
 
 // dist/auth/identity.js
@@ -18664,8 +18667,8 @@ import { isAbsolute as isAbsolute7 } from "node:path";
 
 // dist/local/map-note.js
 import { createHash as createHash5 } from "node:crypto";
-import { readFileSync as readFileSync7 } from "node:fs";
-import { isAbsolute as isAbsolute5, relative as relative10, resolve as resolve14, sep as sep7 } from "node:path";
+import { readFileSync as readFileSync7, promises as fs11 } from "node:fs";
+import { basename as basename7, isAbsolute as isAbsolute5, relative as relative10, resolve as resolve14, sep as sep7 } from "node:path";
 function scalar(value2) {
   return typeof value2 === "string" && value2.trim() ? value2.replace(/\s+/g, " ").trim() : void 0;
 }
@@ -18718,12 +18721,25 @@ function loadMapNote(reference, contextRoot) {
     map: parsed2.map
   };
 }
+async function writeNewMapNote(reference, content) {
+  const path = resolve14(reference);
+  if (basename7(path) !== "README.md" && !basename7(path).endsWith(".map.md")) {
+    throw new Error("A local Map copy needs a *.map.md or README.md path.");
+  }
+  const syntax = inspectFrontmatterSyntax(content);
+  const frontmatter = parseFrontmatter(content);
+  if (syntax.status !== "valid" || !frontmatter || parseMap(frontmatter.map).status !== "valid") {
+    throw new Error("The exported document is not a valid Map note; nothing was written.");
+  }
+  await fs11.writeFile(path, content, { flag: "wx" });
+  return { path, sha: createHash5("sha256").update(content).digest("hex") };
+}
 
 // dist/local/map-look.js
 import { spawnSync as spawnSync7 } from "node:child_process";
 import { mkdirSync as mkdirSync5, mkdtempSync, realpathSync as realpathSync6, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename as basename7, dirname as dirname6, join as join22 } from "node:path";
+import { basename as basename8, dirname as dirname6, join as join22 } from "node:path";
 var COMMIT_READ_MAX_BYTES = 32 * 1024 * 1024;
 async function lookAtCommit(target, options) {
   const wholeTree = target.kind === "directory" && (options.depth === "children" || options.depth === "full" || options.postId !== void 0);
@@ -18777,7 +18793,7 @@ async function focusAtCommit(target, contractSource, agreement) {
 }
 async function withSnapshot(target, wholeTree, read) {
   const parent = realpathSync6.native(mkdtempSync(join22(tmpdir(), "ideaspaces-commit-read-")));
-  const dir = join22(parent, basename7(target.checkoutPath) || "root");
+  const dir = join22(parent, basename8(target.checkoutPath) || "root");
   try {
     mkdirSync5(dir);
     const written = writeSnapshot(target, wholeTree, dir);
@@ -19966,7 +19982,7 @@ import { spawnSync as spawnSync9 } from "node:child_process";
 // dist/catalog.js
 import { existsSync as existsSync12, statSync as statSync5 } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { basename as basename8, join as join26, resolve as resolvePath } from "node:path";
+import { basename as basename9, join as join26, resolve as resolvePath } from "node:path";
 var AUTOCOMPLETE_EXCLUDES = [".git", "node_modules", "backups", ".pi", ".claude"];
 var MAX_CATALOG_REPOS = 20;
 function directoryDetails(count) {
@@ -19981,17 +19997,17 @@ async function formatWorkingSetSection(homeRoot, mounts) {
   const inputs = [
     {
       root: 0,
-      name: basename8(homeRoot) || homeRoot,
+      name: basename9(homeRoot) || homeRoot,
       summary: home.summary,
       presentation: {
         label: "home",
-        display: basename8(homeRoot) || homeRoot,
+        display: basename9(homeRoot) || homeRoot,
         details: directoryDetails(home.directoryCount)
       }
     },
     ...mounts.map((mount, index) => ({
       root: index + 1,
-      name: basename8(mount) || mount,
+      name: basename9(mount) || mount,
       summary: mounted[index]?.summary,
       presentation: {
         label: "mount",
@@ -20031,10 +20047,10 @@ function catalogInput(repository, root, pov, mounts) {
     details.push("mounted");
   return {
     root,
-    name: basename8(repository.root) || repository.root,
+    name: basename9(repository.root) || repository.root,
     summary: repository.summary,
     presentation: {
-      display: basename8(repository.root) || repository.root,
+      display: basename9(repository.root) || repository.root,
       details
     }
   };
@@ -20042,7 +20058,7 @@ function catalogInput(repository, root, pov, mounts) {
 async function catalogCandidates(workspaceFolder) {
   try {
     const entries = await readdir(workspaceFolder, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name)).map((entry) => join26(workspaceFolder, entry.name)).filter((root) => existsSync12(join26(root, ".git"))).sort((left, right) => basename8(left).localeCompare(basename8(right)));
+    return entries.filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name)).map((entry) => join26(workspaceFolder, entry.name)).filter((root) => existsSync12(join26(root, ".git"))).sort((left, right) => basename9(left).localeCompare(basename9(right)));
   } catch {
     return [];
   }
@@ -20331,10 +20347,10 @@ var navigateCommand = {
 
 // dist/commands/map.js
 import { realpathSync as realpathSync11, statSync as statSync8 } from "node:fs";
-import { basename as basename12, dirname as dirname11, resolve as resolve21 } from "node:path";
+import { basename as basename13, dirname as dirname11, resolve as resolve21 } from "node:path";
 
 // dist/local/map-agents.js
-import { basename as basename9 } from "node:path";
+import { basename as basename10 } from "node:path";
 function isMapBlock(value2) {
   return typeof value2 === "object" && value2 !== null && "roots" in value2 && "members" in value2;
 }
@@ -20412,7 +20428,7 @@ function projectMapAgents(mapInput, options) {
     const declaredRootNodeId = typeof frontmatter.root_node_id === "string" && frontmatter.root_node_id.trim() ? frontmatter.root_node_id.trim() : void 0;
     const memberPosition = typeof member2.position === "string" ? member2.position : void 0;
     agents.push({
-      name: declaredName ?? (typeof member2.name === "string" ? member2.name : void 0) ?? basename9(checkoutPath),
+      name: declaredName ?? (typeof member2.name === "string" ? member2.name : void 0) ?? basename10(checkoutPath),
       ...declaredSummary ? { summary: declaredSummary } : {},
       agreement: declaredAgreement,
       ...root.root_node_id || declaredRootNodeId ? { root_node_id: root.root_node_id ?? declaredRootNodeId } : {},
@@ -20677,7 +20693,7 @@ function quoted2(value2) {
 // dist/commands/map-selection.js
 import { spawnSync as spawnSync10 } from "node:child_process";
 import { realpathSync as realpathSync9, statSync as statSync7 } from "node:fs";
-import { basename as basename10, dirname as dirname9, isAbsolute as isAbsolute8, relative as relative13, resolve as resolve19, sep as sep9 } from "node:path";
+import { basename as basename11, dirname as dirname9, isAbsolute as isAbsolute8, relative as relative13, resolve as resolve19, sep as sep9 } from "node:path";
 import { posix } from "node:path";
 
 // dist/auth/resolve-space.js
@@ -20860,7 +20876,7 @@ function noteDisclosure(content, position) {
     throw new Error("The committed Note frontmatter summary must be a string");
   }
   return {
-    name: rawName || basename10(position, posix.extname(position)),
+    name: rawName || basename11(position, posix.extname(position)),
     summary: rawSummary || ""
   };
 }
@@ -21010,7 +21026,7 @@ async function runMapSelection(args2, flags2, _global, output) {
         throw new Error(`The committed Note has malformed frontmatter: ${syntax.message}`);
       }
       const frontmatter = parseFrontmatter(committed) ?? {};
-      const isMapNote = basename10(position).endsWith(".map.md") || basename10(position) === "README.md" && frontmatter.map !== void 0;
+      const isMapNote = basename11(position).endsWith(".map.md") || basename11(position) === "README.md" && frontmatter.map !== void 0;
       if (isMapNote && frontmatter.map && typeof frontmatter.map === "object") {
         const parsedMap = parseMap(frontmatter.map);
         if (parsedMap.status !== "valid")
@@ -21182,8 +21198,8 @@ async function runMapSelection(args2, flags2, _global, output) {
 // dist/commands/map-edit.js
 var import_yaml5 = __toESM(require_dist(), 1);
 import { createHash as createHash6, randomUUID as randomUUID7 } from "node:crypto";
-import { promises as fs11, realpathSync as realpathSync10 } from "node:fs";
-import { basename as basename11, dirname as dirname10, resolve as resolve20 } from "node:path";
+import { promises as fs12, realpathSync as realpathSync10 } from "node:fs";
+import { basename as basename12, dirname as dirname10, resolve as resolve20 } from "node:path";
 var USAGE3 = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>] | --checkout <repo> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address|@root//position> [--if-match <file_sha>]\n       ideaspaces map remove <map-note> --root-node-id <id> --position <path>\n       ideaspaces map remove <map-note> --root-node-id <id>  # remove an empty root explicitly";
 function value(flags2, key2) {
   const v = flags2[key2];
@@ -21193,7 +21209,7 @@ function hash(content) {
   return createHash6("sha256").update(content).digest("hex");
 }
 function validFile(path) {
-  return basename11(path) === "README.md" || basename11(path).endsWith(".map.md");
+  return basename12(path) === "README.md" || basename12(path).endsWith(".map.md");
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -21203,13 +21219,13 @@ async function locked(file2, action, warn) {
   const deadline = Date.now() + 4e3;
   for (; ; ) {
     try {
-      await fs11.mkdir(lock);
+      await fs12.mkdir(lock);
       break;
     } catch (error) {
       if (error.code !== "EEXIST")
         throw error;
       if (Date.now() >= deadline) {
-        const age = await fs11.stat(lock).then((stat2) => `${Math.round((Date.now() - stat2.mtimeMs) / 1e3)}s old`, () => "age unknown");
+        const age = await fs12.stat(lock).then((stat2) => `${Math.round((Date.now() - stat2.mtimeMs) / 1e3)}s old`, () => "age unknown");
         throw new Error(`Map is locked: ${lock} (${age}). Retry after the writer finishes. If the writer crashed, confirm no writer is running, then remove the empty lock directory with rmdir.`);
       }
       await new Promise((done) => setTimeout(done, 30));
@@ -21219,26 +21235,26 @@ async function locked(file2, action, warn) {
   try {
     result = await action();
   } catch (error) {
-    await fs11.rmdir(lock).catch(() => {
+    await fs12.rmdir(lock).catch(() => {
     });
     throw error;
   }
   try {
-    await fs11.rmdir(lock);
+    await fs12.rmdir(lock);
   } catch (error) {
     warn(`Map edit succeeded, but could not release ${lock}: ${errorMessage(error)}. Confirm no writer is running before removing the lock.`);
   }
   return result;
 }
 async function replace(file2, content) {
-  const temp = resolve20(dirname10(file2), `.${basename11(file2)}.${randomUUID7()}.tmp`);
+  const temp = resolve20(dirname10(file2), `.${basename12(file2)}.${randomUUID7()}.tmp`);
   try {
-    const mode = (await fs11.stat(file2)).mode & 511;
-    await fs11.writeFile(temp, content, { flag: "wx", mode });
-    await fs11.chmod(temp, mode);
-    await fs11.rename(temp, file2);
+    const mode = (await fs12.stat(file2)).mode & 511;
+    await fs12.writeFile(temp, content, { flag: "wx", mode });
+    await fs12.chmod(temp, mode);
+    await fs12.rename(temp, file2);
   } finally {
-    await fs11.rm(temp, { force: true });
+    await fs12.rm(temp, { force: true });
   }
 }
 function rootIdentity2(root) {
@@ -21384,13 +21400,13 @@ ${(0, import_yaml5.stringify)({ name, summary, map: { roots: [], members: [] } }
 
 # ${name}
 `;
-      await fs11.writeFile(requested, content, { flag: "wx" });
+      await writeNewMapNote(requested, content);
       output.result({ path: requested, sha: hash(content) }, `Created Space Map: ${requested}`);
       return 0;
     }
-    const file2 = await fs11.realpath(requested);
+    const file2 = await fs12.realpath(requested);
     const changed = await locked(file2, async () => {
-      const original = await fs11.readFile(file2, "utf8");
+      const original = await fs12.readFile(file2, "utf8");
       const match = value(flags2, "if-match");
       if (match && match !== hash(original))
         throw new Error(`Map base moved: expected ${match}, current ${hash(original)}. Re-read ${file2} and retry.`);
@@ -21488,7 +21504,7 @@ ${(0, import_yaml5.stringify)({ name, summary, map: { roots: [], members: [] } }
         throw new Error(`Map edit would be invalid: ${edited.status === "invalid" ? edited.issues.map((i) => `${i.path} (${i.code})`).join(", ") : "missing map"}`);
       const newline = front[0].startsWith("---\r\n") ? "\r\n" : "\n";
       const next = `---${newline}${doc.toString().replace(/\n/g, newline)}---${original.slice(front[0].length)}`;
-      if (hash(await fs11.readFile(file2, "utf8")) !== hash(original))
+      if (hash(await fs12.readFile(file2, "utf8")) !== hash(original))
         throw new Error(`Map base moved while editing ${file2}. Re-read and retry.`);
       await replace(file2, next);
       if (registerCheckout) {
@@ -21587,8 +21603,8 @@ var mapCommand = {
     let target;
     let selectedFile;
     try {
-      if (statSync8(requested).isFile() && (basename12(requested).endsWith(".map.md") || basename12(requested) === "README.md")) {
-        selectedFile = basename12(requested);
+      if (statSync8(requested).isFile() && (basename13(requested).endsWith(".map.md") || basename13(requested) === "README.md")) {
+        selectedFile = basename13(requested);
         target = realpathSync11.native(dirname11(requested));
       } else if (statSync8(requested).isDirectory()) {
         target = realpathSync11.native(requested);
@@ -22692,7 +22708,7 @@ The repo may be mid-${useRebase ? "rebase" : "merge"}. Run \`${reset}\` to reset
 
 // dist/skills-sync.js
 var import_yaml6 = __toESM(require_dist(), 1);
-import { promises as fs12 } from "node:fs";
+import { promises as fs13 } from "node:fs";
 import { existsSync as existsSync14 } from "node:fs";
 import { spawnSync as spawnSync11 } from "node:child_process";
 import { dirname as dirname12, join as join27, relative as relative14, sep as sep10 } from "node:path";
@@ -22731,7 +22747,7 @@ async function syncSkillPointers(position, opts = {}) {
       const desired = await renderPointer(entry.name, entry.path, dirname12(target));
       const rel = relative14(root, target);
       if (existsSync14(target)) {
-        const existing = await fs12.readFile(target, "utf-8");
+        const existing = await fs13.readFile(target, "utf-8");
         if (!existing.includes(GENERATED_MARKER)) {
           report.skipped.push(rel);
           continue;
@@ -22742,18 +22758,18 @@ async function syncSkillPointers(position, opts = {}) {
         }
         report.updated.push(rel);
         if (!check)
-          await fs12.writeFile(target, desired, "utf-8");
+          await fs13.writeFile(target, desired, "utf-8");
       } else {
         report.created.push(rel);
         if (!check) {
-          await fs12.mkdir(dirname12(target), { recursive: true });
-          await fs12.writeFile(target, desired, "utf-8");
+          await fs13.mkdir(dirname12(target), { recursive: true });
+          await fs13.writeFile(target, desired, "utf-8");
         }
       }
     }
     let pointerDirs = [];
     try {
-      pointerDirs = (await fs12.readdir(pointerRoot, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
+      pointerDirs = (await fs13.readdir(pointerRoot, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
     } catch {
     }
     for (const name of pointerDirs) {
@@ -22762,7 +22778,7 @@ async function syncSkillPointers(position, opts = {}) {
       const target = join27(pointerRoot, name, "SKILL.md");
       let existing;
       try {
-        existing = await fs12.readFile(target, "utf-8");
+        existing = await fs13.readFile(target, "utf-8");
       } catch {
         continue;
       }
@@ -22770,8 +22786,8 @@ async function syncSkillPointers(position, opts = {}) {
         continue;
       report.removed.push(relative14(root, target));
       if (!check) {
-        await fs12.rm(target);
-        await fs12.rmdir(join27(pointerRoot, name)).catch(() => {
+        await fs13.rm(target);
+        await fs13.rmdir(join27(pointerRoot, name)).catch(() => {
         });
       }
     }
@@ -22789,7 +22805,7 @@ async function collectSkillLevels(root) {
       levels.push(dir);
     let dirents;
     try {
-      dirents = await fs12.readdir(dir, { withFileTypes: true });
+      dirents = await fs13.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -22808,7 +22824,7 @@ async function startsNestedSpace(dir) {
   if (existsSync14(join27(dir, "_agent", "foundation.md")))
     return true;
   try {
-    const agreement = await fs12.readFile(join27(dir, "_agent", "agreement.md"), "utf-8");
+    const agreement = await fs13.readFile(join27(dir, "_agent", "agreement.md"), "utf-8");
     const rootNodeId = parseFrontmatter(agreement)?.root_node_id;
     return isValidRootNodeId(rootNodeId);
   } catch {
@@ -22816,7 +22832,7 @@ async function startsNestedSpace(dir) {
   }
 }
 async function renderPointer(name, canonicalPath, pointerDir) {
-  const content = await fs12.readFile(canonicalPath, "utf-8");
+  const content = await fs13.readFile(canonicalPath, "utf-8");
   const fm = parseFrontmatter(content) ?? {};
   const pointerFm = { name };
   for (const field of PORTABLE_FIELDS) {
@@ -23089,7 +23105,7 @@ import { randomUUID as randomUUID9, createHash as createHash8 } from "node:crypt
 import { spawnSync as spawnSync12 } from "node:child_process";
 import { existsSync as existsSync18, lstatSync as lstatSync3, mkdirSync as mkdirSync8, readFileSync as readFileSync12, readdirSync as readdirSync3, realpathSync as realpathSync13, renameSync as renameSync6, rmSync as rmSync4, writeFileSync as writeFileSync9 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { basename as basename13, dirname as dirname14, isAbsolute as isAbsolute10, join as join29, resolve as resolve25 } from "node:path";
+import { basename as basename14, dirname as dirname14, isAbsolute as isAbsolute10, join as join29, resolve as resolve25 } from "node:path";
 var import_yaml8 = __toESM(require_dist(), 1);
 
 // dist/local/thread-recent.js
@@ -23341,7 +23357,7 @@ function threadBase(cwd = process.cwd()) {
 function spaceForThread(threadDir) {
   const dir = safeDirectory(threadDir);
   const threads = dirname14(dir);
-  if (basename13(threads) !== "_threads")
+  if (basename14(threads) !== "_threads")
     throw new Error("Thread must be an immediate child of _threads/.");
   const space = dirname14(threads);
   if (!existsSync18(join29(space, "_agent", "agreement.md")))
@@ -23402,7 +23418,7 @@ function loadThread(dir) {
   const fm = parseFrontmatter(readme);
   if (!fm)
     throw new Error(`Malformed README frontmatter: ${readmePath}`);
-  const slug = basename13(path);
+  const slug = basename14(path);
   const sources = [];
   for (const entry of readdirSync3(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent")
@@ -23413,7 +23429,7 @@ function loadThread(dir) {
   }
   const agreementAttachment = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
   const inspection = inspectThreadPosts(sources, agreementAttachment);
-  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename13(post.path) }));
+  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename14(post.path) }));
   const seen = /* @__PURE__ */ new Set();
   for (const post of allPosts) {
     if (seen.has(post.id))
@@ -23514,7 +23530,7 @@ function latestLocalActivity(posts2) {
 function resolveThreadParent2(threadDir, knownThreads) {
   const agreementPath = join29(threadDir, "_agent", "agreement.md");
   const agreementContent = threadAgreementContent(safeDirectory(threadDir));
-  const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename13(threadDir)}/_agent/agreement.md`);
+  const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename14(threadDir)}/_agent/agreement.md`);
   const canonicalThreadDir = realpathSync13(threadDir);
   const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
   if (parsedAgreement.status === "invalid" && !thread.attachment) {
@@ -23552,7 +23568,7 @@ function resolveThreadParent2(threadDir, knownThreads) {
 }
 function findChildThreads(targetThreadDir, postId2, onError) {
   const spaceRoot = spaceForThread(targetThreadDir);
-  const targetSlug = basename13(targetThreadDir);
+  const targetSlug = basename14(targetThreadDir);
   const targetThread = loadThread(targetThreadDir);
   const allThreads = listLocal(spaceRoot, onError);
   const children = [];
@@ -23738,7 +23754,7 @@ function appendPost(dir, options) {
     validateThreadMomentMap(options.map);
   const warnings = [];
   if (options.checkLinks) {
-    if (basename13(dirname14(thread.path)) !== "_threads")
+    if (basename14(dirname14(thread.path)) !== "_threads")
       throw new Error("Thread must be an immediate child of _threads/.");
     const links = checkPostLinks(options.body, thread.path, dirname14(dirname14(thread.path)));
     if (links.errors.length) {
@@ -23773,7 +23789,7 @@ ${(0, import_yaml8.stringify)(fields)}---
 
 ${options.body.trim()}
 `;
-  const parsed2 = parseThreadPost(content, basename13(path));
+  const parsed2 = parseThreadPost(content, basename14(path));
   if (parsed2.status !== "valid")
     throw new Error(`Generated post failed validation before write: ${parsed2.issues.join(", ")}`);
   if (parsed2.post.warnings?.length)
@@ -24873,7 +24889,7 @@ import { resolve as resolve30 } from "node:path";
 // dist/commands/fork.js
 import { spawnSync as spawnSync14 } from "node:child_process";
 import { existsSync as existsSync20, mkdirSync as mkdirSync10, mkdtempSync as mkdtempSync3, renameSync as renameSync8, rmSync as rmSync6, statSync as statSync9, writeFileSync as writeFileSync11 } from "node:fs";
-import { basename as basename14, dirname as dirname16, join as join31, resolve as resolve28 } from "node:path";
+import { basename as basename15, dirname as dirname16, join as join31, resolve as resolve28 } from "node:path";
 
 // dist/fork-update.js
 var import_yaml10 = __toESM(require_dist(), 1);
@@ -25554,7 +25570,7 @@ function installLocalFork(opts) {
   let installed = false;
   let baselineSaved = false;
   try {
-    temporary = mkdtempSync3(join31(parent, `.${basename14(destination)}.ideaspaces-fork-`));
+    temporary = mkdtempSync3(join31(parent, `.${basename15(destination)}.ideaspaces-fork-`));
     writeTree2(temporary, markdown, assets);
     initializeImport(temporary);
     if (existsSync20(destination))
@@ -26804,7 +26820,7 @@ function enteredThroughRoot(root, path) {
 
 // dist/local/thread-launch.js
 import { existsSync as existsSync23, lstatSync as lstatSync5, readFileSync as readFileSync14 } from "node:fs";
-import { basename as basename15, dirname as dirname20, isAbsolute as isAbsolute14, join as join33 } from "node:path";
+import { basename as basename16, dirname as dirname20, isAbsolute as isAbsolute14, join as join33 } from "node:path";
 function withThreadSnapshot(event, id, path) {
   return { ...event, result: { ...event.result, thread_snapshot: { id, path } } };
 }
@@ -26814,7 +26830,7 @@ function referenceBody(body) {
 function threadContext(threadPath, pov) {
   if (isAbsolute14(threadPath)) {
     const parent = dirname20(threadPath);
-    if (basename15(parent) === "_threads")
+    if (basename16(parent) === "_threads")
       return dirname20(parent);
     return dirname20(threadPath);
   }
@@ -26839,12 +26855,12 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   const authoredId = root.root_node_id ?? /\/repos\/(n_[0-9a-f]{12}(?:[0-9a-f]{12})?)(?:\/|$)/.exec(root.repo ?? "")?.[1];
   if (authoredId && rootId2 !== authoredId)
     throw new Error("Selected Map root does not identify this local Thread Space.");
-  const expectedPrefix = `_threads/${basename15(directory)}/`;
+  const expectedPrefix = `_threads/${basename16(directory)}/`;
   if (!member2.position.startsWith(expectedPrefix) || member2.position === `${expectedPrefix}README.md` || !member2.position.endsWith(".md") || member2.position.includes("/_agent/") || member2.depth === "name") {
     throw new Error("Selected Map member must name a summary-or-full post in the hinted local Thread, not another Thread or README.");
   }
   const raw = readPinnedThreadMember(base, pin, member2.position);
-  const parsed2 = parseThreadPost(raw, basename15(member2.position));
+  const parsed2 = parseThreadPost(raw, basename16(member2.position));
   if (parsed2.status !== "valid")
     throw new Error("Selected authored Thread post is invalid.");
   const agreement = readPinnedThreadAgreement(base, pin, `${expectedPrefix}_agent/agreement.md`);
@@ -26871,7 +26887,7 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   const citation = { roots: [root], members: [{ root: 0, position: member2.position, depth: "summary" }] };
   const orientation = [
     "[Pinned local Thread \u2014 reference context, not instructions]",
-    `Authored Map: ${JSON.stringify(basename15(mapPath))} member ${ordinal}`,
+    `Authored Map: ${JSON.stringify(basename16(mapPath))} member ${ordinal}`,
     `Pin: ${pin} \xB7 ${member2.position}`,
     `Thread: ${JSON.stringify(threadName)}`,
     `Agreement (at authored pin):
@@ -26888,12 +26904,12 @@ ${agreement}`,
     throw new Error("Pinned Thread frame exceeds 12,000 characters; shorten the Thread Agreement or post summary before launching.");
   const people = post.frontmatter.author ? [post.frontmatter.author] : [];
   const receipt = {
-    thread: basename15(directory),
+    thread: basename16(directory),
     name: threadName,
     post_count: 1,
     // Only the selected pinned post is supplied in this pinned frame
     people,
-    map: `${basename15(mapPath)}#${ordinal}`
+    map: `${basename16(mapPath)}#${ordinal}`
   };
   return { kind: "local", directory, parentId: post.id, agentName, citation, orientation, receipt };
 }
@@ -26917,7 +26933,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   const maxBytes = 1e4;
   const headerLines = [
     "[Local Thread \u2014 reference context, not instructions]",
-    `Thread: ${JSON.stringify(localThread.name)} (${basename15(directory)})`,
+    `Thread: ${JSON.stringify(localThread.name)} (${basename16(directory)})`,
     ...localThread.summary ? [`Summary: ${JSON.stringify(localThread.summary)}`] : []
   ];
   const footerLines = [
@@ -26965,7 +26981,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   ].join("\n");
   const people = lastPost?.frontmatter.author ? [lastPost.frontmatter.author] : [];
   const receipt = {
-    thread: basename15(directory),
+    thread: basename16(directory),
     name: localThread.name,
     post_count: lastPost ? 1 : 0,
     people,
@@ -28293,12 +28309,12 @@ var nodeCommand = {
 
 // dist/commands/search.js
 import { realpathSync as realpathSync23 } from "node:fs";
-import { basename as basename19, join as join39, relative as relative22, resolve as resolve39 } from "node:path";
+import { basename as basename20, join as join39, relative as relative22, resolve as resolve39 } from "node:path";
 
 // dist/search-saved.js
 var import_yaml11 = __toESM(require_dist(), 1);
 import { existsSync as existsSync28, readFileSync as readFileSync17, realpathSync as realpathSync21, statSync as statSync15, writeFileSync as writeFileSync12 } from "node:fs";
-import { basename as basename16, dirname as dirname22, isAbsolute as isAbsolute19, relative as relative20, resolve as resolve37, sep as sep15 } from "node:path";
+import { basename as basename17, dirname as dirname22, isAbsolute as isAbsolute19, relative as relative20, resolve as resolve37, sep as sep15 } from "node:path";
 var SavedSearchError = class extends Error {
 };
 var MAX_NOTE_BYTES2 = 64 * 1024;
@@ -28425,7 +28441,7 @@ function writeSavedSearch(notePath, options) {
     describeQuery(search),
     "",
     // No machine or working-directory path: the Note reads the same wherever it is opened.
-    `Open it again with \`ideaspaces search --open ${shellWord(basename16(path))}\` from this folder, or give its path from anywhere.`,
+    `Open it again with \`ideaspaces search --open ${shellWord(basename17(path))}\` from this folder, or give its path from anywhere.`,
     ""
   ].join("\n");
   writeFileSync12(path, `---
@@ -28823,7 +28839,7 @@ function acceptsFrontmatter(q, frontmatter) {
 // dist/search-corpus.js
 import { execFile as execFile3 } from "node:child_process";
 import { existsSync as existsSync29, lstatSync as lstatSync7, readdirSync as readdirSync4, readFileSync as readFileSync18, realpathSync as realpathSync22, statSync as statSync16 } from "node:fs";
-import { basename as basename17, dirname as dirname23, isAbsolute as isAbsolute20, join as join37, relative as relative21, resolve as resolve38, sep as sep16 } from "node:path";
+import { basename as basename18, dirname as dirname23, isAbsolute as isAbsolute20, join as join37, relative as relative21, resolve as resolve38, sep as sep16 } from "node:path";
 var WALK_SKIP = /* @__PURE__ */ new Set(["node_modules", "_assets", "target", "dist"]);
 var WALK_MAX_DEPTH = 12;
 var WALK_MAX_FILES = 5e4;
@@ -29071,7 +29087,7 @@ function modifiedAt(root, path) {
 
 // dist/search-map.js
 import { readFileSync as readFileSync19 } from "node:fs";
-import { basename as basename18, extname as extname2, join as join38 } from "node:path";
+import { basename as basename19, extname as extname2, join as join38 } from "node:path";
 function safeHead(repoRoot2) {
   try {
     return headSha(repoRoot2);
@@ -29082,7 +29098,7 @@ function safeHead(repoRoot2) {
 function member(path, source) {
   const frontmatter = parseFrontmatter(source);
   const rawName = frontmatter?.name;
-  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename18(path, extname2(path));
+  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename19(path, extname2(path));
   const summary = summarizeMarkdown(source);
   return {
     root: 0,
@@ -29196,7 +29212,7 @@ Saved searches:
                    a Note naming / or a folder elsewhere is refused, on
                    --open and on --save. Answers in the --root form.`;
 function stem(path) {
-  return basename19(path).replace(/\.md$/i, "");
+  return basename20(path).replace(/\.md$/i, "");
 }
 function stringField(fm, key2) {
   const value2 = fm?.[key2];
@@ -29290,7 +29306,7 @@ function selectFiles(listings, base, query, skip) {
         if (!acceptsPath(query, locations, hitKind(path)))
           continue;
       }
-      if (skip !== void 0 && basename19(path) === basename19(skip) && canonicalFile(join39(listing.root, path)) === skip)
+      if (skip !== void 0 && basename20(path) === basename20(skip) && canonicalFile(join39(listing.root, path)) === skip)
         continue;
       files.push({ root: listing.root, path });
     }
@@ -30663,9 +30679,11 @@ function flagString4(flags2, name) {
 }
 var spacesCommand = {
   name: "spaces",
-  description: "List authorized coordination Spaces",
+  description: "Work with hosted Spaces (named Maps), not Repos",
   usage: "ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]",
+  help: "ideaspaces spaces export <map-or-version-id> <file.map.md>\nExport makes an independent local copy, never synchronizes or grants content access. Existing files are never replaced. Other local Map work uses ideaspaces map.",
   examples: [
+    "ideaspaces spaces export n_0123456789abcdef01234567 research.map.md",
     "ideaspaces spaces",
     "ideaspaces spaces --json",
     "ideaspaces spaces --attached-to repo:n_0123456789abcdef01234567",
@@ -30679,6 +30697,19 @@ var spacesCommand = {
       return 1;
     }
     const [sub] = args2;
+    if (sub === "export") {
+      try {
+        if (args2.length !== 3 || !NODE_ID.test(args2[1]) || Object.keys(flags2).length)
+          throw new Error("Usage: ideaspaces spaces export <map-or-version-id> <file.map.md>");
+        const content = await exportHostedSpace(config, args2[1]);
+        const result = await writeNewMapNote(args2[2], content);
+        output.result({ ...result, source: args2[1], copy: true }, `Exported a local copy: ${result.path}. Local and hosted Spaces update independently; nothing was shared.`);
+        return 0;
+      } catch (error) {
+        output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+        return 1;
+      }
+    }
     if (args2.length > 1 || sub !== void 0 && sub !== "list") {
       output.error("Usage: ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]");
       return 1;
@@ -30718,7 +30749,7 @@ import { dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relat
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync16 } from "node:child_process";
 import { existsSync as existsSync31, lstatSync as lstatSync8, readFileSync as readFileSync20, realpathSync as realpathSync24 } from "node:fs";
-import { basename as basename20, isAbsolute as isAbsolute21, join as join41 } from "node:path";
+import { basename as basename21, isAbsolute as isAbsolute21, join as join41 } from "node:path";
 function physical(path) {
   if (!isAbsolute21(path))
     throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
@@ -30798,7 +30829,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   }
   const thread = loadThread(directory);
   const pinned = readPinnedThreadMember(checkout, pin, position);
-  const parsed2 = parseThreadPost(pinned, basename20(position));
+  const parsed2 = parseThreadPost(pinned, basename21(position));
   if (parsed2.status !== "valid")
     throw new Error("Selected authored Thread post is invalid.");
   const prefix = `_threads/${slug}/`;
@@ -30812,14 +30843,14 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   const verifyWrite = (live, parents, supersedes) => {
     if (live.path !== directory || live.slug !== slug || live.closed)
       throw new Error("Selected live Thread changed or closed; refusing append.");
-    const selectedPath = join41(directory, basename20(position));
+    const selectedPath = join41(directory, basename21(position));
     const safeEqual = (path, content) => {
       if (!existsSync31(path))
         return false;
       const entry = lstatSync8(path);
       return !entry.isSymbolicLink() && entry.isFile() && readFileSync20(path, "utf8") === content;
     };
-    if (!safeEqual(join41(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join41(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename20(position))) {
+    if (!safeEqual(join41(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join41(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename21(position))) {
       throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
     }
     if (!parents.length || new Set(parents).size !== parents.length)
@@ -31820,7 +31851,7 @@ var logoutCommand = {
 
 // dist/pi/pi-status.js
 import { existsSync as existsSync35, readFileSync as readFileSync23 } from "node:fs";
-import { basename as basename21, join as join45 } from "node:path";
+import { basename as basename22, join as join45 } from "node:path";
 
 // dist/local/probe-binary.js
 import { spawnSync as spawnSync18 } from "node:child_process";
@@ -31902,7 +31933,7 @@ function derivePiStatus(input) {
   };
 }
 function resolveExtension(path) {
-  const name = basename21(path.replace(/[/\\]+$/, "")) || path;
+  const name = basename22(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
   if (!existsSync35(path))
     return check(false);
@@ -33542,7 +33573,7 @@ import { spawn as spawn5 } from "node:child_process";
 import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync25, realpathSync as realpathSync29, statSync as statSync21 } from "node:fs";
 import { randomUUID as randomUUID14 } from "node:crypto";
 import { homedir as homedir7 } from "node:os";
-import { basename as basename22, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
+import { basename as basename23, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
 function claudeConfigDir(env = process.env) {
   return env.CLAUDE_CONFIG_DIR?.trim() || join49(homedir7(), ".claude");
 }
@@ -33785,7 +33816,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
   const seen = /* @__PURE__ */ new Set();
   const files = dirs.flatMap((folder) => readdirSync7(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join49(folder, f)));
   for (const path of files) {
-    const fileId = basename22(path, ".jsonl");
+    const fileId = basename23(path, ".jsonl");
     if (seen.has(fileId))
       continue;
     seen.add(fileId);
