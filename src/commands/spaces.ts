@@ -1,3 +1,4 @@
+import { runHostedSpaceAdd, SPACE_ADD_USAGE } from "./hosted-space-writes.js";
 import { NODE_ID } from "./thread-flags.js";
 import { parseBool } from "../argv.js";
 import { apiErrorDetail, fetchCoordinationSpaces, fetchHostedSpaces, fetchHostedSpace, UnauthorizedError } from "../auth/api.js";
@@ -27,9 +28,13 @@ function hostedArgsError(args: string[], flags: Flags): string | undefined {
 export const spacesCommand: CommandDef = {
   name: "spaces",
   description: "List or open hosted Spaces (named Maps); local Maps stay separate",
-  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]",
-  help: "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+  usage: `ideaspaces spaces list --hosted [--json]
+       ideaspaces spaces open <map-id> [--json]
+       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
+       ${SPACE_ADD_USAGE}`,
+  help: "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
+    "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces list --hosted --json",
     "ideaspaces spaces open n_0123456789abcdef01234567 --json",
     "ideaspaces spaces",
@@ -39,6 +44,7 @@ export const spacesCommand: CommandDef = {
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
+    if (args[0] === "add") return runHostedSpaceAdd(args.slice(1), flags, global);
 
     const config = loadConfig();
     if (!config) {
