@@ -14972,10 +14972,10 @@ async function fetchAgents(config, owner, opts) {
 function apiErrorDetail(err) {
   if (!(err instanceof Error))
     return String(err);
-  const match = err instanceof ApiStatusError ? [err.message, err.body.trim() ? err.body : err.message] : err.message.match(/→ \d+:\s*(.+)$/);
-  if (match) {
+  const raw = err instanceof ApiStatusError ? err.body.trim() || err.message : err.message.match(/→ \d+:\s*(.+)$/)?.[1];
+  if (raw) {
     try {
-      const parsed2 = JSON.parse(match[1]);
+      const parsed2 = JSON.parse(raw);
       if (typeof parsed2.detail === "string")
         return parsed2.detail;
       if (parsed2.detail && typeof parsed2.detail === "object" && "message" in parsed2.detail && typeof parsed2.detail.message === "string") {
@@ -14984,7 +14984,7 @@ function apiErrorDetail(err) {
       if (typeof parsed2.message === "string")
         return parsed2.message;
     } catch {
-      return match[1];
+      return raw;
     }
   }
   return err.message;
@@ -30751,7 +30751,7 @@ var spacesCommand = {
        ${SPACE_REMOVE_USAGE}`,
   help: "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
-    "ideaspaces spaces remove n_0123456789abcdef01234567 1 --if-match n_abcdef0123456789abcdef0123",
+    "ideaspaces spaces remove n_0123456789abcdef01234567 1 --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces list --hosted --json",
     "ideaspaces spaces open n_0123456789abcdef01234567 --json",
     "ideaspaces spaces",

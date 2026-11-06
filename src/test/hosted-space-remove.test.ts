@@ -59,3 +59,17 @@ it("maps 401 and rejects unknown flags and long command ids before writes", asyn
   expect(await spacesCommand.run(["remove", ID, "1"], flags, { ...global, yes: true })).toBe(1);
   expect(stderr).toContain("Session expired");
 });
+
+it("accepts its documented example through the real argument parser", async () => {
+  const { parseArgs } = await import("../argv.js");
+  const parsed = parseArgs(spacesCommand.examples![0].split(" ").slice(1));
+  expect(await spacesCommand.run(parsed.args, parsed.flags, parsed.global)).toBe(0);
+});
+
+it("preserves shared API error details for JSON, plain, empty and existing untyped callers", async () => {
+  const { apiErrorDetail, ApiStatusError } = await import("../auth/api.js");
+  for (const [body, expected] of [[JSON.stringify({ detail: "Denied" }), "Denied"], ["plain refusal", "plain refusal"], ["", "HTTP 403"], ["   ", "HTTP 403"]]) {
+    expect(apiErrorDetail(new ApiStatusError(403, body, null))).toBe(expected);
+  }
+  expect(apiErrorDetail(new Error('GET /example → 403: {"detail":"Existing refusal"}'))).toBe("Existing refusal");
+});
