@@ -15245,10 +15245,18 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
   }
 }
 async function fetchHostedSpaces(config) {
-  return request(config, "GET", `${API_V1}/maps`);
+  const result = await request(config, "GET", `${API_V1}/maps`);
+  if (!result || !Array.isArray(result.maps) || result.maps.some((m) => !m || typeof m.node_id !== "string" || typeof m.name !== "string" || typeof m.owner !== "string")) {
+    throw new Error("IdeaSpaces returned an unreadable Spaces list. Retry, or update the CLI.");
+  }
+  return result;
 }
 async function fetchHostedSpace(config, id) {
-  return request(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}?detail=members`);
+  const result = await request(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}?detail=members`);
+  if (!result || typeof result.map_id !== "string" || typeof result.version_id !== "string" || !result.authored || typeof result.authored.label !== "string" || !Number.isSafeInteger(result.omitted_members) || result.omitted_members < 0 || result.members !== null && (!Array.isArray(result.members) || result.members.some((m) => !m?.address || !Number.isInteger(m.address.ordinal) || typeof m.state !== "string"))) {
+    throw new Error("IdeaSpaces returned an unreadable Space. Retry, or update the CLI.");
+  }
+  return result;
 }
 
 // dist/auth/identity.js
@@ -18007,7 +18015,7 @@ function localEffectError(operation, code, phase, message, path, detail3) {
 }
 
 // dist/argv.js
-var BOOLEAN_COMMAND_FLAGS = /* @__PURE__ */ new Set(["read-only", "orientation", "threads", "no-check-links"]);
+var BOOLEAN_COMMAND_FLAGS = /* @__PURE__ */ new Set(["hosted", "read-only", "orientation", "threads", "no-check-links"]);
 var LIST_FLAGS = { root: "search" };
 function setFlag(flags2, key2, value2, command2) {
   if (LIST_FLAGS[key2] !== void 0 && LIST_FLAGS[key2] === command2) {
@@ -30667,6 +30675,22 @@ var requestCommand = {
 function flagString4(flags2, name) {
   return typeof flags2[name] === "string" ? flags2[name] : void 0;
 }
+function hostedArgsError(args2, flags2) {
+  if (flags2["attached-to"] !== void 0 || flags2["include-dormant"] !== void 0)
+    return "Legacy list filters do not apply to hosted Spaces. Use spaces list --hosted.";
+  const unknown = Object.keys(flags2).find((f) => f !== "hosted");
+  if (unknown)
+    return `Unknown flag for hosted Spaces: --${unknown}.`;
+  if (args2[0] === "open") {
+    if (args2.length !== 2)
+      return "Usage: ideaspaces spaces open <map-id> [--json]";
+    if (!NODE_ID.test(args2[1]))
+      return "Map IDs look like n_<12 or 24 lowercase hex digits>. Use spaces list --hosted to find one.";
+  } else if (args2.length > 1 || args2[0] !== void 0 && args2[0] !== "list") {
+    return "Usage: ideaspaces spaces list --hosted [--json]";
+  }
+  return void 0;
+}
 var spacesCommand = {
   name: "spaces",
   description: "List or open hosted Spaces (named Maps); local Maps stay separate",
@@ -30688,10 +30712,15 @@ var spacesCommand = {
       return 1;
     }
     const [sub, id] = args2;
-    const hosted = flags2.hosted !== void 0 && parseBool(flags2.hosted);
+    if (flags2.hosted !== void 0 && flags2.hosted !== true) {
+      output.error("--hosted takes no value. Leave it out for legacy coordination objects; local Maps use ideaspaces map.");
+      return 1;
+    }
+    const hosted = flags2.hosted === true;
     if (sub === "open" || hosted) {
-      if (sub === "open" && (args2.length !== 2 || !/^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/.test(id ?? "")) || sub !== "open" && (args2.length > 1 || sub !== void 0 && sub !== "list") || flags2["attached-to"] !== void 0 || flags2["include-dormant"] !== void 0) {
-        output.error("Usage: ideaspaces spaces list --hosted | spaces open <map-id>. Legacy list filters do not apply to hosted Spaces.");
+      const error = hostedArgsError(args2, flags2);
+      if (error) {
+        output.error(error);
         return 1;
       }
       try {
@@ -30703,6 +30732,7 @@ var spacesCommand = {
             space.authored.summary ?? "",
             `Head: ${space.version_id}`,
             ...members,
+            ...space.omitted_members ? [`\u2026and ${space.omitted_members} more references not shown.`] : [],
             "References do not grant access. Local Maps are unchanged."
           ].filter(Boolean).join("\n"));
         } else {
