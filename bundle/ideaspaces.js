@@ -23036,53 +23036,6 @@ var reposCommand = {
   }
 };
 
-// dist/commands/thread-flags.js
-var NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
-var THREAD_FLAGS = Object.fromEntries(Object.entries({
-  list: "new unread space depth kind since limit cursor open reader",
-  recent: "cursor reader limit",
-  ack: "through recent reader",
-  locate: "",
-  open: "depth new ack since post map member checkout pin position limit order agreement reader",
-  read: "depth new ack kind since post map member checkout pin position limit order agreement reader",
-  new: "about attached-to map",
-  attach: "message author",
-  post: "map member checkout reply-to kind mark author name summary supersedes message tags no-check-links",
-  posts: "space scope limit since depth order cursor",
-  close: "map reply-to kind author name summary supersedes message",
-  render: "",
-  init: "",
-  push: "remote",
-  send: "space about map share share-roots space-map name summary message send-id grade",
-  reply: "map name summary message send-id reply-to",
-  expand: "",
-  add: "grade",
-  rename: "name"
-}).map(([verb, names]) => [verb, new Set(names ? names.split(" ") : [])]));
-function threadFlagError(verb, flags2) {
-  const known = THREAD_FLAGS[verb];
-  const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
-  return unknown ? `Unknown flag for threads ${verb}: --${unknown}. Run ideaspaces threads --help for supported flags.` : void 0;
-}
-var HOSTED_VERB_FLAGS = {
-  list: /* @__PURE__ */ new Set(["hosted", "limit", "cursor", "new", "unread"]),
-  open: /* @__PURE__ */ new Set(["limit", "cursor"]),
-  post: /* @__PURE__ */ new Set(["reply-to", "message", "name", "summary", "post-id", "map", "tags"]),
-  new: /* @__PURE__ */ new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags", "home"]),
-  close: /* @__PURE__ */ new Set(["message", "post-id"]),
-  rename: /* @__PURE__ */ new Set(["message", "name", "summary", "post-id"]),
-  send: /* @__PURE__ */ new Set(["name", "summary", "message", "post-id", "map", "tags", "home"]),
-  ack: /* @__PURE__ */ new Set(["seq", "cursor"])
-};
-function hostedVerbFlagError(verb, flags2) {
-  const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb];
-  const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
-  if (!unknown)
-    return void 0;
-  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
-  return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
-}
-
 // dist/commands/hosted-threads.js
 import { randomUUID as randomUUID10 } from "node:crypto";
 var import_yaml9 = __toESM(require_dist(), 1);
@@ -24088,6 +24041,53 @@ Why: ${options.message.trim()}
     }
     throw new Error(`The reframe post could not be written, so the Agreement was restored and the Thread did not move: ${cause}`);
   }
+}
+
+// dist/commands/thread-flags.js
+var NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
+var THREAD_FLAGS = Object.fromEntries(Object.entries({
+  list: "new unread space depth kind since limit cursor open reader",
+  recent: "cursor reader limit",
+  ack: "through recent reader",
+  locate: "",
+  open: "depth new ack since post map member checkout pin position limit order agreement reader",
+  read: "depth new ack kind since post map member checkout pin position limit order agreement reader",
+  new: "about attached-to map",
+  attach: "message author",
+  post: "map member checkout reply-to kind mark author name summary supersedes message tags no-check-links",
+  posts: "space scope limit since depth order cursor",
+  close: "map reply-to kind author name summary supersedes message",
+  render: "",
+  init: "",
+  push: "remote",
+  send: "space about map share share-roots space-map name summary message send-id grade",
+  reply: "map name summary message send-id reply-to",
+  expand: "",
+  add: "grade",
+  rename: "name"
+}).map(([verb, names]) => [verb, new Set(names ? names.split(" ") : [])]));
+function threadFlagError(verb, flags2) {
+  const known = THREAD_FLAGS[verb];
+  const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
+  return unknown ? `Unknown flag for threads ${verb}: --${unknown}. Run ideaspaces threads --help for supported flags.` : void 0;
+}
+var HOSTED_VERB_FLAGS = {
+  list: /* @__PURE__ */ new Set(["hosted", "limit", "cursor", "new", "unread"]),
+  open: /* @__PURE__ */ new Set(["limit", "cursor"]),
+  post: /* @__PURE__ */ new Set(["reply-to", "message", "name", "summary", "post-id", "map", "tags"]),
+  new: /* @__PURE__ */ new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags", "home"]),
+  close: /* @__PURE__ */ new Set(["message", "post-id"]),
+  rename: /* @__PURE__ */ new Set(["message", "name", "summary", "post-id"]),
+  send: /* @__PURE__ */ new Set(["name", "summary", "message", "post-id", "map", "tags", "home"]),
+  ack: /* @__PURE__ */ new Set(["seq", "cursor"])
+};
+function hostedVerbFlagError(verb, flags2) {
+  const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb];
+  const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
+  if (!unknown)
+    return void 0;
+  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
+  return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
 }
 
 // dist/commands/hosted-threads.js
@@ -31091,7 +31091,7 @@ var threadsCommand = {
     "ideaspaces threads list --hosted [--limit 50] [--cursor <cursor>] [--unread]  # one page, no implicit ack",
     "ideaspaces threads open x_<id> [--limit 50] [--cursor <cursor>]  # read is an alias",
     "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--home map:<id>] [--recipients '@handle,email@example.org'] [--map context.map.md] [--tags label] [--post-id msg_id]",
-    "ideaspaces threads send @handle --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients; to someone new it's a knock: text only, up to 1,000 characters, alone, and nobody posts until they let you in",
+    "ideaspaces threads send @handle [--home map:<id>] --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients; to someone new it's a knock: text only, up to 1,000 characters, alone, and nobody posts until they let you in",
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
