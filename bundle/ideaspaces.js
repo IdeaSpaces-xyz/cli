@@ -15244,6 +15244,12 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
     }
   }
 }
+async function fetchHostedSpaces(config) {
+  return request(config, "GET", `${API_V1}/maps`);
+}
+async function fetchHostedSpace(config, id) {
+  return request(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}?detail=members`);
+}
 
 // dist/auth/identity.js
 function identityEmail(username) {
@@ -30663,9 +30669,12 @@ function flagString4(flags2, name) {
 }
 var spacesCommand = {
   name: "spaces",
-  description: "List authorized coordination Spaces",
-  usage: "ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]",
+  description: "List or open hosted Spaces (named Maps); local Maps stay separate",
+  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]",
+  help: "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
+    "ideaspaces spaces list --hosted --json",
+    "ideaspaces spaces open n_0123456789abcdef01234567 --json",
     "ideaspaces spaces",
     "ideaspaces spaces --json",
     "ideaspaces spaces --attached-to repo:n_0123456789abcdef01234567",
@@ -30678,7 +30687,35 @@ var spacesCommand = {
       output.error("Not logged in. Run `ideaspaces login`.");
       return 1;
     }
-    const [sub] = args2;
+    const [sub, id] = args2;
+    const hosted = flags2.hosted !== void 0 && parseBool(flags2.hosted);
+    if (sub === "open" || hosted) {
+      if (sub === "open" && (args2.length !== 2 || !/^n_[0-9a-f]{24}$/.test(id ?? "")) || sub !== "open" && (args2.length > 1 || sub !== void 0 && sub !== "list") || flags2["attached-to"] !== void 0 || flags2["include-dormant"] !== void 0) {
+        output.error("Usage: ideaspaces spaces list --hosted | spaces open <map-id>. Legacy list filters do not apply to hosted Spaces.");
+        return 1;
+      }
+      try {
+        if (sub === "open") {
+          const space = await fetchHostedSpace(config, id);
+          const members = (space.members ?? []).map((m) => `  ${m.address.ordinal}: ${m.address.authored_name ?? m.address.address ?? m.address.position_at_pin ?? "Reference"} \xB7 ${m.state}`);
+          output.result(space, [
+            `${space.authored.label} (${space.map_id})`,
+            space.authored.summary ?? "",
+            `Head: ${space.version_id}`,
+            ...members,
+            "References do not grant access. Local Maps are unchanged."
+          ].filter(Boolean).join("\n"));
+        } else {
+          const result = await fetchHostedSpaces(config);
+          output.result(result, result.maps.length ? result.maps.map((s) => `${s.name} (${s.node_id}) \xB7 ${s.owner}${s.summary ? `
+  ${s.summary}` : ""}`).join("\n") : "No hosted Spaces found.");
+        }
+        return 0;
+      } catch (err) {
+        output.error(err instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(err));
+        return 1;
+      }
+    }
     if (args2.length > 1 || sub !== void 0 && sub !== "list") {
       output.error("Usage: ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]");
       return 1;

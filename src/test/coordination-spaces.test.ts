@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UnauthorizedError } from "../auth/api.js";
 import type { GlobalFlags } from "../types.js";
 
-const { loadConfigMock, fetchCoordinationSpacesMock } = vi.hoisted(() => ({
+const { loadConfigMock, fetchCoordinationSpacesMock, fetchHostedSpacesMock, fetchHostedSpaceMock } = vi.hoisted(() => ({
+  fetchHostedSpacesMock: vi.fn(),
+  fetchHostedSpaceMock: vi.fn(),
   loadConfigMock: vi.fn(),
   fetchCoordinationSpacesMock: vi.fn(),
 }));
@@ -13,6 +15,8 @@ vi.mock("../auth/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/api.js")>();
   return {
     ...actual,
+    fetchHostedSpaces: fetchHostedSpacesMock,
+    fetchHostedSpace: fetchHostedSpaceMock,
     fetchCoordinationSpaces: fetchCoordinationSpacesMock,
   };
 });
@@ -150,5 +154,38 @@ describe("ideaspaces spaces command", () => {
     const code = await spacesCommand.run([], {}, TEXT_GLOBAL);
     expect(code).toBe(1);
     expect(stderr()).toContain("Forbidden");
+  });
+});
+
+describe("hosted Spaces", () => {
+  it("uses Maps, never coordination objects, and preserves JSON", async () => {
+    const result = { maps: [{ node_id: "n_" + "a".repeat(24), name: "Research", owner: "person:user_1", summary: "A view" }] };
+    fetchHostedSpacesMock.mockResolvedValue(result);
+    expect(await spacesCommand.run(["list"], { hosted: true }, JSON_GLOBAL)).toBe(0);
+    expect(JSON.parse(stdout())).toEqual(result);
+    expect(fetchCoordinationSpacesMock).not.toHaveBeenCalled();
+  });
+  it("opens the hosted head and exposes authored unavailable pointers", async () => {
+    const id = "n_" + "a".repeat(24);
+    fetchHostedSpaceMock.mockResolvedValue({ map_id: id, version_id: "v1", authored: { label: "Research", summary: "View" },
+      members: [{ address: { ordinal: 0, address: "thread:x_hidden" }, state: "unavailable" }] });
+    expect(await spacesCommand.run(["open", id], {}, TEXT_GLOBAL)).toBe(0);
+    expect(stdout()).toContain("thread:x_hidden · unavailable");
+    expect(stdout()).toContain("References do not grant access");
+    expect(fetchHostedSpaceMock).toHaveBeenCalledWith(CFG, id);
+  });
+  it("refuses malformed IDs and incompatible legacy filters before requests", async () => {
+    fetchHostedSpaceMock.mockClear(); fetchHostedSpacesMock.mockClear();
+    expect(await spacesCommand.run(["open", "../other"], {}, JSON_GLOBAL)).toBe(1);
+    expect(await spacesCommand.run(["list"], { hosted: true, "attached-to": "repo:n_x" }, JSON_GLOBAL)).toBe(1);
+    expect(fetchHostedSpaceMock).not.toHaveBeenCalled(); expect(fetchHostedSpacesMock).not.toHaveBeenCalled();
+  });
+  it("reports hosted auth and access errors without a fallback", async () => {
+    fetchHostedSpacesMock.mockRejectedValue(new UnauthorizedError("401"));
+    expect(await spacesCommand.run(["list"], { hosted: true }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Session expired");
+    fetchHostedSpacesMock.mockRejectedValue(new Error('GET /api/v1/maps → 403: {"detail":"Forbidden"}'));
+    expect(await spacesCommand.run(["list"], { hosted: true }, JSON_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Forbidden"); expect(fetchCoordinationSpacesMock).not.toHaveBeenCalled();
   });
 });

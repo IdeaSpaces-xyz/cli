@@ -1682,3 +1682,36 @@ export async function* streamConversationMessage(
     }
   }
 }
+
+/** A hosted Space is a named Map, not a Repo or a local folder. */
+export interface HostedSpaceSummary {
+  node_id: string;
+  name: string;
+  summary: string;
+  head_version_id: string | null;
+  owner: string;
+}
+
+export interface HostedSpaceRead {
+  map_id: string;
+  version_id: string;
+  ordinal: number;
+  authored: { label: string; summary: string | null; legend_markdown: string | null };
+  status: string;
+  counts: Record<string, number>;
+  roots: unknown[];
+  members: Array<{
+    address: { ordinal: number; address?: string | null; position_at_pin?: string | null;
+      authored_name?: string | null; authored_summary?: string | null; representation: string };
+    state: string;
+  }> | null;
+  omitted_members: number;
+}
+
+export async function fetchHostedSpaces(config: ApiConfig): Promise<{ maps: HostedSpaceSummary[] }> {
+  return request(config, "GET", `${API_V1}/maps`);
+}
+
+export async function fetchHostedSpace(config: ApiConfig, id: string): Promise<HostedSpaceRead> {
+  return request(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}?detail=members`);
+}
