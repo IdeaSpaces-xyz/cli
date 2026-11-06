@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { readFileSync, promises as fs } from "node:fs";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   inspectFrontmatterSyntax,
   parseFrontmatter,
@@ -81,4 +81,19 @@ export function loadMapNote(reference: string, contextRoot: string): LoadedMapNo
     legend: stripFrontmatter(content).trim(),
     map: parsed.map,
   };
+}
+
+/** The shared local Map create boundary: validate first, never replace an existing path. */
+export async function writeNewMapNote(reference: string, content: string): Promise<{ path: string; sha: string }> {
+  const path = resolve(reference);
+  if (basename(path) !== "README.md" && !basename(path).endsWith(".map.md")) {
+    throw new Error("A local Map copy needs a *.map.md or README.md path.");
+  }
+  const syntax = inspectFrontmatterSyntax(content);
+  const frontmatter = parseFrontmatter(content);
+  if (syntax.status !== "valid" || !frontmatter || parseMap(frontmatter.map).status !== "valid") {
+    throw new Error("The exported document is not a valid Map note; nothing was written.");
+  }
+  await fs.writeFile(path, content, { flag: "wx" });
+  return { path, sha: createHash("sha256").update(content).digest("hex") };
 }

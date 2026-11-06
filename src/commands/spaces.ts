@@ -1,3 +1,6 @@
+import { exportHostedSpace } from "../auth/api.js";
+import { writeNewMapNote } from "../local/map-note.js";
+import { NODE_ID } from "./thread-flags.js";
 import { parseBool } from "../argv.js";
 import { apiErrorDetail, fetchCoordinationSpaces, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
@@ -12,9 +15,11 @@ function flagString(flags: Flags, name: string): string | undefined {
 
 export const spacesCommand: CommandDef = {
   name: "spaces",
-  description: "List authorized coordination Spaces",
+  description: "Work with hosted Spaces (named Maps), not Repos",
   usage: "ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]",
+  help: "ideaspaces spaces export <map-or-version-id> <file.map.md>\nExport makes an independent local copy, never synchronizes or grants content access. Existing files are never replaced. Other local Map work uses ideaspaces map.",
   examples: [
+    "ideaspaces spaces export n_0123456789abcdef01234567 research.map.md",
     "ideaspaces spaces",
     "ideaspaces spaces --json",
     "ideaspaces spaces --attached-to repo:n_0123456789abcdef01234567",
@@ -30,6 +35,18 @@ export const spacesCommand: CommandDef = {
     }
 
     const [sub] = args;
+    if (sub === "export") {
+      try {
+        if (args.length !== 3 || !NODE_ID.test(args[1]) || Object.keys(flags).length) throw new Error("Usage: ideaspaces spaces export <map-or-version-id> <file.map.md>");
+        const content = await exportHostedSpace(config, args[1]);
+        const result = await writeNewMapNote(args[2], content);
+        output.result({ ...result, source: args[1], copy: true }, `Exported a local copy: ${result.path}. Local and hosted Spaces update independently; nothing was shared.`);
+        return 0;
+      } catch (error) {
+        output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+        return 1;
+      }
+    }
     if (args.length > 1 || (sub !== undefined && sub !== "list")) {
       output.error("Usage: ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]");
       return 1;

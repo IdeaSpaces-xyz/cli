@@ -1,3 +1,4 @@
+import { writeNewMapNote } from "../local/map-note.js";
 import { createHash, randomUUID } from "node:crypto";
 import { promises as fs, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -223,7 +224,7 @@ export async function runMapEdit(args: string[], flags: Record<string, string | 
       if (!name || !summary || members.length) throw new Error("map create needs --name and --summary and no member.");
       // wx is the create CAS: an existing file is never replaced.
       const content = `---\n${stringify({ name, summary, map: { roots: [], members: [] } })}---\n\n# ${name}\n`;
-      await fs.writeFile(requested, content, { flag: "wx" });
+      await writeNewMapNote(requested, content);
       output.result({ path: requested, sha: hash(content) }, `Created Space Map: ${requested}`);
       return 0;
     }

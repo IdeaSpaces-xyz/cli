@@ -157,6 +157,8 @@ export interface RequestOptions {
   statusError?: boolean;
   /** Send `body` as-is with Content-Type text/plain (a hosted Thread post), not as JSON. */
   text?: boolean;
+  /** Return a portable document verbatim, rather than decoding JSON. */
+  responseText?: boolean;
 }
 
 /** A non-2xx answer, kept typed for callers that map statuses to states (hosted Threads, Vaults). */
@@ -351,7 +353,7 @@ async function request<T>(
       // rather than throwing on `r.json()` of nothing.
       if (r.status === 204) return undefined as T;
       const payload = await r.text();
-      return (payload ? JSON.parse(payload) : undefined) as T;
+      return (opts.responseText ? payload : payload ? JSON.parse(payload) : undefined) as T;
     } catch (err) {
       const timedOut = err instanceof Error && err.name === "AbortError";
       if (timedOut && attempt < maxAttempts) continue; // warm-up retry
@@ -1681,4 +1683,9 @@ export async function* streamConversationMessage(
       // Reader already closed/errored — nothing to release.
     }
   }
+}
+
+/** Export is an independent portable copy, never a local/remote binding. */
+export async function exportHostedSpace(config: ApiConfig, id: string): Promise<string> {
+  return request(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}/export`, undefined, { responseText: true });
 }
