@@ -90,3 +90,22 @@ it("preserves shared API error details for JSON, plain, empty and existing untyp
   }
   expect(apiErrorDetail(new Error('GET /example → 403: {"detail":"Existing refusal"}'))).toBe("Existing refusal");
 });
+
+it("shows copy recovery guidance on an actual request deadline without replay", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith("/vaults")) return new Response(JSON.stringify({ personal: {}, orgs: [], shared_with_me: [] }), { status: 200 });
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("Aborted"), { name: "AbortError" })), { once: true });
+    });
+  }));
+  try {
+    const pending = spacesCommand.run(["import", path], {}, global);
+    await vi.waitFor(() => expect(calls.some(c => c.url.endsWith("/maps/import"))).toBe(true));
+    await vi.advanceTimersByTimeAsync(5001);
+    expect(await pending).toBe(1);
+    expect(stderr).toContain("another import creates another copy");
+    expect(calls.filter(c => c.init.method === "POST")).toHaveLength(1);
+  } finally { vi.useRealTimers(); }
+});
