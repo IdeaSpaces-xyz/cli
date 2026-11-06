@@ -1682,3 +1682,18 @@ export async function* streamConversationMessage(
     }
   }
 }
+
+export interface HostedSpaceWriteResult {
+  map_id: string;
+  version_id: string;
+  ordinal: number;
+  owner: string;
+  core_thread_id: string | null;
+}
+
+/** Owner-only immutable edit, bound to the caller-reviewed head. Never replayed automatically. */
+export async function appendHostedSpaceMember(config: ApiConfig, id: string, body: {
+  command_id: string; expected_head_version_id: string; member: unknown;
+}): Promise<HostedSpaceWriteResult> {
+  return request(config, "POST", `${API_V1}/maps/${encodeURIComponent(id)}/members`, body);
+}
