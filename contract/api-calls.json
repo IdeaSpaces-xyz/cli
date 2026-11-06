@@ -59,6 +59,18 @@
       "path": "/api/v1/maps/{id}/export"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/maps/{id}/members"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/maps/{id}/members/{ordinal}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/maps/import"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/nodes/{rootNodeId}/team-shares"
     },

@@ -1,7 +1,10 @@
 import { writeNewMapNote } from "../local/map-note.js";
+import { loadMapNote } from "../local/map-note.js";
+import { runHostedSpaceRemove, SPACE_REMOVE_USAGE } from "./hosted-space-remove.js";
+import { runHostedSpaceAdd, SPACE_ADD_USAGE } from "./hosted-space-writes.js";
 import { NODE_ID } from "./thread-flags.js";
 import { parseBool } from "../argv.js";
-import { exportHostedSpace, apiErrorDetail, fetchCoordinationSpaces, fetchHostedSpaces, fetchHostedSpace, UnauthorizedError } from "../auth/api.js";
+import { ApiStatusError, NetworkError, fetchVaults, importHostedSpace, exportHostedSpace, apiErrorDetail, fetchCoordinationSpaces, fetchHostedSpaces, fetchHostedSpace, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
@@ -28,10 +31,20 @@ function hostedArgsError(args: string[], flags: Flags): string | undefined {
 export const spacesCommand: CommandDef = {
   name: "spaces",
   description: "Read, edit and copy hosted Spaces (named Maps); local Maps stay separate",
-  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]\n       ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]",
-  help: "Export creates an independent local copy and never overwrites an existing file. Choose a new path to replace a copy. Pass version_id from spaces open --json to copy an exact version. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open shows the hosted Map; each referenced item keeps its own access checks.",
+  usage: `ideaspaces spaces list --hosted [--json]
+       ideaspaces spaces open <map-id> [--json]
+       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
+       ${SPACE_ADD_USAGE}
+       ${SPACE_REMOVE_USAGE}
+       ideaspaces spaces import <file.map.md> [--json]
+       ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]`,
+  help: "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces update independently. Each referenced item keeps its own access checks.\n\nWithout --hosted, list shows legacy coordination objects. Hosted edits are owner-only. --if-match is the hosted version_id from spaces open --json, not a local file hash. Keep the original --command-id (up to 64 characters) and arguments for exact retries; read the current head afterwards.\n\nRemove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed.\n\nImport creates a personal hosted copy with no new Core. Export creates an independent local UTF-8 Markdown copy and never overwrites an existing path; choose a new path to replace a copy. Use version_id from spaces open --json to export an exact version.",
   examples: [
     "ideaspaces spaces export n_0123456789abcdef01234567 research.map.md",
+    "ideaspaces spaces export n_bbbbbbbbbbbbbbbbbbbbbbbb exact-version.map.md",
+    "ideaspaces spaces import research.map.md --json",
+    "ideaspaces spaces remove n_0123456789abcdef01234567 1 --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
+    "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_bbbbbbbbbbbbbbbbbbbbbbbb",
     "ideaspaces spaces list --hosted --json",
     "ideaspaces spaces open n_0123456789abcdef01234567 --json",
     "ideaspaces spaces",
@@ -41,7 +54,13 @@ export const spacesCommand: CommandDef = {
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
+    if (args[0] === "remove") return runHostedSpaceRemove(args.slice(1), flags, global);
+    if (args[0] === "add") return runHostedSpaceAdd(args.slice(1), flags, global);
 
+    if (args[0] === "import" && (args.length !== 2 || Object.keys(flags).length)) {
+      output.error("Usage: ideaspaces spaces import <file.map.md> [--json]. The copy goes into your personal Vault.");
+      return 1;
+    }
     if (args[0] === "export" && (args.length !== 3 || Object.keys(flags).length || !NODE_ID.test(args[1] ?? ""))) {
       output.error("Usage: ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]");
       return 1;
@@ -56,6 +75,30 @@ export const spacesCommand: CommandDef = {
     if (flags.hosted !== undefined && flags.hosted !== true) {
       output.error("--hosted takes no value. Leave it out for legacy coordination objects; local Maps use ideaspaces map.");
       return 1;
+    }
+    if (sub === "import") {
+      let sent = false;
+      try {
+        // Shape read only: never resolve/fetch referenced content or change the source.
+        const local = loadMapNote(args[1], process.cwd());
+        const markdown = local.content;
+        if (Buffer.byteLength(markdown, "utf8") > 1024 * 1024) throw new Error("Map copy exceeds the 1 MiB import limit.");
+        // The import endpoint predates person-only writes. Refuse agent credentials
+        // through the existing person-only Vaults authority before attempting it.
+        await fetchVaults(config);
+        sent = true;
+        const result = await importHostedSpace(config, markdown);
+        const copiedId = result !== null && typeof result === "object" && "map_id" in result && typeof result.map_id === "string" ? result.map_id : undefined;
+        output.result(result, `Imported a hosted copy${copiedId ? `: ${copiedId}` : ""} into your personal Vault. Local and hosted Spaces update independently. No new Core Thread or content access was created.`);
+        return 0;
+      } catch (error) {
+        output.error(error instanceof UnauthorizedError ? error.message : error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+        // A successful write with unreadable JSON can have committed, just like a lost response.
+        const uncertain = error instanceof NetworkError || error instanceof SyntaxError ||
+          (error instanceof ApiStatusError && error.status >= 500);
+        if (sent && uncertain) output.error("Import was not retried. If its outcome is uncertain, check spaces list --hosted before importing again; another import creates another copy.");
+        return 1;
+      }
     }
     if (sub === "export") {
       try {
@@ -78,7 +121,7 @@ export const spacesCommand: CommandDef = {
           const members = (space.members ?? []).map(m => `  ${m.address.ordinal}: ${m.address.authored_name ?? m.address.address ?? m.address.position_at_pin ?? "Reference"} · ${m.state}`);
           output.result(space, [
             `${space.authored.label} (${space.map_id})`,
-            space.authored.summary ?? "", `Head: ${space.version_id}`,
+            space.authored.summary ?? "", `Version: ${space.version_id}`,
             ...members, ...(space.omitted_members ? [`…and ${space.omitted_members} more references not shown.`] : []), "References do not grant access. Local Maps are unchanged.",
           ].filter(Boolean).join("\n"));
         } else {
