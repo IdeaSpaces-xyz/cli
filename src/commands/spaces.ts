@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fetchVaults, importHostedSpace } from "../auth/api.js";
+import { ApiStatusError, fetchVaults, importHostedSpace } from "../auth/api.js";
 import { loadMapNote } from "../local/map-note.js";
 import { parseBool } from "../argv.js";
 import { apiErrorDetail, fetchCoordinationSpaces, UnauthorizedError } from "../auth/api.js";
@@ -51,7 +51,7 @@ export const spacesCommand: CommandDef = {
         output.result(result, "Imported a hosted copy into your personal Vault. Local and hosted Spaces update independently. No new Core Thread or content access was created.");
         return 0;
       } catch (error) {
-        output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+        output.error(error instanceof UnauthorizedError || (error instanceof ApiStatusError && error.status === 401) ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
         if (sent) output.error("Import was not retried. If its outcome is uncertain, check spaces list --hosted before importing again; another import creates another copy.");
         return 1;
       }

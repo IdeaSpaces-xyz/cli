@@ -633,7 +633,7 @@ export async function fetchAgents(
 /** Pull the clean message or detail string out of an API error. */
 export function apiErrorDetail(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
-  const match = err.message.match(/→ \d+:\s*(.+)$/);
+  const match = err instanceof ApiStatusError ? [err.message, err.body] : err.message.match(/→ \d+:\s*(.+)$/);
   if (match) {
     try {
       const parsed = JSON.parse(match[1]!) as { detail?: unknown; message?: unknown };
