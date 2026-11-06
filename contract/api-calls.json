@@ -47,6 +47,14 @@
       "path": "/api/v1/entities/{entityType}/{entityKey}"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/maps"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/maps/{id}"
+    },
+    {
       "method": "DELETE",
       "path": "/api/v1/maps/{id}/members/{ordinal}"
     },

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { apiErrorDetail, removeHostedSpaceMember, UnauthorizedError } from "../auth/api.js";
+import { apiErrorDetail, removeHostedSpaceMember, NetworkError, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { GlobalFlags } from "../types.js";
@@ -10,6 +10,7 @@ export const SPACE_REMOVE_USAGE = "ideaspaces spaces remove <map-id> <member-ord
 export async function runHostedSpaceRemove(args: string[], flags: Flags, global: GlobalFlags): Promise<number> {
   const output = createOutput(global);
   let commandId: string | undefined;
+  let attempted = false;
   try {
     const unknown = Object.keys(flags).find(f => !["if-match", "command-id"].includes(f));
     if (unknown) throw new Error(`Unknown flag for spaces remove: --${unknown}.`);
@@ -29,12 +30,16 @@ export async function runHostedSpaceRemove(args: string[], flags: Flags, global:
     }
     const config = loadConfig();
     if (!config) throw new Error("Not logged in. Run `ideaspaces login`.");
+    attempted = true;
     const result = await removeHostedSpaceMember(config, id, ordinal, body);
     output.result({ ...result, command_id: commandId }, `Removed reference ${ordinal} from ${id}. No content was deleted.\nHead: ${result.version_id}\nCommand: ${commandId}`);
     return 0;
   } catch (error) {
     output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
-    if (commandId) output.error(`Command: ${commandId}. If the outcome is uncertain, keep this --command-id, --if-match and ordinal on retry. Never use a newer head without reviewing it.`);
+    if (attempted && commandId) output.error(`Command: ${commandId}.`);
+    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || (error instanceof Error && /→ 5\d\d:/.test(error.message)))) {
+      output.error("The outcome may be uncertain. Keep the same --command-id, --if-match and arguments on retry. Never use a newer head without reviewing it.");
+    }
     return 1;
   }
 }
