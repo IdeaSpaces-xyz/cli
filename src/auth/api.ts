@@ -1682,3 +1682,10 @@ export async function* streamConversationMessage(
     }
   }
 }
+
+/** Owner-only pointer removal. The ordinal is meaningful only at this reviewed head. */
+export async function removeHostedSpaceMember(config: ApiConfig, id: string, ordinal: number, body: {
+  command_id: string; expected_head_version_id: string;
+}): Promise<{ map_id: string; version_id: string; ordinal: number; owner: string; core_thread_id: string | null }> {
+  return request(config, "DELETE", `${API_V1}/maps/${encodeURIComponent(id)}/members/${ordinal}`, body);
+}

@@ -1,3 +1,4 @@
+import { runHostedSpaceRemove, SPACE_REMOVE_USAGE } from "./hosted-space-remove.js";
 import { parseBool } from "../argv.js";
 import { apiErrorDetail, fetchCoordinationSpaces, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
@@ -12,9 +13,11 @@ function flagString(flags: Flags, name: string): string | undefined {
 
 export const spacesCommand: CommandDef = {
   name: "spaces",
-  description: "List authorized coordination Spaces",
+  description: "Work with hosted Spaces (named Maps), not Repos",
   usage: "ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]",
+  help: SPACE_REMOVE_USAGE + "\nOwner-only hosted edit. Remove deletes a reference, not content. The Core reference cannot be removed. Local Maps stay separate. --if-match is the hosted version_id, not a local file hash.",
   examples: [
+    "ideaspaces spaces remove n_0123456789abcdef01234567 1 --if-match n_abcdef0123456789abcdef0123",
     "ideaspaces spaces",
     "ideaspaces spaces --json",
     "ideaspaces spaces --attached-to repo:n_0123456789abcdef01234567",
@@ -22,6 +25,7 @@ export const spacesCommand: CommandDef = {
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
+    if (args[0] === "remove") return runHostedSpaceRemove(args.slice(1), flags, global);
 
     const config = loadConfig();
     if (!config) {
