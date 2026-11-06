@@ -803,3 +803,26 @@ it("default list without local rows uses the same named expired-session JSON con
     expect(json().error.message).toContain("ideaspaces login");
   } finally { process.chdir(previous); }
 });
+
+describe("hosted Thread Space placement", () => {
+  it("sends an explicit Map home beside the note, not inside it", async () => {
+    serve({ "POST /api/v1/threads": "thread-opened" });
+    const home = "map:n_" + "a".repeat(24);
+    expect(await threads(["new"], { hosted: true, name: "New plan", summary: "One line", message: "Opening.", "post-id": "msg_cli_opening", home })).toBe(0);
+    expect(JSON.parse(calls[0].body!)).toMatchObject({ home_ref: home });
+    expect(JSON.parse(calls[0].body!).note).not.toContain("home_ref");
+  });
+  it("refuses bare, local and malformed homes before network calls", async () => {
+    for (const home of [true, "local.map.md", "repo:n_" + "a".repeat(24), "map:../other", ""]) {
+      expect(await threads(["new"], { hosted: true, name: "N", summary: "S", message: "M", home })).toBe(1);
+      expect(json().error.message).toContain(home === true ? "--home requires a value" : "--home needs map:");
+    }
+    expect(calls).toHaveLength(0);
+  });
+  it("does not admit --home to local Thread creation or hosted replies", async () => {
+    expect(await threads(["new", "local"], { about: "Local", home: "map:n_" + "a".repeat(24) })).toBe(1);
+    expect(stderr).toContain("Unknown flag");
+    expect(await threads(["reply", T], { "reply-to": "msg_parent", message: "Reply", home: "map:n_" + "a".repeat(24) })).toBe(1);
+    expect(calls).toHaveLength(0);
+  });
+});

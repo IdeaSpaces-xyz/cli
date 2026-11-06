@@ -38,10 +38,10 @@ const HOSTED_VERB_FLAGS: Record<string, ReadonlySet<string>> = {
   list: new Set(["hosted", "limit", "cursor", "new", "unread"]),
   open: new Set(["limit", "cursor"]),
   post: new Set(["reply-to", "message", "name", "summary", "post-id", "map", "tags"]),
-  new: new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags"]),
+  new: new Set(["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags", "home"]),
   close: new Set(["message", "post-id"]),
   rename: new Set(["message", "name", "summary", "post-id"]),
-  send: new Set(["name", "summary", "message", "post-id", "map", "tags"]),
+  send: new Set(["name", "summary", "message", "post-id", "map", "tags", "home"]),
   ack: new Set(["seq", "cursor"]),
 };
 

@@ -19,6 +19,7 @@
  * A cursor is never authority; the service checks access on every read.
  */
 
+import { NODE_ID } from "./thread-flags.js";
 import { randomUUID } from "node:crypto";
 import { HOSTED_THREAD_ID, parseMap, parseThreadPost } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
@@ -464,6 +465,10 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
 }
 
 export async function newVerb(output: Output, json: boolean, flags: Record<string, string | boolean>): Promise<number> {
+  const home = str(flags, "home");
+  if (flags.home !== undefined && (!home?.startsWith("map:") || !NODE_ID.test(home.slice(4)))) {
+    throw new HostedError("invalid_request", "--home needs map:<map-id>. It places the Thread in a hosted Space; it grants no content access.");
+  }
   const recipients = str(flags, "recipients")?.split(",").map((r) => r.trim()) ?? [];
   if (recipients.length > 16 || recipients.some((r) => !/^@[A-Za-z0-9_.-]+$/.test(r) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r)) || new Set(recipients.map((r) => r.toLowerCase())).size !== recipients.length) {
     throw new HostedError("invalid_request", "--recipients needs up to 16 distinct @handles or email addresses, comma-separated.");
@@ -478,7 +483,7 @@ export async function newVerb(output: Output, json: boolean, flags: Record<strin
     throw new HostedError("invalid_request", "The opening Note did not validate; check --name, --summary and --message.");
   }
   return runHosted(output, json, "Opening hosted Threads", "thread", async (config) => {
-    const raw: any = await openHostedThread(config, note, recipients);
+    const raw: any = await openHostedThread(config, note, recipients, home ? { homeRef: home } : undefined);
     requireValue(record(raw) && typeof raw.thread_id === "string" && HOSTED_THREAD_ID.test(raw.thread_id));
     const opening = postOf(raw, raw.thread_id);
     // A knock already open answers with its own first post, so only a knock may carry another id.
