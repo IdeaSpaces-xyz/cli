@@ -15247,6 +15247,20 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
 async function appendHostedSpaceMember(config, id, body) {
   return request(config, "POST", `${API_V1}/maps/${encodeURIComponent(id)}/members`, body);
 }
+async function fetchHostedSpaces(config) {
+  const result = await request(config, "GET", `${API_V1}/maps`);
+  if (!result || !Array.isArray(result.maps) || result.maps.some((m) => !m || typeof m.node_id !== "string" || typeof m.name !== "string" || typeof m.owner !== "string")) {
+    throw new Error("IdeaSpaces returned an unreadable Spaces list. Retry, or update the CLI.");
+  }
+  return result;
+}
+async function fetchHostedSpace(config, id) {
+  const result = await request(config, "GET", `${API_V1}/maps/${encodeURIComponent(id)}?detail=members`);
+  if (!result || typeof result.map_id !== "string" || typeof result.version_id !== "string" || !result.authored || typeof result.authored.label !== "string" || !Number.isSafeInteger(result.omitted_members) || result.omitted_members < 0 || result.members !== null && (!Array.isArray(result.members) || result.members.some((m) => !m?.address || !Number.isInteger(m.address.ordinal) || typeof m.state !== "string"))) {
+    throw new Error("IdeaSpaces returned an unreadable Space. Retry, or update the CLI.");
+  }
+  return result;
+}
 
 // dist/auth/identity.js
 function identityEmail(username) {
@@ -18004,7 +18018,7 @@ function localEffectError(operation, code, phase, message, path, detail3) {
 }
 
 // dist/argv.js
-var BOOLEAN_COMMAND_FLAGS = /* @__PURE__ */ new Set(["read-only", "orientation", "threads", "no-check-links"]);
+var BOOLEAN_COMMAND_FLAGS = /* @__PURE__ */ new Set(["hosted", "read-only", "orientation", "threads", "no-check-links"]);
 var LIST_FLAGS = { root: "search" };
 function setFlag(flags2, key2, value3, command2) {
   if (LIST_FLAGS[key2] !== void 0 && LIST_FLAGS[key2] === command2) {
@@ -30673,6 +30687,7 @@ function value2(flags2, key2) {
 async function runHostedSpaceAdd(args2, flags2, global3) {
   const output = createOutput(global3);
   let commandId;
+  let attempted = false;
   try {
     const known = /* @__PURE__ */ new Set(["if-match", "command-id", "position", "root-node-id", "sha", "depth", "name", "summary"]);
     const unknown = Object.keys(flags2).find((f) => !known.has(f));
@@ -30713,6 +30728,7 @@ async function runHostedSpaceAdd(args2, flags2, global3) {
       throw new Error("Not logged in. Run `ideaspaces login`.");
     const validated = parsed2.map.members[0];
     const hostedMember = "address" in validated ? validated : { ...validated, root: parsed2.map.roots[validated.root] };
+    attempted = true;
     const result = await appendHostedSpaceMember(config, id, { command_id: commandId, expected_head_version_id: head2, member: hostedMember });
     output.result({ ...result, command_id: commandId }, `Added a reference to ${id}. Nothing was shared.
 Head: ${result.version_id}
@@ -30720,8 +30736,11 @@ Command: ${commandId}`);
     return 0;
   } catch (error) {
     output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
-    if (commandId)
-      output.error(`Command: ${commandId}. If the outcome is uncertain, keep this --command-id, --if-match and every argument on retry. Never retry a stale edit with a newer head without reviewing it.`);
+    if (attempted && commandId)
+      output.error(`Command: ${commandId}.`);
+    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || error instanceof Error && /→ 5\d\d:/.test(error.message))) {
+      output.error("The outcome may be uncertain. Keep the same --command-id, --if-match and arguments on retry. Never use a newer head without reviewing it.");
+    }
     return 1;
   }
 }
@@ -30730,13 +30749,31 @@ Command: ${commandId}`);
 function flagString4(flags2, name) {
   return typeof flags2[name] === "string" ? flags2[name] : void 0;
 }
+function hostedArgsError(args2, flags2) {
+  if (flags2["attached-to"] !== void 0 || flags2["include-dormant"] !== void 0)
+    return "Legacy list filters do not apply to hosted Spaces. Use spaces list --hosted.";
+  const unknown = Object.keys(flags2).find((f) => f !== "hosted");
+  if (unknown)
+    return `Unknown flag for hosted Spaces: --${unknown}.`;
+  if (args2[0] === "open") {
+    if (args2.length !== 2)
+      return "Usage: ideaspaces spaces open <map-id> [--json]";
+    if (!NODE_ID.test(args2[1]))
+      return "Map IDs look like n_<12 or 24 lowercase hex digits>. Use spaces list --hosted to find one.";
+  } else if (args2.length > 1 || args2[0] !== void 0 && args2[0] !== "list") {
+    return "Usage: ideaspaces spaces list --hosted [--json]";
+  }
+  return void 0;
+}
 var spacesCommand = {
   name: "spaces",
-  description: "Work with hosted Spaces (named Maps), not Repos",
-  usage: "ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]",
-  help: SPACE_ADD_USAGE + "\nHosted edits are owner-only. Adding a reference shares nothing and never changes a local Map. --if-match names a hosted version, not a local file hash.",
+  description: "List or open hosted Spaces (named Maps); local Maps stay separate",
+  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]\n       " + SPACE_ADD_USAGE,
+  help: SPACE_ADD_USAGE + "\nOwner-only hosted edits. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
-    "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_0123456789abcdef0123456789abcdef --if-match n_abcdef0123456789abcdef0123",
+    "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_abcdef0123456789abcdef0123",
+    "ideaspaces spaces list --hosted --json",
+    "ideaspaces spaces open n_0123456789abcdef01234567 --json",
     "ideaspaces spaces",
     "ideaspaces spaces --json",
     "ideaspaces spaces --attached-to repo:n_0123456789abcdef01234567",
@@ -30751,7 +30788,41 @@ var spacesCommand = {
       output.error("Not logged in. Run `ideaspaces login`.");
       return 1;
     }
-    const [sub] = args2;
+    const [sub, id] = args2;
+    if (flags2.hosted !== void 0 && flags2.hosted !== true) {
+      output.error("--hosted takes no value. Leave it out for legacy coordination objects; local Maps use ideaspaces map.");
+      return 1;
+    }
+    const hosted = flags2.hosted === true;
+    if (sub === "open" || hosted) {
+      const error = hostedArgsError(args2, flags2);
+      if (error) {
+        output.error(error);
+        return 1;
+      }
+      try {
+        if (sub === "open") {
+          const space = await fetchHostedSpace(config, id);
+          const members = (space.members ?? []).map((m) => `  ${m.address.ordinal}: ${m.address.authored_name ?? m.address.address ?? m.address.position_at_pin ?? "Reference"} \xB7 ${m.state}`);
+          output.result(space, [
+            `${space.authored.label} (${space.map_id})`,
+            space.authored.summary ?? "",
+            `Head: ${space.version_id}`,
+            ...members,
+            ...space.omitted_members ? [`\u2026and ${space.omitted_members} more references not shown.`] : [],
+            "References do not grant access. Local Maps are unchanged."
+          ].filter(Boolean).join("\n"));
+        } else {
+          const result = await fetchHostedSpaces(config);
+          output.result(result, result.maps.length ? result.maps.map((s) => `${s.name} (${s.node_id}) \xB7 ${s.owner}${s.summary ? `
+  ${s.summary}` : ""}`).join("\n") : "No hosted Spaces found.");
+        }
+        return 0;
+      } catch (err) {
+        output.error(err instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(err));
+        return 1;
+      }
+    }
     if (args2.length > 1 || sub !== void 0 && sub !== "list") {
       output.error("Usage: ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]");
       return 1;

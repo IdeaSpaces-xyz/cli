@@ -45,3 +45,19 @@ describe("hosted Space add", () => {
     }
   });
 });
+
+it("rejects invalid depth on a real address, long command ids and mixed roots without a retry hint", async () => {
+  expect(await run(["add", ID, "https://example.com"], { depth: "invalid" })).toBe(1);
+  expect(stderr).toContain("Invalid Map reference");
+  expect(await run(["add", ID, "https://example.com"], { "command-id": "x".repeat(65) })).toBe(1);
+  expect(await run(["add", ID, "https://example.com"], { "root-node-id": ID })).toBe(1);
+  expect(calls).toHaveLength(0); expect(stderr).not.toContain("outcome");
+});
+it("maps 401 and shows ambiguity guidance only after a network attempt", async () => {
+  status = 401;
+  expect(await run(["add", ID, "https://example.com"])).toBe(1);
+  expect(stderr).toContain("Session expired"); expect(stderr).not.toContain("outcome");
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+  expect(await run(["add", ID, "https://example.com"])).toBe(1);
+  expect(stderr).toContain("outcome may be uncertain");
+});

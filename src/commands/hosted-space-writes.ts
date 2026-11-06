@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { parseMap, type MapMember, type MapRoot } from "@ideaspaces/protocol";
-import { apiErrorDetail, appendHostedSpaceMember, UnauthorizedError } from "../auth/api.js";
+import { apiErrorDetail, appendHostedSpaceMember, NetworkError, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { GlobalFlags } from "../types.js";
@@ -17,6 +17,7 @@ function value(flags: Flags, key: string): string | undefined {
 export async function runHostedSpaceAdd(args: string[], flags: Flags, global: GlobalFlags): Promise<number> {
   const output = createOutput(global);
   let commandId: string | undefined;
+  let attempted = false;
   try {
     const known = new Set(["if-match", "command-id", "position", "root-node-id", "sha", "depth", "name", "summary"]);
     const unknown = Object.keys(flags).find(f => !known.has(f));
@@ -49,12 +50,16 @@ export async function runHostedSpaceAdd(args: string[], flags: Flags, global: Gl
     if (!config) throw new Error("Not logged in. Run `ideaspaces login`.");
     const validated = parsed.map.members[0];
     const hostedMember = "address" in validated ? validated : { ...validated, root: parsed.map.roots[validated.root] };
+    attempted = true;
     const result = await appendHostedSpaceMember(config, id, { command_id: commandId, expected_head_version_id: head, member: hostedMember });
     output.result({ ...result, command_id: commandId }, `Added a reference to ${id}. Nothing was shared.\nHead: ${result.version_id}\nCommand: ${commandId}`);
     return 0;
   } catch (error) {
     output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
-    if (commandId) output.error(`Command: ${commandId}. If the outcome is uncertain, keep this --command-id, --if-match and every argument on retry. Never retry a stale edit with a newer head without reviewing it.`);
+    if (attempted && commandId) output.error(`Command: ${commandId}.`);
+    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || (error instanceof Error && /→ 5\d\d:/.test(error.message)))) {
+      output.error("The outcome may be uncertain. Keep the same --command-id, --if-match and arguments on retry. Never use a newer head without reviewing it.");
+    }
     return 1;
   }
 }
