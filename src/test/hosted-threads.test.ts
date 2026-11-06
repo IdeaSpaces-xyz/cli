@@ -826,3 +826,10 @@ describe("hosted Thread Space placement", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+it("send preserves the Map home alongside its explicit recipient", async () => {
+  serve({ "POST /api/v1/threads": "thread-opened" });
+  const home = "map:n_" + "a".repeat(24);
+  expect(await threads(["send", "@bea"], { name: "New plan", summary: "One line", message: "Opening.", "post-id": "msg_cli_opening", home })).toBe(0);
+  expect(JSON.parse(calls[0].body!)).toMatchObject({ home_ref: home, recipients: ["@bea"] });
+});

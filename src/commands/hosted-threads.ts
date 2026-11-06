@@ -19,7 +19,6 @@
  * A cursor is never authority; the service checks access on every read.
  */
 
-import { NODE_ID } from "./thread-flags.js";
 import { randomUUID } from "node:crypto";
 import { HOSTED_THREAD_ID, parseMap, parseThreadPost } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
@@ -32,6 +31,7 @@ import {
 import { HostAuthRefusal, hostedConfig, isHostAuth, type HostedConfig } from "../auth/credentials.js";
 import type { Output } from "../output.js";
 import { outOfDateMessage } from "../update-check.js";
+import { NODE_ID } from "./thread-flags.js";
 
 const POST_ID = /^msg_[a-zA-Z0-9_-]{1,60}$/;
 const MAX_NOTE_BYTES = 32 * 1024; // the service refuses a larger Note (413)
@@ -465,6 +465,7 @@ export async function postVerb(output: Output, json: boolean, id: string, flags:
 }
 
 export async function newVerb(output: Output, json: boolean, flags: Record<string, string | boolean>): Promise<number> {
+  // This slice admits Map placement only; other server home kinds are not CLI Spaces.
   const home = str(flags, "home");
   if (flags.home !== undefined && (!home?.startsWith("map:") || !NODE_ID.test(home.slice(4)))) {
     throw new HostedError("invalid_request", "--home needs map:<map-id>. It places the Thread in a hosted Space; it grants no content access.");
