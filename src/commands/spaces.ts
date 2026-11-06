@@ -72,7 +72,7 @@ export const spacesCommand: CommandDef = {
         output.result(result, "Imported a hosted copy into your personal Vault. Local and hosted Spaces update independently. No new Core Thread or content access was created.");
         return 0;
       } catch (error) {
-        output.error(error instanceof UnauthorizedError || (error instanceof ApiStatusError && error.status === 401) ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+        output.error(error instanceof UnauthorizedError ? error.message : error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
         // A successful write with unreadable JSON can have committed, just like a lost response.
         const uncertain = error instanceof NetworkError || error instanceof SyntaxError ||
           (error instanceof ApiStatusError && error.status >= 500);
