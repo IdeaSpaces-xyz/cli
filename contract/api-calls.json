@@ -56,6 +56,14 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/maps/{id}/members"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/maps/{id}/members/{ordinal}"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/maps/import"
     },
     {
