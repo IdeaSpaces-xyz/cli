@@ -48,6 +48,10 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/maps/{id}/export"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/nodes/{rootNodeId}/team-shares"
     },
     {
