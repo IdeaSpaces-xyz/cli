@@ -59,7 +59,6 @@ export const spacesCommand: CommandDef = {
     }
     if (sub === "export") {
       try {
-        if (args.length !== 3 || !NODE_ID.test(args[1]) || Object.keys(flags).length) throw new Error("Usage: ideaspaces spaces export <map-or-version-id> <file.map.md>");
         const content = await exportHostedSpace(config, args[1]);
         const result = await writeNewMapNote(args[2], content);
         output.result({ ...result, source: args[1], copy: true }, `Exported a local copy: ${result.path}. Local and hosted Spaces update independently; nothing was shared.`);

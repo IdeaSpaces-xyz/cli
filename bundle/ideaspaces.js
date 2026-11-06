@@ -18740,6 +18740,8 @@ async function writeNewMapNote(reference, content) {
   if (basename7(path) !== "README.md" && !basename7(path).endsWith(".map.md")) {
     throw new Error("A local Map needs a *.map.md or README.md path.");
   }
+  if (typeof content !== "string")
+    throw new Error("No readable Map document was returned; nothing was written.");
   const syntax = inspectFrontmatterSyntax(content);
   const frontmatter = parseFrontmatter(content);
   if (syntax.status !== "valid" || !frontmatter || parseMap(frontmatter.map).status !== "valid") {
@@ -30748,8 +30750,6 @@ var spacesCommand = {
     }
     if (sub === "export") {
       try {
-        if (args2.length !== 3 || !NODE_ID.test(args2[1]) || Object.keys(flags2).length)
-          throw new Error("Usage: ideaspaces spaces export <map-or-version-id> <file.map.md>");
         const content = await exportHostedSpace(config, args2[1]);
         const result = await writeNewMapNote(args2[2], content);
         output.result({ ...result, source: args2[1], copy: true }, `Exported a local copy: ${result.path}. Local and hosted Spaces update independently; nothing was shared.`);

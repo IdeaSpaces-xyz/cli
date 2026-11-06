@@ -89,6 +89,7 @@ export async function writeNewMapNote(reference: string, content: string): Promi
   if (basename(path) !== "README.md" && !basename(path).endsWith(".map.md")) {
     throw new Error("A local Map needs a *.map.md or README.md path.");
   }
+  if (typeof content !== "string") throw new Error("No readable Map document was returned; nothing was written.");
   const syntax = inspectFrontmatterSyntax(content);
   const frontmatter = parseFrontmatter(content);
   if (syntax.status !== "valid" || !frontmatter || parseMap(frontmatter.map).status !== "valid") {

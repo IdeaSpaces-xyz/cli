@@ -55,3 +55,29 @@ it("explains a missing destination folder", async () => {
   expect(await spacesCommand.run(["export", ID, join(dir, "missing", "copy.map.md")], {}, global)).toBe(1);
   expect(stderr).toContain("Create the folder first");
 });
+
+it("refuses an empty service response without touching the destination", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
+  const path = join(dir, "empty.map.md");
+  expect(await spacesCommand.run(["export", ID, path], {}, global)).toBe(1);
+  expect(stderr).toContain("No readable Map document");
+  expect(existsSync(path)).toBe(false);
+});
+it("reports expired and unavailable exports clearly", async () => {
+  for (const status of [401, 403, 404]) {
+    stderr = "";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "Map not available" }), { status })));
+    expect(await spacesCommand.run(["export", ID, join(dir, "refused.map.md")], {}, global)).toBe(1);
+    expect(stderr).toContain(status === 401 ? "Session expired" : "Map not available");
+  }
+});
+it("validates usage before sign-in and accepts a README Map destination", async () => {
+  vi.stubEnv("IS_API_KEY", "");
+  expect(await spacesCommand.run(["export", "bad-id"], {}, global)).toBe(1);
+  expect(stderr).toContain("Usage:");
+  expect(await spacesCommand.run(["export", ID, join(dir, "copy.map.md")], {}, global)).toBe(1);
+  expect(stderr).toContain("Not logged in");
+  vi.stubEnv("IS_API_KEY", "fixture");
+  expect(await spacesCommand.run(["export", ID, join(dir, "README.md")], {}, global)).toBe(0);
+  expect(readFileSync(join(dir, "README.md"), "utf8")).toBe(DOC);
+});
