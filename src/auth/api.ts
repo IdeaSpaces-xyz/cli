@@ -1682,3 +1682,8 @@ export async function* streamConversationMessage(
     }
   }
 }
+
+/** Import creates an independent personal Map copy, not a synchronized Space or a new Core. */
+export async function importHostedSpace(config: ApiConfig, markdown: string): Promise<unknown> {
+  return request(config, "POST", `${API_V1}/maps/import`, markdown, { text: true });
+}
