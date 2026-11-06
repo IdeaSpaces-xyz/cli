@@ -61,3 +61,9 @@ it("maps 401 and shows ambiguity guidance only after a network attempt", async (
   expect(await run(["add", ID, "https://example.com"])).toBe(1);
   expect(stderr).toContain("outcome may be uncertain");
 });
+
+it("uses typed 5xx status for uncertain outcomes without replay", async () => {
+  status = 503;
+  expect(await run(["add", ID, "https://example.com"])).toBe(1);
+  expect(calls).toHaveLength(1); expect(stderr).toContain("outcome may be uncertain");
+});

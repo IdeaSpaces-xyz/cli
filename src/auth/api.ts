@@ -633,7 +633,7 @@ export async function fetchAgents(
 /** Pull the clean message or detail string out of an API error. */
 export function apiErrorDetail(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
-  const match = err.message.match(/→ \d+:\s*(.+)$/);
+  const match = err instanceof ApiStatusError ? [err.message, err.body.trim() ? err.body : err.message] : err.message.match(/→ \d+:\s*(.+)$/);
   if (match) {
     try {
       const parsed = JSON.parse(match[1]!) as { detail?: unknown; message?: unknown };
@@ -1695,7 +1695,7 @@ export interface HostedSpaceWriteResult {
 export async function appendHostedSpaceMember(config: ApiConfig, id: string, body: {
   command_id: string; expected_head_version_id: string; member: unknown;
 }): Promise<HostedSpaceWriteResult> {
-  return request(config, "POST", `${API_V1}/maps/${encodeURIComponent(id)}/members`, body);
+  return request(config, "POST", `${API_V1}/maps/${encodeURIComponent(id)}/members`, body, { statusError: true });
 }
 
 /** A hosted Space is a named Map, not a Repo or a local folder. */

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { parseMap, type MapMember, type MapRoot } from "@ideaspaces/protocol";
-import { apiErrorDetail, appendHostedSpaceMember, NetworkError, UnauthorizedError } from "../auth/api.js";
+import { ApiStatusError, apiErrorDetail, appendHostedSpaceMember, NetworkError, UnauthorizedError } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { GlobalFlags } from "../types.js";
@@ -55,9 +55,9 @@ export async function runHostedSpaceAdd(args: string[], flags: Flags, global: Gl
     output.result({ ...result, command_id: commandId }, `Added a reference to ${id}. Nothing was shared.\nHead: ${result.version_id}\nCommand: ${commandId}`);
     return 0;
   } catch (error) {
-    output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+    output.error(error instanceof UnauthorizedError || (error instanceof ApiStatusError && error.status === 401) ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
     if (attempted && commandId) output.error(`Command: ${commandId}.`);
-    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || (error instanceof Error && /→ 5\d\d:/.test(error.message)))) {
+    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || (error instanceof ApiStatusError && error.status >= 500))) {
       output.error("The outcome may be uncertain. Keep the same --command-id, --if-match and arguments on retry. Never use a newer head without reviewing it.");
     }
     return 1;

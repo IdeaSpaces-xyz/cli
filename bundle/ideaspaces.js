@@ -14972,7 +14972,7 @@ async function fetchAgents(config, owner, opts) {
 function apiErrorDetail(err) {
   if (!(err instanceof Error))
     return String(err);
-  const match = err.message.match(/→ \d+:\s*(.+)$/);
+  const match = err instanceof ApiStatusError ? [err.message, err.body.trim() ? err.body : err.message] : err.message.match(/→ \d+:\s*(.+)$/);
   if (match) {
     try {
       const parsed2 = JSON.parse(match[1]);
@@ -15245,7 +15245,7 @@ async function* streamConversationMessage(config, repoId, conversationId, body, 
   }
 }
 async function appendHostedSpaceMember(config, id, body) {
-  return request(config, "POST", `${API_V1}/maps/${encodeURIComponent(id)}/members`, body);
+  return request(config, "POST", `${API_V1}/maps/${encodeURIComponent(id)}/members`, body, { statusError: true });
 }
 async function fetchHostedSpaces(config) {
   const result = await request(config, "GET", `${API_V1}/maps`);
@@ -30735,10 +30735,10 @@ Head: ${result.version_id}
 Command: ${commandId}`);
     return 0;
   } catch (error) {
-    output.error(error instanceof UnauthorizedError ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
+    output.error(error instanceof UnauthorizedError || error instanceof ApiStatusError && error.status === 401 ? "Session expired. Run `ideaspaces login`." : apiErrorDetail(error));
     if (attempted && commandId)
       output.error(`Command: ${commandId}.`);
-    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || error instanceof Error && /→ 5\d\d:/.test(error.message))) {
+    if (attempted && (error instanceof NetworkError || error instanceof SyntaxError || error instanceof ApiStatusError && error.status >= 500)) {
       output.error("The outcome may be uncertain. Keep the same --command-id, --if-match and arguments on retry. Never use a newer head without reviewing it.");
     }
     return 1;
@@ -30768,8 +30768,11 @@ function hostedArgsError(args2, flags2) {
 var spacesCommand = {
   name: "spaces",
   description: "List or open hosted Spaces (named Maps); local Maps stay separate",
-  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]\n       " + SPACE_ADD_USAGE,
-  help: SPACE_ADD_USAGE + "\nOwner-only hosted edits. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+  usage: `ideaspaces spaces list --hosted [--json]
+       ideaspaces spaces open <map-id> [--json]
+       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
+       ${SPACE_ADD_USAGE}`,
+  help: "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
     "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_abcdef0123456789abcdef0123",
     "ideaspaces spaces list --hosted --json",

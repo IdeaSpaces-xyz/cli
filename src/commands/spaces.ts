@@ -28,8 +28,11 @@ function hostedArgsError(args: string[], flags: Flags): string | undefined {
 export const spacesCommand: CommandDef = {
   name: "spaces",
   description: "List or open hosted Spaces (named Maps); local Maps stay separate",
-  usage: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces open <map-id> [--json]\n       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]" + "\n       " + SPACE_ADD_USAGE,
-  help: SPACE_ADD_USAGE + "\nOwner-only hosted edits. Local Maps stay separate. " + "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
+  usage: `ideaspaces spaces list --hosted [--json]
+       ideaspaces spaces open <map-id> [--json]
+       ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
+       ${SPACE_ADD_USAGE}`,
+  help: "Owner-only hosted edits. --command-id accepts at most 64 characters. Local Maps stay separate. A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces are independent. Without --hosted, list shows legacy coordination objects. Open reads the hosted Map, not the content it points at.",
   examples: [
     "ideaspaces spaces add n_0123456789abcdef01234567 thread:x_example --if-match n_abcdef0123456789abcdef0123",
     "ideaspaces spaces list --hosted --json",
