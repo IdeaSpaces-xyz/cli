@@ -1,4 +1,5 @@
 import type { KeeperStreamEvent, KeeperMessageStartEvent } from "@ideaspaces/sdk";
+import type { MapBlock } from "@ideaspaces/protocol";
 import type { ThreadReadReceipt } from "./thread-launch.js";
 
 export type { ThreadReadReceipt };
@@ -47,6 +48,8 @@ export function piStateModel(state: unknown): string | null {
 export interface LocalSendOptions {
   onEvent?: (event: KeeperStreamEvent) => KeeperStreamEvent;
   extraOrientation?: string;
+  /** Agent-run only: how `--map` is read beside a pinned Thread frame: the room left for it, and the post loaded whole so a member naming it is not read twice. */
+  launchMap?: { budget: number; loadedAsNote: MapBlock };
   threadReceipt?: ThreadReadReceipt;
   /** Agent-run only: vetted canonical Pi paths. Empty is intentional; never fall back to ambient. */
   extensionPaths?: string[];

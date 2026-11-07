@@ -8,6 +8,7 @@ const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
     recent: "cursor reader limit",
     ack: "through recent reader",
     locate: "",
+    "launch-text": "post member pov budget",
     open: "depth new ack since post map member checkout pin position limit order agreement reader",
     read: "depth new ack kind since post map member checkout pin position limit order agreement reader",
     new: "about attached-to map",

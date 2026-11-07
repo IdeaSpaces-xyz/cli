@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { lookCommand } from "../commands/look.js";
 import { navigateCommand } from "../commands/navigate.js";
 import { LAUNCH_MAP_ENV, launchMapEnv, looksLikeMapAddress } from "../local/address-read.js";
-import { loadMapOrientation } from "../local/map-orientation.js";
+import { loadMapOrientation, MapBudgetError } from "../local/map-orientation.js";
 import { relabeller } from "../local/map-look.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
@@ -376,6 +376,7 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       expect(tight.text).toContain("lowered to fit: [0] full→name; legend omitted");
       expect(tight.text).not.toContain("Legend line");
       await expect(loadMapOrientation("long.map.md", space, { budget: 200 })).rejects.toThrow("every member at name");
+      await expect(loadMapOrientation("long.map.md", space, { budget: 200 })).rejects.toBeInstanceOf(MapBudgetError);
     });
 
     it("labels roots that share a default name by identity, as the resolver accepts them", async () => {

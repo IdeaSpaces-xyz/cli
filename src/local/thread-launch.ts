@@ -40,6 +40,8 @@ export interface PinnedThreadLaunch {
   agentName: string;
   orientation: string;
   citation: MapBlock;
+  /** Whether the Thread is closed; only a launch that writes a snapshot refuses on it. */
+  closed: boolean | "unknown";
   receipt: ThreadReadReceipt;
 }
 
@@ -79,7 +81,7 @@ export function prepareThreadLaunch(
   threadPath: string,
   mapPath: string,
   ordinal: string,
-  options?: { requireAuthor?: boolean },
+  options?: { requireAuthor?: boolean; readOnly?: boolean },
 ): PinnedThreadLaunch {
   if (!existsSync(mapPath) || !lstatSync(mapPath).isFile() || lstatSync(mapPath).isSymbolicLink()) {
     throw new Error("--thread-map must name a regular authored Map file; inline YAML is not a launch coordinate.");
@@ -91,7 +93,8 @@ export function prepareThreadLaunch(
   const directory = resolveLocalThread(threadPath, threadContext(threadPath, pov));
   // Live state is checked only for write eligibility. Orientation still reads solely at the authored pin.
   const localThread = loadThread(directory);
-  if (localThread.closed) throw new Error("Thread is closed; no agent was launched or snapshot written.");
+  // A closed Thread takes no snapshot, so a launch that writes one refuses; a read that only assembles text does not.
+  if (localThread.closed && !options?.readOnly) throw new Error("Thread is closed; no agent was launched or snapshot written.");
   const base = threadBase(dirname(dirname(directory)));
   const rootId = inspectLocalRootIdentity(base).root_node_id;
   const authoredId = root.root_node_id ?? /\/repos\/(n_[0-9a-f]{12}(?:[0-9a-f]{12})?)(?:\/|$)/.exec(root.repo ?? "")?.[1];
@@ -151,7 +154,7 @@ export function prepareThreadLaunch(
     map: `${basename(mapPath)}#${ordinal}`,
   };
 
-  return { kind: "local", directory, parentId: post.id, agentName, citation, orientation, receipt };
+  return { kind: "local", directory, parentId: post.id, agentName, citation, orientation, closed: localThread.closed, receipt };
 }
 
 /** Local Thread launch without an authored Map pin (e.g. conversation beside a live Thread). */
