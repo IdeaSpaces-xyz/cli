@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { stringify } from "yaml";
 import { makeAgentCommand } from "../commands/agent.js";
 import { threadsCommand } from "../commands/threads.js";
@@ -13,6 +13,9 @@ import { assembleLaunchText, MAX_ORIENTATION_BYTES } from "../local/launch-text.
 import { loadMapOrientation } from "../local/map-orientation.js";
 import { appendPost, createThread, loadThread } from "../local/threads.js";
 import type { GlobalFlags } from "../types.js";
+
+// Each test builds a Git repo and reads a Map through Git; a Windows runner is several times slower.
+vi.setConfig({ testTimeout: 90_000 });
 
 const JSON_GLOBAL: GlobalFlags = { json: true, quiet: false, yes: false, help: false };
 const ROOT_ID = "n_0123456789abcdef01234567";
@@ -74,7 +77,7 @@ interface Fixture {
  * A Space the way the app keeps one: the Note is committed, the launching post comes after the pin
  * its Map names, so it cannot be read at that pin and the Note has to be a member.
  */
-function fixture(options: { noteBody?: string; agreement?: string; extra?: number; attach?: boolean; depth?: string } = {}): Fixture {
+function fixture(options: { noteBody?: string; agreement?: string; extra?: number; attach?: boolean; depth?: string; unicode?: boolean } = {}): Fixture {
   const root = tempDir("lt-space-");
   const pov = tempDir("lt-pov-");
   const git = (...args: string[]) => {
@@ -90,7 +93,7 @@ function fixture(options: { noteBody?: string; agreement?: string; extra?: numbe
   mkdirSync(join(root, "docs"));
   const extra = options.extra ?? 3;
   for (let i = 0; i < extra; i++) {
-    writeFileSync(join(root, "docs", `n${i}.md`), `---\nname: Note ${i}\nsummary: Summary of note ${i}\n---\n# Note ${i}\n${"Long line of text for the surface of this note. ".repeat(40)}\n`);
+    writeFileSync(join(root, "docs", `n${i}.md`), `---\nname: Note ${i}\nsummary: Summary of note ${i}\n---\n# Note ${i}\n${(options.unicode ? "Écrit à l’été — naïve → déjà vu, 日本語. " : "Long line of text for the surface of this note. ").repeat(40)}\n`);
   }
   const target = createThread("target", "The target Thread", root);
   if (options.agreement) writeFileSync(join(target.path, "_agent", "agreement.md"), options.agreement);
@@ -139,7 +142,8 @@ describe("threads launch-text", () => {
     expect(result.bytes).toBe(Buffer.byteLength(result.text));
   });
 
-  it("matches what agent run appends for the same inputs, and the cap counts the Map", async () => {
+  // The stand-in runtime is a shell script, as in the other end-to-end runtime tests.
+  it.skipIf(process.platform === "win32")("matches what agent run appends for the same inputs, and the cap counts the Map", async () => {
     // Long enough that the Map must lower to leave the Agreement and the frame their room.
     const f = fixture({ extra: 12, agreement: `---\nname: Agreement\nsummary: Terms\n---\n# Terms\n${"A clause of the Thread's terms. ".repeat(180)}\n` });
     const capture = join(f.pov, "captured.txt");
@@ -182,7 +186,7 @@ process.stdin.resume(); process.stdin.on("data", () => {}); process.stdin.on("en
 
   it("merges a member only when it is the same post at the same pin", async () => {
     const f = fixture();
-    const position = `_threads/target/${f.note.file.split("/").pop()}`;
+    const position = `_threads/target/${basename(f.note.file)}`;
     const note = (sha: string) => ({ roots: [{ root_node_id: ROOT_ID, sha }], members: [{ root: 0, position }] });
     expect((await loadMapOrientation(f.launch.file, f.root, { loadedAsNote: note(f.pin) })).merged).toHaveLength(1);
     // Another pin is another version of the post: the Map reads it, and nothing is claimed as loaded once.
@@ -195,6 +199,18 @@ process.stdin.resume(); process.stdin.on("data", () => {}); process.stdin.on("en
     const f = fixture();
     writeFileSync(join(f.pov, "_agent", "agreement.md"), `---\nname: Big\n---\n${"x".repeat(17_000)}\n`);
     await expect(assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root })).rejects.toThrow(/Combined Agreement and Thread orientation exceeds 16 KiB: \d+ bytes \(Agreement \d+, Thread frame \d+\)/);
+  });
+
+  it("converges when multi-byte text makes bytes outrun the character budget", async () => {
+    const f = fixture({ extra: 12, unicode: true, agreement: `---\nname: Agreement\nsummary: Terms\n---\n# Terms\n${"A clause of the Thread's terms. ".repeat(180)}\n` });
+    const result = await assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root });
+    expect(result.bytes).toBeLessThanOrEqual(MAX_ORIENTATION_BYTES);
+    const mapBytes = Buffer.byteLength(result.text.slice(0, result.map.chars));
+    expect(mapBytes).toBeGreaterThan(result.map.chars);
+    // The first read is as many characters as there are bytes of room; converging means it read again with fewer.
+    const room = MAX_ORIENTATION_BYTES - (result.bytes - mapBytes);
+    expect(result.map.budget).toBeLessThan(room);
+    expect(result.lowered.length).toBeGreaterThan(0);
   });
 
   it("never lets --budget raise the Map past the room the cap leaves", async () => {
