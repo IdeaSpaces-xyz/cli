@@ -98,7 +98,7 @@ describe("map authoring", () => {
       expect(existsSync(join(process.env.HOME!, ".ideaspaces", "map-checkouts.json"))).toBe(false);
       expect((await run(["add", file], { position: ".", checkout: agent })).code).toBe(0);
       const checkouts = JSON.parse(await fs.readFile(join(process.env.HOME!, ".ideaspaces", "map-checkouts.json"), "utf8"));
-      expect(checkouts[realpathSync(agent)]).toBe(id);
+      expect(checkouts[realpathSync.native(agent)]).toBe(id);
       const hintFile = join(process.env.HOME!, ".ideaspaces", "map-checkouts.json");
       await fs.writeFile(hintFile, "{invalid json");
       expect(() => mapCheckouts.loadMapCheckouts()).toThrow("Repair or move that file");
@@ -375,7 +375,7 @@ describe("map authoring", () => {
       expect(emptyOrientation.text).not.toContain(`default folder for new material): "${maps}"`);
       expect(emptyOrientation.firstRoot).toBeUndefined();
       expect(emptyOrientation.localRoots).toEqual([]);
-      expect(emptyOrientation.text).toContain(`Edit this Space with ideaspaces map add "${resolve(file)}" or ideaspaces map remove "${resolve(file)}"; run ideaspaces map --help for forms.`);
+      expect(emptyOrientation.text).toContain(`Edit this Space with ideaspaces map add ${JSON.stringify(resolve(file))} or ideaspaces map remove ${JSON.stringify(resolve(file))}; run ideaspaces map --help for forms.`);
       expect(emptyOrientation.text).toContain("This Space has no selected members.");
       expect(emptyOrientation.text).toContain("Agents in this Space (0):");
       expect(emptyOrientation.text).toContain("(none selected or reachable here)");

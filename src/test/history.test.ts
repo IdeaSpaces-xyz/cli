@@ -148,7 +148,7 @@ describe("getFileHistory & getFileHistoryDetails", () => {
     // Oldest entry in page is commit 6 (since page has 20 newest commits 25..6), NOT commit 0
     expect(details.entries[details.entries.length - 1]?.message).toBe("commit 6");
     expect(details.created).not.toBe(details.entries[details.entries.length - 1]?.date);
-  });
+  }, 30_000); // Real 25-commit Git fixture can exceed 5s on Windows runners.
 
   it("follows file renames across history", async () => {
     const initialDate = "2022-01-01T10:00:00+0000";

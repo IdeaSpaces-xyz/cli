@@ -1,8 +1,8 @@
 import { Readable } from "node:stream";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   deriveConversationName,
   buildPiArgs,
@@ -11,6 +11,14 @@ import {
   runLocalTurn,
 } from "../pi/local-agent.js";
 import type { LocalTurnOptions } from "../pi/local-agent.js";
+
+// Only the executable fixture boundary is substituted. The adapter still spawns
+// a real Node child and reads actual RPC pipes; no POSIX shell is needed on Windows.
+vi.mock("node:child_process", async importOriginal => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: (bin: string, args: string[], options: object) =>
+    bin.endsWith("pi.cjs") ? actual.spawn(process.execPath, [bin, ...args], options) : actual.spawn(bin, args, options) };
+});
 
 const baseOpts: LocalTurnOptions = {
   repoPath: "/ws",
@@ -153,9 +161,7 @@ process.stdin.on("data", (input) => {
   emit({ type: "agent_end", willRetry: false, messages: [{ role: "assistant", stopReason: "stop", usage: { input: 12, output: 4, totalTokens: 16, cost: { total: 0.002 } } }] });
 });
 `);
-      const bin = join(tmp, "pi");
-      writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
-      chmodSync(bin, 0o755);
+      const bin = script;
       const events = [];
       for await (const event of runLocalTurn({ ...baseOpts, repoPath: tmp, sessionDir: join(tmp, ".pi", "sessions"), piBin: bin })) events.push(event);
       expect(events.filter((event) => event.type === "error")).toHaveLength(0);
@@ -180,9 +186,7 @@ process.stdin.on("data", (input) => {
   ${exitAfter ? "setTimeout(() => process.exit(7), 20);" : ""}
 });
 `);
-      const bin = join(tmp, "pi");
-      writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
-      chmodSync(bin, 0o755);
+      const bin = script;
       const emitted = [];
       for await (const event of runLocalTurn({ ...baseOpts, repoPath: tmp, sessionDir: join(tmp, ".pi", "sessions"), piBin: bin })) emitted.push(event);
       return emitted;
