@@ -31231,7 +31231,7 @@ function checkThreads(threadsDir, only) {
   if (!inside.ok || inside.out.trim() !== "true") {
     return { checked: false, note: "this Space is not in a Git repository, so there is no history to check; posts here cannot be shown to be unchanged", modified: [] };
   }
-  const scope = only ? [only] : ["."];
+  const scope = only ? [`:(literal)${only}`] : ["."];
   const found = /* @__PURE__ */ new Map();
   const add = (path, change) => {
     const post = postPath(path);
@@ -31251,16 +31251,24 @@ function checkThreads(threadsDir, only) {
   for (let i = 0; i < entries.length; i++) {
     const code = entries[i].slice(0, 2), path = fromHere(entries[i].slice(3));
     if (code[0] === "R" || code[0] === "C") {
-      i++;
+      const origin = fromHere(entries[++i] ?? "");
+      if (code[0] === "R" && origin)
+        add(origin, { kind: "uncommitted-delete" });
       add(path, { kind: "uncommitted-edit" });
       continue;
     }
+    if (code[0] === "A" || code[0] === "?")
+      continue;
     if (code.includes("D"))
       add(path, { kind: "uncommitted-delete" });
     else if (code.includes("M") || code.includes("T"))
       add(path, { kind: "uncommitted-edit" });
   }
-  const log = git4(threadsDir, ["log", "--no-renames", "--diff-filter=MDT", "--name-status", "--relative", "--pretty=format:%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...scope]);
+  const shallow = git4(threadsDir, ["rev-parse", "--is-shallow-repository"]);
+  if (shallow.ok && shallow.out.trim() === "true") {
+    return { checked: false, note: "this clone is shallow (its history stops at the fetch depth), so an edit made before that cannot be seen; fetch the full history (git fetch --unshallow) to check", modified: [...found.values()] };
+  }
+  const log = git4(threadsDir, ["-c", "core.quotePath=false", "log", "--no-renames", "--diff-filter=MDT", "--name-status", "--relative", "--pretty=format:%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...scope]);
   if (!log.ok) {
     if (/does not have any commits yet/.test(log.err))
       return { checked: true, modified: [...found.values()] };
@@ -31695,7 +31703,7 @@ var threadsCommand = {
     "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
     "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads render <slug|path>",
-    "ideaspaces threads check [<slug|path>] [--strict]  # post files edited or deleted after they were committed (posts are immutable); --strict exits 1 on any, or when Git can't be read",
+    "ideaspaces threads check [<slug|path>] [--strict]  # post files edited or deleted after they were committed (posts are immutable); exits 0 unless --strict, which exits 1 on any finding, a shallow clone, or when Git can't be read",
     "ideaspaces threads init",
     "ideaspaces threads push --remote <team-remote>"
   ],

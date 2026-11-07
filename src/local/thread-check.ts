@@ -48,7 +48,8 @@ export function checkThreads(threadsDir: string, only?: string): ThreadCheck {
   if (!inside.ok || inside.out.trim() !== "true") {
     return { checked: false, note: "this Space is not in a Git repository, so there is no history to check; posts here cannot be shown to be unchanged", modified: [] };
   }
-  const scope = only ? [only] : ["."];
+  // A literal pathspec: a slug with glob characters must match only itself.
+  const scope = only ? [`:(literal)${only}`] : ["."];
   const found = new Map<string, ModifiedPost>();
   const add = (path: string, change: PostChange) => {
     const post = postPath(path);
@@ -67,12 +68,26 @@ export function checkThreads(threadsDir: string, only?: string): ThreadCheck {
   const entries = status.out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const code = entries[i].slice(0, 2), path = fromHere(entries[i].slice(3));
-    if (code[0] === "R" || code[0] === "C") { i++; add(path, { kind: "uncommitted-edit" }); continue; }
+    // A rename or copy names its source in the next entry. The source is gone from this name; the new name is the post's file now.
+    if (code[0] === "R" || code[0] === "C") {
+      const origin = fromHere(entries[++i] ?? "");
+      if (code[0] === "R" && origin) add(origin, { kind: "uncommitted-delete" });
+      add(path, { kind: "uncommitted-edit" });
+      continue;
+    }
+    // Staged as new (`A`, `AM`, `AD`) means it was never committed: an addition, not a change after commit.
+    if (code[0] === "A" || code[0] === "?") continue;
     if (code.includes("D")) add(path, { kind: "uncommitted-delete" });
     else if (code.includes("M") || code.includes("T")) add(path, { kind: "uncommitted-edit" });
   }
 
-  const log = git(threadsDir, ["log", "--no-renames", "--diff-filter=MDT", "--name-status", "--relative", "--pretty=format:%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...scope]);
+  // A shallow clone's history stops at the fetch depth, so an edit before it is invisible: that is not "clean".
+  const shallow = git(threadsDir, ["rev-parse", "--is-shallow-repository"]);
+  if (shallow.ok && shallow.out.trim() === "true") {
+    return { checked: false, note: "this clone is shallow (its history stops at the fetch depth), so an edit made before that cannot be seen; fetch the full history (git fetch --unshallow) to check", modified: [...found.values()] };
+  }
+
+  const log = git(threadsDir, ["-c", "core.quotePath=false", "log", "--no-renames", "--diff-filter=MDT", "--name-status", "--relative", "--pretty=format:%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...scope]);
   if (!log.ok) {
     // An empty repository has no history; that is clean, not a failure.
     if (/does not have any commits yet/.test(log.err)) return { checked: true, modified: [...found.values()] };

@@ -94,3 +94,55 @@ describe("threads check", () => {
     } finally { process.stdout.write = old; process.chdir(previous); }
   });
 });
+
+describe("threads check does not report wrongly", () => {
+  it("does not call a post edited or deleted after commit when it was never committed: staged then edited, staged then deleted", () => {
+    const { dir, a, threads } = space();
+    const fresh = appendPost(a.path, { body: "Fresh", author: "Scout", replyTo: ["latest"] });
+    const gone = appendPost(a.path, { body: "Gone", author: "Scout", replyTo: ["latest"] });
+    git(dir, "add", "-A");
+    appendFileSync(fresh.path, "\nEdited after staging.\n"); // AM
+    rmSync(gone.path); // AD
+    expect(git(dir, "status", "--porcelain", "--", "_threads/alpha")).toMatch(/^AM /m);
+    expect(git(dir, "status", "--porcelain", "--", "_threads/alpha")).toMatch(/^AD /m);
+    expect(checkThreads(threads)).toEqual({ checked: true, modified: [] });
+  });
+
+  it("does not say clean from a shallow clone, whose history stops at its depth, and still names what it can see", () => {
+    const { dir, a } = space();
+    const edited = files(a.path)[0];
+    appendFileSync(join(a.path, edited), "\nAn edit, then more history on top.\n");
+    git(dir, "commit", "-qam", "Edit a post");
+    appendPost(a.path, { body: "Later", author: "Scout", replyTo: ["latest"] });
+    git(dir, "add", "-A"); git(dir, "commit", "-qm", "Later post");
+    const clone = realpathSync(mkdtempSync(join(tmpdir(), "is-thread-check-shallow-"))); temp.push(clone);
+    git(clone, "clone", "-q", "--depth", "1", `file://${dir}`, "c");
+    const shallow = checkThreads(join(clone, "c", "_threads"));
+    expect(shallow.checked).toBe(false);
+    expect(shallow.note).toMatch(/shallow/);
+    expect(shallow.note).toMatch(/git fetch --unshallow/);
+    // The full clone sees the edit the shallow one cannot.
+    git(join(clone, "c"), "fetch", "-q", "--unshallow");
+    expect(checkThreads(join(clone, "c", "_threads")).modified.map((m) => m.file)).toEqual([edited]);
+  });
+
+  it("names a post whose file name is not ASCII, instead of dropping it", () => {
+    const { dir, a, threads } = space();
+    const name = "2026-11-07T10-00-00-000Z-msg_é-ü.md";
+    writeFileSync(join(a.path, name), "---\nid: msg_accent\ndate: 2026-11-07T10:00:00.000Z\nkind: post\nauthor: A\n---\n\nAccent.\n");
+    git(dir, "add", "-A"); git(dir, "commit", "-qm", "Accent post");
+    appendFileSync(join(a.path, name), "\nEdited.\n");
+    git(dir, "commit", "-qam", "Edit the accent post");
+    expect(checkThreads(threads).modified.map((m) => m.file)).toEqual([name]);
+  });
+
+  it("matches a slug literally, and sees both ends of a staged rename", () => {
+    const { dir, a, b, threads } = space();
+    expect(checkThreads(threads, "*").modified).toEqual([]);
+    const file = files(a.path)[0];
+    git(dir, "mv", join("_threads", "alpha", file), join("_threads", "beta", file));
+    const found = checkThreads(threads).modified.map((m) => `${m.thread}/${m.file}`).sort();
+    expect(found).toEqual([`alpha/${file}`, `beta/${file}`]);
+    expect(b.slug).toBe("beta");
+  });
+});

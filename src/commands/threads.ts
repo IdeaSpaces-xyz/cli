@@ -315,7 +315,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
     "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads render <slug|path>",
-    "ideaspaces threads check [<slug|path>] [--strict]  # post files edited or deleted after they were committed (posts are immutable); --strict exits 1 on any, or when Git can't be read",
+    "ideaspaces threads check [<slug|path>] [--strict]  # post files edited or deleted after they were committed (posts are immutable); exits 0 unless --strict, which exits 1 on any finding, a shallow clone, or when Git can't be read",
     "ideaspaces threads init",
     "ideaspaces threads push --remote <team-remote>",
   ],
