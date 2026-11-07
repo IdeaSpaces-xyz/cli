@@ -76,7 +76,8 @@ export interface SelectedThreadTarget {
 /** Compare existing directories through one physical spelling. Do not change Thread
  * paths/cursor keys just to reconcile Windows short names at this boundary. */
 function sameDirectory(left: string, right: string): boolean {
-  return realpathSync.native(left) === realpathSync.native(right);
+  try { return realpathSync.native(left) === realpathSync.native(right); }
+  catch { return false; } // A vanished/inaccessible path is a refusal, not a fallback.
 }
 
 export function selectLocalThreadTarget(input: string, root: MapRoot, member: MapPositionMember, checkoutHint?: string): SelectedThreadTarget {

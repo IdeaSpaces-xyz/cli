@@ -27303,7 +27303,7 @@ function listAgentRuns(options = {}) {
     const canonical = physical2(input);
     runs = raw ? runs.filter((r) => {
       const norm = normalize(r.agent);
-      return norm === raw || norm.endsWith(`/${raw}`) || canonical !== void 0 && physical2(r.agent) === canonical;
+      return norm === raw || norm.endsWith(`/${raw}`) || canonical !== void 0 && isAbsolute15(r.agent) && physical2(r.agent) === canonical;
     }) : [];
   }
   runs.sort((a, b) => (b.started_at || "").localeCompare(a.started_at || ""));
@@ -31158,7 +31158,11 @@ function locate(root, hint) {
   return validatedCheckout([...paths][0], id);
 }
 function sameDirectory(left, right) {
-  return realpathSync24.native(left) === realpathSync24.native(right);
+  try {
+    return realpathSync24.native(left) === realpathSync24.native(right);
+  } catch {
+    return false;
+  }
 }
 function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   const pin = root.sha;

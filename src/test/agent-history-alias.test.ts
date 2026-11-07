@@ -14,6 +14,12 @@ it("finds history through either physical or alias spelling without rewriting re
   expect(recordAgentRun(base)).toBe(true);
   expect(recordAgentRun({ ...base, run_id: "old-alias", agent: alias })).toBe(true);
   for (const filter of [alias, actual]) expect(listAgentRuns({ agent: filter }).map(r => r.run_id).sort()).toEqual(["old-alias", "real"]);
+  expect(recordAgentRun({ ...base, run_id: "lexical", agent: "actual" })).toBe(true);
+  const cwd = process.cwd();
+  try {
+    process.chdir(home);
+    expect(listAgentRuns({ agent: actual }).map(r => r.run_id).sort()).toEqual(["old-alias", "real"]);
+  } finally { process.chdir(cwd); }
   const other = join(home, "other"); mkdirSync(other);
   expect(listAgentRuns({ agent: other })).toEqual([]);
   rmSync(alias, { recursive: true }); rmSync(actual, { recursive: true });

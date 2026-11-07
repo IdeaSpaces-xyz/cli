@@ -137,9 +137,8 @@ export function listAgentRuns(options: ListAgentRunsOptions = {}): AgentRunRecor
     runs = raw ? runs.filter((r) => {
       const norm = normalize(r.agent);
       return norm === raw || norm.endsWith(`/${raw}`) ||
-        (canonical !== undefined && physical(r.agent) === canonical);
+        (canonical !== undefined && isAbsolute(r.agent) && physical(r.agent) === canonical);
     }) : [];
-
   }
 
   // Sort newest first by started_at descending
