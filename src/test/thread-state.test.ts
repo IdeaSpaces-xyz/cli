@@ -8,7 +8,8 @@ import { readThreadShare, shareLine } from "../local/thread-state.js";
 import { threadsCommand } from "../commands/threads.js";
 
 // Substitute just the failing executable, keeping real Git for all other calls.
-// A POSIX wrapper is not an executable on native Windows.
+// A POSIX wrapper is not an executable on native Windows. The sentinel paths
+// intentionally intercept spawnSync; a production change of primitive must update this fixture.
 const fakeGit = vi.hoisted(() => new Map<string, { verb: string; needle: string; dir: string; slow?: boolean }>());
 vi.mock("node:child_process", async importOriginal => {
   const actual = await importOriginal<typeof import("node:child_process")>();

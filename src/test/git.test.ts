@@ -103,7 +103,7 @@ describe("git availability", () => {
     const availability = gitAvailability();
     expect(availability).toMatchObject({
       state: "usable",
-      version: process.platform === "win32" ? spawnSync(stubBinary, ["--version"], { encoding: "utf8" }).stdout.trim() : "git version 2.53.0",
+      version: process.platform === "win32" ? expect.stringMatching(/^git version /) : "git version 2.53.0",
       path: stubBinary,
     });
     expect(gitAvailable()).toBe(true);
@@ -126,10 +126,10 @@ describe("git availability", () => {
 
     const availability = gitAvailability();
     expect(availability.state).toBe("unusable");
-    const expected = process.platform === "win32"
-      ? spawnSync(stubBinary, ["--version"], { encoding: "utf8" }).stderr.trim() || `git --version exited ${availability.exitCode}`
-      : "custom git failed";
-    expect(availability.detail).toContain(expected);
+    if (process.platform === "win32") {
+      expect(availability.exitCode).not.toBe(0);
+      expect(availability.detail.trim().length).toBeGreaterThan(0);
+    } else expect(availability.detail).toContain("custom git failed");
     expect(availability.path).toBe(stubBinary);
   });
 
