@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { appendPost, createThread } from "../local/threads.js";
 import { readThreadShare, shareLine } from "../local/thread-state.js";
 import { threadsCommand } from "../commands/threads.js";
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 
 // Substitute just the failing executable, keeping real Git for all other calls.
 // A POSIX wrapper is not an executable on native Windows. The sentinel paths
@@ -97,7 +98,7 @@ describe("where a local post is", () => {
     expect([share.states.get(first), share.states.get(secondName)]).toEqual(["pushed", "committed"]);
     expect(shareLine(share)).toContain("1 committed (not pushed to origin/main)");
     expect(second.post.id).toMatch(/^msg_/);
-  });
+  }, GIT_INTEGRATION_TIMEOUT); // Real commits/push and seven state reads took 5.44s on Windows CI.
 
   it("flags a post file changed after it was committed", () => {
     const root = space(); repo(root);
