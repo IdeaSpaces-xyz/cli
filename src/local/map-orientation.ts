@@ -1,6 +1,7 @@
 import {
   type ContentLookTarget,
   type MapAddressMember,
+  type MapBlock,
   type MapDepth,
   type MapMember,
   type MapPositionMember,
@@ -30,6 +31,8 @@ interface MemberRead {
   read: MapReadResult;
   /** The member at each depth it has been read at. */
   looks: Map<MapDepth, ContentLookTarget | string>;
+  /** The same post is loaded whole elsewhere in the launch; the Map says so and reads nothing. */
+  merged: boolean;
 }
 
 interface Located {
@@ -42,6 +45,18 @@ export interface MapOrientationLowered {
   index: number;
   declared: MapDepth;
   effective: MapDepth;
+  /** The member's position inside its root. */
+  position: string;
+  /** `@root//position`: what to give is_look or is_navigate to read the member whole. */
+  address: string;
+}
+
+/** A member the Map did not repeat because the same post is loaded whole elsewhere in the launch. */
+export interface MapOrientationMerged {
+  index: number;
+  declared: MapDepth;
+  position: string;
+  address: string;
 }
 
 export interface MapOrientationResult {
@@ -52,12 +67,21 @@ export interface MapOrientationResult {
   firstRoot: string | undefined;
   budget: number;
   lowered: MapOrientationLowered[];
+  /** Members left out because the launch loads that post whole as its Note. */
+  merged: MapOrientationMerged[];
   legend: boolean;
+  /** The Map has a legend and the budget dropped it. */
+  legendOmitted: boolean;
 }
 
 export interface MapOrientationOptions {
   budget?: number;
   at?: MapReadAt;
+  /**
+   * The post the launch loads whole as its Note, as a one-member Map block (root and pin
+   * included). A member of this Map naming the same post at the same pin is not read again.
+   */
+  loadedAsNote?: MapBlock;
 }
 
 /**
@@ -98,22 +122,27 @@ export async function loadMapOrientation(
       ? readMapRoot({ ...root.drift, rootIndex: member.root }, member.position, at, 1)
       : ({ status: "unreachable", at, drift: false, reason: `Root ${member.root} is not in the Map.` } as MapReadResult);
     // Summary is this launch reader's initial rung, not an authored Map ceiling.
-    reads.push({ index, member, label, declared: member.depth ?? "summary", read, looks: new Map() });
+    reads.push({ index, member, label, declared: member.depth ?? "summary", read, looks: new Map(), merged: isLoadedAsNote(options.loadedAsNote, note.map, member) });
   }
 
   const effective = new Map<number, MapDepth>(reads.map((entry) => [entry.index, entry.declared]));
   let legend = true;
   for (;;) {
-    for (const entry of reads) await ensureLook(entry, effective.get(entry.index)!);
+    for (const entry of reads) if (!entry.merged) await ensureLook(entry, effective.get(entry.index)!);
     const text = render(note, kind, at, located, reads, effective, { budget, legend }, agents);
     if (text.length <= budget) {
       const lowered: MapOrientationLowered[] = reads
-        .filter((entry) => effective.get(entry.index) !== entry.declared)
+        .filter((entry) => !entry.merged && effective.get(entry.index) !== entry.declared)
         .map((entry) => ({
           index: entry.index,
           declared: entry.declared,
           effective: effective.get(entry.index)!,
+          position: entry.member.position,
+          address: entry.label,
         }));
+      const merged: MapOrientationMerged[] = reads
+        .filter((entry) => entry.merged)
+        .map((entry) => ({ index: entry.index, declared: entry.declared, position: entry.member.position, address: entry.label }));
       return {
         text,
         note,
@@ -121,12 +150,15 @@ export async function loadMapOrientation(
         firstRoot: kind === "space" ? inspected[0]?.checkoutPath ?? undefined : undefined,
         budget,
         lowered,
+        merged,
         legend: Boolean(note.legend && legend),
+        legendOmitted: Boolean(note.legend) && !legend,
       };
     }
 
     // Only a member that was read has depth to give; an unreachable one is already a line.
     const next = [...reads].reverse().find((entry) => {
+      if (entry.merged) return false;
       const depth = effective.get(entry.index)!;
       return depth !== "name" && typeof entry.looks.get(depth) === "object";
     });
@@ -143,6 +175,18 @@ export async function loadMapOrientation(
       `a launch Map may add at most ${budget}. Use a smaller Map.`,
     );
   }
+}
+
+/** Same post: same root (by identity), same pin, same position. A different pin is a different version. */
+function isLoadedAsNote(note: MapBlock | undefined, map: MapBlock, member: MapPositionMember): boolean {
+  const target = note?.members[0];
+  if (!note || !target || typeof (target as MapAddressMember).address === "string") return false;
+  const wanted = target as MapPositionMember;
+  const noteRoot = note.roots[wanted.root];
+  const root = map.roots[member.root];
+  if (!noteRoot || !root || member.position !== wanted.position || root.sha !== noteRoot.sha) return false;
+  const same = (a?: string, b?: string) => a !== undefined && a === b;
+  return same(root.root_node_id, noteRoot.root_node_id) || same(root.repo, noteRoot.repo);
 }
 
 function lowerDepth(depth: MapDepth): MapDepth {
@@ -186,7 +230,7 @@ function render(
   agents?: MapAgentsResult,
 ): string {
   const lowered = reads
-    .filter((entry) => effective.get(entry.index) !== entry.declared)
+    .filter((entry) => !entry.merged && effective.get(entry.index) !== entry.declared)
     .map((entry) => `[${entry.index}] ${entry.declared}→${effective.get(entry.index)}`);
   const lines = [
     "[IdeaSpaces Map]",
@@ -287,6 +331,12 @@ function render(
  */
 function renderMember(entry: MemberRead, depth: MapDepth, type?: string): string[] {
   const { index, member, label, read } = entry;
+  if (entry.merged) {
+    const authored = scalar(member.summary);
+    const lines = [`  [${index}] ${label} — ${type ? `${type}, ` : ""}loaded whole as this launch's Note, below; not repeated here (declared ${entry.declared})`];
+    if (authored) lines.push(`      map summary: ${quoted(authored)}`);
+    return lines;
+  }
   const lowered = depth !== entry.declared ? ` (declared ${entry.declared})` : "";
   const authored = scalar(member.summary);
   const look = entry.looks.get(depth);

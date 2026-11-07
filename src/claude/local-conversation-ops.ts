@@ -111,7 +111,7 @@ async function send(flags: Flags, output: Output, options?: LocalSendOptions): P
   let firstSpaceRoot: string | undefined;
   if (typeof flags.map === "string") {
     try {
-      const loaded = await loadMapOrientation(flags.map, repoPath);
+      const loaded = await loadMapOrientation(flags.map, repoPath, options?.launchMap);
       mapOrientation = loaded.text;
       mapPath = loaded.note.absolutePath;
       if (mapKindOf(mapPath) === "space") {

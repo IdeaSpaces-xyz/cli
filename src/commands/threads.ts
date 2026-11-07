@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { assembleContentReference, HOSTED_THREAD_ID, parseFrontmatter, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
 import { agreementFlag, preferredContractSource } from "../contract-source.js";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
+import { assembleLaunchText } from "../local/launch-text.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { isHostAuth, peekConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
@@ -288,7 +289,7 @@ function writerName(explicit?: string): string {
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|attach|render|init|push> ...",
+  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|init|push> ...",
   help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.",
   examples: [
     "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
@@ -310,6 +311,7 @@ export const threadsCommand: CommandDef = {
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
+    "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # the text a session launched from that post starts with: its own Map at its depths, the Note pinned in its Thread, the Agreement when --pov is given; says what was lowered. Reads at authored pins; writes nothing",
     "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'",
     "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
     "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
@@ -351,6 +353,29 @@ export const threadsCommand: CommandDef = {
       const flagError = threadFlagError(sub ?? "", flags);
       if (flagError) throw new Error(flagError);
       if (sub === "read") return threadsCommand.run(["open", ...rest], flags, global);
+      if (sub === "launch-text") {
+        if (rest.length !== 1) throw new Error("Usage: threads launch-text <slug|path> --post <msg_id> [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]");
+        if (isHostedThreadTarget(rest[0])) throw new Error("threads launch-text reads a local Thread; a hosted x_ Thread has no pinned Map to launch from.");
+        const post = str(flags, "post");
+        if (!post) throw new Error("--post <msg_id> is required: name the post whose Map and Note the session starts from. Run `ideaspaces threads open <thread>` to list posts.");
+        let budget: number | undefined;
+        if (flags.budget !== undefined) {
+          const raw = str(flags, "budget") ?? "";
+          if (!/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw new Error("--budget must be a positive integer number of characters.");
+          budget = Number(raw);
+        }
+        if (flags.member !== undefined && !str(flags, "member")) throw new Error("--member requires a zero-based ordinal of the post's Map.");
+        if (flags.pov !== undefined && !str(flags, "pov")) throw new Error("--pov requires an agent folder.");
+        const launch = await assembleLaunchText({ thread: rest[0], post, member: str(flags, "member"), pov: str(flags, "pov"), budget });
+        for (const entry of launch.cut) {
+          output.log(entry.kind === "depth"
+            ? `Lowered [${entry.index}] ${entry.address} ${entry.declared}→${entry.effective}: ${entry.reason}`
+            : `Legend left out: ${entry.reason}`);
+        }
+        for (const entry of launch.merged) output.log(`Not repeated ${entry.address} [${entry.index}]: it is this launch's Note`);
+        output.result(launch, launch.text);
+        return 0;
+      }
       if (sub === "locate") {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0])) throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
         const matches = [...new Map(rest.slice(1).flatMap((root) => {

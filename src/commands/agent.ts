@@ -9,6 +9,8 @@ import { discoverAgentReach } from "../local/agent-reach.js";
 import { CLAUDE_HANDOVER_TOOLS, CLAUDE_READ_TOOLS } from "../local/claude-tool-policy.js";
 import { preferredContractSource } from "../contract-source.js";
 import { loadMapNote } from "../local/map-note.js";
+import { launchSizeError, launchSizes, loadLaunchMap, MAX_ORIENTATION_BYTES, renderPovOrientation } from "../local/launch-text.js";
+import type { LocalSendOptions } from "../local/send-options.js";
 import { mapContextDir } from "../local/space-map.js";
 import { enteredThroughRoot, isContained } from "../local/contained-path.js";
 import { prepareHostedThreadLaunch, prepareThreadLaunch, withThreadSnapshot, type HostedThreadLaunch, type PinnedThreadLaunch } from "../local/thread-launch.js";
@@ -64,7 +66,6 @@ type Flags = Record<string, string | boolean>;
 // --message argv before the CLI relays it to the child via RPC/stdin. Reserve
 // room for executable paths and runtime flags on Windows.
 const MAX_MESSAGE_BYTES = 8 * 1024;
-const MAX_ORIENTATION_BYTES = 16 * 1024;
 
 function flagString(flags: Flags, name: string): string | undefined {
   const value = flags[name];
@@ -174,7 +175,7 @@ async function cmdRun(
       return 1;
     }
     const contract = readFileSync(povResult.contractPath, "utf8");
-    povOrientation = `[Selected ${povResult.contractType} POV: ${povPath}]\n${contract}`;
+    povOrientation = renderPovOrientation({ path: povPath, contractType: povResult.contractType }, contract);
     if (Buffer.byteLength(povOrientation) > MAX_ORIENTATION_BYTES) {
       output.error("Selected POV orientation exceeds 16 KiB; shorten the Agreement before launch.");
       return 1;
@@ -219,9 +220,22 @@ async function cmdRun(
     }
   }
 
-  if (thread && Buffer.byteLength(`${povOrientation}\n\n${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
-    output.error("Combined Agreement and Thread orientation exceeds 16 KiB; shorten the selected frame before launch.");
-    return 1;
+  // The Map goes in the same argv as the Agreement and the frame, so the cap counts it: the Map takes
+  // the room they leave. When the pinned post is also a member of the Map, the Map does not read it twice.
+  let launchMap: LocalSendOptions["launchMap"];
+  if (thread) {
+    try {
+      if (thread.kind === "local" && typeof flags.map === "string" && flags.map.trim()) {
+        const loaded = await loadLaunchMap(flags.map, povPath, { pov: povOrientation, frame: thread.orientation, loadedAsNote: thread.citation });
+        launchMap = { budget: loaded.budget, loadedAsNote: thread.citation };
+      } else {
+        const tooLarge = launchSizeError(launchSizes({ pov: povOrientation, frame: thread.orientation }));
+        if (tooLarge) throw new Error(tooLarge);
+      }
+    } catch (err) {
+      output.error(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
   }
   const currentPov = revalidateAgentPov(povPath);
   if (!currentPov.valid || currentPov.contractPath !== povResult.contractPath) {
@@ -513,6 +527,7 @@ async function cmdRun(
     exitCode = await local.send(forwardFlags, runOutput, {
       ...launchOptions,
       extraOrientation,
+      launchMap,
       threadReceipt: thread?.receipt,
       onEvent,
     });
