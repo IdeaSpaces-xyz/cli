@@ -25,6 +25,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { runtimeCommand } from "../local/runtime-command.js";
 import {
   ClaudeTranslator,
   parseClaudeStreamLine,
@@ -236,9 +237,11 @@ export async function* runClaudeTurn(opts: ClaudeTurnOptions): AsyncGenerator<Ke
 
   const args = buildClaudeArgs({ ...opts, sessionExists });
   const bin = opts.claudeBin ?? "claude";
-  const claude = spawn(bin, args, {
+  const env = buildClaudeEnv(opts.auth ?? "login", process.env, opts.mapPath);
+  const command = runtimeCommand(bin, args, env, opts.repoPath);
+  const claude = spawn(command.command, command.args, {
     cwd: opts.repoPath,
-    env: buildClaudeEnv(opts.auth ?? "login", process.env, opts.mapPath),
+    env,
     stdio: ["pipe", "pipe", "pipe"],
   });
 

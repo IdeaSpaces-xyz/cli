@@ -26,6 +26,7 @@
 import { harvestLocalFiles } from "../local/workspace-files.js";
 import { readJsonLines } from "../local/jsonl.js";
 import { spawn } from "node:child_process";
+import { runtimeCommand } from "../local/runtime-command.js";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -207,9 +208,11 @@ export async function* runLocalTurn(opts: LocalTurnOptions): AsyncGenerator<Keep
 
   const args = buildPiArgs(opts);
   const bin = opts.piBin ?? "pi";
-  const pi = spawn(bin, args, {
+  const env = launchMapEnv(process.env, opts.mapPath);
+  const command = runtimeCommand(bin, args, env, opts.repoPath);
+  const pi = spawn(command.command, command.args, {
     cwd: opts.repoPath,
-    env: launchMapEnv(process.env, opts.mapPath),
+    env,
     stdio: ["pipe", "pipe", "pipe"],
   });
 

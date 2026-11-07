@@ -194,6 +194,8 @@ Both stream the same transcript; they differ in whose agent runs and how it is p
 | Models | `pi-models` — any provider pi supports | `claude-models` — Anthropic (on Claude Code ≥ 2.1.305: Opus/Sonnet/Haiku 5.5 and Fable 5.1, 1M context; older binaries retain their versioned roster) |
 | Compaction | context skills (`context_cleanup`) | `conversation compact --local` and `--autocompact` (100k–1M tokens) |
 
+On Windows, npm-generated `.cmd` launchers for Node entrypoints and native executables are resolved without evaluating batch command text. Discovery, auth probes, model listing and local turns share that resolution; argument arrays stay literal, including paths with spaces and multiline prompts. Custom batch programs are not interpreted as npm shims; use the standard npm launcher or a native executable. A successful readiness probe does not prove an authenticated model turn.
+
 Pick `claude` to continue a session you started in Claude Code; the same session id resumes it. Close it there first — one session should have one writer at a time. Pick `pi` for another provider, an API-key setup, or a machine without Claude Code.
 
 ## Configuration

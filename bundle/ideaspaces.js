@@ -494,14 +494,14 @@ var require_graceful_fs = __commonJS({
         return close;
       })(fs14.close);
       fs14.closeSync = (function(fs$closeSync) {
-        function closeSync3(fd) {
+        function closeSync4(fd) {
           fs$closeSync.apply(fs14, arguments);
           resetQueue();
         }
-        Object.defineProperty(closeSync3, previousSymbol, {
+        Object.defineProperty(closeSync4, previousSymbol, {
           value: fs$closeSync
         });
-        return closeSync3;
+        return closeSync4;
       })(fs14.closeSync);
       if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || "")) {
         process.on("exit", function() {
@@ -1532,12 +1532,12 @@ var require_adapter = __commonJS({
       return newFs;
     }
     function toPromise(method) {
-      return (...args2) => new Promise((resolve45, reject) => {
+      return (...args2) => new Promise((resolve46, reject) => {
         args2.push((err, result) => {
           if (err) {
             reject(err);
           } else {
-            resolve45(result);
+            resolve46(result);
           }
         });
         method(...args2);
@@ -8937,6 +8937,75 @@ var require_dist = __commonJS({
   }
 });
 
+// node_modules/read-cmd-shim/lib/index.js
+var require_lib = __commonJS({
+  "node_modules/read-cmd-shim/lib/index.js"(exports, module) {
+    var fs14 = __require("fs");
+    var { promisify: promisify2 } = __require("util");
+    var { readFileSync: readFileSync27 } = fs14;
+    var readFile3 = promisify2(fs14.readFile);
+    var extractPath = (path, cmdshimContents) => {
+      if (/[.]cmd$/.test(path)) {
+        return extractPathFromCmd(cmdshimContents);
+      } else if (/[.]ps1$/.test(path)) {
+        return extractPathFromPowershell(cmdshimContents);
+      } else {
+        return extractPathFromCygwin(cmdshimContents);
+      }
+    };
+    var extractPathFromPowershell = (cmdshimContents) => {
+      const matches2 = cmdshimContents.match(/"[$]basedir[/]([^"]+?)"\s+[$]args/);
+      return matches2 && matches2[1];
+    };
+    var extractPathFromCmd = (cmdshimContents) => {
+      const matches2 = cmdshimContents.match(/"%(?:~dp0|dp0%)\\([^"]+?)"\s+%[*]/);
+      return matches2 && matches2[1];
+    };
+    var extractPathFromCygwin = (cmdshimContents) => {
+      const matches2 = cmdshimContents.match(/"[$]basedir[/]([^"]+?)"\s+"[$]@"/);
+      return matches2 && matches2[1];
+    };
+    var wrapError = (thrown, newError) => {
+      newError.message = thrown.message;
+      newError.code = thrown.code;
+      newError.path = thrown.path;
+      return newError;
+    };
+    var notaShim = (path, er) => {
+      if (!er) {
+        er = new Error();
+        Error.captureStackTrace(er, notaShim);
+      }
+      er.code = "ENOTASHIM";
+      er.message = `Can't read shim path from '${path}', it doesn't appear to be a cmd-shim`;
+      return er;
+    };
+    var readCmdShim2 = (path) => {
+      const er = new Error();
+      Error.captureStackTrace(er, readCmdShim2);
+      return readFile3(path).then((contents) => {
+        const destination = extractPath(path, contents.toString());
+        if (destination) {
+          return destination;
+        }
+        throw notaShim(path, er);
+      }, (readFileEr) => {
+        throw wrapError(readFileEr, er);
+      });
+    };
+    var readCmdShimSync = (path) => {
+      const contents = readFileSync27(path);
+      const destination = extractPath(path, contents.toString());
+      if (!destination) {
+        throw notaShim(path);
+      }
+      return destination;
+    };
+    readCmdShim2.sync = readCmdShimSync;
+    module.exports = readCmdShim2;
+  }
+});
+
 // dist/main.js
 import { writeSync } from "node:fs";
 
@@ -10395,14 +10464,14 @@ var FS = "";
 var REC = "";
 var DEFAULT_COMMIT_LIMIT = 20;
 function runGit(repoRoot2, args2) {
-  return new Promise((resolve45) => {
+  return new Promise((resolve46) => {
     const proc = spawn("git", ["-C", repoRoot2, ...args2], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let out = "";
     proc.stdout.on("data", (d) => out += d);
-    proc.on("close", (code) => resolve45({ ok: code === 0, out, code }));
-    proc.on("error", () => resolve45({ ok: false, out: "", code: null }));
+    proc.on("close", (code) => resolve46({ ok: code === 0, out, code }));
+    proc.on("error", () => resolve46({ ok: false, out: "", code: null }));
   });
 }
 async function resolveRepoRoot(cwd) {
@@ -16776,7 +16845,7 @@ function matches(actual, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 function startCallbackServer(expectedState) {
-  return new Promise((resolve45, reject) => {
+  return new Promise((resolve46, reject) => {
     let settled = false;
     let timer;
     let accept;
@@ -16838,7 +16907,7 @@ function startCallbackServer(expectedState) {
         reject(new Error("Could not open the local sign-in callback."));
         return;
       }
-      resolve45({
+      resolve46({
         port: address.port,
         waitForCallback(timeoutMs = 12e4) {
           if (!settled && !timer)
@@ -16908,7 +16977,7 @@ function buildCliLoginUrl(apiUrl, request2) {
 }
 function openBrowser(url) {
   const [command2, args2] = platform() === "win32" ? ["rundll32.exe", ["url.dll,FileProtocolHandler", url]] : platform() === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-  return new Promise((resolve45, reject) => execFile2(command2, args2, (error) => error ? reject(new Error("Could not open a browser. Open the sign-in URL manually.")) : resolve45()));
+  return new Promise((resolve46, reject) => execFile2(command2, args2, (error) => error ? reject(new Error("Could not open a browser. Open the sign-in URL manually.")) : resolve46()));
 }
 async function cliSignIn(apiUrl, deviceName, browser, timeoutMs = 12e4) {
   apiUrl = serviceOrigin(apiUrl);
@@ -21014,8 +21083,8 @@ async function runMapSelection(args2, flags2, _global, output) {
   try {
     const absoluteTarget = realpathSync9.native(resolve19(rawTarget));
     const isDir = statSync7(absoluteTarget).isDirectory();
-    const isFile = statSync7(absoluteTarget).isFile();
-    if (!isDir && !isFile) {
+    const isFile2 = statSync7(absoluteTarget).isFile();
+    if (!isDir && !isFile2) {
       throw new Error("The selected target does not exist or is not a file or directory");
     }
     const resolvedRoot = await resolveRepoRoot(isDir ? absoluteTarget : dirname9(absoluteTarget));
@@ -32768,16 +32837,78 @@ var logoutCommand = {
 
 // dist/pi/pi-status.js
 import { existsSync as existsSync35, readFileSync as readFileSync24 } from "node:fs";
-import { basename as basename24, join as join46 } from "node:path";
+import { basename as basename24, join as join47 } from "node:path";
 
 // dist/local/probe-binary.js
 import { spawnSync as spawnSync20 } from "node:child_process";
+
+// dist/local/runtime-command.js
+var import_read_cmd_shim = __toESM(require_lib(), 1);
+import { closeSync as closeSync2, openSync, readSync as readSync2, statSync as statSync18 } from "node:fs";
+import { dirname as dirname26, extname as extname3, isAbsolute as isAbsolute23, join as join45, resolve as resolve42 } from "node:path";
+function isFile(path) {
+  try {
+    return statSync18(path).isFile();
+  } catch {
+    return false;
+  }
+}
+function envValue(env, name) {
+  const key2 = Object.keys(env).sort().find((key3) => key3.toLowerCase() === name.toLowerCase());
+  return key2 === void 0 ? void 0 : env[key2];
+}
+function windowsExecutable(bin, env, cwd) {
+  const suffixes = extname3(bin) ? [""] : (envValue(env, "PATHEXT") || ".COM;.EXE;.BAT;.CMD").split(";");
+  const locations = isAbsolute23(bin) || /[/\\]/.test(bin) ? [resolve42(cwd, bin)] : (envValue(env, "PATH") ?? "").split(";").filter(Boolean).map((dir) => resolve42(cwd, dir.replace(/^"|"$/g, ""), bin));
+  for (const location of locations)
+    for (const suffix of suffixes) {
+      const candidate = location + suffix;
+      if (isFile(candidate))
+        return candidate;
+    }
+  return void 0;
+}
+function runtimeCommand(bin, args2, env = process.env, cwd = process.cwd()) {
+  const original = { command: bin, args: [...args2] };
+  if (process.platform !== "win32")
+    return original;
+  const executable = windowsExecutable(bin, env, cwd);
+  if (!executable || extname3(executable).toLowerCase() !== ".cmd")
+    return original;
+  try {
+    const shim = executable.slice(0, -4) + ".cmd";
+    const target = resolve42(dirname26(shim), import_read_cmd_shim.default.sync(shim));
+    if (!isFile(target))
+      return original;
+    if (extname3(target).toLowerCase() === ".exe")
+      return { command: target, args: [...args2] };
+    const fd = openSync(target, "r");
+    let firstLine;
+    try {
+      const header = Buffer.alloc(512);
+      const length = readSync2(fd, header, 0, header.length, 0);
+      firstLine = header.subarray(0, length).toString("utf8").split(/\r?\n/, 1)[0];
+    } finally {
+      closeSync2(fd);
+    }
+    if (!/^#!\s*(?:\/usr\/bin\/env\s+)?node(?:\.exe)?\s*$/.test(firstLine))
+      return original;
+    const localNode = join45(dirname26(shim), "node.exe");
+    return { command: isFile(localNode) ? localNode : process.execPath, args: [target, ...args2] };
+  } catch {
+    return original;
+  }
+}
+
+// dist/local/probe-binary.js
 function probeBinary(bin, env = process.env) {
   try {
-    const res = spawnSync20(bin, ["--version"], { encoding: "utf8", timeout: 5e3, env });
+    const command2 = runtimeCommand(bin, ["--version"], env);
+    const res = spawnSync20(command2.command, command2.args, { encoding: "utf8", timeout: 5e3, env });
     if (res.error || res.status !== 0)
       return { present: false, path: bin, version: null };
-    const m = /\d+\.\d+\.\d+[\w.-]*/.exec(res.stdout ?? "");
+    const m = /\d+\.\d+\.\d+[\w.-]*/.exec(`${res.stdout ?? ""}
+${res.stderr ?? ""}`);
     return { present: true, path: bin, version: m ? m[0] : null };
   } catch {
     return { present: false, path: bin, version: null };
@@ -32787,15 +32918,15 @@ function probeBinary(bin, env = process.env) {
 // dist/pi/pi-auth.js
 import { chmodSync, existsSync as existsSync34, mkdirSync as mkdirSync12, readFileSync as readFileSync23, writeFileSync as writeFileSync13 } from "node:fs";
 import { homedir as homedir6 } from "node:os";
-import { dirname as dirname26, join as join45 } from "node:path";
+import { dirname as dirname27, join as join46 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
   const override = env.PI_CODING_AGENT_DIR?.trim();
   if (override)
-    return override.startsWith("~") ? join45(homedir6(), override.slice(1)) : override;
-  return join45(homedir6(), ".pi", "agent");
+    return override.startsWith("~") ? join46(homedir6(), override.slice(1)) : override;
+  return join46(homedir6(), ".pi", "agent");
 }
 function resolvePiAuthPath(env = process.env) {
-  return join45(resolvePiAgentDir(env), "auth.json");
+  return join46(resolvePiAgentDir(env), "auth.json");
 }
 function parseAuth(raw) {
   if (!raw || !raw.trim())
@@ -32823,7 +32954,7 @@ function readAuthFile(path) {
   return parseAuth(readFileSync23(path, "utf8"));
 }
 function writeAuthFile(path, auth) {
-  const dir = dirname26(path);
+  const dir = dirname27(path);
   if (!existsSync34(dir))
     mkdirSync12(dir, { recursive: true, mode: 448 });
   writeFileSync13(path, `${JSON.stringify(auth, null, 2)}
@@ -32856,7 +32987,7 @@ function resolveExtension(path) {
     return check(false);
   if (/\.[cm]?[jt]s$/.test(path))
     return check(true);
-  const pkgPath = join46(path, "package.json");
+  const pkgPath = join47(path, "package.json");
   if (existsSync35(pkgPath)) {
     try {
       const pkg = JSON.parse(readFileSync24(pkgPath, "utf8"));
@@ -32866,7 +32997,7 @@ function resolveExtension(path) {
     } catch {
     }
   }
-  return check(existsSync35(join46(path, "index.ts")) || existsSync35(join46(path, "index.js")));
+  return check(existsSync35(join47(path, "index.ts")) || existsSync35(join47(path, "index.js")));
 }
 function formatHuman3(s) {
   const out = [];
@@ -32992,8 +33123,9 @@ function trimModel(m) {
 var QUERY_ID = "__models";
 var TIMEOUT_MS = 2e4;
 function queryPiModels(piBin) {
-  return new Promise((resolve45, reject) => {
-    const pi = spawn3(piBin, ["--mode", "rpc", "--no-extensions"], {
+  return new Promise((resolve46, reject) => {
+    const command2 = runtimeCommand(piBin, ["--mode", "rpc", "--no-extensions"]);
+    const pi = spawn3(command2.command, command2.args, {
       cwd: process.cwd(),
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -33038,7 +33170,7 @@ function queryPiModels(piBin) {
         }
         const data = msg.data;
         const models = (data?.models ?? []).map(trimModel);
-        finish2(() => resolve45({ models }));
+        finish2(() => resolve46({ models }));
       }
     });
     try {
@@ -33077,7 +33209,7 @@ var piModelsCommand = {
 };
 
 // dist/pi/local-conversation-ops.js
-import { join as join49 } from "node:path";
+import { join as join50 } from "node:path";
 
 // dist/local/observed-event.js
 function observedEvent(event, options) {
@@ -33116,8 +33248,8 @@ function joinLocalOrientation(...parts) {
 }
 
 // dist/local/workspace-files.js
-import { existsSync as existsSync36, lstatSync as lstatSync10, statSync as statSync18, realpathSync as realpathSync26 } from "node:fs";
-import { dirname as dirname27, isAbsolute as isAbsolute23, relative as relative25, resolve as resolve42, sep as sep18 } from "node:path";
+import { existsSync as existsSync36, lstatSync as lstatSync10, statSync as statSync19, realpathSync as realpathSync26 } from "node:fs";
+import { dirname as dirname28, isAbsolute as isAbsolute24, relative as relative25, resolve as resolve43, sep as sep18 } from "node:path";
 
 // node_modules/@ideaspaces/sdk/dist/keeper-events.js
 function emptyWorkspaceSurface() {
@@ -33573,7 +33705,7 @@ function toolJson(tool) {
 function observedThread(path) {
   try {
     const thread = loadThread(path);
-    if (dirname27(thread.path).split(sep18).at(-1) !== "_threads")
+    if (dirname28(thread.path).split(sep18).at(-1) !== "_threads")
       return void 0;
     return thread.thread_id ? { thread_id: thread.thread_id, path: thread.path } : void 0;
   } catch {
@@ -33581,8 +33713,8 @@ function observedThread(path) {
   }
 }
 function threadForFile(file2, observe = observedThread) {
-  const parent = dirname27(file2);
-  const directory = dirname27(parent).endsWith(`${sep18}_threads`) ? parent : parent.endsWith(`${sep18}_agent`) && dirname27(dirname27(parent)).endsWith(`${sep18}_threads`) ? dirname27(parent) : null;
+  const parent = dirname28(file2);
+  const directory = dirname28(parent).endsWith(`${sep18}_threads`) ? parent : parent.endsWith(`${sep18}_agent`) && dirname28(dirname28(parent)).endsWith(`${sep18}_threads`) ? dirname28(parent) : null;
   return directory ? observe(directory) : void 0;
 }
 function writtenThreadPost(tool, cwd) {
@@ -33593,13 +33725,13 @@ function writtenThreadPost(tool, cwd) {
     if (!post || typeof post !== "object")
       return void 0;
     const { id, path, kind } = post;
-    if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) || typeof path !== "string" || !isAbsolute23(path) || typeof kind !== "string" || !THREAD_POST_KINDS.has(kind) || typeof tool.args.path !== "string" || !tool.args.path.trim())
+    if (typeof id !== "string" || !/^msg_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u.test(id) || typeof path !== "string" || !isAbsolute24(path) || typeof kind !== "string" || !THREAD_POST_KINDS.has(kind) || typeof tool.args.path !== "string" || !tool.args.path.trim())
       return void 0;
     const file2 = lstatSync10(path);
     if (!file2.isFile() || file2.isSymbolicLink())
       return void 0;
     const actual = realpathSync26.native(path);
-    if (dirname27(actual) !== resolveLocalThread(tool.args.path, cwd) || !actual.endsWith(`-${id}.md`))
+    if (dirname28(actual) !== resolveLocalThread(tool.args.path, cwd) || !actual.endsWith(`-${id}.md`))
       return void 0;
     return actual;
   } catch {
@@ -33627,12 +33759,12 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
     try {
       return realpathSync26.native(root);
     } catch {
-      return resolve42(root);
+      return resolve43(root);
     }
   }))];
   const contains = (root, target) => {
     const path = relative25(root, target);
-    return path === "" || !isAbsolute23(path) && path !== ".." && !path.startsWith(`..${sep18}`);
+    return path === "" || !isAbsolute24(path) && path !== ".." && !path.startsWith(`..${sep18}`);
   };
   for (const tool of tools) {
     if (tool.isError)
@@ -33640,9 +33772,9 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
     const knowledgeTool = tool.name.startsWith("is_");
     let cwd = launchCwd;
     if (knowledgeTool && typeof tool.args.cwd === "string" && tool.args.cwd.trim() !== "") {
-      cwd = resolve42(launchCwd, tool.args.cwd);
+      cwd = resolve43(launchCwd, tool.args.cwd);
     } else if (knowledgeTool && typeof tool.args.root === "string" && tool.args.root.trim() !== "" && tool.args.root !== "home") {
-      cwd = isAbsolute23(tool.args.root) ? resolve42(tool.args.root) : resolve42(launchCwd, tool.args.root);
+      cwd = isAbsolute24(tool.args.root) ? resolve43(tool.args.root) : resolve43(launchCwd, tool.args.root);
     }
     const postPath2 = writtenThreadPost(tool, cwd);
     if (tool.name === "is_threads") {
@@ -33654,7 +33786,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
           if (!row || typeof row !== "object")
             continue;
           const target = row;
-          if (typeof target.path !== "string" || !isAbsolute23(target.path) || target.source !== void 0 && target.source !== "local")
+          if (typeof target.path !== "string" || !isAbsolute24(target.path) || target.source !== void 0 && target.source !== "local")
             continue;
           const match = observe(target.path);
           if (match && match.thread_id === target.thread_id)
@@ -33685,11 +33817,11 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
     for (const input of paths) {
       if (typeof input !== "string" || !input || /[\x00-\x1f]/u.test(input))
         continue;
-      let absolute = isAbsolute23(input) ? resolve42(input) : resolve42(cwd, input);
+      let absolute = isAbsolute24(input) ? resolve43(input) : resolve43(cwd, input);
       let present = true;
       let isDir = false;
       try {
-        const stat2 = statSync18(absolute);
+        const stat2 = statSync19(absolute);
         if (stat2.isFile()) {
           isDir = false;
         } else if (stat2.isDirectory() && kind === "read") {
@@ -33705,20 +33837,20 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
       }
       if (!present && kind === "read")
         continue;
-      let ancestor = present ? absolute : dirname27(absolute);
-      while (!existsSync36(ancestor) && dirname27(ancestor) !== ancestor)
-        ancestor = dirname27(ancestor);
+      let ancestor = present ? absolute : dirname28(absolute);
+      while (!existsSync36(ancestor) && dirname28(ancestor) !== ancestor)
+        ancestor = dirname28(ancestor);
       try {
-        absolute = resolve42(realpathSync26.native(ancestor), relative25(ancestor, absolute));
+        absolute = resolve43(realpathSync26.native(ancestor), relative25(ancestor, absolute));
       } catch {
         continue;
       }
       const bucket = present ? kind : "deleted";
       if (!ws[bucket].includes(absolute))
         ws[bucket].push(absolute);
-      let directory = isDir ? absolute : dirname27(absolute);
-      while (!existsSync36(directory) && dirname27(directory) !== directory)
-        directory = dirname27(directory);
+      let directory = isDir ? absolute : dirname28(absolute);
+      while (!existsSync36(directory) && dirname28(directory) !== directory)
+        directory = dirname28(directory);
       let scope = roots.get(directory);
       if (!scope) {
         try {
@@ -33777,7 +33909,7 @@ async function* readJsonLines(input) {
 // dist/pi/local-agent.js
 import { spawn as spawn4 } from "node:child_process";
 import { existsSync as existsSync37, mkdirSync as mkdirSync13, writeFileSync as writeFileSync14 } from "node:fs";
-import { join as join47 } from "node:path";
+import { join as join48 } from "node:path";
 var NON_AGENT_TYPES = /* @__PURE__ */ new Set(["response", "extension_ui_request"]);
 function lastPosition(tools) {
   for (let i = tools.length - 1; i >= 0; i--) {
@@ -33802,7 +33934,7 @@ function deriveConversationName(message) {
 }
 function ensureSessionDir(dir) {
   mkdirSync13(dir, { recursive: true });
-  const ignore = join47(dir, ".gitignore");
+  const ignore = join48(dir, ".gitignore");
   if (!existsSync37(ignore))
     writeFileSync14(ignore, "*\n");
 }
@@ -33862,9 +33994,11 @@ async function* runLocalTurn(opts) {
   ensureSessionDir(opts.sessionDir);
   const args2 = buildPiArgs(opts);
   const bin = opts.piBin ?? "pi";
-  const pi = spawn4(bin, args2, {
+  const env = launchMapEnv(process.env, opts.mapPath);
+  const command2 = runtimeCommand(bin, args2, env, opts.repoPath);
+  const pi = spawn4(command2.command, command2.args, {
     cwd: opts.repoPath,
-    env: launchMapEnv(process.env, opts.mapPath),
+    env,
     stdio: ["pipe", "pipe", "pipe"]
   });
   let stderr = "";
@@ -34030,9 +34164,9 @@ async function* runLocalTurn(opts) {
 }
 
 // dist/pi/local-conversations.js
-import { existsSync as existsSync38, readdirSync as readdirSync6, readFileSync as readFileSync25, realpathSync as realpathSync27, statSync as statSync19 } from "node:fs";
+import { existsSync as existsSync38, readdirSync as readdirSync6, readFileSync as readFileSync25, realpathSync as realpathSync27, statSync as statSync20 } from "node:fs";
 import { randomUUID as randomUUID16 } from "node:crypto";
-import { join as join48 } from "node:path";
+import { join as join49 } from "node:path";
 
 // dist/local/task-notification.js
 var TASK_NOTIFICATION = /^\s*<task-notification>[\s\S]*?<\/task-notification>\s*$/u;
@@ -34042,7 +34176,7 @@ function isTaskNotification(content, origin) {
 
 // dist/pi/local-conversations.js
 function localSessionDir(contextRoot) {
-  return join48(contextRoot, ".pi", "sessions");
+  return join49(contextRoot, ".pi", "sessions");
 }
 function mintConversationId() {
   return `local-${randomUUID16()}`;
@@ -34139,12 +34273,12 @@ function findSessionFile(dir, convId) {
   const files = readdirSync6(dir).filter((f) => f.endsWith(".jsonl"));
   const bySuffix = files.find((f) => f.endsWith(`_${convId}.jsonl`));
   if (bySuffix)
-    return join48(dir, bySuffix);
+    return join49(dir, bySuffix);
   for (const f of files) {
     try {
-      const first = readFileSync25(join48(dir, f), "utf8").split("\n", 1)[0];
+      const first = readFileSync25(join49(dir, f), "utf8").split("\n", 1)[0];
       if (JSON.parse(first).id === convId)
-        return join48(dir, f);
+        return join49(dir, f);
     } catch {
     }
   }
@@ -34174,7 +34308,7 @@ function getLocalConversation(contextRoot, convId) {
   if (!file2) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
-  const mtime = statSync19(file2).mtime.toISOString();
+  const mtime = statSync20(file2).mtime.toISOString();
   const s = parseSessionJsonl(readFileSync25(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
@@ -34193,14 +34327,14 @@ function listLocalConversations(contextRoot) {
     return { conversations: [], total: 0 };
   const summaries = [];
   for (const f of readdirSync6(dir).filter((f2) => f2.endsWith(".jsonl"))) {
-    const path = join48(dir, f);
+    const path = join49(dir, f);
     let text;
     try {
       text = readFileSync25(path, "utf8");
     } catch {
       continue;
     }
-    const mtime = statSync19(path).mtime.toISOString();
+    const mtime = statSync20(path).mtime.toISOString();
     const s = parseSessionJsonl(text, mtime);
     if (!s.id)
       continue;
@@ -34218,8 +34352,8 @@ function listLocalConversations(contextRoot) {
 }
 
 // dist/local/launch-orientation.js
-import { realpathSync as realpathSync28, statSync as statSync20 } from "node:fs";
-import { dirname as dirname28, isAbsolute as isAbsolute24, relative as relative26, resolve as resolve43, sep as sep19 } from "node:path";
+import { realpathSync as realpathSync28, statSync as statSync21 } from "node:fs";
+import { dirname as dirname29, isAbsolute as isAbsolute25, relative as relative26, resolve as resolve44, sep as sep19 } from "node:path";
 function spaceMapLaunchPosition(povRoot, mapPath, firstRoot, suppliedRoot, focus) {
   let supplied;
   if (suppliedRoot) {
@@ -34230,7 +34364,7 @@ function spaceMapLaunchPosition(povRoot, mapPath, firstRoot, suppliedRoot, focus
     }
   }
   const first = firstRoot ? realpathSync28(firstRoot) : void 0;
-  const storage = realpathSync28(dirname28(mapPath));
+  const storage = realpathSync28(dirname29(mapPath));
   if (supplied && supplied !== storage && supplied !== first) {
     throw new Error(`--working-root ${supplied} conflicts with this Space Map: its first root is ${first ?? "unavailable here"}. Omit --working-root or choose the first Map root.`);
   }
@@ -34242,20 +34376,20 @@ function spaceMapLaunchPosition(povRoot, mapPath, firstRoot, suppliedRoot, focus
   };
 }
 function localLaunchOrientation(povRoot, workingRoot, focus = "") {
-  if (!workingRoot.trim() || !isAbsolute24(workingRoot))
+  if (!workingRoot.trim() || !isAbsolute25(workingRoot))
     throw new Error("--working-root must be an absolute local directory");
   if ([povRoot, workingRoot, focus].some((value4) => value4.includes("\0") || /[\r\n]/u.test(value4))) {
     throw new Error("Launch coordinates must not contain control characters");
   }
-  if (isAbsolute24(focus) || focus.split(/[\\/]/u).includes("..")) {
+  if (isAbsolute25(focus) || focus.split(/[\\/]/u).includes("..")) {
     throw new Error("--focus must be a path inside --working-root");
   }
   const working = realpathSync28(workingRoot);
-  if (!statSync20(working).isDirectory())
+  if (!statSync21(working).isDirectory())
     throw new Error("--working-root must be a directory");
-  const target = realpathSync28(resolve43(working, focus || "."));
+  const target = realpathSync28(resolve44(working, focus || "."));
   const position = relative26(working, target);
-  if (isAbsolute24(position) || position === ".." || position.startsWith(`..${sep19}`)) {
+  if (isAbsolute25(position) || position === ".." || position.startsWith(`..${sep19}`)) {
     throw new Error("--focus resolves outside --working-root");
   }
   return "[Local session position]\n" + JSON.stringify({
@@ -34295,7 +34429,7 @@ async function send(flags2, output, options) {
     output.error("--topic is supported only on agent run for a new Pi session.");
     return 1;
   }
-  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join49(repoPath, ".pi", "sessions");
+  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join50(repoPath, ".pi", "sessions");
   const conversationId = typeof flags2.conversation === "string" ? flags2.conversation : `local-${Date.now().toString(36)}`;
   if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
     output.error(`Pi conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
@@ -34487,18 +34621,18 @@ import { spawnSync as spawnSync21 } from "node:child_process";
 import { spawn as spawn5 } from "node:child_process";
 
 // dist/claude/local-conversations.js
-import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync26, realpathSync as realpathSync29, statSync as statSync21 } from "node:fs";
+import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync26, realpathSync as realpathSync29, statSync as statSync22 } from "node:fs";
 import { randomUUID as randomUUID17 } from "node:crypto";
 import { homedir as homedir7 } from "node:os";
-import { basename as basename25, dirname as dirname29, join as join50, resolve as resolve44 } from "node:path";
+import { basename as basename25, dirname as dirname30, join as join51, resolve as resolve45 } from "node:path";
 function claudeConfigDir(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR?.trim() || join50(homedir7(), ".claude");
+  return env.CLAUDE_CONFIG_DIR?.trim() || join51(homedir7(), ".claude");
 }
 function slugOf(path) {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");
 }
 function claudeProjectSlug(cwd) {
-  let resolved = resolve44(cwd);
+  let resolved = resolve45(cwd);
   try {
     resolved = realpathSync29(resolved);
   } catch {
@@ -34506,10 +34640,10 @@ function claudeProjectSlug(cwd) {
   return slugOf(resolved);
 }
 function claudeProjectDir(cwd, env = process.env) {
-  return join50(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
+  return join51(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
 }
 function legacyClaudeProjectDir(cwd, env = process.env) {
-  return join50(claudeConfigDir(env), "projects", slugOf(resolve44(cwd)));
+  return join51(claudeConfigDir(env), "projects", slugOf(resolve45(cwd)));
 }
 function mintClaudeConversationId() {
   return randomUUID17();
@@ -34525,12 +34659,12 @@ function claudeSessionFile(cwd, convId, env = process.env) {
   if (!isClaudeConversationId(convId))
     return null;
   const projectDir = claudeProjectDir(cwd, env);
-  const file2 = join50(projectDir, `${convId}.jsonl`);
+  const file2 = join51(projectDir, `${convId}.jsonl`);
   if (existsSync39(file2))
     return file2;
   const unresolvedDir = legacyClaudeProjectDir(cwd, env);
   if (unresolvedDir !== projectDir) {
-    const fallbackFile = join50(unresolvedDir, `${convId}.jsonl`);
+    const fallbackFile = join51(unresolvedDir, `${convId}.jsonl`);
     if (existsSync39(fallbackFile))
       return fallbackFile;
   }
@@ -34675,7 +34809,7 @@ function canResumeClaudeConversation(contextRoot, convId) {
   if (!file2)
     return false;
   try {
-    if (!isContained(realpathSync29(dirname29(file2)), realpathSync29(file2)))
+    if (!isContained(realpathSync29(dirname30(file2)), realpathSync29(file2)))
       return false;
     const text = readFileSync26(file2, "utf8");
     let sawIdentity = false;
@@ -34713,7 +34847,7 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
   if (!file2) {
     return { conversation_id: convId, repo_id: contextRoot, name: "", history: [], active_turn: null };
   }
-  const mtime = statSync21(file2).mtime.toISOString();
+  const mtime = statSync22(file2).mtime.toISOString();
   const s = parseClaudeSessionJsonl(readFileSync26(file2, "utf8"), mtime);
   return {
     conversation_id: convId,
@@ -34731,7 +34865,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
   const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync39(path));
   const summaries = [];
   const seen = /* @__PURE__ */ new Set();
-  const files = dirs.flatMap((folder) => readdirSync7(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join50(folder, f)));
+  const files = dirs.flatMap((folder) => readdirSync7(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join51(folder, f)));
   for (const path of files) {
     const fileId = basename25(path, ".jsonl");
     if (seen.has(fileId))
@@ -34743,7 +34877,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
     } catch {
       continue;
     }
-    const mtime = statSync21(path).mtime.toISOString();
+    const mtime = statSync22(path).mtime.toISOString();
     const s = parseClaudeSessionJsonl(text, mtime);
     const conversationId = s.id || fileId;
     if (!s.messageCount)
@@ -34904,9 +35038,11 @@ async function* runClaudeTurn(opts) {
   });
   const args2 = buildClaudeArgs({ ...opts, sessionExists });
   const bin = opts.claudeBin ?? "claude";
-  const claude = spawn5(bin, args2, {
+  const env = buildClaudeEnv(opts.auth ?? "login", process.env, opts.mapPath);
+  const command2 = runtimeCommand(bin, args2, env, opts.repoPath);
+  const claude = spawn5(command2.command, command2.args, {
     cwd: opts.repoPath,
-    env: buildClaudeEnv(opts.auth ?? "login", process.env, opts.mapPath),
+    env,
     stdio: ["pipe", "pipe", "pipe"]
   });
   let stderr = "";
@@ -35172,7 +35308,8 @@ function deriveClaudeStatus(input) {
 }
 function probeLogin(claudeBin, env) {
   try {
-    const res = spawnSync21(claudeBin, ["auth", "status", "--json"], { encoding: "utf8", timeout: 5e3, env });
+    const command2 = runtimeCommand(claudeBin, ["auth", "status", "--json"], env);
+    const res = spawnSync21(command2.command, command2.args, { encoding: "utf8", timeout: 5e3, env });
     if (res.error)
       return null;
     return res.stdout ?? "";
@@ -35600,12 +35737,12 @@ function printPowerHelp() {
 }
 
 // dist/host-token-flag.js
-import { closeSync as closeSync2 } from "node:fs";
+import { closeSync as closeSync3 } from "node:fs";
 var HOST_TOKEN_COMMANDS = /* @__PURE__ */ new Set(["vaults", "threads"]);
 function closeQuietly(raw) {
   if (/^\d+$/.test(raw) && Number(raw) >= 3)
     try {
-      closeSync2(Number(raw));
+      closeSync3(Number(raw));
     } catch {
     }
 }
