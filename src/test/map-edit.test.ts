@@ -14,6 +14,19 @@ import { claudeConversationOps as claudeConversation } from "../claude/local-con
 import { localConversationOps as piConversation } from "../pi/local-conversation-ops.js";
 import { resolveMapAddress } from "../local/map-resolve.js";
 
+// These stand-ins are JS programs, not installed Windows executables. Preserve
+// real child processes/pipes while choosing Node at the fixture boundary only.
+const fixtureChildren = vi.hoisted(() => new Set<import("node:child_process").ChildProcess>());
+vi.mock("node:child_process", async importOriginal => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: (bin: string, args: string[], options: object) => {
+    if (!/[\\/]fake-(?:claude|pi)\.cjs$/.test(bin)) return actual.spawn(bin, args, options);
+    const child = actual.spawn(process.execPath, [bin, ...args], options);
+    fixtureChildren.add(child); child.once("close", () => fixtureChildren.delete(child));
+    return child;
+  } };
+});
+
 const global = { json: true, quiet: false, yes: false, help: false };
 const dirs: string[] = [];
 async function directory() {
@@ -22,7 +35,10 @@ async function directory() {
   spawnSync("git", ["init", "-q", "-b", "main", dir]);
   return dir;
 }
-afterEach(async () => { await Promise.all(dirs.splice(0).map((d) => fs.rm(d, { recursive: true, force: true }))); });
+afterEach(async () => {
+  await Promise.all([...fixtureChildren].map(child => new Promise<void>(done => child.once("close", () => done()))));
+  await Promise.all(dirs.splice(0).map(d => fs.rm(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })));
+});
 
 async function run(args: string[], flags: Record<string, string | boolean> = {}) {
   const out: string[] = [];
@@ -98,7 +114,7 @@ describe("map authoring", () => {
       expect(existsSync(join(process.env.HOME!, ".ideaspaces", "map-checkouts.json"))).toBe(false);
       expect((await run(["add", file], { position: ".", checkout: agent })).code).toBe(0);
       const checkouts = JSON.parse(await fs.readFile(join(process.env.HOME!, ".ideaspaces", "map-checkouts.json"), "utf8"));
-      expect(checkouts[realpathSync(agent)]).toBe(id);
+      expect(checkouts[realpathSync.native(agent)]).toBe(id);
       const hintFile = join(process.env.HOME!, ".ideaspaces", "map-checkouts.json");
       await fs.writeFile(hintFile, "{invalid json");
       expect(() => mapCheckouts.loadMapCheckouts()).toThrow("Repair or move that file");
@@ -375,7 +391,7 @@ describe("map authoring", () => {
       expect(emptyOrientation.text).not.toContain(`default folder for new material): "${maps}"`);
       expect(emptyOrientation.firstRoot).toBeUndefined();
       expect(emptyOrientation.localRoots).toEqual([]);
-      expect(emptyOrientation.text).toContain(`Edit this Space with ideaspaces map add "${resolve(file)}" or ideaspaces map remove "${resolve(file)}"; run ideaspaces map --help for forms.`);
+      expect(emptyOrientation.text).toContain(`Edit this Space with ideaspaces map add ${JSON.stringify(resolve(file))} or ideaspaces map remove ${JSON.stringify(resolve(file))}; run ideaspaces map --help for forms.`);
       expect(emptyOrientation.text).toContain("This Space has no selected members.");
       expect(emptyOrientation.text).toContain("Agents in this Space (0):");
       expect(emptyOrientation.text).toContain("(none selected or reachable here)");
@@ -388,7 +404,7 @@ describe("map authoring", () => {
       expect(partial.error).toContain("Map edit succeeded but checkout registration failed");
       failedRegistry.mockRestore();
       expect((await run(["add", file], { position: ".", checkout: agentDir })).data.status).toBe("already_present");
-      expect(mapCheckouts.loadMapCheckouts()[realpathSync(agentDir)]).toBe(agentId);
+      expect(mapCheckouts.loadMapCheckouts()[realpathSync.native(agentDir)]).toBe(agentId);
       expect((await run(["add", file], { position: ".", checkout: repoDir })).code).toBe(0);
       expect((await run(["add", file], { position: "_threads/discussions", root: "0" })).code).toBe(0);
       expect((await run(["add", file], { position: "guide.map.md", root: "0" })).code).toBe(0);
@@ -409,9 +425,9 @@ describe("map authoring", () => {
       expect(text).not.toContain("drifted from pin undefined");
 
       // Root resolution state and ordered working material (not the Map storage folder).
-      expect(orientation.firstRoot).toBe(realpathSync(agentDir));
-      expect(orientation.localRoots).toEqual([realpathSync(agentDir), realpathSync(repoDir)]);
-      expect(text).toContain(`First root (default folder for new material): "${realpathSync(agentDir)}"`);
+      expect(orientation.firstRoot).toBe(realpathSync.native(agentDir));
+      expect(orientation.localRoots).toEqual([realpathSync.native(agentDir), realpathSync.native(repoDir)]);
+      expect(text).toContain(`First root (default folder for new material): ${JSON.stringify(realpathSync.native(agentDir))}`);
       expect(text).toContain("The shell starts in the POV, not this root");
       expect(text).not.toContain(`default folder for new material): "${maps}"`);
       expect(text).toContain(`[0] @specialist — ${agentId} — found at HEAD`);
@@ -466,16 +482,18 @@ console.log(JSON.stringify({type:'result',subtype:'success',is_error:false,resul
       }
       expect(errors).toEqual([]);
       const invoked = JSON.parse(await fs.readFile(claudeArgsFile, "utf8")) as { args: string[]; cwd: string };
-      expect(invoked.cwd).toBe(realpathSync(dir));
+      expect(realpathSync.native(invoked.cwd)).toBe(realpathSync.native(dir));
       expect(invoked.args.filter((arg) => arg === "--add-dir")).toHaveLength(2);
-      expect(invoked.args).toContain(realpathSync(agentDir));
-      expect(invoked.args).toContain(realpathSync(repoDir));
-      expect(invoked.args).not.toContain(realpathSync(maps));
+      expect(invoked.args).toContain(realpathSync.native(agentDir));
+      expect(invoked.args).toContain(realpathSync.native(repoDir));
+      expect(invoked.args).not.toContain(realpathSync.native(maps));
       const prompt = invoked.args[invoked.args.indexOf("--append-system-prompt") + 1];
       expect(prompt).toContain("This Map's roots are the Space");
-      expect(prompt).toContain(`First root (default folder for new material): "${realpathSync(agentDir)}"`);
-      expect(prompt).not.toContain(`"workingRoot":"${realpathSync(maps)}"`);
+      expect(prompt).toContain(`First root (default folder for new material): ${JSON.stringify(realpathSync.native(agentDir))}`);
+      expect(prompt).not.toContain(`"workingRoot":${JSON.stringify(realpathSync.native(maps))}`);
       expect(prompt).toContain('"focus":"notes/doc.md"');
+      const position = JSON.parse(prompt.match(/\[Local session position\]\n([^\n]+)/)![1]);
+      expect(realpathSync.native(position.workingRoot)).toBe(realpathSync.native(agentDir));
 
       const fakePi = join(dir, "fake-pi.cjs");
       const piArgsFile = join(dir, "pi-args.json");
@@ -503,11 +521,13 @@ process.stdin.on('data', d => {
       }
       expect(errors).toEqual([]);
       const piInvoked = JSON.parse(await fs.readFile(piArgsFile, "utf8")) as { args: string[]; cwd: string };
-      expect(piInvoked.cwd).toBe(realpathSync(dir));
+      expect(realpathSync.native(piInvoked.cwd)).toBe(realpathSync.native(dir));
       const piPrompt = piInvoked.args[piInvoked.args.indexOf("--append-system-prompt") + 1];
       expect(piPrompt).toContain("This Map's roots are the Space");
-      expect(piPrompt).not.toContain(`"workingRoot":"${realpathSync(maps)}"`);
+      expect(piPrompt).not.toContain(`"workingRoot":${JSON.stringify(realpathSync.native(maps))}`);
       expect(piPrompt).toContain('"focus":"notes/doc.md"');
+      const piPosition = JSON.parse(piPrompt.match(/\[Local session position\]\n([^\n]+)/)![1]);
+      expect(realpathSync.native(piPosition.workingRoot)).toBe(realpathSync.native(agentDir));
     } finally {
       process.env.HOME = originalHome;
       process.chdir(originalCwd);

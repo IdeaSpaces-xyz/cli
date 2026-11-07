@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, it, expect } from "vitest";
 import { parseArgs } from "../argv.js";
 
@@ -73,7 +74,7 @@ describe("parseArgs", () => {
     expect(parsed.global.gitBin).toMatch(/[/\\]custom[/\\]git$/);
 
     const eqParsed = parseArgs(["status", "doctor", "--git-bin=/custom/git2"]);
-    expect(eqParsed.global.gitBin).toBe("/custom/git2");
+    expect(eqParsed.global.gitBin).toBe(resolve("/custom/git2"));
 
     const bareParsed = parseArgs(["status", "doctor", "--git-bin", "git"]);
     expect(bareParsed.global.gitBin).toBe("git");

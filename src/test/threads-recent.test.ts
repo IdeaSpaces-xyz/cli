@@ -21,6 +21,7 @@ function space() {
   mkdirSync(join(root, "_agent"));
   writeFileSync(join(root, "_agent/agreement.md"), "---\nname: Agreement — Test\nsummary: Test\n---\n# Test\n");
   process.env.HOME = root;
+  if (process.platform === "win32") vi.stubEnv("USERPROFILE", root);
   return root;
 }
 
