@@ -11124,7 +11124,7 @@ async function assembleContentAwareness(opts) {
     }
     return readFloorAwarenessSections(common);
   });
-  const [context, git4, staleDocs, sections] = await Promise.all([
+  const [context, git5, staleDocs, sections] = await Promise.all([
     pathContextPromise,
     gitPromise,
     staleDocsPromise,
@@ -11145,7 +11145,7 @@ async function assembleContentAwareness(opts) {
     spaceRoot,
     position: { placement: "head", path: position, base, repoRoot: repoRoot2, context },
     ...sections,
-    git: git4,
+    git: git5,
     staleDocs,
     missingDirection
   };
@@ -13218,24 +13218,24 @@ function contentRevision2(content) {
 
 // node_modules/@ideaspaces/protocol/dist/content-state.js
 async function assembleContentState(repoRoot2) {
-  const [git4, captures] = await Promise.all([
+  const [git5, captures] = await Promise.all([
     gitState(repoRoot2),
     stagedIdeaspacePaths(repoRoot2)
   ]);
-  return { placement: "tail", git: git4, captures };
+  return { placement: "tail", git: git5, captures };
 }
 function renderContentState(state) {
-  const { git: git4, captures } = state;
-  const lines = ["State:", `  branch: ${git4.branch ?? "(detached)"}`];
-  if (git4.ahead != null || git4.behind != null) {
-    lines.push(`  remote: ahead ${git4.ahead ?? 0}, behind ${git4.behind ?? 0}`);
+  const { git: git5, captures } = state;
+  const lines = ["State:", `  branch: ${git5.branch ?? "(detached)"}`];
+  if (git5.ahead != null || git5.behind != null) {
+    lines.push(`  remote: ahead ${git5.ahead ?? 0}, behind ${git5.behind ?? 0}`);
   } else {
     lines.push("  remote: no upstream");
   }
-  lines.push(`  working tree: ${git4.dirty ? "dirty" : "clean"}`);
+  lines.push(`  working tree: ${git5.dirty ? "dirty" : "clean"}`);
   lines.push(`  captures awaiting commit: ${captures.length}`);
-  if (git4.untrackedInTrackedDirs.length) {
-    lines.push(`  untracked knowledge files: ${git4.untrackedInTrackedDirs.length}`);
+  if (git5.untrackedInTrackedDirs.length) {
+    lines.push(`  untracked knowledge files: ${git5.untrackedInTrackedDirs.length}`);
   }
   return lines.join("\n");
 }
@@ -14442,7 +14442,7 @@ function buildDoctorReport(input) {
         };
     }
   })();
-  const git4 = (() => {
+  const git5 = (() => {
     switch (input.git.state) {
       case "usable":
         return {
@@ -14497,9 +14497,9 @@ function buildDoctorReport(input) {
   };
   return {
     schema_version: 1,
-    ok: node.ok && git4.ok,
+    ok: node.ok && git5.ok,
     platform: input.platform,
-    checks: { node, git: git4, remote_auth: remoteAuth, cli: cliCheck(input.cli) }
+    checks: { node, git: git5, remote_auth: remoteAuth, cli: cliCheck(input.cli) }
   };
 }
 function formatCheck(label, check) {
@@ -19376,7 +19376,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
     return { status: "pin_absent", reason: `${commit} is not a full commit id.` };
   if (position.includes("\n"))
     return { status: "missing_path", reason: "A position cannot contain a newline." };
-  const git4 = (args2, buffer = 64 * 1024, input) => spawnSync8(gitBinary(), ["-C", checkoutPath, ...args2], {
+  const git5 = (args2, buffer = 64 * 1024, input) => spawnSync8(gitBinary(), ["-C", checkoutPath, ...args2], {
     encoding: "utf8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
     maxBuffer: buffer,
@@ -19385,7 +19385,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   const objectAt = (path2) => path2 === "." || path2 === "" ? `${commit}^{tree}` : `${commit}:${path2}`;
   const isThreads = position === "_threads" || position.startsWith("_threads/");
   const candidates = [position, ...isThreads ? [position === "_threads" ? "." : position.slice("_threads/".length)] : []];
-  const probe = git4(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
+  const probe = git5(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
   if (probe.error)
     return { status: "git_error", reason: probe.error.message };
   if (probe.status !== 0) {
@@ -19408,7 +19408,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
     return { status: "missing_path", reason: `${position} is not in commit ${commit}.` };
   }
   if (object.type === "tree") {
-    const listing = git4(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
+    const listing = git5(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
     if (listing.status !== 0)
       return { status: "git_error", reason: (listing.stderr ?? "").trim() || "git ls-tree failed" };
     const entries = [];
@@ -19422,7 +19422,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   if (object.size > maxBytes) {
     return { status: "too_large", reason: `${position} is ${object.size} bytes; the read limit is ${maxBytes}.` };
   }
-  const shown = git4(["cat-file", "blob", objectAt(path)], maxBytes + 1);
+  const shown = git5(["cat-file", "blob", objectAt(path)], maxBytes + 1);
   if (shown.status !== 0 || shown.error) {
     return { status: "git_error", reason: (shown.stderr ?? "").trim() || shown.error?.message || "git cat-file failed" };
   }
@@ -31091,8 +31091,8 @@ var spacesCommand = {
 
 // dist/commands/threads.js
 import { existsSync as existsSync32, lstatSync as lstatSync9, readFileSync as readFileSync21, realpathSync as realpathSync25 } from "node:fs";
-import { spawnSync as spawnSync17 } from "node:child_process";
-import { dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
+import { spawnSync as spawnSync18 } from "node:child_process";
+import { basename as basename23, dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
 
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync16 } from "node:child_process";
@@ -31211,6 +31211,72 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
     }
   };
   return { checkout, thread, pin, position, pinned, post: parsed2.post, name, summary, verifyWrite };
+}
+
+// dist/local/thread-state.js
+import { spawnSync as spawnSync17 } from "node:child_process";
+import { basename as basename22 } from "node:path";
+function git4(cwd, args2) {
+  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment(), maxBuffer: 256 * 1024 * 1024, timeout: 3e4 });
+  return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
+}
+var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), counts: { local: 0, committed: 0, pushed: 0 } });
+function readThreadShare(threadDir, files) {
+  const inside = git4(threadDir, ["rev-parse", "--is-inside-work-tree"]);
+  if (!inside.ok || inside.out.trim() !== "true") {
+    const states2 = new Map(files.map((file2) => [file2, "local"]));
+    return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states: states2, modified: /* @__PURE__ */ new Set(), counts: { local: files.length, committed: 0, pushed: 0 } };
+  }
+  const status = git4(threadDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
+  if (!status.ok)
+    return unchecked(`Git could not report this Thread's status${status.err ? `: ${status.err.split("\n").pop()}` : ""}`);
+  const local = /* @__PURE__ */ new Set();
+  const modified = /* @__PURE__ */ new Set();
+  const entries = status.out.split("\0").filter(Boolean);
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const code = entry.slice(0, 2), name = basename22(entry.slice(3));
+    if (code[0] === "R" || code[0] === "C")
+      i++;
+    if (code === "??" || code[0] === "A")
+      local.add(name);
+    else if (code.includes("M") || code.includes("T") || code[0] === "R")
+      modified.add(name);
+  }
+  const upstreamRef = git4(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
+  const unpushed = /* @__PURE__ */ new Set();
+  let note;
+  let compared = false;
+  if (upstream) {
+    const diff = git4(threadDir, ["diff", "--name-only", "-z", "--no-renames", upstream, "HEAD", "--", "."]);
+    compared = diff.ok;
+    if (diff.ok)
+      for (const path of diff.out.split("\0").filter(Boolean))
+        unpushed.add(basename22(path));
+    else
+      note = `Git could not compare this Thread with ${upstream}${diff.err ? `: ${diff.err.split("\n").pop()}` : ""}; committed posts are not checked for a push`;
+  } else {
+    note = "this branch has no upstream, so a committed post may not be pushed; Git was not asked about a remote";
+  }
+  const states = /* @__PURE__ */ new Map();
+  const counts = { local: 0, committed: 0, pushed: 0 };
+  for (const file2 of files) {
+    const state = local.has(file2) ? "local" : !compared || unpushed.has(file2) ? "committed" : "pushed";
+    states.set(file2, state);
+    counts[state]++;
+  }
+  return { checked: true, ...note ? { note } : {}, upstream, states, modified, counts };
+}
+var STATE_WORDS = { local: "local only", committed: "committed", pushed: "pushed" };
+function shareLine(share) {
+  if (!share.checked)
+    return `Post state unknown: ${share.note}.`;
+  const { local, committed, pushed } = share.counts;
+  const parts = [local ? `${local} local only (on this disk, not committed)` : "", committed ? `${committed} committed (not pushed${share.upstream ? ` to ${share.upstream}` : ""})` : "", pushed ? `${pushed} pushed` : ""].filter(Boolean);
+  const where = share.upstream ? ` Pushed is as of the last fetch of ${share.upstream}.` : "";
+  const modified = share.modified.size ? ` ${share.modified.size} post file${share.modified.size === 1 ? " was" : "s were"} changed after commit: ${[...share.modified].slice(0, 3).join(", ")}${share.modified.size > 3 ? ", \u2026" : ""}; posts are immutable, run threads check.` : "";
+  return `Posts: ${parts.join(", ") || "none"}.${where}${share.note ? ` Note: ${share.note}.` : ""}${modified}`;
 }
 
 // dist/commands/threads.js
@@ -31332,6 +31398,9 @@ async function threadReference(threadPath, agreement) {
 function originLine(parent) {
   return parent?.origin ? `Origin: ${clip(parent.origin, 400)} (where this Thread started; its Agreement now names the parent)` : void 0;
 }
+function shareJson(share) {
+  return { checked: share.checked, upstream: share.upstream, counts: share.counts, ...share.modified.size ? { modified: [...share.modified] } : {}, ...share.note ? { note: share.note } : {} };
+}
 function localText(thread, posts2, rung, options) {
   const header = `${thread.slug}  ${thread.name}`;
   if (rung === "name") {
@@ -31346,9 +31415,15 @@ function localText(thread, posts2, rung, options) {
       lens.done_when && `Done when: ${clip(lens.done_when, 1200, "\u2026 [shortened; read this Thread's _agent/agreement.md for the full criterion]")}`
     ].filter(Boolean).join("\n\n");
   }
+  const shared = options?.share ? shareLine(options.share) : void 0;
   const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})
 ${rung === "full" ? thread.summary : clip(thread.summary, 400)}
-${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} \xB7 ${thread.allPosts.length} posts`;
+${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} \xB7 ${thread.allPosts.length} posts${shared ? `
+${shared}` : ""}`;
+  const stateOf = (p) => {
+    const state = options?.share?.states.get(p.path);
+    return state ? ` \xB7 ${STATE_WORDS[state]}` : "";
+  };
   if (rung === "summary") {
     const parts = [context];
     if (options?.parent) {
@@ -31365,7 +31440,7 @@ ${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "
   ${clip(s.frontmatter.summary ?? "(no summary)", 400)}`);
     }
     if (options?.filtered && posts2.length) {
-      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${p.frontmatter.author ?? "unknown author"}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}
+      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${p.frontmatter.author ?? "unknown author"}${stateOf(p)}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}
   ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`).join("\n\n"));
     }
     return parts.join("\n\n");
@@ -31397,7 +31472,7 @@ ${childLines.join("\n")}`);
   return [
     context,
     ...posts2.map((p) => `
-${p.id} \xB7 ${p.frontmatter.author ?? "unknown author"} \xB7 ${p.kind}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
+${p.id} \xB7 ${p.frontmatter.author ?? "unknown author"} \xB7 ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
 ${p.frontmatter.name ?? ""}
 ${p.body}${p.marks?.length ? `
 Marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}`)
@@ -31405,7 +31480,7 @@ Marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")
 }
 function selectedWriterName() {
   const cwd = realpathSync25(process.cwd());
-  const prefix = spawnSync17(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  const prefix = spawnSync18(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname24(at2), cwd) : cwd;
   let at = cwd;
   while (true) {
@@ -31450,7 +31525,7 @@ function writerName(explicit) {
       break;
     at = dirname24(at);
   }
-  const result = spawnSync17(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
+  const result = spawnSync18(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim())
     return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
@@ -31476,7 +31551,7 @@ var threadsCommand = {
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
-    "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]",
+    "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
@@ -31919,6 +31994,11 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         const childThreads = allChildThreads.slice(0, limit ?? 10);
         const branches = allBranches.slice(0, limit ?? 10);
         const snapshot = findNewestSnapshot(thread.posts);
+        const share = effectiveRung === "name" ? void 0 : readThreadShare(thread.path, thread.allPosts.map((post) => post.path));
+        const stateField = (post) => {
+          const state = share?.states.get(post.path);
+          return state ? { state } : {};
+        };
         const boundedPosts = !postId2 && effectiveRung === "surface" ? posts2.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES, body: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES ? clip(p.body, SURFACE_BODY_BYTES, `\u2026 [body truncated; use --post ${p.id} for the complete post]`) : p.body })) : posts2;
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary" ? {
           id: p.id,
@@ -31929,9 +32009,10 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           summary: p.frontmatter.summary ?? null,
           in_reply_to: p.inReplyTo,
           author: p.frontmatter.author ?? null,
+          ...stateField(p),
           ...p.marks?.length ? { marks: p.marks } : {},
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
-        } : p);
+        } : { ...p, ...stateField(p) });
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
         const rawPost = postId2 && posts2.length ? readFileSync21(join42(thread.path, posts2[0].path), "utf8") : void 0;
         let humanText;
@@ -31939,8 +32020,10 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           humanText = pinned;
         } else if (rawPost) {
           const marks = posts2[0]?.marks;
+          const rawState = share?.states.get(posts2[0].path);
           humanText = rawPost + (marks?.length ? `
-Marks: ${marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : "");
+Marks: ${marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : "") + (rawState ? `
+State: ${STATE_WORDS[rawState]}${share?.modified.has(posts2[0].path) ? "; this file was changed after it was committed" : ""}` : "");
           if (childThreads.length > 0) {
             humanText += `
 
@@ -31961,7 +32044,8 @@ Child Thread lookup incomplete: ${childWarnings} unreadable sibling(s).`;
             branchTotal: allBranches.length,
             childThreadTotal: allChildThreads.length,
             childWarnings,
-            filtered
+            filtered,
+            share
           });
         }
         if (parentWarning)
@@ -31991,6 +32075,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
             parent,
             warnings: thread.warnings,
             unreadable_posts: thread.unreadablePosts,
+            ...share ? { share: shareJson(share) } : {},
             ...parentWarning ? { parent_warning: parentWarning } : {},
             ...effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {},
             ...frame ? { frame } : {}
@@ -32095,7 +32180,8 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         });
         for (const warning of warnings)
           output.log(`Link warning: ${warning}`);
-        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}`);
+        const posted = readThreadShare(dirname24(path), [basename23(path)]).states.get(basename23(path));
+        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...posted ? { state: posted } : {}, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}${posted === "local" ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : ""}`);
         return 0;
       }
       if (sub === "render") {
@@ -32200,13 +32286,13 @@ var logoutCommand = {
 
 // dist/pi/pi-status.js
 import { existsSync as existsSync35, readFileSync as readFileSync23 } from "node:fs";
-import { basename as basename22, join as join45 } from "node:path";
+import { basename as basename24, join as join45 } from "node:path";
 
 // dist/local/probe-binary.js
-import { spawnSync as spawnSync18 } from "node:child_process";
+import { spawnSync as spawnSync19 } from "node:child_process";
 function probeBinary(bin, env = process.env) {
   try {
-    const res = spawnSync18(bin, ["--version"], { encoding: "utf8", timeout: 5e3, env });
+    const res = spawnSync19(bin, ["--version"], { encoding: "utf8", timeout: 5e3, env });
     if (res.error || res.status !== 0)
       return { present: false, path: bin, version: null };
     const m = /\d+\.\d+\.\d+[\w.-]*/.exec(res.stdout ?? "");
@@ -32282,7 +32368,7 @@ function derivePiStatus(input) {
   };
 }
 function resolveExtension(path) {
-  const name = basename22(path.replace(/[/\\]+$/, "")) || path;
+  const name = basename24(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
   if (!existsSync35(path))
     return check(false);
@@ -33913,7 +33999,7 @@ function list2(flags2, output) {
 var localConversationOps = { send, createNew, get, list: list2, canResume: canResumePiConversation };
 
 // dist/claude/claude-status.js
-import { spawnSync as spawnSync19 } from "node:child_process";
+import { spawnSync as spawnSync20 } from "node:child_process";
 
 // dist/claude/local-agent.js
 import { spawn as spawn5 } from "node:child_process";
@@ -33922,7 +34008,7 @@ import { spawn as spawn5 } from "node:child_process";
 import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync25, realpathSync as realpathSync29, statSync as statSync21 } from "node:fs";
 import { randomUUID as randomUUID17 } from "node:crypto";
 import { homedir as homedir7 } from "node:os";
-import { basename as basename23, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
+import { basename as basename25, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
 function claudeConfigDir(env = process.env) {
   return env.CLAUDE_CONFIG_DIR?.trim() || join49(homedir7(), ".claude");
 }
@@ -34165,7 +34251,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
   const seen = /* @__PURE__ */ new Set();
   const files = dirs.flatMap((folder) => readdirSync7(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join49(folder, f)));
   for (const path of files) {
-    const fileId = basename23(path, ".jsonl");
+    const fileId = basename25(path, ".jsonl");
     if (seen.has(fileId))
       continue;
     seen.add(fileId);
@@ -34604,7 +34690,7 @@ function deriveClaudeStatus(input) {
 }
 function probeLogin(claudeBin, env) {
   try {
-    const res = spawnSync19(claudeBin, ["auth", "status", "--json"], { encoding: "utf8", timeout: 5e3, env });
+    const res = spawnSync20(claudeBin, ["auth", "status", "--json"], { encoding: "utf8", timeout: 5e3, env });
     if (res.error)
       return null;
     return res.stdout ?? "";
