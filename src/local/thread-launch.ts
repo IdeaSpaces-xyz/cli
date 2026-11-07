@@ -7,6 +7,7 @@ import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadThread, readPinnedThreadAgreement, readPinnedThreadMember, resolveLocalThread, threadBase } from "./threads.js";
 import { loadConfig } from "../auth/credentials.js";
 import { fetchHostedThread, fetchHostedThreadPosts } from "../auth/api.js";
+import { claimedBy, singleLine } from "./claims.js";
 
 /** CLI-local result extension; the SDK's generic Keeper turn does not own Thread writes. */
 export type LocalThreadCompletion = KeeperTurnCompleteEvent & {
@@ -204,10 +205,10 @@ export function prepareUnpinnedThreadLaunch(
 
   for (let i = posts.length - 1; i >= 0; i--) {
     const p = posts[i];
-    const author = p.frontmatter.author ? ` (claimed by ${p.frontmatter.author})` : "";
-    const name = p.frontmatter.name ? ` — ${p.frontmatter.name}` : "";
+    const author = p.frontmatter.author ? ` (${claimedBy(p.frontmatter.author)})` : "";
+    const name = p.frontmatter.name ? ` — ${singleLine(p.frontmatter.name, 200)}` : "";
     const lines = [`[${p.date ?? "undated"}] ${p.id}${author}${name}`];
-    if (p.frontmatter.summary) lines.push(`  ${p.frontmatter.summary}`);
+    if (p.frontmatter.summary) lines.push(`  ${singleLine(p.frontmatter.summary, 400)}`);
     const chunk = lines.join("\n") + "\n";
     const chunkBytes = Buffer.byteLength(chunk, "utf8");
     if (currentBytes + chunkBytes > availableBytes && includedCount > 0) {
