@@ -54,8 +54,7 @@ export function recommendation(body) {
   // minor suggestions", "Approve - but fix X") is not a plain Approve, and a gate that nobody reads
   // can't weigh it, so it refuses. SLC's prompt should end the line at the verdict.
   const verdict = text.split(/\.(?:\s|$)/)[0].trim();
-  if (verdict === "approve") return /request changes|[/|]\s*comment|comment\s*[/|]/.test(text) ? "ambiguous" : "Approve";
-  return verdict === "request changes" ? "Request Changes" : verdict === "comment" ? "Comment" : "ambiguous";
+  return verdict === "approve" ? "Approve" : verdict === "request changes" ? "Request Changes" : verdict === "comment" ? "Comment" : "ambiguous";
 }
 
 export function decide({ ref, groupParents, pr, checkRuns, pages }) {

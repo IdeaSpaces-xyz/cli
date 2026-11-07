@@ -37,6 +37,7 @@ describe("SLC queue gate", () => {
     expect(recommendation("**Recommendation:** Approve.")).toBe("Approve");
     expect(recommendation("**Recommendation:** Approve. The points above are non-blocking polish.")).toBe("Approve");
     expect(recommendation("**Recommendation:** Request Changes. Items 1 to 3.")).toBe("Request Changes");
+    expect(recommendation("**Recommendation:** Approve. A request changes to the docs is optional.")).toBe("Approve");
     expect(recommendation("Recommendation: **Approve**")).toBe("Approve");
     expect(recommendation("**Recommendation:** Request Changes. Items 1 to 3.")).toBe("Request Changes");
   });
