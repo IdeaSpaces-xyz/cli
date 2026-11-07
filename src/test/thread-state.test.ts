@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendPost, createThread } from "../local/threads.js";
@@ -9,7 +9,7 @@ import { threadsCommand } from "../commands/threads.js";
 
 // Substitute just the failing executable, keeping real Git for all other calls.
 // A POSIX wrapper is not an executable on native Windows.
-const fakeGit = vi.hoisted(() => new Map<string, { verb: string; needle: string; dir: string }>());
+const fakeGit = vi.hoisted(() => new Map<string, { verb: string; needle: string; dir: string; slow?: boolean }>());
 vi.mock("node:child_process", async importOriginal => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   const fs = await import("node:fs");
@@ -17,10 +17,14 @@ vi.mock("node:child_process", async importOriginal => {
     const stub = fakeGit.get(bin);
     if (!stub) return actual.spawnSync(bin, args, options);
     fs.appendFileSync(join(stub.dir, "locks"), `${options?.env?.GIT_OPTIONAL_LOCKS ?? ""}\n`);
+    if (stub.slow && ["status", "diff", "ls-tree"].includes(args[0])) {
+      // A real blocking native child, subject to the production timeout option.
+      return actual.spawnSync(process.execPath, ["-e", "setTimeout(() => {}, 20_000)"], options);
+    }
     if (args[0] === stub.verb && args.join(" ").includes(stub.needle)) {
       return { status: 128, signal: null, stdout: "", stderr: `fatal: simulated ${stub.verb} failure\n`, pid: 0, output: [] };
     }
-    return actual.spawnSync("git", args, options);
+    return actual.spawnSync("git", args, options); // CI supplies real Git on PATH.
   } };
 });
 
@@ -113,7 +117,7 @@ describe("where a local post is", () => {
     writeFileSync(join(root, ".gitignore"), "*-ignored.md\n");
     const second = appendPost(t.path, { body: "Hidden", author: "Scout", replyTo: ["latest"] });
     const ignored = second.path.replace(/\.md$/, "-ignored.md");
-    execFileSync("mv", [second.path, ignored]);
+    renameSync(second.path, ignored);
     expect(git(root, "status", "--porcelain", "--", "_threads")).not.toContain("ignored");
     const first = names(t).find((n) => !n.endsWith("-ignored.md"))!;
     git(t.path, "mv", first, first.replace(/\.md$/, "-moved.md"));
@@ -244,9 +248,8 @@ describe("where a local post is", () => {
     const t = opened(root);
     git(root, "add", "-A"); git(root, "commit", "-qm", "Thread");
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "is-slow-git-"))); temp.push(dir);
-    const bin = join(dir, "git");
-    // Every call except the repository probe hangs, as on a stalled mount.
-    writeFileSync(bin, `#!/bin/sh\nif [ "$1" = "status" ] || [ "$1" = "diff" ] || [ "$1" = "ls-tree" ]; then sleep 20; fi\nexec "${execFileSync("which", ["git"], { encoding: "utf8" }).trim()}" "$@"\n`, { mode: 0o755 });
+    const bin = join(dir, "slow-git-fixture");
+    fakeGit.set(bin, { dir, verb: "", needle: "", slow: true });
     process.env.IDEASPACES_GIT_BIN = bin;
     try {
       const started = Date.now();
