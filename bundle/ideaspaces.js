@@ -11124,7 +11124,7 @@ async function assembleContentAwareness(opts) {
     }
     return readFloorAwarenessSections(common);
   });
-  const [context, git4, staleDocs, sections] = await Promise.all([
+  const [context, git5, staleDocs, sections] = await Promise.all([
     pathContextPromise,
     gitPromise,
     staleDocsPromise,
@@ -11145,7 +11145,7 @@ async function assembleContentAwareness(opts) {
     spaceRoot,
     position: { placement: "head", path: position, base, repoRoot: repoRoot2, context },
     ...sections,
-    git: git4,
+    git: git5,
     staleDocs,
     missingDirection
   };
@@ -12939,9 +12939,9 @@ async function readDirectoryTarget(path, position, depth2, maxChildren, summaryE
       const children = [];
       const warnings = [];
       for (const fileName of selected.shown) {
-        const postPath = join9(path, fileName);
+        const postPath2 = join9(path, fileName);
         try {
-          const content = await fs7.readFile(postPath, "utf-8");
+          const content = await fs7.readFile(postPath2, "utf-8");
           const postResult = parseThreadPost(content, joinPortable(position, fileName));
           let postName;
           let postSummary;
@@ -13218,24 +13218,24 @@ function contentRevision2(content) {
 
 // node_modules/@ideaspaces/protocol/dist/content-state.js
 async function assembleContentState(repoRoot2) {
-  const [git4, captures] = await Promise.all([
+  const [git5, captures] = await Promise.all([
     gitState(repoRoot2),
     stagedIdeaspacePaths(repoRoot2)
   ]);
-  return { placement: "tail", git: git4, captures };
+  return { placement: "tail", git: git5, captures };
 }
 function renderContentState(state) {
-  const { git: git4, captures } = state;
-  const lines = ["State:", `  branch: ${git4.branch ?? "(detached)"}`];
-  if (git4.ahead != null || git4.behind != null) {
-    lines.push(`  remote: ahead ${git4.ahead ?? 0}, behind ${git4.behind ?? 0}`);
+  const { git: git5, captures } = state;
+  const lines = ["State:", `  branch: ${git5.branch ?? "(detached)"}`];
+  if (git5.ahead != null || git5.behind != null) {
+    lines.push(`  remote: ahead ${git5.ahead ?? 0}, behind ${git5.behind ?? 0}`);
   } else {
     lines.push("  remote: no upstream");
   }
-  lines.push(`  working tree: ${git4.dirty ? "dirty" : "clean"}`);
+  lines.push(`  working tree: ${git5.dirty ? "dirty" : "clean"}`);
   lines.push(`  captures awaiting commit: ${captures.length}`);
-  if (git4.untrackedInTrackedDirs.length) {
-    lines.push(`  untracked knowledge files: ${git4.untrackedInTrackedDirs.length}`);
+  if (git5.untrackedInTrackedDirs.length) {
+    lines.push(`  untracked knowledge files: ${git5.untrackedInTrackedDirs.length}`);
   }
   return lines.join("\n");
 }
@@ -14442,7 +14442,7 @@ function buildDoctorReport(input) {
         };
     }
   })();
-  const git4 = (() => {
+  const git5 = (() => {
     switch (input.git.state) {
       case "usable":
         return {
@@ -14497,9 +14497,9 @@ function buildDoctorReport(input) {
   };
   return {
     schema_version: 1,
-    ok: node.ok && git4.ok,
+    ok: node.ok && git5.ok,
     platform: input.platform,
-    checks: { node, git: git4, remote_auth: remoteAuth, cli: cliCheck(input.cli) }
+    checks: { node, git: git5, remote_auth: remoteAuth, cli: cliCheck(input.cli) }
   };
 }
 function formatCheck(label, check) {
@@ -19376,7 +19376,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
     return { status: "pin_absent", reason: `${commit} is not a full commit id.` };
   if (position.includes("\n"))
     return { status: "missing_path", reason: "A position cannot contain a newline." };
-  const git4 = (args2, buffer = 64 * 1024, input) => spawnSync8(gitBinary(), ["-C", checkoutPath, ...args2], {
+  const git5 = (args2, buffer = 64 * 1024, input) => spawnSync8(gitBinary(), ["-C", checkoutPath, ...args2], {
     encoding: "utf8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
     maxBuffer: buffer,
@@ -19385,7 +19385,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   const objectAt = (path2) => path2 === "." || path2 === "" ? `${commit}^{tree}` : `${commit}:${path2}`;
   const isThreads = position === "_threads" || position.startsWith("_threads/");
   const candidates = [position, ...isThreads ? [position === "_threads" ? "." : position.slice("_threads/".length)] : []];
-  const probe = git4(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
+  const probe = git5(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
   if (probe.error)
     return { status: "git_error", reason: probe.error.message };
   if (probe.status !== 0) {
@@ -19408,7 +19408,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
     return { status: "missing_path", reason: `${position} is not in commit ${commit}.` };
   }
   if (object.type === "tree") {
-    const listing = git4(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
+    const listing = git5(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
     if (listing.status !== 0)
       return { status: "git_error", reason: (listing.stderr ?? "").trim() || "git ls-tree failed" };
     const entries = [];
@@ -19422,7 +19422,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   if (object.size > maxBytes) {
     return { status: "too_large", reason: `${position} is ${object.size} bytes; the read limit is ${maxBytes}.` };
   }
-  const shown = git4(["cat-file", "blob", objectAt(path)], maxBytes + 1);
+  const shown = git5(["cat-file", "blob", objectAt(path)], maxBytes + 1);
   if (shown.status !== 0 || shown.error) {
     return { status: "git_error", reason: (shown.stderr ?? "").trim() || shown.error?.message || "git cat-file failed" };
   }
@@ -24131,6 +24131,7 @@ var THREAD_FLAGS = Object.fromEntries(Object.entries({
   posts: "space scope limit since depth order cursor",
   close: "map reply-to kind author name summary supersedes message",
   render: "",
+  check: "strict",
   init: "",
   push: "remote",
   send: "space about map share share-roots space-map name summary message send-id grade",
@@ -31113,7 +31114,7 @@ var spacesCommand = {
 
 // dist/commands/threads.js
 import { existsSync as existsSync32, lstatSync as lstatSync9, readFileSync as readFileSync21, realpathSync as realpathSync25 } from "node:fs";
-import { spawnSync as spawnSync18 } from "node:child_process";
+import { spawnSync as spawnSync19 } from "node:child_process";
 import { basename as basename22, dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
 
 // dist/local/cross-thread-target.js
@@ -31242,15 +31243,109 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   return { checkout, thread, pin, position, pinned, post: parsed2.post, name, summary, verifyWrite };
 }
 
-// dist/local/thread-state.js
+// dist/local/thread-check.js
 import { spawnSync as spawnSync17 } from "node:child_process";
+function git4(cwd, args2) {
+  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 512 * 1024 * 1024, timeout: 12e4 });
+  return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
+}
+function postPath(path) {
+  const parts = path.split("/");
+  if (parts.length !== 2 || !parts[1].endsWith(".md") || parts[1] === "README.md" || parts[0].startsWith("."))
+    return void 0;
+  return { thread: parts[0], file: parts[1] };
+}
+function checkThreads(threadsDir, only) {
+  const inside = git4(threadsDir, ["rev-parse", "--is-inside-work-tree"]);
+  if (!inside.ok || inside.out.trim() !== "true") {
+    return { checked: false, note: "this Space is not in a Git repository, so there is no history to check; posts here cannot be shown to be unchanged", modified: [] };
+  }
+  const scope = only ? [`:(literal)${only}`] : ["."];
+  const found = /* @__PURE__ */ new Map();
+  const add = (path, change) => {
+    const post = postPath(path);
+    if (!post || only && post.thread !== only)
+      return;
+    const key2 = `${post.thread}/${post.file}`;
+    const entry = found.get(key2) ?? { ...post, changes: [] };
+    entry.changes.push(change);
+    found.set(key2, entry);
+  };
+  const prefix = git4(threadsDir, ["rev-parse", "--show-prefix"]).out.trim();
+  const fromHere = (path) => prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
+  const status = git4(threadsDir, ["status", "--porcelain=v1", "-z", "--untracked-files=no", "--", ...scope]);
+  if (!status.ok)
+    return { checked: false, note: `Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, modified: [] };
+  const entries = status.out.split("\0").filter(Boolean);
+  for (let i = 0; i < entries.length; i++) {
+    const code = entries[i].slice(0, 2), path = fromHere(entries[i].slice(3));
+    if (code[0] === "R" || code[0] === "C") {
+      const origin = fromHere(entries[++i] ?? "");
+      if (code[0] === "R" && origin)
+        add(origin, { kind: "uncommitted-delete" });
+      add(path, { kind: "uncommitted-edit" });
+      continue;
+    }
+    if (code[0] === "A" || code[0] === "?")
+      continue;
+    if (code.includes("D"))
+      add(path, { kind: "uncommitted-delete" });
+    else if (code.includes("M") || code.includes("T"))
+      add(path, { kind: "uncommitted-edit" });
+  }
+  const shallow = git4(threadsDir, ["rev-parse", "--is-shallow-repository"]);
+  if (shallow.ok && shallow.out.trim() === "true") {
+    return { checked: false, note: "this clone is shallow (its history stops at the fetch depth), so an edit made before that cannot be seen; fetch the full history (git fetch --unshallow) to check", modified: [...found.values()] };
+  }
+  const log = git4(threadsDir, ["-c", "core.quotePath=false", "log", "--no-renames", "--diff-filter=MDT", "--name-status", "--relative", "--pretty=format:%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...scope]);
+  if (!log.ok) {
+    if (/does not have any commits yet/.test(log.err))
+      return { checked: true, modified: [...found.values()] };
+    return { checked: false, note: `Git could not read the history${log.err ? `: ${log.err.split("\n").pop()}` : ""}`, modified: [...found.values()] };
+  }
+  for (const block of log.out.split("").filter(Boolean)) {
+    const [header, ...lines] = block.split("\n");
+    const [commit, author, date, subject] = header.split("");
+    for (const line3 of lines) {
+      const [code, path] = line3.split("	");
+      if (!path)
+        continue;
+      add(path, { kind: code === "D" ? "deleted" : "edited", commit, author, date, subject });
+    }
+  }
+  return { checked: true, modified: [...found.values()].sort((a, b) => `${a.thread}/${a.file}`.localeCompare(`${b.thread}/${b.file}`)) };
+}
+var CHANGE_WORDS = {
+  edited: "edited in",
+  deleted: "deleted in",
+  "uncommitted-edit": "edited, not committed",
+  "uncommitted-delete": "deleted, not committed"
+};
+function checkText(result, scope) {
+  if (!result.checked)
+    return `Not checked: ${result.note}.${result.modified.length ? `
+Found before it stopped:
+${listModified(result.modified)}` : ""}`;
+  if (!result.modified.length)
+    return `${scope}: no post file was changed after it was first committed.`;
+  const noun = result.modified.length === 1 ? "post file was" : "post files were";
+  return `${scope}: ${result.modified.length} ${noun} changed after it was first committed. Posts are immutable; a correction is a new post.
+${listModified(result.modified)}`;
+}
+function listModified(modified) {
+  return modified.map((post) => `- ${post.thread}/${post.file}
+${post.changes.map((change) => `    ${CHANGE_WORDS[change.kind]}${change.commit ? ` ${change.commit.slice(0, 9)} (${change.date?.slice(0, 10) ?? "undated"}, ${change.author ?? "unknown"}): ${(change.subject ?? "").slice(0, 120)}` : ""}`).join("\n")}`).join("\n");
+}
+
+// dist/local/thread-state.js
+import { spawnSync as spawnSync18 } from "node:child_process";
 var GIT_WAIT_MS = 8e3;
 var CALL_MS = 5e3;
 function gitCall(cwd, args2, deadline, waitMs) {
   const left = deadline - Date.now();
   if (left <= 0)
     return { ok: false, status: null, out: "", err: `Git did not answer within ${Math.round(waitMs / 100) / 10} s` };
-  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 16 * 1024 * 1024, timeout: Math.min(left, CALL_MS) });
+  const result = spawnSync18(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 16 * 1024 * 1024, timeout: Math.min(left, CALL_MS) });
   const timedOut = result.error?.code === "ETIMEDOUT";
   return {
     ok: !result.error && result.status === 0,
@@ -31262,8 +31357,8 @@ function gitCall(cwd, args2, deadline, waitMs) {
 var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), inRepository: true, counts: { local: 0, committed: 0, pushed: 0 } });
 function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
   const deadline = Date.now() + waitMs;
-  const git4 = (cwd, args2) => gitCall(cwd, args2, deadline, waitMs);
-  const where = git4(threadDir, ["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
+  const git5 = (cwd, args2) => gitCall(cwd, args2, deadline, waitMs);
+  const where = git5(threadDir, ["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
   if (!where.ok) {
     if (where.status === 128 && /not a git repository/i.test(where.err)) {
       const states2 = new Map(files.map((file2) => [file2, "local"]));
@@ -31278,7 +31373,7 @@ function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
     const rest = prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
     return rest.includes("/") ? void 0 : rest;
   };
-  const status = git4(threadDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
+  const status = git5(threadDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
   if (!status.ok)
     return unchecked(`Git could not report this Thread's status${status.err ? `: ${status.err.split("\n").pop()}` : ""}`);
   const local = /* @__PURE__ */ new Set();
@@ -31302,17 +31397,17 @@ function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
     else if (code.includes("M") || code.includes("T") || code[0] === "R")
       modified.add(name);
   }
-  const haveHead = git4(threadDir, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  const haveHead = git5(threadDir, ["rev-parse", "--verify", "--quiet", "HEAD"]);
   let inHead = /* @__PURE__ */ new Set();
   if (haveHead.ok) {
-    const tree = git4(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
+    const tree = git5(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
     if (!tree.ok)
       return unchecked(`Git could not list what is committed${tree.err ? `: ${tree.err.split("\n").pop()}` : ""}`);
     inHead = new Set(tree.out.split("\0").filter((path) => path && !path.includes("/")));
   } else if (!(haveHead.status === 1 && !haveHead.err)) {
     return unchecked(`Git could not read HEAD${haveHead.err ? `: ${haveHead.err.split("\n").pop()}` : ""}`);
   }
-  const upstreamRef = git4(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  const upstreamRef = git5(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
   if (!upstreamRef.ok && upstreamRef.status === null)
     return unchecked(`Git could not name the upstream: ${upstreamRef.err}`);
   const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
@@ -31320,7 +31415,7 @@ function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
   let note;
   let compared = false;
   if (upstream) {
-    const diff = git4(threadDir, ["diff", "--name-only", "-z", "--no-renames", "--relative", upstream, "HEAD", "--", "."]);
+    const diff = git5(threadDir, ["diff", "--name-only", "-z", "--no-renames", "--relative", upstream, "HEAD", "--", "."]);
     compared = diff.ok;
     if (diff.ok) {
       for (const path of diff.out.split("\0").filter(Boolean))
@@ -31556,7 +31651,7 @@ Marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`)
 }
 function selectedWriterName() {
   const cwd = realpathSync25(process.cwd());
-  const prefix = spawnSync18(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  const prefix = spawnSync19(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname24(at2), cwd) : cwd;
   let at = cwd;
   while (true) {
@@ -31601,7 +31696,7 @@ function writerName(explicit) {
       break;
     at = dirname24(at);
   }
-  const result = spawnSync18(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
+  const result = spawnSync19(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim())
     return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
@@ -31635,6 +31730,7 @@ var threadsCommand = {
     "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
     "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads render <slug|path>",
+    "ideaspaces threads check [<slug|path>] [--strict]  # post files edited or deleted after they were committed (posts are immutable); exits 0 unless --strict, which exits 1 on any finding, a shallow clone, or when Git can't be read",
     "ideaspaces threads init",
     "ideaspaces threads push --remote <team-remote>"
   ],
@@ -32263,6 +32359,25 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...posted ? { state: posted } : {}, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}${posted === "local" ? postShare.inRepository ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only." : ""}`);
         return 0;
       }
+      if (sub === "check") {
+        if (rest.length > 1)
+          throw new Error("Usage: threads check [<slug|path>] [--strict]");
+        const target = rest[0] ? resolveLocalThread(rest[0]) : void 0;
+        const threadsDir = target ? dirname24(target) : threadsDirectory();
+        if (!existsSync32(threadsDir))
+          throw new Error(`No _threads/ folder at ${threadsDir}. Run from a Space, or name a Thread.`);
+        const result = checkThreads(threadsDir, target ? basename22(target) : void 0);
+        const scope = target ? basename22(target) : "This Space";
+        output.result({
+          schema: "ideaspaces.threads.check.v1",
+          path: target ?? threadsDir,
+          checked: result.checked,
+          ...result.note ? { note: result.note } : {},
+          clean: result.checked && result.modified.length === 0,
+          modified: result.modified
+        }, checkText(result, scope));
+        return flags2.strict === true && (!result.checked || result.modified.length > 0) ? 1 : 0;
+      }
       if (sub === "render") {
         if (rest.length !== 1)
           throw new Error("Usage: threads render <local-path>");
@@ -32368,10 +32483,10 @@ import { existsSync as existsSync35, readFileSync as readFileSync23 } from "node
 import { basename as basename23, join as join45 } from "node:path";
 
 // dist/local/probe-binary.js
-import { spawnSync as spawnSync19 } from "node:child_process";
+import { spawnSync as spawnSync20 } from "node:child_process";
 function probeBinary(bin, env = process.env) {
   try {
-    const res = spawnSync19(bin, ["--version"], { encoding: "utf8", timeout: 5e3, env });
+    const res = spawnSync20(bin, ["--version"], { encoding: "utf8", timeout: 5e3, env });
     if (res.error || res.status !== 0)
       return { present: false, path: bin, version: null };
     const m = /\d+\.\d+\.\d+[\w.-]*/.exec(res.stdout ?? "");
@@ -33241,7 +33356,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
     } else if (knowledgeTool && typeof tool.args.root === "string" && tool.args.root.trim() !== "" && tool.args.root !== "home") {
       cwd = isAbsolute23(tool.args.root) ? resolve42(tool.args.root) : resolve42(launchCwd, tool.args.root);
     }
-    const postPath = writtenThreadPost(tool, cwd);
+    const postPath2 = writtenThreadPost(tool, cwd);
     if (tool.name === "is_threads") {
       const data = toolJson(tool);
       if (data && typeof data === "object") {
@@ -33259,15 +33374,15 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
         }
       }
     }
-    if (postPath)
-      addThread(threadForFile(postPath, observe), "write");
-    const kind = postPath || MODIFIED_TOOLS.has(tool.name) ? "modified" : READ_TOOLS.has(tool.name) ? "read" : void 0;
+    if (postPath2)
+      addThread(threadForFile(postPath2, observe), "write");
+    const kind = postPath2 || MODIFIED_TOOLS.has(tool.name) ? "modified" : READ_TOOLS.has(tool.name) ? "read" : void 0;
     if (!kind)
       continue;
     let paths;
     const hasExplicitPath = typeof tool.args.path === "string" && tool.args.path.trim() !== "";
-    if (postPath) {
-      paths = [postPath];
+    if (postPath2) {
+      paths = [postPath2];
     } else if (tool.name === "is_commit" && Array.isArray(tool.args.paths)) {
       paths = tool.args.paths;
     } else if (tool.name === "is_get") {
@@ -34078,7 +34193,7 @@ function list2(flags2, output) {
 var localConversationOps = { send, createNew, get, list: list2, canResume: canResumePiConversation };
 
 // dist/claude/claude-status.js
-import { spawnSync as spawnSync20 } from "node:child_process";
+import { spawnSync as spawnSync21 } from "node:child_process";
 
 // dist/claude/local-agent.js
 import { spawn as spawn5 } from "node:child_process";
@@ -34769,7 +34884,7 @@ function deriveClaudeStatus(input) {
 }
 function probeLogin(claudeBin, env) {
   try {
-    const res = spawnSync20(claudeBin, ["auth", "status", "--json"], { encoding: "utf8", timeout: 5e3, env });
+    const res = spawnSync21(claudeBin, ["auth", "status", "--json"], { encoding: "utf8", timeout: 5e3, env });
     if (res.error)
       return null;
     return res.stdout ?? "";

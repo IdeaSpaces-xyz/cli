@@ -16,6 +16,7 @@ import {
   isHostedThreadTarget, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { claimedBy, markText } from "../local/claims.js";
+import { checkText, checkThreads } from "../local/thread-check.js";
 import { readThreadShare, shareLine, STATE_WORDS, type ThreadShare } from "../local/thread-state.js";
 import { acknowledgeRecent, PERSON_READER, readerName, recentForReader, recentSince, type MovedThread } from "../local/thread-recent.js";
 import { hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
@@ -313,6 +314,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
     "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads render <slug|path>",
+    "ideaspaces threads check [<slug|path>] [--strict]  # post files edited or deleted after they were committed (posts are immutable); exits 0 unless --strict, which exits 1 on any finding, a shallow clone, or when Git can't be read",
     "ideaspaces threads init",
     "ideaspaces threads push --remote <team-remote>",
   ],
@@ -768,6 +770,18 @@ export const threadsCommand: CommandDef = {
         const posted = postShare.states.get(basename(path));
         output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(posted ? { state: posted } : {}), ...(warnings.length ? { warnings } : {}) },
           `Appended ${post.kind}: ${path}${posted === "local" ? (postShare.inRepository ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only.") : ""}`); return 0;
+      }
+      if (sub === "check") {
+        if (rest.length > 1) throw new Error("Usage: threads check [<slug|path>] [--strict]");
+        // Posts are immutable by convention locally; this reads Git for the ones that were edited or deleted anyway.
+        const target = rest[0] ? resolveLocalThread(rest[0]) : undefined;
+        const threadsDir = target ? dirname(target) : threadsDirectory();
+        if (!existsSync(threadsDir)) throw new Error(`No _threads/ folder at ${threadsDir}. Run from a Space, or name a Thread.`);
+        const result = checkThreads(threadsDir, target ? basename(target) : undefined);
+        const scope = target ? basename(target) : "This Space";
+        output.result({ schema: "ideaspaces.threads.check.v1", path: target ?? threadsDir, checked: result.checked, ...(result.note ? { note: result.note } : {}),
+          clean: result.checked && result.modified.length === 0, modified: result.modified }, checkText(result, scope));
+        return flags.strict === true && (!result.checked || result.modified.length > 0) ? 1 : 0;
       }
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");
