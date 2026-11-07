@@ -3,6 +3,7 @@ import { afterEach, beforeEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate as yieldToRunner } from "node:timers/promises";
 let dir: string;
 let previousGlobal: string | undefined;
 let previousSystem: string | undefined;
@@ -18,10 +19,14 @@ beforeEach(() => {
   process.env.GIT_CONFIG_GLOBAL = global;
   process.env.GIT_CONFIG_SYSTEM = system;
 });
-afterEach(() => {
+afterEach(async () => {
   if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
   else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
   if (previousSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM;
   else process.env.GIT_CONFIG_SYSTEM = previousSystem;
   rmSync(dir, { recursive: true, force: true });
+  // Vitest 3.2.6 mitigation: give IPC acknowledgements a poll turn between
+  // synchronous fixture cases. This cannot preempt one blocking test; revisit
+  // on a Vitest upgrade. Native timers/promises also works with fake-timer tests.
+  await yieldToRunner();
 });
