@@ -7,7 +7,7 @@ import { appendFileSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { saveSpace } from "../auth/spaces.js";
-import { createThread } from "../local/threads.js";
+import { createThread, loadThread, readCursor } from "../local/threads.js";
 import { threadsCommand } from "../commands/threads.js";
 
 const initialCwd = process.cwd();
@@ -135,5 +135,28 @@ describe("threads check prints no writer's line break as a new line", () => {
       expect(JSON.stringify(data)).toContain("msg_n FORGED-file.md");
       for (const text of strings(data)) expect(text, `${args.join(" ")} (json)`).not.toMatch(/\n[ \t]*FORGED/);
     }
+  });
+});
+
+describe("the display copy is only for printing", () => {
+  it("--ack, --new, --since and --post match and record the ids as written, for a post whose id has a control character", async () => {
+    const { root, thread } = space();
+    const ctl = `msg_ctl${String.fromCharCode(1)}x`;
+    writeFileSync(join(thread.path, "2026-11-07T10-04-00-000Z-msg_ctl.md"), `---\nid: ${JSON.stringify(ctl)}\ndate: 2026-11-07T10:04:00.000Z\nkind: post\nin_reply_to: msg_b\nauthor: Eve\n---\n\nControl id.\n`);
+    process.chdir(root);
+    const stored = () => loadThread(thread.path);
+    expect(stored().posts.map((post) => post.id)).toContain(ctl);
+    // Acknowledge everything: the cursor must hold the id as written.
+    const acked = await run(["open", "decision"], { depth: "full", new: true, ack: true, limit: "50", reader: "walk" }, true); expect(JSON.parse(acked).acknowledged, "the ack read must succeed").toBe(true);
+    expect(readCursor(stored(), "walk").has(ctl)).toBe(true);
+    expect(readCursor(stored(), "walk").has("msg_ctl x")).toBe(false);
+    // And so nothing is new afterwards: a cursor written from the display copy would leave this post new for ever.
+    const again = JSON.parse(await run(["open", "decision"], { depth: "summary", new: true, reader: "walk" }, true));
+    expect(again.matching).toBe(0);
+    // --since and --post match the written id; the printed id is the one-line copy.
+    const since = JSON.parse(await run(["open", "decision"], { depth: "summary", since: "msg_s", limit: "10" }, true));
+    expect(since.posts.map((post: { id: string }) => post.id)).toContain("msg_ctl x");
+    const one = JSON.parse(await run(["open", "decision"], { depth: "full", post: ctl }, true));
+    expect(one.raw_post).toContain("Control id.");
   });
 });

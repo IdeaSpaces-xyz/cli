@@ -538,8 +538,10 @@ export const threadsCommand: CommandDef = {
           return 0;
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
-        // The display copy, made once: no print site below holds a raw writer-chosen field (local/display.ts).
-        const thread = displayThread(loadThread(resolveLocalThread(rest[0])));
+        // `stored` is the Thread as written: ids, the seen cursor and every match run on it. `thread` is the display copy, made once, for printing:
+        // no print site below holds a raw writer-chosen field (local/display.ts).
+        const stored = loadThread(resolveLocalThread(rest[0]));
+        const thread = displayThread(stored);
         // The Thread's terms arrive with every read of it, as reference: a dispatched agent reading
         // one post learns the Thread's name and terms, and where to read them in full.
         const reference = pinnedRead ? null : await threadReference(thread.path, referenceSelection.agreement);
@@ -569,12 +571,12 @@ export const threadsCommand: CommandDef = {
         if (since && order === "newer") throw new Error("--since advances forward in time; use --order older to continue a page, or omit --since for the newest page.");
         if (postId && (newOnly || since || limit !== undefined || order)) throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
         const reader = readerName(str(flags, "reader"));
-        const seen = newOnly ? readCursor(thread, reader) : new Set<string>();
-        let posts = thread.posts.filter((p) => !seen.has(p.id));
+        const seen = newOnly ? readCursor(stored, reader) : new Set<string>();
+        let posts = stored.posts.filter((p) => !seen.has(p.id));
         if (since) {
-          const at = thread.posts.findIndex((p) => p.id === since);
+          const at = stored.posts.findIndex((p) => p.id === since);
           // --since post-id is exclusive in the Thread's deterministic post order.
-          if (at !== -1) posts = thread.posts.slice(at + 1);
+          if (at !== -1) posts = stored.posts.slice(at + 1);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
             const undated = posts.filter((p) => !p.date).length;
             if (undated) output.log(`${undated} undated post(s) in Thread ${thread.slug} cannot be compared to --since ${since}; omitted.`);
@@ -585,9 +587,9 @@ export const threadsCommand: CommandDef = {
         // Unseen posts before a snapshot must not be silently acknowledged.
         const rangeCount = posts.length;
         if (postId) {
-          const exact = thread.allPosts.find((p) => p.id === postId);
+          const exact = stored.allPosts.find((p) => p.id === postId);
           if (!exact) throw new Error(`Post ${postId} is not in Thread ${thread.slug}.`);
-          posts = [thread.posts.find((p) => p.id === postId) ?? exact];
+          posts = [stored.posts.find((p) => p.id === postId) ?? exact];
         } else if (rung === "surface") {
           const snapshot = findNewestSnapshot(posts);
           if (snapshot) {
@@ -626,7 +628,9 @@ export const threadsCommand: CommandDef = {
         }
         const pinned = pin && position ? readPinnedThreadMember(threadBase(), pin, position) : undefined;
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
-        if (ack) acknowledge(thread, posts, reader);
+        if (ack) acknowledge(stored, posts, reader);
+        // Selection and the cursor are done on what was written; from here the posts are only printed.
+        posts = posts.map(displayPost);
         const effectiveRung = postId ? "full" : rung;
         let parent: ThreadParentInfo | null = null;
         let parentWarning: string | undefined;

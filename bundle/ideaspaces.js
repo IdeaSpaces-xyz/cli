@@ -32110,7 +32110,8 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         }
         if (flags2.checkout !== void 0)
           throw new Error("--checkout requires --map and --member.");
-        const thread = displayThread(loadThread(resolveLocalThread(rest[0])));
+        const stored = loadThread(resolveLocalThread(rest[0]));
+        const thread = displayThread(stored);
         const reference = pinnedRead ? null : await threadReference(thread.path, referenceSelection.agreement);
         const referenceDiagnostic = reference && reference.status !== "ok" ? renderContentFocus(reference) : void 0;
         if (referenceDiagnostic)
@@ -32144,12 +32145,12 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         if (postId2 && (newOnly || since || limit !== void 0 || order))
           throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
         const reader = readerName(str2(flags2, "reader"));
-        const seen = newOnly ? readCursor(thread, reader) : /* @__PURE__ */ new Set();
-        let posts2 = thread.posts.filter((p) => !seen.has(p.id));
+        const seen = newOnly ? readCursor(stored, reader) : /* @__PURE__ */ new Set();
+        let posts2 = stored.posts.filter((p) => !seen.has(p.id));
         if (since) {
-          const at = thread.posts.findIndex((p) => p.id === since);
+          const at = stored.posts.findIndex((p) => p.id === since);
           if (at !== -1)
-            posts2 = thread.posts.slice(at + 1);
+            posts2 = stored.posts.slice(at + 1);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
             const undated = posts2.filter((p) => !p.date).length;
             if (undated)
@@ -32160,10 +32161,10 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         }
         const rangeCount = posts2.length;
         if (postId2) {
-          const exact = thread.allPosts.find((p) => p.id === postId2);
+          const exact = stored.allPosts.find((p) => p.id === postId2);
           if (!exact)
             throw new Error(`Post ${postId2} is not in Thread ${thread.slug}.`);
-          posts2 = [thread.posts.find((p) => p.id === postId2) ?? exact];
+          posts2 = [stored.posts.find((p) => p.id === postId2) ?? exact];
         } else if (rung === "surface") {
           const snapshot2 = findNewestSnapshot(posts2);
           if (snapshot2) {
@@ -32209,7 +32210,8 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md"))
           throw new Error("Pinned post is invalid.");
         if (ack)
-          acknowledge(thread, posts2, reader);
+          acknowledge(stored, posts2, reader);
+        posts2 = posts2.map(displayPost);
         const effectiveRung = postId2 ? "full" : rung;
         let parent = null;
         let parentWarning;

@@ -6,15 +6,18 @@
  * them would let that field write the next line (`FORGED msg_x claimed by The human`). Cleaning each print
  * site one at a time left the next site open every review, so the cleaning is here and the print sites
  * are given only this copy: `displayThread` is applied once, right after a Thread is loaded for a read,
- * and nothing downstream holds the raw field.
+ * and the code that prints holds no raw field.
+ *
+ * Matching and the reader's seen cursor never use this copy. `threads open` keeps the Thread as written for `--ack`,
+ * `--new`, `--since` and `--post`, so what is written to disk names the real ids, and prints only from this copy.
  *
  * What stays as written, on purpose:
  * - a post's `body`, which is its text and is shown as the body;
  * - `--post` and a pinned read, which print the file exactly as it is, frontmatter included;
  * - the Thread's README and Agreement prose, shown under their own labels (`Current frame:`, `Goal:`);
  * - a post's `path`, which names the file on disk and is never printed into a line of text.
- * Ids are reduced like any other word. An id with a control character in it is not a real id, and the
- * copy no longer matches the file; the read still works, and a cursor for it would simply be new.
+ * Ids are reduced like any other word, for printing only. An id with a control character in it is not a real id, and
+ * the copy no longer matches the file, which is why nothing is matched or acknowledged against the copy.
  */
 import type { ThreadPost } from "@ideaspaces/protocol";
 import { singleLine } from "./claims.js";
@@ -22,8 +25,12 @@ import type { LocalThread } from "./threads.js";
 
 const NO_CUT = Number.MAX_SAFE_INTEGER;
 
-/** Every string inside a value reduced to one line; numbers, booleans and null pass through. */
-/** No field is cut: only its line breaks go, so the JSON a tool reads keeps every character of a name or a summary. The print sites clip for their own width. */
+/**
+ * Every string inside a value reduced to one line; numbers, booleans and null pass through. No field is cut:
+ * line breaks and control characters become a space, runs of spaces collapse and the ends are trimmed, so the JSON a
+ * tool reads keeps a name or a summary whole but for its whitespace. The print sites clip for their own width.
+ * Only values are cleaned, never object keys: a print site must not interpolate a frontmatter key.
+ */
 export function deepLine<T>(value: T, max = NO_CUT): T {
   if (typeof value === "string") return singleLine(value, max) as T;
   if (Array.isArray(value)) return value.map((item) => deepLine(item, max)) as T;
