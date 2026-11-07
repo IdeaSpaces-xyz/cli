@@ -853,7 +853,7 @@ describe("local Threads", () => {
       expect((await run(["list"], { depth: "summary" })).threads.find((row: { slug: string }) => row.slug === "work").count).toBe(3); // Opening + 2 folded marks.
       out = "";
       expect(await threadsCommand.run(["open", "work"], { post: t.opening_post_id }, { ...flags, json: false })).toBe(0);
-      expect(out).toContain("Marks: claimed (Integrator)");
+      expect(out).toContain("Marks: claimed (claimed by Integrator)");
       await run(["post", "work"], { kind: "correction", supersedes: first.id, "reply-to": t.opening_post_id, message: "Retract", author: "Integrator" });
       const after = await run(["open", "work"], { post: t.opening_post_id });
       expect(after.posts[0].marks).toHaveLength(1);
