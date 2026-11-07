@@ -13,9 +13,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Every PR, and every merge queue group, is gated on Linux. macOS and Windows run together on main (and on
-# demand): the Windows runner's git-heavy publish/sync tests drift past the
-# 5s test timeout on a slow day, and a one-line PR should not wait on that.
+# Linux and Windows run for every PR and queue group. macOS joins them on main
+# and on demand. Keep the Windows status check required alongside Linux/SLC in
+# branch protection, so a failure cannot silently drift past the merge queue.
 # The publish workflow re-verifies the package on release.
 jobs:
   build:
@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        os: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
