@@ -88,6 +88,23 @@ describe("where a local post is", () => {
     expect(shareLine(share)).toMatch(/changed after commit/);
   });
 
+  it("never calls a post pushed that Git is not holding: one ignored by .gitignore, and a staged rename's new name", () => {
+    const root = space(); repo(root); remoteFor(root);
+    const t = opened(root);
+    git(root, "add", "-A"); git(root, "commit", "-qm", "Thread"); git(root, "push", "-q", "-u", "origin", "main");
+    // An ignored post: invisible to `git status`, in neither HEAD nor the upstream.
+    writeFileSync(join(root, ".gitignore"), "*-ignored.md\n");
+    const second = appendPost(t.path, { body: "Hidden", author: "Scout", replyTo: ["latest"] });
+    const ignored = second.path.replace(/\.md$/, "-ignored.md");
+    execFileSync("mv", [second.path, ignored]);
+    expect(git(root, "status", "--porcelain", "--", "_threads")).not.toContain("ignored");
+    const first = names(t).find((n) => !n.endsWith("-ignored.md"))!;
+    git(t.path, "mv", first, first.replace(/\.md$/, "-moved.md"));
+    const share = readThreadShare(t.path, names(t));
+    expect(share.states.get(names(t).find((n) => n.endsWith("-ignored.md"))!)).toBe("local");
+    expect(share.states.get(names(t).find((n) => n.endsWith("-moved.md"))!)).toBe("local");
+  });
+
   it("reads only this folder's own post files: a changed Agreement or a child folder is not a post", () => {
     const root = space(); repo(root);
     const t = opened(root);
@@ -118,7 +135,7 @@ describe("where a local post is", () => {
     writeFileSync(bin, `#!/bin/sh\necho "$GIT_OPTIONAL_LOCKS" >> "${join(dir, "locks")}"\nif [ "$1" = "${verb}" ]; then echo "fatal: simulated ${verb} failure" >&2; exit 128; fi\nexec "${execFileSync("which", ["git"], { encoding: "utf8" }).trim()}" "$@"\n`, { mode: 0o755 });
     return bin;
   }
-  it("says it does not know, and gives no post a state, when Git cannot report the status", () => {
+  it.skipIf(process.platform === "win32")("says it does not know, and gives no post a state, when Git cannot report the status", () => {
     const root = space(); repo(root);
     const t = opened(root);
     process.env.IDEASPACES_GIT_BIN = failing("status");
@@ -130,7 +147,7 @@ describe("where a local post is", () => {
     } finally { delete process.env.IDEASPACES_GIT_BIN; }
   });
 
-  it("calls an upstream it cannot compare committed, with the reason, never pushed; and never lets Git write while it reads", () => {
+  it.skipIf(process.platform === "win32")("calls an upstream it cannot compare committed, with the reason, never pushed; and never lets Git write while it reads", () => {
     const root = space(); repo(root); remoteFor(root);
     const t = opened(root);
     git(root, "add", "-A"); git(root, "commit", "-qm", "Thread"); git(root, "push", "-q", "-u", "origin", "main");

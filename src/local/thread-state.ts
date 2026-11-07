@@ -69,6 +69,12 @@ export function readThreadShare(threadDir: string, files: readonly string[]): Th
     // A deleted file has no post to give a state; `threads check` reports deletions.
   }
 
+  // What HEAD holds, directly in this folder. A file it lacks is only a file here, however Git's status came to hide it:
+  // a path in .gitignore never appears in status, and a staged rename's new name is not committed yet. No HEAD (an empty
+  // repository) fails this call, and then every post is local, which is true.
+  const head = git(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
+  const inHead = new Set(head.ok ? head.out.split("\0").filter((path) => path && !path.includes("/")) : []);
+
   const upstreamRef = git(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
   const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
   const unpushed = new Set<string>();
@@ -88,7 +94,7 @@ export function readThreadShare(threadDir: string, files: readonly string[]): Th
   const states = new Map<string, PostState>();
   const counts: Record<PostState, number> = { local: 0, committed: 0, pushed: 0 };
   for (const file of files) {
-    const state: PostState = local.has(file) ? "local" : !compared || unpushed.has(file) ? "committed" : "pushed";
+    const state: PostState = local.has(file) || !inHead.has(file) ? "local" : !compared || unpushed.has(file) ? "committed" : "pushed";
     states.set(file, state);
     counts[state]++;
   }
@@ -102,7 +108,7 @@ export const STATE_WORDS: Record<PostState, string> = { local: "local only", com
 export function shareLine(share: ThreadShare): string | undefined {
   if (!share.checked) return `Post state unknown: ${share.note}.`;
   const { local, committed, pushed } = share.counts;
-  const parts = [local ? `${local} local only (on this disk, not committed)` : "", committed ? `${committed} committed (not pushed${share.upstream ? ` to ${share.upstream}` : ""})` : "", pushed ? `${pushed} pushed` : ""].filter(Boolean);
+  const parts = [local ? `${local} local only (on this disk, not committed)` : "", committed ? `${committed} committed (${share.upstream ? `not pushed to ${share.upstream}` : "no upstream, so whether they are pushed is unknown"})` : "", pushed ? `${pushed} pushed` : ""].filter(Boolean);
   const where = share.upstream ? ` Pushed is as of the last fetch of ${share.upstream}.` : "";
   const modified = share.modified.size ? ` ${share.modified.size} post file${share.modified.size === 1 ? " was" : "s were"} changed after commit: ${[...share.modified].slice(0, 3).join(", ")}${share.modified.size > 3 ? ", …" : ""}; posts are immutable, run threads check.` : "";
   return `Posts: ${parts.join(", ") || "none"}.${where}${share.note ? ` Note: ${share.note}.` : ""}${modified}`;

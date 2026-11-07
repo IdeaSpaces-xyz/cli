@@ -31249,6 +31249,8 @@ function readThreadShare(threadDir, files) {
     else if (code.includes("M") || code.includes("T") || code[0] === "R")
       modified.add(name);
   }
+  const head2 = git4(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
+  const inHead = new Set(head2.ok ? head2.out.split("\0").filter((path) => path && !path.includes("/")) : []);
   const upstreamRef = git4(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
   const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
   const unpushed = /* @__PURE__ */ new Set();
@@ -31269,7 +31271,7 @@ function readThreadShare(threadDir, files) {
   const states = /* @__PURE__ */ new Map();
   const counts = { local: 0, committed: 0, pushed: 0 };
   for (const file2 of files) {
-    const state = local.has(file2) ? "local" : !compared || unpushed.has(file2) ? "committed" : "pushed";
+    const state = local.has(file2) || !inHead.has(file2) ? "local" : !compared || unpushed.has(file2) ? "committed" : "pushed";
     states.set(file2, state);
     counts[state]++;
   }
@@ -31280,7 +31282,7 @@ function shareLine(share) {
   if (!share.checked)
     return `Post state unknown: ${share.note}.`;
   const { local, committed, pushed } = share.counts;
-  const parts = [local ? `${local} local only (on this disk, not committed)` : "", committed ? `${committed} committed (not pushed${share.upstream ? ` to ${share.upstream}` : ""})` : "", pushed ? `${pushed} pushed` : ""].filter(Boolean);
+  const parts = [local ? `${local} local only (on this disk, not committed)` : "", committed ? `${committed} committed (${share.upstream ? `not pushed to ${share.upstream}` : "no upstream, so whether they are pushed is unknown"})` : "", pushed ? `${pushed} pushed` : ""].filter(Boolean);
   const where = share.upstream ? ` Pushed is as of the last fetch of ${share.upstream}.` : "";
   const modified = share.modified.size ? ` ${share.modified.size} post file${share.modified.size === 1 ? " was" : "s were"} changed after commit: ${[...share.modified].slice(0, 3).join(", ")}${share.modified.size > 3 ? ", \u2026" : ""}; posts are immutable, run threads check.` : "";
   return `Posts: ${parts.join(", ") || "none"}.${where}${share.note ? ` Note: ${share.note}.` : ""}${modified}`;
