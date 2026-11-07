@@ -16,6 +16,7 @@ const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
     posts: "space scope limit since depth order cursor",
     close: "map reply-to kind author name summary supersedes message",
     render: "",
+    check: "strict",
     init: "",
     push: "remote",
     send: "space about map share share-roots space-map name summary message send-id grade",
