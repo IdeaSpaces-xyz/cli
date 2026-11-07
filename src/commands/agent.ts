@@ -302,7 +302,7 @@ async function cmdRun(
           return 1;
         }
         try {
-          const canonical = realpathSync(path);
+          const canonical = realpathSync.native(path);
           if (enteredThroughRoot(povPath, path) && !isContained(povPath, canonical)) {
             throw new Error("escapes the selected POV");
           }

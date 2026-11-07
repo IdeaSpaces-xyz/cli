@@ -29,7 +29,7 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
   const baseCwd = opts.cwd ?? process.cwd();
   let pov: string;
   try {
-    pov = realpathSync(opts.povPath);
+    pov = realpathSync.native(opts.povPath);
   } catch (err) {
     return { addedDirs: [], warnings, errors: [`Cannot resolve POV ${opts.povPath}: ${err instanceof Error ? err.message : String(err)}`] };
   }
@@ -90,7 +90,7 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
         }
         try {
           if (!statSync(root.checkoutPath).isDirectory()) throw new Error("not a directory");
-          discoveredCheckouts.push(realpathSync(root.checkoutPath));
+          discoveredCheckouts.push(realpathSync.native(root.checkoutPath));
         } catch (err) {
           warnings.push(`Map ${item.path}: checkout ${root.checkoutPath} unavailable (${err instanceof Error ? err.message : String(err)}); not added to reach.`);
         }
@@ -107,7 +107,7 @@ export function discoverAgentReach(opts: DiscoverAgentReachOptions): AgentReachR
     for (const raw of (Array.isArray(opts.reachFlag) ? opts.reachFlag : [opts.reachFlag]).map((s) => s.trim()).filter(Boolean)) {
       const resolved = isAbsolute(raw) ? raw : resolve(baseCwd, raw);
       try {
-        const canonical = realpathSync(resolved);
+        const canonical = realpathSync.native(resolved);
         if (!statSync(canonical).isDirectory()) throw new Error("directory not found");
         explicitReach.push(canonical);
       } catch {
