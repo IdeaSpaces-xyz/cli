@@ -23,6 +23,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { runtimeCommand } from "../local/runtime-command.js";
 import { probeBinary, type ProbedBinary } from "../local/probe-binary.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -131,7 +132,8 @@ export function deriveClaudeStatus(input: {
 /** Ask the binary for its sign-in state. Returns stdout whatever the exit code. */
 function probeLogin(claudeBin: string, env: NodeJS.ProcessEnv): string | null {
   try {
-    const res = spawnSync(claudeBin, ["auth", "status", "--json"], { encoding: "utf8", timeout: 5000, env });
+    const command = runtimeCommand(claudeBin, ["auth", "status", "--json"], env);
+    const res = spawnSync(command.command, command.args, { encoding: "utf8", timeout: 5000, env });
     if (res.error) return null;
     return res.stdout ?? "";
   } catch {

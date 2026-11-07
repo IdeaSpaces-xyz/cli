@@ -9,6 +9,7 @@
 // `ref` as `--model` to `conversation send --local`.
 
 import { spawn } from "node:child_process";
+import { runtimeCommand } from "../local/runtime-command.js";
 import { createInterface } from "node:readline";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -70,7 +71,8 @@ export function queryPiModels(piBin: string): Promise<PiModelsResult> {
     // No extensions/skills: model listing only needs the registry + auth, and
     // `--no-extensions` avoids loading (and conflicting on) globally-installed
     // extensions during the query.
-    const pi = spawn(piBin, ["--mode", "rpc", "--no-extensions"], {
+    const command = runtimeCommand(piBin, ["--mode", "rpc", "--no-extensions"]);
+    const pi = spawn(command.command, command.args, {
       cwd: process.cwd(),
       stdio: ["pipe", "pipe", "pipe"],
     });
