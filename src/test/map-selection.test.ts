@@ -255,6 +255,8 @@ describe("ideaspaces map select", () => {
     });
   });
 
+  // Real commits, a push to a bare remote and live-root pinning took 8.9s on Windows CI.
+  // Budget this integration fixture, not the command's runtime or the whole test suite.
   it("pins an unpinned Space Map root from its live checkout when selecting a moment", async () => {
     mkdirSync(join(root, "_agent"));
     writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Space\nroot_node_id: ${ROOT_NODE_ID}\n---\n# Space\n`);
@@ -339,7 +341,7 @@ map:
         disclosure: { name: "Finding", summary: "Observed at the selected pin." },
       },
     ]);
-  });
+  }, 30_000);
 
   it("refuses to pin a foreign root with no identified local checkout", async () => {
     writeFileSync(join(root, "notes", "links.map.md"), `---\nname: Links\nmap:\n  roots:\n    - root_node_id: n_aaaaaaaaaaaaaaaaaaaaaaaa\n  members:\n    - root: 0\n      position: README.md\n---\n# Links\n`);
