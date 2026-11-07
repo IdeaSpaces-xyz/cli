@@ -1,0 +1,20 @@
+import { afterEach, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { enteredThroughRoot, isContained } from "../local/contained-path.js";
+let directory: string;
+afterEach(() => { if (directory) rmSync(directory, { recursive: true, force: true }); });
+it("recognizes an aliased POV ancestor before refusing a resource that escapes it", () => {
+  directory = mkdtempSync(join(tmpdir(), "contain-alias-"));
+  const root = join(directory, "pov"); const outside = join(directory, "outside");
+  mkdirSync(root); mkdirSync(outside); writeFileSync(join(outside, "extension.js"), "");
+  const type = process.platform === "win32" ? "junction" : "dir";
+  const alias = join(directory, "alias"); symlinkSync(root, alias, type);
+  symlinkSync(outside, join(root, "escape"), type);
+  const selected = join(alias, "escape", "extension.js");
+  const physicalRoot = realpathSync.native(root);
+  expect(enteredThroughRoot(physicalRoot, selected)).toBe(true);
+  expect(isContained(physicalRoot, realpathSync.native(selected))).toBe(false);
+  expect(enteredThroughRoot(physicalRoot, join(outside, "extension.js"))).toBe(false);
+});
