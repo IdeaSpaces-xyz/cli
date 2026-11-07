@@ -214,3 +214,19 @@ describe("authored cross-Space local Thread selection", () => {
     expect(readdirSync(target).filter((name) => name.endsWith(".md"))).toHaveLength(4);
   }, 30_000); // Windows Git process startup can exceed Vitest's 5s default for this many repositories.
 });
+
+it("accepts a same-Space aliased absolute pinned path but never a cross-Space aliased path", async () => {
+  const f = fixture();
+  process.env.HOME = f.agent;
+  const alias = join(f.agent, "home-alias");
+  symlinkSync(f.home, alias, process.platform === "win32" ? "junction" : "dir");
+  const input = join(alias, "_threads", "decision");
+  process.chdir(f.home);
+  const same = await run(["open", input], { map: f.map, member: "0", depth: "full" });
+  expect(same.status, same.error).toBe(0);
+  expect(same.data.pinned).toContain("Selected at pin");
+  process.chdir(f.agent);
+  const cross = await run(["open", input], { map: f.map, member: "0", checkout: f.home, depth: "full" });
+  expect(cross.status).toBe(1);
+  expect(cross.error).toContain("not a cross-Space path");
+}, 30_000);
