@@ -131,7 +131,7 @@ function originLine(parent: ThreadParentInfo | null | undefined): string | undef
 }
 /** The Thread's share summary as JSON: counts and the upstream, not one record per post (each post carries its own `state`). */
 function shareJson(share: ThreadShare) {
-  return { checked: share.checked, upstream: share.upstream, counts: share.counts, ...(share.modified.size ? { modified: [...share.modified] } : {}), ...(share.note ? { note: share.note } : {}) };
+  return { checked: share.checked, upstream: share.upstream, counts: share.counts, ...(share.modified.size ? { modified: [...share.modified] } : {}), ...(share.unmerged.size ? { unmerged: [...share.unmerged] } : {}), ...(share.note ? { note: share.note } : {}) };
 }
 
 function localText(

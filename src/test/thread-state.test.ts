@@ -128,11 +128,11 @@ describe("where a local post is", () => {
     expect(shareLine(share)).toMatch(/4 post files were changed after commit: .*, …;/);
   });
 
-  /** A `git` that runs the real one except for the named verb, which fails; it also records the optional-locks setting it was given. */
-  function failing(verb: string): string {
+  /** A `git` that runs the real one except for the named verb (when its arguments also contain `needle`), which fails; it records the optional-locks setting it was given. */
+  function failing(verb: string, needle = ""): string {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "is-fake-git-"))); temp.push(dir);
     const bin = join(dir, "git");
-    writeFileSync(bin, `#!/bin/sh\necho "$GIT_OPTIONAL_LOCKS" >> "${join(dir, "locks")}"\nif [ "$1" = "${verb}" ]; then echo "fatal: simulated ${verb} failure" >&2; exit 128; fi\nexec "${execFileSync("which", ["git"], { encoding: "utf8" }).trim()}" "$@"\n`, { mode: 0o755 });
+    writeFileSync(bin, `#!/bin/sh\necho "$GIT_OPTIONAL_LOCKS" >> "${join(dir, "locks")}"\nif [ "$1" = "${verb}" ] && echo "$*" | grep -q -e "${needle}"; then echo "fatal: simulated ${verb} failure" >&2; exit 128; fi\nexec "${execFileSync("which", ["git"], { encoding: "utf8" }).trim()}" "$@"\n`, { mode: 0o755 });
     return bin;
   }
   it.skipIf(process.platform === "win32")("says it does not know, and gives no post a state, when Git cannot report the status", () => {
@@ -162,6 +162,64 @@ describe("where a local post is", () => {
       expect(calls.length).toBeGreaterThan(3);
       expect(new Set(calls)).toEqual(new Set(["0"]));
     } finally { delete process.env.IDEASPACES_GIT_BIN; }
+  });
+
+  it("reads a failed ls-tree as unknown, never as local: a post that is committed must not read as only on this disk", () => {
+    const root = space(); repo(root);
+    const t = opened(root);
+    git(root, "add", "-A"); git(root, "commit", "-qm", "Thread");
+    process.env.IDEASPACES_GIT_BIN = failing("ls-tree");
+    try {
+      const share = readThreadShare(t.path, names(t));
+      expect(share.checked).toBe(false);
+      expect(share.states.size).toBe(0);
+      expect(share.counts).toEqual({ local: 0, committed: 0, pushed: 0 });
+      expect(shareLine(share)).toBe("Post state unknown: Git could not list what is committed: fatal: simulated ls-tree failure.");
+    } finally { delete process.env.IDEASPACES_GIT_BIN; }
+  });
+
+  it.skipIf(process.platform === "win32")("reads a HEAD it cannot verify as unknown, and no HEAD yet as local", () => {
+    const root = space(); repo(root);
+    const t = opened(root);
+    // A repository with no commit has no HEAD: every post is only a file here.
+    let share = readThreadShare(t.path, names(t));
+    expect(share.checked).toBe(true);
+    expect([...share.states.values()]).toEqual(["local"]);
+    git(root, "add", "-A"); git(root, "commit", "-qm", "Thread");
+    process.env.IDEASPACES_GIT_BIN = failing("rev-parse", "--verify");
+    try {
+      share = readThreadShare(t.path, names(t));
+      expect(share.checked).toBe(false);
+      expect(shareLine(share)).toBe("Post state unknown: Git could not read HEAD: fatal: simulated rev-parse failure.");
+    } finally { delete process.env.IDEASPACES_GIT_BIN; }
+  });
+
+  it("reads a Git it cannot run as unknown, and only Git's own 'not a repository' as local", () => {
+    const root = space(); repo(root);
+    const t = opened(root);
+    process.env.IDEASPACES_GIT_BIN = join(root, "no-such-git");
+    try {
+      const share = readThreadShare(t.path, names(t));
+      expect(share.checked).toBe(false);
+      expect(shareLine(share)).toMatch(/^Post state unknown: Git could not be asked/);
+    } finally { delete process.env.IDEASPACES_GIT_BIN; }
+  });
+
+  it("never reads a post in a merge conflict as pushed or committed: it is local, and the line names it", () => {
+    const root = space(); repo(root); remoteFor(root);
+    const t = opened(root);
+    git(root, "add", "-A"); git(root, "commit", "-qm", "Thread"); git(root, "push", "-q", "-u", "origin", "main");
+    const file = names(t)[0];
+    git(root, "checkout", "-q", "-b", "other");
+    appendFileSync(join(t.path, file), "\nOther side.\n"); git(root, "commit", "-qam", "Other");
+    git(root, "checkout", "-q", "main");
+    appendFileSync(join(t.path, file), "\nMain side.\n"); git(root, "commit", "-qam", "Main");
+    expect(() => git(root, "merge", "other")).toThrow();
+    expect(git(root, "status", "--porcelain", "--", "_threads")).toMatch(/^UU /m);
+    const share = readThreadShare(t.path, names(t));
+    expect(share.states.get(file)).toBe("local");
+    expect([...share.unmerged]).toEqual([file]);
+    expect(shareLine(share)).toMatch(/1 post file is in a merge conflict and counted as local only: /);
   });
 
   it("is in the open and post results: each post's state, the Thread's line, and a post that says it is not delivered", async () => {

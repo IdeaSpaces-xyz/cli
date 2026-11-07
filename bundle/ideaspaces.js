@@ -31217,16 +31217,21 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
 import { spawnSync as spawnSync17 } from "node:child_process";
 function git4(cwd, args2) {
   const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 256 * 1024 * 1024, timeout: 3e4 });
-  return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
+  return { ok: !result.error && result.status === 0, status: result.error ? null : result.status, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
 }
-var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), counts: { local: 0, committed: 0, pushed: 0 } });
+var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), counts: { local: 0, committed: 0, pushed: 0 } });
 function readThreadShare(threadDir, files) {
-  const inside = git4(threadDir, ["rev-parse", "--is-inside-work-tree"]);
-  if (!inside.ok || inside.out.trim() !== "true") {
-    const states2 = new Map(files.map((file2) => [file2, "local"]));
-    return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states: states2, modified: /* @__PURE__ */ new Set(), counts: { local: files.length, committed: 0, pushed: 0 } };
+  const where = git4(threadDir, ["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
+  if (!where.ok) {
+    if (where.status === 128 && /not a git repository/i.test(where.err)) {
+      const states2 = new Map(files.map((file2) => [file2, "local"]));
+      return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states: states2, modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), counts: { local: files.length, committed: 0, pushed: 0 } };
+    }
+    return unchecked(`Git could not be asked${where.err ? `: ${where.err.split("\n").pop()}` : ""}`);
   }
-  const prefix = git4(threadDir, ["rev-parse", "--show-prefix"]).out.trim();
+  const [inside, prefix = ""] = where.out.split("\n").map((line3) => line3.trim());
+  if (inside !== "true")
+    return unchecked("this folder is not inside a Git working tree, so its posts' state is unknown");
   const direct = (path) => {
     const rest = prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
     return rest.includes("/") ? void 0 : rest;
@@ -31236,6 +31241,7 @@ function readThreadShare(threadDir, files) {
     return unchecked(`Git could not report this Thread's status${status.err ? `: ${status.err.split("\n").pop()}` : ""}`);
   const local = /* @__PURE__ */ new Set();
   const modified = /* @__PURE__ */ new Set();
+  const unmerged = /* @__PURE__ */ new Set();
   const entries = status.out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
@@ -31244,13 +31250,26 @@ function readThreadShare(threadDir, files) {
       i++;
     if (name === void 0)
       continue;
+    if (code[0] === "U" || code[1] === "U" || code === "AA" || code === "DD") {
+      unmerged.add(name);
+      local.add(name);
+      continue;
+    }
     if (code === "??" || code[0] === "A")
       local.add(name);
     else if (code.includes("M") || code.includes("T") || code[0] === "R")
       modified.add(name);
   }
-  const head2 = git4(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
-  const inHead = new Set(head2.ok ? head2.out.split("\0").filter((path) => path && !path.includes("/")) : []);
+  const haveHead = git4(threadDir, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  let inHead = /* @__PURE__ */ new Set();
+  if (haveHead.ok) {
+    const tree = git4(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
+    if (!tree.ok)
+      return unchecked(`Git could not list what is committed${tree.err ? `: ${tree.err.split("\n").pop()}` : ""}`);
+    inHead = new Set(tree.out.split("\0").filter((path) => path && !path.includes("/")));
+  } else if (!(haveHead.status === 1 && !haveHead.err)) {
+    return unchecked(`Git could not read HEAD${haveHead.err ? `: ${haveHead.err.split("\n").pop()}` : ""}`);
+  }
   const upstreamRef = git4(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
   const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
   const unpushed = /* @__PURE__ */ new Set();
@@ -31275,17 +31294,18 @@ function readThreadShare(threadDir, files) {
     states.set(file2, state);
     counts[state]++;
   }
-  return { checked: true, ...note ? { note } : {}, upstream, states, modified, counts };
+  return { checked: true, ...note ? { note } : {}, upstream, states, modified, unmerged, counts };
 }
 var STATE_WORDS = { local: "local only", committed: "committed", pushed: "pushed" };
 function shareLine(share) {
   if (!share.checked)
     return `Post state unknown: ${share.note}.`;
   const { local, committed, pushed } = share.counts;
-  const parts = [local ? `${local} local only (on this disk, not committed)` : "", committed ? `${committed} committed (${share.upstream ? `not pushed to ${share.upstream}` : "no upstream, so whether they are pushed is unknown"})` : "", pushed ? `${pushed} pushed` : ""].filter(Boolean);
+  const parts = [local ? `${local} local only (on this disk, not committed)` : "", committed ? `${committed} committed${share.upstream ? ` (not pushed to ${share.upstream})` : ""}` : "", pushed ? `${pushed} pushed` : ""].filter(Boolean);
   const where = share.upstream ? ` Pushed is as of the last fetch of ${share.upstream}.` : "";
   const modified = share.modified.size ? ` ${share.modified.size} post file${share.modified.size === 1 ? " was" : "s were"} changed after commit: ${[...share.modified].slice(0, 3).join(", ")}${share.modified.size > 3 ? ", \u2026" : ""}; posts are immutable, run threads check.` : "";
-  return `Posts: ${parts.join(", ") || "none"}.${where}${share.note ? ` Note: ${share.note}.` : ""}${modified}`;
+  const conflicted = share.unmerged.size ? ` ${share.unmerged.size} post file${share.unmerged.size === 1 ? " is" : "s are"} in a merge conflict and counted as local only: ${[...share.unmerged].slice(0, 3).join(", ")}${share.unmerged.size > 3 ? ", \u2026" : ""}.` : "";
+  return `Posts: ${parts.join(", ") || "none"}.${where}${share.note ? ` Note: ${share.note}.` : ""}${conflicted}${modified}`;
 }
 
 // dist/commands/threads.js
@@ -31408,7 +31428,7 @@ function originLine(parent) {
   return parent?.origin ? `Origin: ${clip(parent.origin, 400)} (where this Thread started; its Agreement now names the parent)` : void 0;
 }
 function shareJson(share) {
-  return { checked: share.checked, upstream: share.upstream, counts: share.counts, ...share.modified.size ? { modified: [...share.modified] } : {}, ...share.note ? { note: share.note } : {} };
+  return { checked: share.checked, upstream: share.upstream, counts: share.counts, ...share.modified.size ? { modified: [...share.modified] } : {}, ...share.unmerged.size ? { unmerged: [...share.unmerged] } : {}, ...share.note ? { note: share.note } : {} };
 }
 function localText(thread, posts2, rung, options) {
   const header = `${thread.slug}  ${thread.name}`;
