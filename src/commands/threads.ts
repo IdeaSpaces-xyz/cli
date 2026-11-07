@@ -311,7 +311,7 @@ export const threadsCommand: CommandDef = {
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
-    "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # the text a session launched from that post starts with: its own Map at its depths, the Note pinned in its Thread, the Agreement when --pov is given; says what was lowered. Reads at authored pins; writes nothing",
+    "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # --budget lowers the Map's character budget; the whole text stays within 16 KiB. The text a session launched from that post starts with: its own Map at its depths, the Note pinned in its Thread, the Agreement when --pov is given; says what was lowered. Reads at authored pins; writes nothing",
     "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'",
     "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
     "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
@@ -361,7 +361,7 @@ export const threadsCommand: CommandDef = {
         let budget: number | undefined;
         if (flags.budget !== undefined) {
           const raw = str(flags, "budget") ?? "";
-          if (!/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw new Error("--budget must be a positive integer number of characters.");
+          if (!/^[1-9][0-9]*$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw new Error("--budget must be a positive integer number of characters (the Map's budget; the whole launch is capped at 16 KiB in bytes).");
           budget = Number(raw);
         }
         if (flags.member !== undefined && !str(flags, "member")) throw new Error("--member requires a zero-based ordinal of the post's Map.");

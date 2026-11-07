@@ -197,6 +197,15 @@ process.stdin.resume(); process.stdin.on("data", () => {}); process.stdin.on("en
     await expect(assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root })).rejects.toThrow(/Combined Agreement and Thread orientation exceeds 16 KiB: \d+ bytes \(Agreement \d+, Thread frame \d+\)/);
   });
 
+  it("never lets --budget raise the Map past the room the cap leaves", async () => {
+    const f = fixture({ extra: 12, agreement: `---\nname: Agreement\nsummary: Terms\n---\n# Terms\n${"A clause of the Thread's terms. ".repeat(180)}\n` });
+    const result = await assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root, budget: 50_000 });
+    expect(result.map.budget).toBeLessThan(50_000);
+    expect(result.bytes).toBeLessThanOrEqual(MAX_ORIENTATION_BYTES);
+    const small = await assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root, budget: 6_000 });
+    expect(small.map.budget).toBe(6_000);
+  }, 30_000);
+
   it("says when the room left is smaller than any Map can fit", async () => {
     const f = fixture({ extra: 45, agreement: `---\nname: Agreement\n---\n${"A clause. ".repeat(1060)}\n` });
     await expect(assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root })).rejects.toThrow(/leave \d+ of 16384 bytes for the Map/);

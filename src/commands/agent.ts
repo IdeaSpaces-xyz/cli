@@ -222,6 +222,8 @@ async function cmdRun(
 
   // The Map goes in the same argv as the Agreement and the frame, so the cap counts it: the Map takes
   // the room they leave. When the pinned post is also a member of the Map, the Map does not read it twice.
+  // The check reads the Map once here and `local.send` reads it again with the budget found. Both read
+  // at the Map's pins, so the bytes agree; passing the text through would widen LocalSendOptions for both runtimes.
   let launchMap: LocalSendOptions["launchMap"];
   if (thread) {
     try {

@@ -71,6 +71,8 @@ export async function loadLaunchMap(
       loaded = await loadMapOrientation(reference, context, { budget: limit, loadedAsNote: parts.loadedAsNote });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      // Only a size failure is about the room; a Map that cannot be read says what it says.
+      if (!/every member at name/.test(detail)) throw error;
       throw new Error(`${detail} The Agreement and the Thread frame leave ${room} of ${MAX_ORIENTATION_BYTES} bytes for the Map.`);
     }
     const over = Buffer.byteLength(loaded.text) - room;
@@ -122,7 +124,7 @@ export interface LaunchTextInput {
   /** An agent folder whose Agreement goes in, as `agent run` does. */
   pov?: string;
   cwd?: string;
-  /** The Map's own character budget; the launch's byte cap is separate. */
+  /** The Map's own budget in characters. It can only lower the Map; the launch's cap is in bytes and still applies. */
   budget?: number;
 }
 
@@ -143,8 +145,13 @@ function selectNote(map: MapBlock, postId: string, attachedTo: string | undefine
   }
   const positions = map.members.flatMap((entry, index) =>
     typeof (entry as MapPositionMember).position === "string" ? [{ index, position: (entry as MapPositionMember).position }] : []);
+  // A post file is `<stamp>-<id>.md`: match the whole id, never a prefix of one.
+  const isPost = (position: string, id: string) => {
+    const file = position.slice(position.lastIndexOf("/") + 1);
+    return file === `${id}.md` || file.endsWith(`-${id}.md`);
+  };
   for (const id of [postId, attachedTo]) {
-    const found = id ? positions.find((entry) => entry.position.includes(id)) : undefined;
+    const found = id ? positions.find((entry) => isPost(entry.position, id)) : undefined;
     if (found) return found.index;
   }
   const listed = positions.map((entry) => `  ${memberLine(map, entry.index)}`).join("\n");
