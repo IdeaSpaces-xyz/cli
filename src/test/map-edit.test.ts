@@ -490,8 +490,10 @@ console.log(JSON.stringify({type:'result',subtype:'success',is_error:false,resul
       const prompt = invoked.args[invoked.args.indexOf("--append-system-prompt") + 1];
       expect(prompt).toContain("This Map's roots are the Space");
       expect(prompt).toContain(`First root (default folder for new material): ${JSON.stringify(realpathSync.native(agentDir))}`);
-      expect(prompt).not.toContain(`"workingRoot":"${realpathSync(maps)}"`);
+      expect(prompt).not.toContain(`"workingRoot":${JSON.stringify(realpathSync.native(maps))}`);
       expect(prompt).toContain('"focus":"notes/doc.md"');
+      const position = JSON.parse(prompt.match(/\[Local session position\]\n([^\n]+)/)![1]);
+      expect(realpathSync.native(position.workingRoot)).toBe(realpathSync.native(agentDir));
 
       const fakePi = join(dir, "fake-pi.cjs");
       const piArgsFile = join(dir, "pi-args.json");
@@ -522,8 +524,10 @@ process.stdin.on('data', d => {
       expect(realpathSync.native(piInvoked.cwd)).toBe(realpathSync.native(dir));
       const piPrompt = piInvoked.args[piInvoked.args.indexOf("--append-system-prompt") + 1];
       expect(piPrompt).toContain("This Map's roots are the Space");
-      expect(piPrompt).not.toContain(`"workingRoot":"${realpathSync(maps)}"`);
+      expect(piPrompt).not.toContain(`"workingRoot":${JSON.stringify(realpathSync.native(maps))}`);
       expect(piPrompt).toContain('"focus":"notes/doc.md"');
+      const piPosition = JSON.parse(piPrompt.match(/\[Local session position\]\n([^\n]+)/)![1]);
+      expect(realpathSync.native(piPosition.workingRoot)).toBe(realpathSync.native(agentDir));
     } finally {
       process.env.HOME = originalHome;
       process.chdir(originalCwd);
