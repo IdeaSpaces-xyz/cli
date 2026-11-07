@@ -10,6 +10,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
+import { singleLine } from "./claims.js";
 
 export interface PostChange {
   kind: "edited" | "deleted" | "uncommitted-edit" | "uncommitted-delete";
@@ -32,6 +33,21 @@ function git(cwd: string, args: string[]): { ok: boolean; out: string; err: stri
   return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
 }
 
+/** Git quotes a path with a control character, a quote or a backslash in C style; this reads it back to the bytes it names. */
+function unquotePath(path: string): string {
+  if (!(path.startsWith('"') && path.endsWith('"'))) return path;
+  const bytes: number[] = [];
+  const named: Record<string, number> = { n: 10, t: 9, r: 13, a: 7, b: 8, f: 12, v: 11, '"': 34, "\\": 92 };
+  const body = path.slice(1, -1);
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== "\\") { bytes.push(...Buffer.from(body[i], "utf8")); continue; }
+    const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1));
+    if (octal) { bytes.push(parseInt(octal[0], 8)); i += octal[0].length; continue; }
+    bytes.push(named[body[i + 1]] ?? body[i + 1].charCodeAt(0)); i++;
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
 /** `<slug>/<post>.md` relative to `_threads/`: a direct post file, never a README or something under `_agent/`. */
 function postPath(path: string): { thread: string; file: string } | undefined {
   const parts = path.split("/");
@@ -44,6 +60,11 @@ function postPath(path: string): { thread: string; file: string } | undefined {
  * `threadsDir` is the `_threads/` folder itself.
  */
 export function checkThreads(threadsDir: string, only?: string): ThreadCheck {
+  const result = scan(threadsDir, only);
+  return result.note === undefined ? result : { ...result, note: singleLine(result.note, 400) };
+}
+
+function scan(threadsDir: string, only?: string): ThreadCheck {
   const inside = git(threadsDir, ["rev-parse", "--is-inside-work-tree"]);
   if (!inside.ok || inside.out.trim() !== "true") {
     return { checked: false, note: "this Space is not in a Git repository, so there is no history to check; posts here cannot be shown to be unchanged", modified: [] };
@@ -51,12 +72,19 @@ export function checkThreads(threadsDir: string, only?: string): ThreadCheck {
   // A literal pathspec: a slug with glob characters must match only itself.
   const scope = only ? [`:(literal)${only}`] : ["."];
   const found = new Map<string, ModifiedPost>();
+  // The display copy is made here, where Git's words enter: a commit author, a subject or a file name never reach the report raw.
   const add = (path: string, change: PostChange) => {
     const post = postPath(path);
     if (!post || (only && post.thread !== only)) return;
     const key = `${post.thread}/${post.file}`;
-    const entry = found.get(key) ?? { ...post, changes: [] };
-    entry.changes.push(change);
+    const entry = found.get(key) ?? { thread: singleLine(post.thread, 200), file: singleLine(post.file, 300), changes: [] };
+    entry.changes.push({
+      kind: change.kind,
+      ...(change.commit !== undefined ? { commit: singleLine(change.commit, 64) } : {}),
+      ...(change.author !== undefined ? { author: singleLine(change.author, 120) } : {}),
+      ...(change.date !== undefined ? { date: singleLine(change.date, 40) } : {}),
+      ...(change.subject !== undefined ? { subject: singleLine(change.subject, 200) } : {}),
+    });
     found.set(key, entry);
   };
 
@@ -64,7 +92,7 @@ export function checkThreads(threadsDir: string, only?: string): ThreadCheck {
   const prefix = git(threadsDir, ["rev-parse", "--show-prefix"]).out.trim();
   const fromHere = (path: string) => (prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path);
   const status = git(threadsDir, ["status", "--porcelain=v1", "-z", "--untracked-files=no", "--", ...scope]);
-  if (!status.ok) return { checked: false, note: `Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, modified: [] };
+  if (!status.ok) return { checked: false, note: singleLine(`Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, 400), modified: [] };
   const entries = status.out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const code = entries[i].slice(0, 2), path = fromHere(entries[i].slice(3));
@@ -97,8 +125,9 @@ export function checkThreads(threadsDir: string, only?: string): ThreadCheck {
     const [header, ...lines] = block.split("\n");
     const [commit, author, date, subject] = header.split("\x1f");
     for (const line of lines) {
-      const [code, path] = line.split("\t");
-      if (!path) continue;
+      const [code, quoted] = line.split("\t");
+      if (!quoted) continue;
+      const path = unquotePath(quoted);
       add(path, { kind: code === "D" ? "deleted" : "edited", commit, author, date, subject });
     }
   }

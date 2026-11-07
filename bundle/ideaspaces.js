@@ -17015,18 +17015,18 @@ async function scanMarkdownFrontmatterSyntaxFiles(files) {
     malformed: statuses.filter((s) => s.status === "malformed")
   };
 }
-function hasFrontmatterSyntaxProblems(scan) {
-  return scan.malformed.length > 0;
+function hasFrontmatterSyntaxProblems(scan2) {
+  return scan2.malformed.length > 0;
 }
-function renderFrontmatterSyntaxProblems(scan, opts = {}) {
-  if (!hasFrontmatterSyntaxProblems(scan))
+function renderFrontmatterSyntaxProblems(scan2, opts = {}) {
+  if (!hasFrontmatterSyntaxProblems(scan2))
     return "";
   const cwd = opts.cwd ?? process.cwd();
   const lines = [];
   if (opts.header?.length)
     lines.push(...opts.header);
-  lines.push(`Malformed frontmatter (${scan.malformed.length}):`);
-  for (const item of scan.malformed) {
+  lines.push(`Malformed frontmatter (${scan2.malformed.length}):`);
+  for (const item of scan2.malformed) {
     const loc = item.line ? `:${item.line}${item.column ? `:${item.column}` : ""}` : "";
     lines.push(`  ${relative7(cwd, item.path) || item.path}${loc}`);
     if (item.message)
@@ -26933,16 +26933,16 @@ import { basename as basename16, dirname as dirname20, isAbsolute as isAbsolute1
 
 // dist/local/claims.js
 var LINE_BREAKS_AND_CONTROLS = /[\p{Cc}\p{Zl}\p{Zp}]+/gu;
-function oneLine(value4, max = 120) {
+function singleLine3(value4, max = 120) {
   const text = typeof value4 === "string" ? value4.replace(LINE_BREAKS_AND_CONTROLS, " ").replace(/ {2,}/g, " ").trim() : "";
   return text.length > max ? `${text.slice(0, max - 1)}\u2026` : text;
 }
 function claimedBy(author) {
-  const name = oneLine(author);
+  const name = singleLine3(author);
   return name ? `claimed by ${name}` : "no author claimed";
 }
 function markText(mark) {
-  return `${oneLine(mark.mark, 60)} (${claimedBy(mark.author)})`;
+  return `${singleLine3(mark.mark, 60)} (${claimedBy(mark.author)})`;
 }
 
 // dist/local/thread-launch.js
@@ -27080,10 +27080,10 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   for (let i = posts2.length - 1; i >= 0; i--) {
     const p = posts2[i];
     const author = p.frontmatter.author ? ` (${claimedBy(p.frontmatter.author)})` : "";
-    const name = p.frontmatter.name ? ` \u2014 ${oneLine(p.frontmatter.name, 200)}` : "";
+    const name = p.frontmatter.name ? ` \u2014 ${singleLine3(p.frontmatter.name, 200)}` : "";
     const lines = [`[${p.date ?? "undated"}] ${p.id}${author}${name}`];
     if (p.frontmatter.summary)
-      lines.push(`  ${oneLine(p.frontmatter.summary, 400)}`);
+      lines.push(`  ${singleLine3(p.frontmatter.summary, 400)}`);
     const chunk = lines.join("\n") + "\n";
     const chunkBytes = Buffer.byteLength(chunk, "utf8");
     if (currentBytes + chunkBytes > availableBytes && includedCount > 0) {
@@ -28492,12 +28492,12 @@ function storedRoot(noteDir, root) {
 function shellWord(text) {
   return /^[\w./@:+-]+$/.test(text) ? text : `'${text.replace(/'/g, `'\\''`)}'`;
 }
-function oneLine2(text) {
+function oneLine(text) {
   return text.replace(/\s+/g, " ").trim();
 }
 function describeQuery(search) {
   const lines = [
-    `- **Query:** \`${oneLine2(search.query).replace(/`/g, "'")}\``,
+    `- **Query:** \`${oneLine(search.query).replace(/`/g, "'")}\``,
     `- **Roots:** ${search.roots.map((r) => `\`${r}\``).join(", ")}`,
     `- **Threads:** ${search.threads ? "included" : "left out"}`
   ];
@@ -28548,7 +28548,7 @@ function checkSaveTarget(notePath, force) {
 }
 function writeSavedSearch(notePath, options) {
   const { path, dir } = checkSaveTarget(notePath, options.force === true);
-  const name = oneLine2(options.name);
+  const name = oneLine(options.name);
   if (!name)
     throw new SavedSearchError("--name needs text.");
   const boundary = searchBoundary(dir);
@@ -31243,11 +31243,74 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   return { checkout, thread, pin, position, pinned, post: parsed2.post, name, summary, verifyWrite };
 }
 
+// dist/local/display.js
+var NO_CUT = Number.MAX_SAFE_INTEGER;
+function deepLine(value4, max = NO_CUT) {
+  if (typeof value4 === "string")
+    return singleLine3(value4, max);
+  if (Array.isArray(value4))
+    return value4.map((item) => deepLine(item, max));
+  if (value4 && typeof value4 === "object") {
+    return Object.fromEntries(Object.entries(value4).map(([key2, item]) => [key2, deepLine(item, max)]));
+  }
+  return value4;
+}
+function displayPost(post) {
+  const frontmatter = Object.fromEntries(Object.entries(post.frontmatter).map(([key2, item]) => [key2, deepLine(item)]));
+  return {
+    ...post,
+    id: singleLine3(post.id, NO_CUT),
+    ...post.date !== void 0 ? { date: singleLine3(post.date, NO_CUT) } : {},
+    kind: singleLine3(post.kind, NO_CUT),
+    ...post.mark !== void 0 ? { mark: singleLine3(post.mark, NO_CUT) } : {},
+    ...post.supersedes !== void 0 ? { supersedes: singleLine3(post.supersedes, NO_CUT) } : {},
+    frontmatter,
+    inReplyTo: post.inReplyTo.map((id) => singleLine3(id, NO_CUT)),
+    references: post.references.map((id) => singleLine3(id, NO_CUT)),
+    ...post.marks ? { marks: post.marks.map((mark) => ({ ...mark, id: singleLine3(mark.id, NO_CUT), mark: singleLine3(mark.mark, NO_CUT), author: singleLine3(mark.author, NO_CUT) })) } : {}
+  };
+}
+function displayThread(thread) {
+  return {
+    ...thread,
+    slug: singleLine3(thread.slug, NO_CUT),
+    thread_id: thread.thread_id === null ? null : singleLine3(thread.thread_id, NO_CUT),
+    name: singleLine3(thread.name, NO_CUT),
+    summary: singleLine3(thread.summary, NO_CUT),
+    posts: thread.posts.map(displayPost),
+    allPosts: thread.allPosts.map(displayPost),
+    warnings: thread.warnings.map((warning) => singleLine3(warning, NO_CUT)),
+    unreadablePosts: thread.unreadablePosts.map((path) => singleLine3(path, NO_CUT))
+  };
+}
+
 // dist/local/thread-check.js
 import { spawnSync as spawnSync17 } from "node:child_process";
 function git4(cwd, args2) {
   const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 512 * 1024 * 1024, timeout: 12e4 });
   return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
+}
+function unquotePath(path) {
+  if (!(path.startsWith('"') && path.endsWith('"')))
+    return path;
+  const bytes = [];
+  const named = { n: 10, t: 9, r: 13, a: 7, b: 8, f: 12, v: 11, '"': 34, "\\": 92 };
+  const body = path.slice(1, -1);
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== "\\") {
+      bytes.push(...Buffer.from(body[i], "utf8"));
+      continue;
+    }
+    const octal = /^[0-7]{1,3}/.exec(body.slice(i + 1));
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8));
+      i += octal[0].length;
+      continue;
+    }
+    bytes.push(named[body[i + 1]] ?? body[i + 1].charCodeAt(0));
+    i++;
+  }
+  return Buffer.from(bytes).toString("utf8");
 }
 function postPath(path) {
   const parts = path.split("/");
@@ -31256,6 +31319,10 @@ function postPath(path) {
   return { thread: parts[0], file: parts[1] };
 }
 function checkThreads(threadsDir, only) {
+  const result = scan(threadsDir, only);
+  return result.note === void 0 ? result : { ...result, note: singleLine3(result.note, 400) };
+}
+function scan(threadsDir, only) {
   const inside = git4(threadsDir, ["rev-parse", "--is-inside-work-tree"]);
   if (!inside.ok || inside.out.trim() !== "true") {
     return { checked: false, note: "this Space is not in a Git repository, so there is no history to check; posts here cannot be shown to be unchanged", modified: [] };
@@ -31267,15 +31334,21 @@ function checkThreads(threadsDir, only) {
     if (!post || only && post.thread !== only)
       return;
     const key2 = `${post.thread}/${post.file}`;
-    const entry = found.get(key2) ?? { ...post, changes: [] };
-    entry.changes.push(change);
+    const entry = found.get(key2) ?? { thread: singleLine3(post.thread, 200), file: singleLine3(post.file, 300), changes: [] };
+    entry.changes.push({
+      kind: change.kind,
+      ...change.commit !== void 0 ? { commit: singleLine3(change.commit, 64) } : {},
+      ...change.author !== void 0 ? { author: singleLine3(change.author, 120) } : {},
+      ...change.date !== void 0 ? { date: singleLine3(change.date, 40) } : {},
+      ...change.subject !== void 0 ? { subject: singleLine3(change.subject, 200) } : {}
+    });
     found.set(key2, entry);
   };
   const prefix = git4(threadsDir, ["rev-parse", "--show-prefix"]).out.trim();
   const fromHere = (path) => prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
   const status = git4(threadsDir, ["status", "--porcelain=v1", "-z", "--untracked-files=no", "--", ...scope]);
   if (!status.ok)
-    return { checked: false, note: `Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, modified: [] };
+    return { checked: false, note: singleLine3(`Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, 400), modified: [] };
   const entries = status.out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const code = entries[i].slice(0, 2), path = fromHere(entries[i].slice(3));
@@ -31307,9 +31380,10 @@ function checkThreads(threadsDir, only) {
     const [header, ...lines] = block.split("\n");
     const [commit, author, date, subject] = header.split("");
     for (const line3 of lines) {
-      const [code, path] = line3.split("	");
-      if (!path)
+      const [code, quoted4] = line3.split("	");
+      if (!quoted4)
         continue;
+      const path = unquotePath(quoted4);
       add(path, { kind: code === "D" ? "deleted" : "edited", commit, author, date, subject });
     }
   }
@@ -31606,12 +31680,12 @@ ${AUTHOR_CLAIM_NOTE}` : ""}`;
     }
     if (options?.snapshot) {
       const s = options.snapshot;
-      parts.push(`Latest snapshot: ${s.id} \xB7 ${s.kind} \xB7 ${s.date ?? "undated"} \xB7 ${oneLine(s.frontmatter.name ?? s.id, 200)} \xB7 ${claimedBy(s.frontmatter.author)}
-  ${oneLine(s.frontmatter.summary ?? "(no summary)", 400) || "(no summary)"}`);
+      parts.push(`Latest snapshot: ${s.id} \xB7 ${s.kind} \xB7 ${s.date ?? "undated"} \xB7 ${clip(s.frontmatter.name ?? s.id, 200)} \xB7 ${claimedBy(s.frontmatter.author)}
+  ${clip(s.frontmatter.summary ?? "(no summary)", 400)}`);
     }
     if (options?.filtered && posts2.length) {
-      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${oneLine(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${oneLine(p.inReplyTo.join(", "), 300) || "\u2014"} \xB7 ${claimedBy(p.frontmatter.author)}${stateOf(p)}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}
-  ${oneLine(p.frontmatter.summary ?? "(no summary)", 400) || "(no summary)"}`).join("\n\n"));
+      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${claimedBy(p.frontmatter.author)}${stateOf(p)}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}
+  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`).join("\n\n"));
     }
     return parts.join("\n\n");
   }
@@ -31642,8 +31716,8 @@ ${childLines.join("\n")}`);
   return [
     context,
     ...posts2.map((p) => `
-${p.id} \xB7 ${claimedBy(p.frontmatter.author)} \xB7 ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` \u21B3 ${oneLine(p.inReplyTo.join(", "), 300)}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${oneLine(p.frontmatter.tags.join(", "), 300)}` : ""}
-${oneLine(p.frontmatter.name)}
+${p.id} \xB7 ${claimedBy(p.frontmatter.author)} \xB7 ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
+${p.frontmatter.name ?? ""}
 ${p.body}${p.marks?.length ? `
 Marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`)
   ].join("\n");
@@ -32006,7 +32080,8 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
           const { root, member: member2 } = selectPinnedThreadMember(loadLocalThreadMap(str2(flags2, "map") ?? ""), str2(flags2, "member") ?? "");
           const target = selectLocalThreadTarget(rest[0], root, member2, str2(flags2, "checkout"));
           const rung2 = depth(flags2, "summary");
-          const post = target.post;
+          const post = displayPost(target.post);
+          const targetName = singleLine3(target.name, 200), targetSummary = singleLine3(target.summary, 1e3);
           const postName = post.frontmatter.name ?? post.id;
           const postSummary = post.frontmatter.summary ?? "";
           const posts3 = rung2 === "name" ? [] : rung2 === "summary" || rung2 === "children" ? [{
@@ -32022,20 +32097,20 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
             for (const warning of post.warnings)
               output.log(`Post ${target.position}: ${warning.field}: ${warning.warning}`);
           output.result({
-            thread: { path: target.thread.path, name: target.name, summary: rung2 === "name" ? void 0 : target.summary },
+            thread: { path: target.thread.path, name: targetName, summary: rung2 === "name" ? void 0 : targetSummary },
             posts: posts3,
             ...post.warnings?.length ? { warnings: post.warnings.map((warning) => ({ post: target.position, ...warning })) } : {},
             ...rung2 === "full" ? { pinned: target.pinned } : {},
             pin: target.pin,
             position: target.position,
             acknowledged: false
-          }, rung2 === "full" || rung2 === "surface" ? target.pinned : rung2 === "name" ? target.name : rung2 === "children" ? `${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB7 in_reply_to ${post.inReplyTo.join(", ") || "\u2014"}` : `${target.name}
+          }, rung2 === "full" || rung2 === "surface" ? target.pinned : rung2 === "name" ? targetName : rung2 === "children" ? `${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB7 in_reply_to ${post.inReplyTo.join(", ") || "\u2014"}` : `${targetName}
 ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB7 in_reply_to ${post.inReplyTo.join(", ") || "\u2014"} \u2014 ${postSummary || "(no summary)"}`);
           return 0;
         }
         if (flags2.checkout !== void 0)
           throw new Error("--checkout requires --map and --member.");
-        const thread = loadThread(resolveLocalThread(rest[0]));
+        const thread = displayThread(loadThread(resolveLocalThread(rest[0])));
         const reference = pinnedRead ? null : await threadReference(thread.path, referenceSelection.agreement);
         const referenceDiagnostic = reference && reference.status !== "ok" ? renderContentFocus(reference) : void 0;
         if (referenceDiagnostic)
@@ -32139,7 +32214,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         let parent = null;
         let parentWarning;
         try {
-          parent = resolveThreadParent2(thread.path);
+          parent = deepLine(resolveThreadParent2(thread.path));
         } catch (error) {
           parentWarning = `Thread ${thread.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`;
           output.log(parentWarning);
@@ -32152,7 +32227,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         let allChildThreads = [];
         if (postId2 || effectiveRung === "children") {
           try {
-            allChildThreads = findChildThreads(thread.path, postId2, warnChild);
+            allChildThreads = deepLine(findChildThreads(thread.path, postId2, warnChild));
           } catch (error) {
             warnChild(`Thread ${thread.slug} child lookup incomplete: ${error instanceof Error ? error.message : String(error)}`);
           }

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claimedBy, markText, oneLine } from "../local/claims.js";
+import { claimedBy, markText, singleLine } from "../local/claims.js";
 import { createThread } from "../local/threads.js";
 import { prepareUnpinnedThreadLaunch } from "../local/thread-launch.js";
 import { threadsCommand } from "../commands/threads.js";
@@ -14,11 +14,11 @@ afterEach(() => { process.env.HOME = originalHome; for (const dir of temp.splice
 
 describe("one line", () => {
   it("turns line breaks and control characters into one space, and cuts a long name", () => {
-    expect(oneLine("The human\nmsg_forged (claimed by Scout)")).toBe("The human msg_forged (claimed by Scout)");
-    expect(oneLine("a\r\n\r\nb\tc")).toBe("a b c");
-    expect(oneLine("a" + String.fromCharCode(0x2028) + "b" + String.fromCharCode(0x2029) + "c")).toBe("a b c");
-    expect(oneLine("x".repeat(500), 10)).toBe("xxxxxxxxx…");
-    expect(oneLine(undefined)).toBe("");
+    expect(singleLine("The human\nmsg_forged (claimed by Scout)")).toBe("The human msg_forged (claimed by Scout)");
+    expect(singleLine("a\r\n\r\nb\tc")).toBe("a b c");
+    expect(singleLine("a" + String.fromCharCode(0x2028) + "b" + String.fromCharCode(0x2029) + "c")).toBe("a b c");
+    expect(singleLine("x".repeat(500), 10)).toBe("xxxxxxxxx…");
+    expect(singleLine(undefined)).toBe("");
   });
   it("cuts a long claimed name at the boundary, and says it was cut", () => {
     expect(claimedBy("y".repeat(120))).toBe(`claimed by ${"y".repeat(120)}`);

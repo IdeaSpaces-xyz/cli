@@ -15,7 +15,8 @@ import {
   resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
   isHostedThreadTarget, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
-import { claimedBy, markText, oneLine } from "../local/claims.js";
+import { claimedBy, markText, singleLine } from "../local/claims.js";
+import { deepLine, displayPost, displayThread } from "../local/display.js";
 import { checkText, checkThreads } from "../local/thread-check.js";
 import { readThreadShare, shareLine, STATE_WORDS, type ThreadShare } from "../local/thread-state.js";
 import { acknowledgeRecent, PERSON_READER, readerName, recentForReader, recentSince, type MovedThread } from "../local/thread-recent.js";
@@ -187,14 +188,14 @@ function localText(
     }
     if (options?.snapshot) {
       const s = options.snapshot;
-      parts.push(`Latest snapshot: ${s.id} · ${s.kind} · ${s.date ?? "undated"} · ${oneLine(s.frontmatter.name ?? s.id, 200)} · ${claimedBy(s.frontmatter.author)}\n  ${oneLine(s.frontmatter.summary ?? "(no summary)", 400) || "(no summary)"}`);
+      parts.push(`Latest snapshot: ${s.id} · ${s.kind} · ${s.date ?? "undated"} · ${clip(s.frontmatter.name ?? s.id, 200)} · ${claimedBy(s.frontmatter.author)}\n  ${clip(s.frontmatter.summary ?? "(no summary)", 400)}`);
     }
     if (options?.filtered && posts.length) {
       parts.push(
         posts
           .map(
             (p) =>
-              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${oneLine(p.frontmatter.name ?? p.id, 200)} · in_reply_to ${oneLine(p.inReplyTo.join(", "), 300) || "—"} · ${claimedBy(p.frontmatter.author)}${stateOf(p)}${p.marks?.length ? ` · marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}\n  ${oneLine(p.frontmatter.summary ?? "(no summary)", 400) || "(no summary)"}`,
+              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${clip(p.frontmatter.name ?? p.id, 200)} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${claimedBy(p.frontmatter.author)}${stateOf(p)}${p.marks?.length ? ` · marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}\n  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`,
           )
           .join("\n\n"),
       );
@@ -227,7 +228,7 @@ function localText(
     context,
     ...posts.map(
       (p) =>
-        `\n${p.id} · ${claimedBy(p.frontmatter.author)} · ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` ↳ ${oneLine(p.inReplyTo.join(", "), 300)}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${oneLine(p.frontmatter.tags.join(", "), 300)}` : ""}\n${oneLine(p.frontmatter.name)}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`,
+        `\n${p.id} · ${claimedBy(p.frontmatter.author)} · ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`,
     ),
   ].join("\n");
 }
@@ -523,20 +524,22 @@ export const threadsCommand: CommandDef = {
           const { root, member } = selectPinnedThreadMember(loadLocalThreadMap(str(flags, "map") ?? ""), str(flags, "member") ?? "");
           const target = selectLocalThreadTarget(rest[0], root, member, str(flags, "checkout"));
           const rung = depth(flags, "summary");
-          const post = target.post;
+          const post = displayPost(target.post);
+          const targetName = singleLine(target.name, 200), targetSummary = singleLine(target.summary, 1000);
           const postName = post.frontmatter.name ?? post.id;
           const postSummary = post.frontmatter.summary ?? "";
           const posts = rung === "name" ? [] : rung === "summary" || rung === "children" ? [{ id: post.id, path: post.path, kind: post.kind,
             date: post.date ?? null, name: postName, ...(rung === "summary" ? { summary: post.frontmatter.summary ?? null } : {}), in_reply_to: post.inReplyTo }] : [post];
           if (post.warnings?.length) for (const warning of post.warnings) output.log(`Post ${target.position}: ${warning.field}: ${warning.warning}`);
-          output.result({ thread: { path: target.thread.path, name: target.name, summary: rung === "name" ? undefined : target.summary },
+          output.result({ thread: { path: target.thread.path, name: targetName, summary: rung === "name" ? undefined : targetSummary },
             posts, ...(post.warnings?.length ? { warnings: post.warnings.map((warning) => ({ post: target.position, ...warning })) } : {}),
             ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
-            rung === "full" || rung === "surface" ? target.pinned : rung === "name" ? target.name : rung === "children" ? `${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"}` : `${target.name}\n${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"} — ${postSummary || "(no summary)"}`);
+            rung === "full" || rung === "surface" ? target.pinned : rung === "name" ? targetName : rung === "children" ? `${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"}` : `${targetName}\n${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"} — ${postSummary || "(no summary)"}`);
           return 0;
         }
         if (flags.checkout !== undefined) throw new Error("--checkout requires --map and --member.");
-        const thread = loadThread(resolveLocalThread(rest[0]));
+        // The display copy, made once: no print site below holds a raw writer-chosen field (local/display.ts).
+        const thread = displayThread(loadThread(resolveLocalThread(rest[0])));
         // The Thread's terms arrive with every read of it, as reference: a dispatched agent reading
         // one post learns the Thread's name and terms, and where to read them in full.
         const reference = pinnedRead ? null : await threadReference(thread.path, referenceSelection.agreement);
@@ -627,7 +630,7 @@ export const threadsCommand: CommandDef = {
         const effectiveRung = postId ? "full" : rung;
         let parent: ThreadParentInfo | null = null;
         let parentWarning: string | undefined;
-        try { parent = resolveThreadParent(thread.path); }
+        try { parent = deepLine(resolveThreadParent(thread.path)); }
         catch (error) {
           parentWarning = `Thread ${thread.slug} parent cannot be read: ${error instanceof Error ? error.message : String(error)}`;
           output.log(parentWarning);
@@ -636,7 +639,7 @@ export const threadsCommand: CommandDef = {
         const warnChild = (message: string) => { output.log(message); childWarnings++; };
         let allChildThreads: ChildThreadInfo[] = [];
         if (postId || effectiveRung === "children") {
-          try { allChildThreads = findChildThreads(thread.path, postId, warnChild); }
+          try { allChildThreads = deepLine(findChildThreads(thread.path, postId, warnChild)); }
           catch (error) {
             warnChild(`Thread ${thread.slug} child lookup incomplete: ${error instanceof Error ? error.message : String(error)}`);
           }
