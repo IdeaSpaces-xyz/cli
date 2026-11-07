@@ -1,2 +1,5 @@
 contract/*.json text eol=lf
 bundle/ideaspaces.js text eol=lf linguist-generated=true
+
+# Node/Vitest must see the queue scripts with a stable LF shebang on Windows.
+.github/scripts/*.mjs text eol=lf

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,9 +7,26 @@ import { appendPost, createThread } from "../local/threads.js";
 import { readThreadShare, shareLine } from "../local/thread-state.js";
 import { threadsCommand } from "../commands/threads.js";
 
+// Substitute just the failing executable, keeping real Git for all other calls.
+// A POSIX wrapper is not an executable on native Windows.
+const fakeGit = vi.hoisted(() => new Map<string, { verb: string; needle: string; dir: string }>());
+vi.mock("node:child_process", async importOriginal => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  const fs = await import("node:fs");
+  return { ...actual, spawnSync: (bin: string, args: string[], options: any) => {
+    const stub = fakeGit.get(bin);
+    if (!stub) return actual.spawnSync(bin, args, options);
+    fs.appendFileSync(join(stub.dir, "locks"), `${options?.env?.GIT_OPTIONAL_LOCKS ?? ""}\n`);
+    if (args[0] === stub.verb && args.join(" ").includes(stub.needle)) {
+      return { status: 128, signal: null, stdout: "", stderr: `fatal: simulated ${stub.verb} failure\n`, pid: 0, output: [] };
+    }
+    return actual.spawnSync("git", args, options);
+  } };
+});
+
 const temp: string[] = [];
 const originalHome = process.env.HOME;
-afterEach(() => { process.env.HOME = originalHome; for (const dir of temp.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { fakeGit.clear(); process.env.HOME = originalHome; for (const dir of temp.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 function space() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "is-post-state-"))); temp.push(dir);
@@ -131,11 +148,11 @@ describe("where a local post is", () => {
   /** A `git` that runs the real one except for the named verb (when its arguments also contain `needle`), which fails; it records the optional-locks setting it was given. */
   function failing(verb: string, needle = ""): string {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "is-fake-git-"))); temp.push(dir);
-    const bin = join(dir, "git");
-    writeFileSync(bin, `#!/bin/sh\necho "$GIT_OPTIONAL_LOCKS" >> "${join(dir, "locks")}"\nif [ "$1" = "${verb}" ] && echo "$*" | grep -q -e "${needle}"; then echo "fatal: simulated ${verb} failure" >&2; exit 128; fi\nexec "${execFileSync("which", ["git"], { encoding: "utf8" }).trim()}" "$@"\n`, { mode: 0o755 });
+    const bin = join(dir, "git-fixture");
+    fakeGit.set(bin, { verb, needle, dir });
     return bin;
   }
-  it.skipIf(process.platform === "win32")("says it does not know, and gives no post a state, when Git cannot report the status", () => {
+  it("says it does not know, and gives no post a state, when Git cannot report the status", () => {
     const root = space(); repo(root);
     const t = opened(root);
     process.env.IDEASPACES_GIT_BIN = failing("status");
@@ -147,7 +164,7 @@ describe("where a local post is", () => {
     } finally { delete process.env.IDEASPACES_GIT_BIN; }
   });
 
-  it.skipIf(process.platform === "win32")("calls an upstream it cannot compare committed, with the reason, never pushed; and never lets Git write while it reads", () => {
+  it("calls an upstream it cannot compare committed, with the reason, never pushed; and never lets Git write while it reads", () => {
     const root = space(); repo(root); remoteFor(root);
     const t = opened(root);
     git(root, "add", "-A"); git(root, "commit", "-qm", "Thread"); git(root, "push", "-q", "-u", "origin", "main");
@@ -178,7 +195,7 @@ describe("where a local post is", () => {
     } finally { delete process.env.IDEASPACES_GIT_BIN; }
   });
 
-  it.skipIf(process.platform === "win32")("reads a HEAD it cannot verify as unknown, and no HEAD yet as local", () => {
+  it("reads a HEAD it cannot verify as unknown, and no HEAD yet as local", () => {
     const root = space(); repo(root);
     const t = opened(root);
     // A repository with no commit has no HEAD: every post is only a file here.
@@ -222,7 +239,7 @@ describe("where a local post is", () => {
     expect(shareLine(share)).toMatch(/1 post file is in a merge conflict and counted as local only: /);
   });
 
-  it.skipIf(process.platform === "win32")("stops waiting on a hung Git after the allowance in all, and says unknown: six slow calls cannot add up to minutes", () => {
+  it("stops waiting on a hung Git after the allowance in all, and says unknown: six slow calls cannot add up to minutes", () => {
     const root = space(); repo(root);
     const t = opened(root);
     git(root, "add", "-A"); git(root, "commit", "-qm", "Thread");
