@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { assembleContentReference, HOSTED_THREAD_ID, parseFrontmatter, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
 import { agreementFlag, preferredContractSource } from "../contract-source.js";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
@@ -15,6 +15,7 @@ import {
   resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
   isHostedThreadTarget, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
+import { readThreadShare, shareLine, STATE_WORDS, type ThreadShare } from "../local/thread-state.js";
 import { acknowledgeRecent, PERSON_READER, readerName, recentForReader, recentSince, type MovedThread } from "../local/thread-recent.js";
 import { hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
 import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, NAMED_THREAD_HINT, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
@@ -128,6 +129,11 @@ async function threadReference(threadPath: string, agreement?: ContentRepresenta
 function originLine(parent: ThreadParentInfo | null | undefined): string | undefined {
   return parent?.origin ? `Origin: ${clip(parent.origin, 400)} (where this Thread started; its Agreement now names the parent)` : undefined;
 }
+/** The Thread's share summary as JSON: counts and the upstream, not one record per post (each post carries its own `state`). */
+function shareJson(share: ThreadShare) {
+  return { checked: share.checked, upstream: share.upstream, counts: share.counts, ...(share.modified.size ? { modified: [...share.modified] } : {}), ...(share.unmerged.size ? { unmerged: [...share.unmerged] } : {}), ...(share.note ? { note: share.note } : {}) };
+}
+
 function localText(
   thread: LocalThread,
   posts: LocalThread["posts"],
@@ -142,6 +148,8 @@ function localText(
     childThreadTotal?: number;
     childWarnings?: number;
     filtered?: boolean;
+    /** Where each post is (local only, committed, pushed), and the Thread's line about it. */
+    share?: ThreadShare;
   },
 ): string {
   const header = `${thread.slug}  ${thread.name}`;
@@ -160,7 +168,9 @@ function localText(
       .join("\n\n");
   }
 
-  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})\n${rung === "full" ? thread.summary : clip(thread.summary, 400)}\n${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} · ${thread.allPosts.length} posts`;
+  const shared = options?.share ? shareLine(options.share) : undefined;
+  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})\n${rung === "full" ? thread.summary : clip(thread.summary, 400)}\n${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} · ${thread.allPosts.length} posts${shared ? `\n${shared}` : ""}`;
+  const stateOf = (p: LocalThread["posts"][number]): string => { const state = options?.share?.states.get(p.path); return state ? ` · ${STATE_WORDS[state]}` : ""; };
 
   if (rung === "summary") {
     const parts = [context];
@@ -179,7 +189,7 @@ function localText(
         posts
           .map(
             (p) =>
-              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${clip(p.frontmatter.name ?? p.id, 200)} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}${p.marks?.length ? ` · marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}\n  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`,
+              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${clip(p.frontmatter.name ?? p.id, 200)} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${p.frontmatter.author ?? "unknown author"}${stateOf(p)}${p.marks?.length ? ` · marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}\n  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`,
           )
           .join("\n\n"),
       );
@@ -212,7 +222,7 @@ function localText(
     context,
     ...posts.map(
       (p) =>
-        `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}`,
+        `\n${p.id} · ${p.frontmatter.author ?? "unknown author"} · ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}`,
     ),
   ].join("\n");
 }
@@ -290,7 +300,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
-    "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]",
+    "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
@@ -632,14 +642,17 @@ export const threadsCommand: CommandDef = {
         const snapshot = findNewestSnapshot(thread.posts);
 
         // Surface keeps a bounded preview; full and --post retain exact bodies.
+        // Where the posts are ("posted" is not "delivered"): at most six Git calls and eight seconds in all, never the network. A name read shows no posts.
+        const share = effectiveRung === "name" ? undefined : readThreadShare(thread.path, thread.allPosts.map((post) => post.path));
+        const stateField = (post: { path: string }) => { const state = share?.states.get(post.path); return state ? { state } : {}; };
         const boundedPosts = !postId && effectiveRung === "surface"
           ? posts.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES, body: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES
             ? clip(p.body, SURFACE_BODY_BYTES, `… [body truncated; use --post ${p.id} for the complete post]`) : p.body })) : posts;
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
             summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null,
-            ...(p.marks?.length ? { marks: p.marks } : {}), ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
-          : p);
+            ...stateField(p), ...(p.marks?.length ? { marks: p.marks } : {}), ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
+          : { ...p, ...stateField(p) });
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;
 
@@ -648,14 +661,16 @@ export const threadsCommand: CommandDef = {
           humanText = pinned;
         } else if (rawPost) {
           const marks = posts[0]?.marks;
-          humanText = rawPost + (marks?.length ? `\nMarks: ${marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : "");
+          const rawState = share?.states.get(posts[0].path);
+          humanText = rawPost + (marks?.length ? `\nMarks: ${marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : "")
+            + (rawState ? `\nState: ${STATE_WORDS[rawState]}${share?.modified.has(posts[0].path) ? "; this file was changed after it was committed" : ""}` : "");
           if (childThreads.length > 0) {
             humanText += `\n\nChild Threads (${childThreads.length} of ${allChildThreads.length} known):\n` + childThreads.map((c) => `  ${c.slug}  ${clip(c.name, 200)}\n    summary: ${clip(c.summary || "(no summary)", 200)}`).join("\n");
           }
           if (childWarnings) humanText += `\nChild Thread lookup incomplete: ${childWarnings} unreadable sibling(s).`;
         } else {
           humanText = localText(thread, boundedPosts, effectiveRung, {
-            frame, parent, snapshot, branches, childThreads, branchTotal: allBranches.length, childThreadTotal: allChildThreads.length, childWarnings, filtered,
+            frame, parent, snapshot, branches, childThreads, branchTotal: allBranches.length, childThreadTotal: allChildThreads.length, childWarnings, filtered, share,
           });
         }
 
@@ -669,6 +684,7 @@ export const threadsCommand: CommandDef = {
         }
         output.result({ schema: "ideaspaces.local-thread.open.v4", ...(focus?.status === "ok" ? { reference: focus } : {}), ...(referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {}), thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
           closed: thread.closed, parent, warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
+          ...(share ? { share: shareJson(share) } : {}),
           ...(parentWarning ? { parent_warning: parentWarning } : {}),
           ...(effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {}),
           ...(frame ? { frame } : {}) }, posts: projected,
@@ -743,7 +759,10 @@ export const threadsCommand: CommandDef = {
           rejectEscapedNewlines: typeof flags.message === "string", verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
         for (const warning of warnings) output.log(`Link warning: ${warning}`);
-        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(warnings.length ? { warnings } : {}) }, `Appended ${post.kind}: ${path}`); return 0;
+        const postShare = readThreadShare(dirname(path), [basename(path)]);
+        const posted = postShare.states.get(basename(path));
+        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(posted ? { state: posted } : {}), ...(warnings.length ? { warnings } : {}) },
+          `Appended ${post.kind}: ${path}${posted === "local" ? (postShare.inRepository ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only.") : ""}`); return 0;
       }
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");

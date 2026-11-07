@@ -31091,8 +31091,8 @@ var spacesCommand = {
 
 // dist/commands/threads.js
 import { existsSync as existsSync32, lstatSync as lstatSync9, readFileSync as readFileSync21, realpathSync as realpathSync25 } from "node:fs";
-import { spawnSync as spawnSync17 } from "node:child_process";
-import { dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
+import { spawnSync as spawnSync18 } from "node:child_process";
+import { basename as basename22, dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
 
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync16 } from "node:child_process";
@@ -31211,6 +31211,116 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
     }
   };
   return { checkout, thread, pin, position, pinned, post: parsed2.post, name, summary, verifyWrite };
+}
+
+// dist/local/thread-state.js
+import { spawnSync as spawnSync17 } from "node:child_process";
+var GIT_WAIT_MS = 8e3;
+var CALL_MS = 5e3;
+function gitCall(cwd, args2, deadline, waitMs) {
+  const left = deadline - Date.now();
+  if (left <= 0)
+    return { ok: false, status: null, out: "", err: `Git did not answer within ${Math.round(waitMs / 100) / 10} s` };
+  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 16 * 1024 * 1024, timeout: Math.min(left, CALL_MS) });
+  const timedOut = result.error?.code === "ETIMEDOUT";
+  return {
+    ok: !result.error && result.status === 0,
+    status: result.error ? null : result.status,
+    out: result.stdout ?? "",
+    err: timedOut ? `Git did not answer within ${Math.round(waitMs / 100) / 10} s` : (result.stderr ?? "").trim() || result.error?.message || ""
+  };
+}
+var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), inRepository: true, counts: { local: 0, committed: 0, pushed: 0 } });
+function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
+  const deadline = Date.now() + waitMs;
+  const git4 = (cwd, args2) => gitCall(cwd, args2, deadline, waitMs);
+  const where = git4(threadDir, ["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
+  if (!where.ok) {
+    if (where.status === 128 && /not a git repository/i.test(where.err)) {
+      const states2 = new Map(files.map((file2) => [file2, "local"]));
+      return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states: states2, modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), inRepository: false, counts: { local: files.length, committed: 0, pushed: 0 } };
+    }
+    return unchecked(`Git could not be asked${where.err ? `: ${where.err.split("\n").pop()}` : ""}`);
+  }
+  const [inside, prefix = ""] = where.out.split("\n").map((line3) => line3.trim());
+  if (inside !== "true")
+    return unchecked("this folder is not inside a Git working tree, so its posts' state is unknown");
+  const direct = (path) => {
+    const rest = prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
+    return rest.includes("/") ? void 0 : rest;
+  };
+  const status = git4(threadDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
+  if (!status.ok)
+    return unchecked(`Git could not report this Thread's status${status.err ? `: ${status.err.split("\n").pop()}` : ""}`);
+  const local = /* @__PURE__ */ new Set();
+  const modified = /* @__PURE__ */ new Set();
+  const unmerged = /* @__PURE__ */ new Set();
+  const entries = status.out.split("\0").filter(Boolean);
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const code = entry.slice(0, 2), name = direct(entry.slice(3));
+    if (code[0] === "R" || code[0] === "C")
+      i++;
+    if (name === void 0)
+      continue;
+    if (code[0] === "U" || code[1] === "U" || code === "AA" || code === "DD") {
+      unmerged.add(name);
+      local.add(name);
+      continue;
+    }
+    if (code === "??" || code[0] === "A")
+      local.add(name);
+    else if (code.includes("M") || code.includes("T") || code[0] === "R")
+      modified.add(name);
+  }
+  const haveHead = git4(threadDir, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  let inHead = /* @__PURE__ */ new Set();
+  if (haveHead.ok) {
+    const tree = git4(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
+    if (!tree.ok)
+      return unchecked(`Git could not list what is committed${tree.err ? `: ${tree.err.split("\n").pop()}` : ""}`);
+    inHead = new Set(tree.out.split("\0").filter((path) => path && !path.includes("/")));
+  } else if (!(haveHead.status === 1 && !haveHead.err)) {
+    return unchecked(`Git could not read HEAD${haveHead.err ? `: ${haveHead.err.split("\n").pop()}` : ""}`);
+  }
+  const upstreamRef = git4(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  if (!upstreamRef.ok && upstreamRef.status === null)
+    return unchecked(`Git could not name the upstream: ${upstreamRef.err}`);
+  const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
+  const unpushed = /* @__PURE__ */ new Set();
+  let note;
+  let compared = false;
+  if (upstream) {
+    const diff = git4(threadDir, ["diff", "--name-only", "-z", "--no-renames", "--relative", upstream, "HEAD", "--", "."]);
+    compared = diff.ok;
+    if (diff.ok) {
+      for (const path of diff.out.split("\0").filter(Boolean))
+        if (!path.includes("/"))
+          unpushed.add(path);
+    } else
+      note = `Git could not compare this Thread with ${upstream}${diff.err ? `: ${diff.err.split("\n").pop()}` : ""}; committed posts are not checked for a push`;
+  } else {
+    note = "this branch has no upstream, so a committed post may not be pushed; Git was not asked about a remote";
+  }
+  const states = /* @__PURE__ */ new Map();
+  const counts = { local: 0, committed: 0, pushed: 0 };
+  for (const file2 of files) {
+    const state = local.has(file2) || !inHead.has(file2) ? "local" : !compared || unpushed.has(file2) ? "committed" : "pushed";
+    states.set(file2, state);
+    counts[state]++;
+  }
+  return { checked: true, ...note ? { note } : {}, upstream, states, modified, unmerged, inRepository: true, counts };
+}
+var STATE_WORDS = { local: "local only", committed: "committed", pushed: "pushed" };
+function shareLine(share) {
+  if (!share.checked)
+    return `Post state unknown: ${share.note}.`;
+  const { local, committed, pushed } = share.counts;
+  const parts = [local ? `${local} local only (on this disk, not committed)` : "", committed ? `${committed} committed${share.upstream ? ` (not pushed to ${share.upstream})` : ""}` : "", pushed ? `${pushed} pushed` : ""].filter(Boolean);
+  const where = share.upstream ? ` Pushed is as of the last fetch of ${share.upstream}.` : "";
+  const modified = share.modified.size ? ` ${share.modified.size} post file${share.modified.size === 1 ? " was" : "s were"} changed after commit: ${[...share.modified].slice(0, 3).join(", ")}${share.modified.size > 3 ? ", \u2026" : ""}; posts are immutable, run threads check.` : "";
+  const conflicted = share.unmerged.size ? ` ${share.unmerged.size} post file${share.unmerged.size === 1 ? " is" : "s are"} in a merge conflict and counted as local only: ${[...share.unmerged].slice(0, 3).join(", ")}${share.unmerged.size > 3 ? ", \u2026" : ""}.` : "";
+  return `Posts: ${parts.join(", ") || "none"}.${where}${share.note ? ` Note: ${share.note}.` : ""}${conflicted}${modified}`;
 }
 
 // dist/commands/threads.js
@@ -31332,6 +31442,9 @@ async function threadReference(threadPath, agreement) {
 function originLine(parent) {
   return parent?.origin ? `Origin: ${clip(parent.origin, 400)} (where this Thread started; its Agreement now names the parent)` : void 0;
 }
+function shareJson(share) {
+  return { checked: share.checked, upstream: share.upstream, counts: share.counts, ...share.modified.size ? { modified: [...share.modified] } : {}, ...share.unmerged.size ? { unmerged: [...share.unmerged] } : {}, ...share.note ? { note: share.note } : {} };
+}
 function localText(thread, posts2, rung, options) {
   const header = `${thread.slug}  ${thread.name}`;
   if (rung === "name") {
@@ -31346,9 +31459,15 @@ function localText(thread, posts2, rung, options) {
       lens.done_when && `Done when: ${clip(lens.done_when, 1200, "\u2026 [shortened; read this Thread's _agent/agreement.md for the full criterion]")}`
     ].filter(Boolean).join("\n\n");
   }
+  const shared = options?.share ? shareLine(options.share) : void 0;
   const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})
 ${rung === "full" ? thread.summary : clip(thread.summary, 400)}
-${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} \xB7 ${thread.allPosts.length} posts`;
+${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} \xB7 ${thread.allPosts.length} posts${shared ? `
+${shared}` : ""}`;
+  const stateOf = (p) => {
+    const state = options?.share?.states.get(p.path);
+    return state ? ` \xB7 ${STATE_WORDS[state]}` : "";
+  };
   if (rung === "summary") {
     const parts = [context];
     if (options?.parent) {
@@ -31365,7 +31484,7 @@ ${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "
   ${clip(s.frontmatter.summary ?? "(no summary)", 400)}`);
     }
     if (options?.filtered && posts2.length) {
-      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${p.frontmatter.author ?? "unknown author"}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}
+      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${p.frontmatter.author ?? "unknown author"}${stateOf(p)}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}
   ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`).join("\n\n"));
     }
     return parts.join("\n\n");
@@ -31397,7 +31516,7 @@ ${childLines.join("\n")}`);
   return [
     context,
     ...posts2.map((p) => `
-${p.id} \xB7 ${p.frontmatter.author ?? "unknown author"} \xB7 ${p.kind}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
+${p.id} \xB7 ${p.frontmatter.author ?? "unknown author"} \xB7 ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
 ${p.frontmatter.name ?? ""}
 ${p.body}${p.marks?.length ? `
 Marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : ""}`)
@@ -31405,7 +31524,7 @@ Marks: ${p.marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")
 }
 function selectedWriterName() {
   const cwd = realpathSync25(process.cwd());
-  const prefix = spawnSync17(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  const prefix = spawnSync18(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname24(at2), cwd) : cwd;
   let at = cwd;
   while (true) {
@@ -31450,7 +31569,7 @@ function writerName(explicit) {
       break;
     at = dirname24(at);
   }
-  const result = spawnSync17(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
+  const result = spawnSync18(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim())
     return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
@@ -31476,7 +31595,7 @@ var threadsCommand = {
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
-    "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]",
+    "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
@@ -31919,6 +32038,11 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         const childThreads = allChildThreads.slice(0, limit ?? 10);
         const branches = allBranches.slice(0, limit ?? 10);
         const snapshot = findNewestSnapshot(thread.posts);
+        const share = effectiveRung === "name" ? void 0 : readThreadShare(thread.path, thread.allPosts.map((post) => post.path));
+        const stateField = (post) => {
+          const state = share?.states.get(post.path);
+          return state ? { state } : {};
+        };
         const boundedPosts = !postId2 && effectiveRung === "surface" ? posts2.map((p) => ({ ...p, body_truncated: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES, body: Buffer.byteLength(p.body) > SURFACE_BODY_BYTES ? clip(p.body, SURFACE_BODY_BYTES, `\u2026 [body truncated; use --post ${p.id} for the complete post]`) : p.body })) : posts2;
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary" ? {
           id: p.id,
@@ -31929,9 +32053,10 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           summary: p.frontmatter.summary ?? null,
           in_reply_to: p.inReplyTo,
           author: p.frontmatter.author ?? null,
+          ...stateField(p),
           ...p.marks?.length ? { marks: p.marks } : {},
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
-        } : p);
+        } : { ...p, ...stateField(p) });
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
         const rawPost = postId2 && posts2.length ? readFileSync21(join42(thread.path, posts2[0].path), "utf8") : void 0;
         let humanText;
@@ -31939,8 +32064,10 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           humanText = pinned;
         } else if (rawPost) {
           const marks = posts2[0]?.marks;
+          const rawState = share?.states.get(posts2[0].path);
           humanText = rawPost + (marks?.length ? `
-Marks: ${marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : "");
+Marks: ${marks.map((m) => `${m.mark} (${m.author || "anonymous"})`).join(", ")}` : "") + (rawState ? `
+State: ${STATE_WORDS[rawState]}${share?.modified.has(posts2[0].path) ? "; this file was changed after it was committed" : ""}` : "");
           if (childThreads.length > 0) {
             humanText += `
 
@@ -31961,7 +32088,8 @@ Child Thread lookup incomplete: ${childWarnings} unreadable sibling(s).`;
             branchTotal: allBranches.length,
             childThreadTotal: allChildThreads.length,
             childWarnings,
-            filtered
+            filtered,
+            share
           });
         }
         if (parentWarning)
@@ -31991,6 +32119,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
             parent,
             warnings: thread.warnings,
             unreadable_posts: thread.unreadablePosts,
+            ...share ? { share: shareJson(share) } : {},
             ...parentWarning ? { parent_warning: parentWarning } : {},
             ...effectiveRung === "summary" && snapshot ? { snapshot: { id: snapshot.id, kind: snapshot.kind, date: snapshot.date ?? null, name: snapshot.frontmatter.name ?? snapshot.id, summary: snapshot.frontmatter.summary ?? null, author: snapshot.frontmatter.author ?? null } } : {},
             ...frame ? { frame } : {}
@@ -32095,7 +32224,9 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         });
         for (const warning of warnings)
           output.log(`Link warning: ${warning}`);
-        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}`);
+        const postShare = readThreadShare(dirname24(path), [basename22(path)]);
+        const posted = postShare.states.get(basename22(path));
+        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...posted ? { state: posted } : {}, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}${posted === "local" ? postShare.inRepository ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only." : ""}`);
         return 0;
       }
       if (sub === "render") {
@@ -32200,13 +32331,13 @@ var logoutCommand = {
 
 // dist/pi/pi-status.js
 import { existsSync as existsSync35, readFileSync as readFileSync23 } from "node:fs";
-import { basename as basename22, join as join45 } from "node:path";
+import { basename as basename23, join as join45 } from "node:path";
 
 // dist/local/probe-binary.js
-import { spawnSync as spawnSync18 } from "node:child_process";
+import { spawnSync as spawnSync19 } from "node:child_process";
 function probeBinary(bin, env = process.env) {
   try {
-    const res = spawnSync18(bin, ["--version"], { encoding: "utf8", timeout: 5e3, env });
+    const res = spawnSync19(bin, ["--version"], { encoding: "utf8", timeout: 5e3, env });
     if (res.error || res.status !== 0)
       return { present: false, path: bin, version: null };
     const m = /\d+\.\d+\.\d+[\w.-]*/.exec(res.stdout ?? "");
@@ -32282,7 +32413,7 @@ function derivePiStatus(input) {
   };
 }
 function resolveExtension(path) {
-  const name = basename22(path.replace(/[/\\]+$/, "")) || path;
+  const name = basename23(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
   if (!existsSync35(path))
     return check(false);
@@ -33913,7 +34044,7 @@ function list2(flags2, output) {
 var localConversationOps = { send, createNew, get, list: list2, canResume: canResumePiConversation };
 
 // dist/claude/claude-status.js
-import { spawnSync as spawnSync19 } from "node:child_process";
+import { spawnSync as spawnSync20 } from "node:child_process";
 
 // dist/claude/local-agent.js
 import { spawn as spawn5 } from "node:child_process";
@@ -33922,7 +34053,7 @@ import { spawn as spawn5 } from "node:child_process";
 import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync25, realpathSync as realpathSync29, statSync as statSync21 } from "node:fs";
 import { randomUUID as randomUUID17 } from "node:crypto";
 import { homedir as homedir7 } from "node:os";
-import { basename as basename23, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
+import { basename as basename24, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
 function claudeConfigDir(env = process.env) {
   return env.CLAUDE_CONFIG_DIR?.trim() || join49(homedir7(), ".claude");
 }
@@ -34165,7 +34296,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
   const seen = /* @__PURE__ */ new Set();
   const files = dirs.flatMap((folder) => readdirSync7(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join49(folder, f)));
   for (const path of files) {
-    const fileId = basename23(path, ".jsonl");
+    const fileId = basename24(path, ".jsonl");
     if (seen.has(fileId))
       continue;
     seen.add(fileId);
@@ -34604,7 +34735,7 @@ function deriveClaudeStatus(input) {
 }
 function probeLogin(claudeBin, env) {
   try {
-    const res = spawnSync19(claudeBin, ["auth", "status", "--json"], { encoding: "utf8", timeout: 5e3, env });
+    const res = spawnSync20(claudeBin, ["auth", "status", "--json"], { encoding: "utf8", timeout: 5e3, env });
     if (res.error)
       return null;
     return res.stdout ?? "";
