@@ -7,7 +7,7 @@
  * Git, never the network: pushed means the post is the same in the branch's upstream as of the
  * last fetch, which is the most a local read can honestly say.
  *
- * Six Git calls cover a whole Thread however long, at most: where the folder sits in the repository,
+ * Six Git calls, and never more than GIT_WAIT_MS in all, cover a whole Thread however long, at most: where the folder sits in the repository,
  * `status` for what is not committed, whether HEAD exists and what it holds, the upstream's name, and
  * `diff` against it for what is committed but not pushed. A call that fails for any reason but "this
  * is not a repository" or "there is no commit yet" leaves the state unknown and says why; it never
@@ -26,6 +26,8 @@ export interface ThreadShare {
   note?: string;
   /** The branch's upstream, or null: without one a committed post's "pushed" cannot be known. */
   upstream: string | null;
+  /** False only when Git itself says the folder is in no repository; then there is nothing to commit or push. */
+  inRepository: boolean;
   /** Keyed by post file name. */
   states: Map<string, PostState>;
   /** Post files whose content changed since they were committed. A post is immutable; this is a flag, not a state. */
@@ -35,22 +37,33 @@ export interface ThreadShare {
   counts: Record<PostState, number>;
 }
 
-function git(cwd: string, args: string[]): { ok: boolean; out: string; err: string; status: number | null } {
+/** The most one read of a Thread's state waits on Git in all, however many calls it makes. A hung mount then costs this much, not minutes. */
+export const GIT_WAIT_MS = 8_000;
+/** The most a single call waits, so one slow call cannot use the whole allowance before the others are tried. */
+const CALL_MS = 5_000;
+
+function gitCall(cwd: string, args: string[], deadline: number, waitMs: number): { ok: boolean; out: string; err: string; status: number | null } {
+  const left = deadline - Date.now();
+  if (left <= 0) return { ok: false, status: null, out: "", err: `Git did not answer within ${Math.round(waitMs / 100) / 10} s` };
   // Reading must not write: without this, `git status` refreshes the index and can take index.lock under a concurrent commit.
-  const result = spawnSync(gitBinary(), args, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 256 * 1024 * 1024, timeout: 30_000 });
-  return { ok: !result.error && result.status === 0, status: result.error ? null : result.status, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
+  const result = spawnSync(gitBinary(), args, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 16 * 1024 * 1024, timeout: Math.min(left, CALL_MS) });
+  const timedOut = (result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT";
+  return { ok: !result.error && result.status === 0, status: result.error ? null : result.status, out: result.stdout ?? "",
+    err: timedOut ? `Git did not answer within ${Math.round(waitMs / 100) / 10} s` : (result.stderr ?? "").trim() || result.error?.message || "" };
 }
 
-const unchecked = (note: string): ThreadShare => ({ checked: false, note, upstream: null, states: new Map(), modified: new Set(), unmerged: new Set(), counts: { local: 0, committed: 0, pushed: 0 } });
+const unchecked = (note: string): ThreadShare => ({ checked: false, note, upstream: null, states: new Map(), modified: new Set(), unmerged: new Set(), inRepository: true, counts: { local: 0, committed: 0, pushed: 0 } });
 
 /** The state of every post file in a Thread folder. `files` are the post file names the Thread reader found. */
-export function readThreadShare(threadDir: string, files: readonly string[]): ThreadShare {
+export function readThreadShare(threadDir: string, files: readonly string[], waitMs = GIT_WAIT_MS): ThreadShare {
+  const deadline = Date.now() + waitMs;
+  const git = (cwd: string, args: string[]) => gitCall(cwd, args, deadline, waitMs);
   const where = git(threadDir, ["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
   if (!where.ok) {
     // Only Git's own "not a repository" means every post is just a file here; a missing binary or a timeout is unknown.
     if (where.status === 128 && /not a git repository/i.test(where.err)) {
       const states = new Map(files.map((file) => [file, "local" as PostState]));
-      return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states, modified: new Set(), unmerged: new Set(), counts: { local: files.length, committed: 0, pushed: 0 } };
+      return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states, modified: new Set(), unmerged: new Set(), inRepository: false, counts: { local: files.length, committed: 0, pushed: 0 } };
     }
     return unchecked(`Git could not be asked${where.err ? `: ${where.err.split("\n").pop()}` : ""}`);
   }
@@ -94,6 +107,8 @@ export function readThreadShare(threadDir: string, files: readonly string[]): Th
   }
 
   const upstreamRef = git(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  // A git that did not answer is not "no upstream": exit 128 is Git saying there is none.
+  if (!upstreamRef.ok && upstreamRef.status === null) return unchecked(`Git could not name the upstream: ${upstreamRef.err}`);
   const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
   const unpushed = new Set<string>();
   let note: string | undefined;
@@ -116,7 +131,7 @@ export function readThreadShare(threadDir: string, files: readonly string[]): Th
     states.set(file, state);
     counts[state]++;
   }
-  return { checked: true, ...(note ? { note } : {}), upstream, states, modified, unmerged, counts };
+  return { checked: true, ...(note ? { note } : {}), upstream, states, modified, unmerged, inRepository: true, counts };
 }
 
 /** The words for a state in text a person or an agent reads. */

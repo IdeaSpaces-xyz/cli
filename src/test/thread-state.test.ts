@@ -222,6 +222,39 @@ describe("where a local post is", () => {
     expect(shareLine(share)).toMatch(/1 post file is in a merge conflict and counted as local only: /);
   });
 
+  it.skipIf(process.platform === "win32")("stops waiting on a hung Git after the allowance in all, and says unknown: six slow calls cannot add up to minutes", () => {
+    const root = space(); repo(root);
+    const t = opened(root);
+    git(root, "add", "-A"); git(root, "commit", "-qm", "Thread");
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "is-slow-git-"))); temp.push(dir);
+    const bin = join(dir, "git");
+    // Every call except the repository probe hangs, as on a stalled mount.
+    writeFileSync(bin, `#!/bin/sh\nif [ "$1" = "status" ] || [ "$1" = "diff" ] || [ "$1" = "ls-tree" ]; then sleep 20; fi\nexec "${execFileSync("which", ["git"], { encoding: "utf8" }).trim()}" "$@"\n`, { mode: 0o755 });
+    process.env.IDEASPACES_GIT_BIN = bin;
+    try {
+      const started = Date.now();
+      const share = readThreadShare(t.path, names(t), 700);
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(share.checked).toBe(false);
+      expect(shareLine(share)).toBe("Post state unknown: Git could not report this Thread's status: Git did not answer within 0.7 s.");
+    } finally { delete process.env.IDEASPACES_GIT_BIN; }
+  });
+
+  it("tells a post made outside any Git repository that there is nothing to commit or push, not to commit and push it", async () => {
+    const root = space();
+    createThread("decision", "A decision", root);
+    const previous = process.cwd(); process.chdir(root);
+    const old = process.stdout.write;
+    const out: string[] = [];
+    process.stdout.write = ((s: string) => { out.push(s); return true; }) as typeof process.stdout.write;
+    try {
+      expect(await threadsCommand.run(["post", "decision"], { message: "Outside", author: "Scout" }, { json: false, quiet: false, yes: false, help: false })).toBe(0);
+      const text = out.join("");
+      expect(text).toContain("State: local only. This folder is not in a Git repository, so there is nothing to commit or push here");
+      expect(text).not.toContain("commit and push it");
+    } finally { process.stdout.write = old; process.chdir(previous); }
+  });
+
   it("is in the open and post results: each post's state, the Thread's line, and a post that says it is not delivered", async () => {
     const root = space(); repo(root); remoteFor(root);
     opened(root);

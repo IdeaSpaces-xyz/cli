@@ -642,7 +642,7 @@ export const threadsCommand: CommandDef = {
         const snapshot = findNewestSnapshot(thread.posts);
 
         // Surface keeps a bounded preview; full and --post retain exact bodies.
-        // Where the posts are (CONTRACT: "posted" is not "delivered"): two Git calls, never the network. A name read shows no posts.
+        // Where the posts are ("posted" is not "delivered"): at most six Git calls and eight seconds in all, never the network. A name read shows no posts.
         const share = effectiveRung === "name" ? undefined : readThreadShare(thread.path, thread.allPosts.map((post) => post.path));
         const stateField = (post: { path: string }) => { const state = share?.states.get(post.path); return state ? { state } : {}; };
         const boundedPosts = !postId && effectiveRung === "surface"
@@ -759,9 +759,10 @@ export const threadsCommand: CommandDef = {
           rejectEscapedNewlines: typeof flags.message === "string", verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
         for (const warning of warnings) output.log(`Link warning: ${warning}`);
-        const posted = readThreadShare(dirname(path), [basename(path)]).states.get(basename(path));
+        const postShare = readThreadShare(dirname(path), [basename(path)]);
+        const posted = postShare.states.get(basename(path));
         output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(posted ? { state: posted } : {}), ...(warnings.length ? { warnings } : {}) },
-          `Appended ${post.kind}: ${path}${posted === "local" ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : ""}`); return 0;
+          `Appended ${post.kind}: ${path}${posted === "local" ? (postShare.inRepository ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only.") : ""}`); return 0;
       }
       if (sub === "render") {
         if (rest.length !== 1) throw new Error("Usage: threads render <local-path>");

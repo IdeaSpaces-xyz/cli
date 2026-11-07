@@ -11124,7 +11124,7 @@ async function assembleContentAwareness(opts) {
     }
     return readFloorAwarenessSections(common);
   });
-  const [context, git5, staleDocs, sections] = await Promise.all([
+  const [context, git4, staleDocs, sections] = await Promise.all([
     pathContextPromise,
     gitPromise,
     staleDocsPromise,
@@ -11145,7 +11145,7 @@ async function assembleContentAwareness(opts) {
     spaceRoot,
     position: { placement: "head", path: position, base, repoRoot: repoRoot2, context },
     ...sections,
-    git: git5,
+    git: git4,
     staleDocs,
     missingDirection
   };
@@ -13218,24 +13218,24 @@ function contentRevision2(content) {
 
 // node_modules/@ideaspaces/protocol/dist/content-state.js
 async function assembleContentState(repoRoot2) {
-  const [git5, captures] = await Promise.all([
+  const [git4, captures] = await Promise.all([
     gitState(repoRoot2),
     stagedIdeaspacePaths(repoRoot2)
   ]);
-  return { placement: "tail", git: git5, captures };
+  return { placement: "tail", git: git4, captures };
 }
 function renderContentState(state) {
-  const { git: git5, captures } = state;
-  const lines = ["State:", `  branch: ${git5.branch ?? "(detached)"}`];
-  if (git5.ahead != null || git5.behind != null) {
-    lines.push(`  remote: ahead ${git5.ahead ?? 0}, behind ${git5.behind ?? 0}`);
+  const { git: git4, captures } = state;
+  const lines = ["State:", `  branch: ${git4.branch ?? "(detached)"}`];
+  if (git4.ahead != null || git4.behind != null) {
+    lines.push(`  remote: ahead ${git4.ahead ?? 0}, behind ${git4.behind ?? 0}`);
   } else {
     lines.push("  remote: no upstream");
   }
-  lines.push(`  working tree: ${git5.dirty ? "dirty" : "clean"}`);
+  lines.push(`  working tree: ${git4.dirty ? "dirty" : "clean"}`);
   lines.push(`  captures awaiting commit: ${captures.length}`);
-  if (git5.untrackedInTrackedDirs.length) {
-    lines.push(`  untracked knowledge files: ${git5.untrackedInTrackedDirs.length}`);
+  if (git4.untrackedInTrackedDirs.length) {
+    lines.push(`  untracked knowledge files: ${git4.untrackedInTrackedDirs.length}`);
   }
   return lines.join("\n");
 }
@@ -14442,7 +14442,7 @@ function buildDoctorReport(input) {
         };
     }
   })();
-  const git5 = (() => {
+  const git4 = (() => {
     switch (input.git.state) {
       case "usable":
         return {
@@ -14497,9 +14497,9 @@ function buildDoctorReport(input) {
   };
   return {
     schema_version: 1,
-    ok: node.ok && git5.ok,
+    ok: node.ok && git4.ok,
     platform: input.platform,
-    checks: { node, git: git5, remote_auth: remoteAuth, cli: cliCheck(input.cli) }
+    checks: { node, git: git4, remote_auth: remoteAuth, cli: cliCheck(input.cli) }
   };
 }
 function formatCheck(label, check) {
@@ -19376,7 +19376,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
     return { status: "pin_absent", reason: `${commit} is not a full commit id.` };
   if (position.includes("\n"))
     return { status: "missing_path", reason: "A position cannot contain a newline." };
-  const git5 = (args2, buffer = 64 * 1024, input) => spawnSync8(gitBinary(), ["-C", checkoutPath, ...args2], {
+  const git4 = (args2, buffer = 64 * 1024, input) => spawnSync8(gitBinary(), ["-C", checkoutPath, ...args2], {
     encoding: "utf8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
     maxBuffer: buffer,
@@ -19385,7 +19385,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   const objectAt = (path2) => path2 === "." || path2 === "" ? `${commit}^{tree}` : `${commit}:${path2}`;
   const isThreads = position === "_threads" || position.startsWith("_threads/");
   const candidates = [position, ...isThreads ? [position === "_threads" ? "." : position.slice("_threads/".length)] : []];
-  const probe = git5(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
+  const probe = git4(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
   if (probe.error)
     return { status: "git_error", reason: probe.error.message };
   if (probe.status !== 0) {
@@ -19408,7 +19408,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
     return { status: "missing_path", reason: `${position} is not in commit ${commit}.` };
   }
   if (object.type === "tree") {
-    const listing = git5(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
+    const listing = git4(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
     if (listing.status !== 0)
       return { status: "git_error", reason: (listing.stderr ?? "").trim() || "git ls-tree failed" };
     const entries = [];
@@ -19422,7 +19422,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   if (object.size > maxBytes) {
     return { status: "too_large", reason: `${position} is ${object.size} bytes; the read limit is ${maxBytes}.` };
   }
-  const shown = git5(["cat-file", "blob", objectAt(path)], maxBytes + 1);
+  const shown = git4(["cat-file", "blob", objectAt(path)], maxBytes + 1);
   if (shown.status !== 0 || shown.error) {
     return { status: "git_error", reason: (shown.stderr ?? "").trim() || shown.error?.message || "git cat-file failed" };
   }
@@ -31215,17 +31215,30 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
 
 // dist/local/thread-state.js
 import { spawnSync as spawnSync17 } from "node:child_process";
-function git4(cwd, args2) {
-  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 256 * 1024 * 1024, timeout: 3e4 });
-  return { ok: !result.error && result.status === 0, status: result.error ? null : result.status, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
+var GIT_WAIT_MS = 8e3;
+var CALL_MS = 5e3;
+function gitCall(cwd, args2, deadline, waitMs) {
+  const left = deadline - Date.now();
+  if (left <= 0)
+    return { ok: false, status: null, out: "", err: `Git did not answer within ${Math.round(waitMs / 100) / 10} s` };
+  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 16 * 1024 * 1024, timeout: Math.min(left, CALL_MS) });
+  const timedOut = result.error?.code === "ETIMEDOUT";
+  return {
+    ok: !result.error && result.status === 0,
+    status: result.error ? null : result.status,
+    out: result.stdout ?? "",
+    err: timedOut ? `Git did not answer within ${Math.round(waitMs / 100) / 10} s` : (result.stderr ?? "").trim() || result.error?.message || ""
+  };
 }
-var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), counts: { local: 0, committed: 0, pushed: 0 } });
-function readThreadShare(threadDir, files) {
+var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), inRepository: true, counts: { local: 0, committed: 0, pushed: 0 } });
+function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
+  const deadline = Date.now() + waitMs;
+  const git4 = (cwd, args2) => gitCall(cwd, args2, deadline, waitMs);
   const where = git4(threadDir, ["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
   if (!where.ok) {
     if (where.status === 128 && /not a git repository/i.test(where.err)) {
       const states2 = new Map(files.map((file2) => [file2, "local"]));
-      return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states: states2, modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), counts: { local: files.length, committed: 0, pushed: 0 } };
+      return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states: states2, modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), inRepository: false, counts: { local: files.length, committed: 0, pushed: 0 } };
     }
     return unchecked(`Git could not be asked${where.err ? `: ${where.err.split("\n").pop()}` : ""}`);
   }
@@ -31271,6 +31284,8 @@ function readThreadShare(threadDir, files) {
     return unchecked(`Git could not read HEAD${haveHead.err ? `: ${haveHead.err.split("\n").pop()}` : ""}`);
   }
   const upstreamRef = git4(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  if (!upstreamRef.ok && upstreamRef.status === null)
+    return unchecked(`Git could not name the upstream: ${upstreamRef.err}`);
   const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
   const unpushed = /* @__PURE__ */ new Set();
   let note;
@@ -31294,7 +31309,7 @@ function readThreadShare(threadDir, files) {
     states.set(file2, state);
     counts[state]++;
   }
-  return { checked: true, ...note ? { note } : {}, upstream, states, modified, unmerged, counts };
+  return { checked: true, ...note ? { note } : {}, upstream, states, modified, unmerged, inRepository: true, counts };
 }
 var STATE_WORDS = { local: "local only", committed: "committed", pushed: "pushed" };
 function shareLine(share) {
@@ -32209,8 +32224,9 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         });
         for (const warning of warnings)
           output.log(`Link warning: ${warning}`);
-        const posted = readThreadShare(dirname24(path), [basename22(path)]).states.get(basename22(path));
-        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...posted ? { state: posted } : {}, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}${posted === "local" ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : ""}`);
+        const postShare = readThreadShare(dirname24(path), [basename22(path)]);
+        const posted = postShare.states.get(basename22(path));
+        output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...posted ? { state: posted } : {}, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}${posted === "local" ? postShare.inRepository ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only." : ""}`);
         return 0;
       }
       if (sub === "render") {
