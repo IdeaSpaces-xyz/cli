@@ -159,7 +159,7 @@ describe("authored cross-Space local Thread selection", () => {
     expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: true })).status).toBe(1);
     expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: "../other" })).status).toBe(1);
     expect(posts(f.agent)).toHaveLength(1);
-  });
+  }, 30_000); // Three real repositories plus the checkout-selection matrix took 8.56s on Windows CI.
 
   it("refuses forged root, registry/origin drift, wrong slug, absent pin and absent post without HEAD fallback", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
