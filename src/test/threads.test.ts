@@ -521,7 +521,7 @@ describe("local Threads", () => {
     git(root, "worktree", "move", join(root, "private-discussion"), worktree);
     expect(pushWorktree(root, "team")).toBe("team");
     expect(git(root, "ls-remote", "team", "refs/heads/threads")).toContain("refs/heads/threads");
-  });
+  }, 30_000); // Real worktree/commit/pinned-read fixture exceeded 5s on Windows.
 
   it("default reply-to targets the opening post and warns on stderr; --reply-to latest targets newest tip", async () => {
     const root = fixture(); process.env.HOME = root;
