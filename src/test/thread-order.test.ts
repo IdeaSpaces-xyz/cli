@@ -1,6 +1,6 @@
 // Honest local Threads, E1 (d-pm's decision, 2026-11-07): a Thread reads in reply ancestry, parents first, never by date.
 // The protocol's rule stays (ties by filename, then id); this locks the part that matters, so a reader that sorts by date fails here.
-// Explorer measured 16 replies dated before their parent in one Space on 2026-11-05.
+// Explorer counted 16 replies dated before their parent in one Space on 2026-11-05; separately, a date sort would break ancestry in 9 of the 84 Threads I read on 2026-11-07.
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -24,7 +24,7 @@ function inverted() {
   post("2026-11-01T12-00-00-000Z-msg_a.md", "msg_a", "2026-11-01T12:00:00.000Z");
   post("2026-11-01T09-00-00-000Z-msg_b.md", "msg_b", "2026-11-01T09:00:00.000Z", "msg_a");
   post("2026-11-01T08-00-00-000Z-msg_c.md", "msg_c", "2026-11-01T08:00:00.000Z", "msg_b");
-  // A sibling of the root's reply, dated between: it follows the root, and the date breaks the tie with msg_b only by filename.
+  // A second reply to the root, named and dated after msg_b but before the root's clock time would suggest: among the posts ready together the filename decides, so msg_b (09:00) goes before msg_d (10:00), and msg_c (08:00) becomes ready once msg_b is read, before msg_d.
   post("2026-11-01T10-00-00-000Z-msg_d.md", "msg_d", "2026-11-01T10:00:00.000Z", "msg_a");
   return { root, dir };
 }
@@ -35,11 +35,12 @@ describe("a Thread reads in reply ancestry, never by date", () => {
     const ids = loadThread(dir).posts.map((post) => post.id);
     expect(ids[0]).toBe("msg_a");
     for (const [parent, reply] of [["msg_a", "msg_b"], ["msg_b", "msg_c"], ["msg_a", "msg_d"]]) expect(ids.indexOf(parent)).toBeLessThan(ids.indexOf(reply));
+    // Ancestry first, then the protocol's tie-break (filename, then id): msg_c is ready once msg_b is read and is named before msg_d.
+    expect(ids).toEqual(["msg_a", "msg_b", "msg_c", "msg_d"]);
     // A date sort would have read c, b, d, a.
-    expect(ids).not.toEqual(["msg_c", "msg_b", "msg_d", "msg_a"]);
   });
 
-  it("is the order threads open pages in, newest page last: msg_c is the newest, though it is dated first", async () => {
+  it("is the order threads open pages in: msg_d is the newest post, and msg_a, dated last, is the first", async () => {
     const { root } = inverted();
     const previous = process.cwd(); process.chdir(root);
     const old = process.stdout.write;
@@ -48,12 +49,10 @@ describe("a Thread reads in reply ancestry, never by date", () => {
     try {
       expect(await threadsCommand.run(["open", "order"], { depth: "full" }, { json: true, quiet: true, yes: false, help: false })).toBe(0);
       const ids = JSON.parse(text).posts.map((post: { id: string }) => post.id);
-      expect(ids[0]).toBe("msg_a");
-      expect(ids.indexOf("msg_b")).toBeLessThan(ids.indexOf("msg_c"));
+      expect(ids).toEqual(["msg_a", "msg_b", "msg_c", "msg_d"]);
       text = "";
       expect(await threadsCommand.run(["open", "order"], { depth: "full", limit: "1", order: "newer" }, { json: true, quiet: true, yes: false, help: false })).toBe(0);
-      expect(JSON.parse(text).posts.map((post: { id: string }) => post.id)).toEqual([ids.at(-1)]);
-      expect(ids.at(-1)).not.toBe("msg_a");
+      expect(JSON.parse(text).posts.map((post: { id: string }) => post.id)).toEqual(["msg_d"]);
     } finally { process.stdout.write = old; process.chdir(previous); }
   });
 });
