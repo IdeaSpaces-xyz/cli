@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { saveSpace } from "../auth/spaces.js";
 import { threadsCommand } from "../commands/threads.js";
 import { appendPost, createThread, initWorktree, loadThread } from "../local/threads.js";
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 
 const ID = "n_0123456789abcdef01234567";
 const OTHER = "n_ffffffffffffffffffffffff";
@@ -54,7 +55,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("authored cross-Space local Thread selection", () => {
+describe("authored cross-Space local Thread selection", { timeout: GIT_INTEGRATION_TIMEOUT }, () => {
   for (const orphan of [false, true]) for (const typed of [true, false]) {
     it(`${orphan ? "orphan worktree" : "unified"}, ${typed ? "typed" : "untyped"} POV: reads the pin and branches from an older parent as the agent`, async () => {
       const f = fixture(orphan, typed); process.env.HOME = f.agent; process.chdir(f.agent);
@@ -139,7 +140,7 @@ describe("authored cross-Space local Thread selection", () => {
     git(nested, "init", "-b", "main");
     process.chdir(nested); await refuse();
     expect(process.cwd()).toBe(realpathSync(nested));
-  }, 30_000); // Windows Git process startup can exceed Vitest's 5s default for this refusal matrix.
+  });
 
   it("requires a unique registered checkout or a validated explicit hint, never scans or grants by path", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
@@ -159,7 +160,7 @@ describe("authored cross-Space local Thread selection", () => {
     expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: true })).status).toBe(1);
     expect((await run(["open", "decision"], { map: f.map, member: "0", checkout: "../other" })).status).toBe(1);
     expect(posts(f.agent)).toHaveLength(1);
-  });
+  }); // Three real repositories plus this checkout-selection matrix took 8.56s on Windows CI.
 
   it("refuses forged root, registry/origin drift, wrong slug, absent pin and absent post without HEAD fallback", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
@@ -212,7 +213,7 @@ describe("authored cross-Space local Thread selection", () => {
     expect((await run(["post", "decision"], { ...base, "reply-to": f.first.post.id })).status).toBe(1);
     expect(posts(f.home)).toHaveLength(3);
     expect(readdirSync(target).filter((name) => name.endsWith(".md"))).toHaveLength(4);
-  }, 30_000); // Windows Git process startup can exceed Vitest's 5s default for this many repositories.
+  });
 });
 
 it("accepts a same-Space aliased absolute pinned path but never a cross-Space aliased path", async () => {
@@ -229,4 +230,4 @@ it("accepts a same-Space aliased absolute pinned path but never a cross-Space al
   const cross = await run(["open", input], { map: f.map, member: "0", checkout: f.home, depth: "full" });
   expect(cross.status).toBe(1);
   expect(cross.error).toContain("not a cross-Space path");
-}, 30_000);
+}, GIT_INTEGRATION_TIMEOUT);

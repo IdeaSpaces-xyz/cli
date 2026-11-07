@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { gitAvailability, gitAvailable, gitBinary, normalizeGitBin, GIT_MISSING_HINT, GIT_UNUSABLE_HINT } from "../git.js";
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 
 const originalPath = process.env.PATH;
 const originalGitBin = process.env.IDEASPACES_GIT_BIN;
@@ -12,23 +13,24 @@ const temporaryDirectories: string[] = [];
 async function pathDirectory(
   stub?: { stdout?: string; stderr?: string; exitCode?: number },
 ): Promise<string> {
+  // A usable native Git is borrowed, not copied or wrapped in a POSIX script.
+  // Do not create an unused temporary directory for that borrowed executable.
+  if (process.platform === "win32" && stub?.stdout) {
+    const installedGit = spawnSync("where.exe", ["git.exe"], { encoding: "utf-8" })
+      .stdout.split(/\r?\n/)
+      .find(Boolean);
+    if (!installedGit) throw new Error("Windows test runner has no git.exe");
+    return dirname(installedGit);
+  }
   const directory = await mkdtemp(join(tmpdir(), "is-cli-git-availability-"));
   temporaryDirectories.push(directory);
   if (stub !== undefined) {
     const windows = process.platform === "win32";
     const executable = join(directory, windows ? "git.exe" : "git");
     if (windows) {
-      if (stub.stdout) {
-        const installedGit = spawnSync("where.exe", ["git.exe"], { encoding: "utf-8" })
-          .stdout.split(/\r?\n/)
-          .find(Boolean);
-        if (!installedGit) throw new Error("Windows test runner has no git.exe");
-        return dirname(installedGit);
-      } else {
-        const systemRoot = process.env.SystemRoot;
-        if (!systemRoot) throw new Error("Windows test runner has no SystemRoot");
-        await copyFile(join(systemRoot, "System32", "where.exe"), executable);
-      }
+      const systemRoot = process.env.SystemRoot;
+      if (!systemRoot) throw new Error("Windows test runner has no SystemRoot");
+      await copyFile(join(systemRoot, "System32", "where.exe"), executable);
     } else {
       const lines = [
         "#!/bin/sh",
@@ -81,7 +83,7 @@ describe("git availability", () => {
     }
     expect(gitAvailable()).toBe(false);
     expect(GIT_UNUSABLE_HINT).toContain("xcode-select --install");
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("reports a zero-exit executable and its version", async () => {
     const stubDirectory = await pathDirectory({ stdout: "git version 2.48.0" });
@@ -91,7 +93,7 @@ describe("git availability", () => {
 
     expect(gitAvailability()).toMatchObject({ state: "usable", version: expect.stringMatching(/^git version /) });
     expect(gitAvailable()).toBe(true);
-  });
+  }, GIT_INTEGRATION_TIMEOUT); // Native executable discovery plus two real Git probes took 17.8s on Windows CI.
 
   it("honors IDEASPACES_GIT_BIN explicit executable even with empty PATH", async () => {
     const stubDirectory = await pathDirectory({ stdout: "git version 2.53.0" });
@@ -107,7 +109,7 @@ describe("git availability", () => {
       path: stubBinary,
     });
     expect(gitAvailable()).toBe(true);
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("reports absent for non-existent IDEASPACES_GIT_BIN", () => {
     process.env.IDEASPACES_GIT_BIN = "/nonexistent/custom/git";
@@ -131,7 +133,7 @@ describe("git availability", () => {
       expect(availability.detail.trim().length).toBeGreaterThan(0);
     } else expect(availability.detail).toContain("custom git failed");
     expect(availability.path).toBe(stubBinary);
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   describe("gitBinary and normalizeGitBin", () => {
     it("defaults to git when IDEASPACES_GIT_BIN is unset or whitespace", () => {
