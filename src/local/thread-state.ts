@@ -12,7 +12,6 @@
  * unknown and says why; it never refuses the read.
  */
 import { spawnSync } from "node:child_process";
-import { basename } from "node:path";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 
 /** `local` is only a file here (untracked or staged), `committed` is in this checkout's history, `pushed` is also in the upstream. */
@@ -33,7 +32,8 @@ export interface ThreadShare {
 }
 
 function git(cwd: string, args: string[]): { ok: boolean; out: string; err: string } {
-  const result = spawnSync(gitBinary(), args, { cwd, encoding: "utf8", env: sanitizedGitEnvironment(), maxBuffer: 256 * 1024 * 1024, timeout: 30_000 });
+  // Reading must not write: without this, `git status` refreshes the index and can take index.lock under a concurrent commit.
+  const result = spawnSync(gitBinary(), args, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 256 * 1024 * 1024, timeout: 30_000 });
   return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
 }
 
@@ -47,6 +47,12 @@ export function readThreadShare(threadDir: string, files: readonly string[]): Th
     const states = new Map(files.map((file) => [file, "local" as PostState]));
     return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states, modified: new Set(), counts: { local: files.length, committed: 0, pushed: 0 } };
   }
+  // `status` names paths from the repository root; keep only this folder's direct files (not `_agent/` or a child folder).
+  const prefix = git(threadDir, ["rev-parse", "--show-prefix"]).out.trim();
+  const direct = (path: string): string | undefined => {
+    const rest = prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
+    return rest.includes("/") ? undefined : rest;
+  };
   const status = git(threadDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
   if (!status.ok) return unchecked(`Git could not report this Thread's status${status.err ? `: ${status.err.split("\n").pop()}` : ""}`);
   const local = new Set<string>();
@@ -54,11 +60,13 @@ export function readThreadShare(threadDir: string, files: readonly string[]): Th
   const entries = status.out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    const code = entry.slice(0, 2), name = basename(entry.slice(3));
-    // A rename or copy names its source in the next entry.
+    const code = entry.slice(0, 2), name = direct(entry.slice(3));
+    // A rename or copy names its source in the next entry; the new name is the post's file now.
     if (code[0] === "R" || code[0] === "C") i++;
+    if (name === undefined) continue;
     if (code === "??" || code[0] === "A") local.add(name);
     else if (code.includes("M") || code.includes("T") || code[0] === "R") modified.add(name);
+    // A deleted file has no post to give a state; `threads check` reports deletions.
   }
 
   const upstreamRef = git(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
@@ -67,10 +75,12 @@ export function readThreadShare(threadDir: string, files: readonly string[]): Th
   let note: string | undefined;
   let compared = false;
   if (upstream) {
-    const diff = git(threadDir, ["diff", "--name-only", "-z", "--no-renames", upstream, "HEAD", "--", "."]);
+    // Two-dot: it also lists a file only the upstream changed, which is harmless here, because only this checkout's posts are looked up.
+    const diff = git(threadDir, ["diff", "--name-only", "-z", "--no-renames", "--relative", upstream, "HEAD", "--", "."]);
     compared = diff.ok;
-    if (diff.ok) for (const path of diff.out.split("\0").filter(Boolean)) unpushed.add(basename(path));
-    else note = `Git could not compare this Thread with ${upstream}${diff.err ? `: ${diff.err.split("\n").pop()}` : ""}; committed posts are not checked for a push`;
+    if (diff.ok) {
+      for (const path of diff.out.split("\0").filter(Boolean)) if (!path.includes("/")) unpushed.add(path);
+    } else note = `Git could not compare this Thread with ${upstream}${diff.err ? `: ${diff.err.split("\n").pop()}` : ""}; committed posts are not checked for a push`;
   } else {
     note = "this branch has no upstream, so a committed post may not be pushed; Git was not asked about a remote";
   }

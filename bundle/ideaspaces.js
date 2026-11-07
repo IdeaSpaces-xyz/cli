@@ -31092,7 +31092,7 @@ var spacesCommand = {
 // dist/commands/threads.js
 import { existsSync as existsSync32, lstatSync as lstatSync9, readFileSync as readFileSync21, realpathSync as realpathSync25 } from "node:fs";
 import { spawnSync as spawnSync18 } from "node:child_process";
-import { basename as basename23, dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
+import { basename as basename22, dirname as dirname24, isAbsolute as isAbsolute22, join as join42, relative as relative24, resolve as resolve41, sep as sep17 } from "node:path";
 
 // dist/local/cross-thread-target.js
 import { spawnSync as spawnSync16 } from "node:child_process";
@@ -31215,9 +31215,8 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
 
 // dist/local/thread-state.js
 import { spawnSync as spawnSync17 } from "node:child_process";
-import { basename as basename22 } from "node:path";
 function git4(cwd, args2) {
-  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment(), maxBuffer: 256 * 1024 * 1024, timeout: 3e4 });
+  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 256 * 1024 * 1024, timeout: 3e4 });
   return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
 }
 var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), counts: { local: 0, committed: 0, pushed: 0 } });
@@ -31227,6 +31226,11 @@ function readThreadShare(threadDir, files) {
     const states2 = new Map(files.map((file2) => [file2, "local"]));
     return { checked: true, note: "this folder is not in a Git repository, so no post is committed or pushed", upstream: null, states: states2, modified: /* @__PURE__ */ new Set(), counts: { local: files.length, committed: 0, pushed: 0 } };
   }
+  const prefix = git4(threadDir, ["rev-parse", "--show-prefix"]).out.trim();
+  const direct = (path) => {
+    const rest = prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
+    return rest.includes("/") ? void 0 : rest;
+  };
   const status = git4(threadDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
   if (!status.ok)
     return unchecked(`Git could not report this Thread's status${status.err ? `: ${status.err.split("\n").pop()}` : ""}`);
@@ -31235,9 +31239,11 @@ function readThreadShare(threadDir, files) {
   const entries = status.out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    const code = entry.slice(0, 2), name = basename22(entry.slice(3));
+    const code = entry.slice(0, 2), name = direct(entry.slice(3));
     if (code[0] === "R" || code[0] === "C")
       i++;
+    if (name === void 0)
+      continue;
     if (code === "??" || code[0] === "A")
       local.add(name);
     else if (code.includes("M") || code.includes("T") || code[0] === "R")
@@ -31249,12 +31255,13 @@ function readThreadShare(threadDir, files) {
   let note;
   let compared = false;
   if (upstream) {
-    const diff = git4(threadDir, ["diff", "--name-only", "-z", "--no-renames", upstream, "HEAD", "--", "."]);
+    const diff = git4(threadDir, ["diff", "--name-only", "-z", "--no-renames", "--relative", upstream, "HEAD", "--", "."]);
     compared = diff.ok;
-    if (diff.ok)
+    if (diff.ok) {
       for (const path of diff.out.split("\0").filter(Boolean))
-        unpushed.add(basename22(path));
-    else
+        if (!path.includes("/"))
+          unpushed.add(path);
+    } else
       note = `Git could not compare this Thread with ${upstream}${diff.err ? `: ${diff.err.split("\n").pop()}` : ""}; committed posts are not checked for a push`;
   } else {
     note = "this branch has no upstream, so a committed post may not be pushed; Git was not asked about a remote";
@@ -32180,7 +32187,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
         });
         for (const warning of warnings)
           output.log(`Link warning: ${warning}`);
-        const posted = readThreadShare(dirname24(path), [basename23(path)]).states.get(basename23(path));
+        const posted = readThreadShare(dirname24(path), [basename22(path)]).states.get(basename22(path));
         output.result({ id: post.id, path, kind: post.kind, ...post.mark ? { mark: post.mark } : {}, in_reply_to: post.inReplyTo, ...posted ? { state: posted } : {}, ...warnings.length ? { warnings } : {} }, `Appended ${post.kind}: ${path}${posted === "local" ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : ""}`);
         return 0;
       }
@@ -32286,7 +32293,7 @@ var logoutCommand = {
 
 // dist/pi/pi-status.js
 import { existsSync as existsSync35, readFileSync as readFileSync23 } from "node:fs";
-import { basename as basename24, join as join45 } from "node:path";
+import { basename as basename23, join as join45 } from "node:path";
 
 // dist/local/probe-binary.js
 import { spawnSync as spawnSync19 } from "node:child_process";
@@ -32368,7 +32375,7 @@ function derivePiStatus(input) {
   };
 }
 function resolveExtension(path) {
-  const name = basename24(path.replace(/[/\\]+$/, "")) || path;
+  const name = basename23(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
   if (!existsSync35(path))
     return check(false);
@@ -34008,7 +34015,7 @@ import { spawn as spawn5 } from "node:child_process";
 import { existsSync as existsSync39, readdirSync as readdirSync7, readFileSync as readFileSync25, realpathSync as realpathSync29, statSync as statSync21 } from "node:fs";
 import { randomUUID as randomUUID17 } from "node:crypto";
 import { homedir as homedir7 } from "node:os";
-import { basename as basename25, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
+import { basename as basename24, dirname as dirname28, join as join49, resolve as resolve44 } from "node:path";
 function claudeConfigDir(env = process.env) {
   return env.CLAUDE_CONFIG_DIR?.trim() || join49(homedir7(), ".claude");
 }
@@ -34251,7 +34258,7 @@ function listClaudeConversations(contextRoot, env = process.env) {
   const seen = /* @__PURE__ */ new Set();
   const files = dirs.flatMap((folder) => readdirSync7(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join49(folder, f)));
   for (const path of files) {
-    const fileId = basename25(path, ".jsonl");
+    const fileId = basename24(path, ".jsonl");
     if (seen.has(fileId))
       continue;
     seen.add(fileId);

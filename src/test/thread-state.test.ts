@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendPost, createThread } from "../local/threads.js";
@@ -86,6 +86,65 @@ describe("where a local post is", () => {
     const share = readThreadShare(t.path, names(t));
     expect([...share.modified]).toEqual([file]);
     expect(shareLine(share)).toMatch(/changed after commit/);
+  });
+
+  it("reads only this folder's own post files: a changed Agreement or a child folder is not a post", () => {
+    const root = space(); repo(root);
+    const t = opened(root);
+    git(root, "add", "-A"); git(root, "commit", "-qm", "Thread");
+    appendFileSync(join(t.path, "_agent", "agreement.md"), "\nEdited Agreement.\n");
+    mkdirSync(join(t.path, "child")); writeFileSync(join(t.path, "child", "2026-11-07T10-00-00-000Z-msg_x.md"), "---\nid: msg_x\n---\nx\n");
+    const share = readThreadShare(t.path, names(t));
+    expect([...share.modified]).toEqual([]);
+    expect([...share.states.keys()]).toEqual(names(t));
+  });
+
+  it("says a staged edit and a staged rename of a committed post are changes after commit, and names only three of many", () => {
+    const root = space(); repo(root);
+    const t = opened(root);
+    for (let i = 0; i < 4; i++) appendPost(t.path, { body: `Post ${i}`, author: "Scout", replyTo: ["latest"] });
+    git(root, "add", "-A"); git(root, "commit", "-qm", "Thread");
+    for (const file of names(t).slice(0, 4)) appendFileSync(join(t.path, file), "\nEdit.\n");
+    git(root, "add", "-A");
+    const share = readThreadShare(t.path, names(t));
+    expect(share.modified.size).toBe(4);
+    expect(shareLine(share)).toMatch(/4 post files were changed after commit: .*, …;/);
+  });
+
+  /** A `git` that runs the real one except for the named verb, which fails; it also records the optional-locks setting it was given. */
+  function failing(verb: string): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "is-fake-git-"))); temp.push(dir);
+    const bin = join(dir, "git");
+    writeFileSync(bin, `#!/bin/sh\necho "$GIT_OPTIONAL_LOCKS" >> "${join(dir, "locks")}"\nif [ "$1" = "${verb}" ]; then echo "fatal: simulated ${verb} failure" >&2; exit 128; fi\nexec "${execFileSync("which", ["git"], { encoding: "utf8" }).trim()}" "$@"\n`, { mode: 0o755 });
+    return bin;
+  }
+  it("says it does not know, and gives no post a state, when Git cannot report the status", () => {
+    const root = space(); repo(root);
+    const t = opened(root);
+    process.env.IDEASPACES_GIT_BIN = failing("status");
+    try {
+      const share = readThreadShare(t.path, names(t));
+      expect(share.checked).toBe(false);
+      expect(share.states.size).toBe(0);
+      expect(shareLine(share)).toMatch(/^Post state unknown: Git could not report this Thread's status: fatal: simulated status failure\./);
+    } finally { delete process.env.IDEASPACES_GIT_BIN; }
+  });
+
+  it("calls an upstream it cannot compare committed, with the reason, never pushed; and never lets Git write while it reads", () => {
+    const root = space(); repo(root); remoteFor(root);
+    const t = opened(root);
+    git(root, "add", "-A"); git(root, "commit", "-qm", "Thread"); git(root, "push", "-q", "-u", "origin", "main");
+    const bin = failing("diff");
+    process.env.IDEASPACES_GIT_BIN = bin;
+    try {
+      const share = readThreadShare(t.path, names(t));
+      expect(share.states.get(names(t)[0])).toBe("committed");
+      expect(share.note).toMatch(/could not compare this Thread with origin\/main: fatal: simulated diff failure; committed posts are not checked for a push/);
+      // Every Git call it made asked not to take optional locks, so reading a Thread never writes the index.
+      const calls = readFileSync(join(bin, "..", "locks"), "utf8").split("\n").filter(Boolean);
+      expect(calls.length).toBeGreaterThan(3);
+      expect(new Set(calls)).toEqual(new Set(["0"]));
+    } finally { delete process.env.IDEASPACES_GIT_BIN; }
   });
 
   it("is in the open and post results: each post's state, the Thread's line, and a post that says it is not delivered", async () => {
