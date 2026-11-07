@@ -77,7 +77,7 @@ interface Fixture {
  * A Space the way the app keeps one: the Note is committed, the launching post comes after the pin
  * its Map names, so it cannot be read at that pin and the Note has to be a member.
  */
-function fixture(options: { noteBody?: string; agreement?: string; extra?: number; attach?: boolean; depth?: string; unicode?: boolean } = {}): Fixture {
+function fixture(options: { noteBody?: string; agreement?: string; extra?: number; attach?: boolean; depth?: string; unicode?: boolean; longSummaries?: boolean } = {}): Fixture {
   const root = tempDir("lt-space-");
   const pov = tempDir("lt-pov-");
   const git = (...args: string[]) => {
@@ -104,7 +104,7 @@ function fixture(options: { noteBody?: string; agreement?: string; extra?: numbe
     roots: [{ root_node_id: ROOT_ID, sha: pin }],
     members: [
       { root: 0, position: `_threads/target/${note.post.path}`, depth: options.depth ?? "full", summary: "The Note itself" },
-      ...Array.from({ length: extra }, (_, i) => ({ root: 0, position: `docs/n${i}.md`, depth: "full", summary: `Doc ${i}` })),
+      ...Array.from({ length: extra }, (_, i) => ({ root: 0, position: `docs/n${i}.md`, depth: "full", summary: options.longSummaries ? `Doc ${i}: ${"an authored line about this member. ".repeat(14)}` : `Doc ${i}` })),
     ],
   };
   const launching = createThread("launch", "Launch from a point", root, options.attach === false ? undefined : `post:${note.post.id}`);
@@ -202,7 +202,7 @@ process.stdin.resume(); process.stdin.on("data", () => {}); process.stdin.on("en
   });
 
   it("converges when multi-byte text makes bytes outrun the character budget", async () => {
-    const f = fixture({ extra: 12, unicode: true, agreement: `---\nname: Agreement\nsummary: Terms\n---\n# Terms\n${"A clause of the Thread's terms. ".repeat(180)}\n` });
+    const f = fixture({ extra: 8, unicode: true, agreement: `---\nname: Agreement\nsummary: Terms\n---\n# Terms\n${"A clause of the Thread's terms. ".repeat(180)}\n` });
     const result = await assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root });
     expect(result.bytes).toBeLessThanOrEqual(MAX_ORIENTATION_BYTES);
     const mapBytes = Buffer.byteLength(result.text.slice(0, result.map.chars));
@@ -214,18 +214,18 @@ process.stdin.resume(); process.stdin.on("data", () => {}); process.stdin.on("en
   });
 
   it("never lets --budget raise the Map past the room the cap leaves", async () => {
-    const f = fixture({ extra: 12, agreement: `---\nname: Agreement\nsummary: Terms\n---\n# Terms\n${"A clause of the Thread's terms. ".repeat(180)}\n` });
+    const f = fixture({ extra: 8, agreement: `---\nname: Agreement\nsummary: Terms\n---\n# Terms\n${"A clause of the Thread's terms. ".repeat(180)}\n` });
     const result = await assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root, budget: 50_000 });
     expect(result.map.budget).toBeLessThan(50_000);
     expect(result.bytes).toBeLessThanOrEqual(MAX_ORIENTATION_BYTES);
     const small = await assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root, budget: 6_000 });
     expect(small.map.budget).toBe(6_000);
-  }, 30_000);
+  });
 
   it("says when the room left is smaller than any Map can fit", async () => {
-    const f = fixture({ extra: 45, agreement: `---\nname: Agreement\n---\n${"A clause. ".repeat(1060)}\n` });
+    const f = fixture({ extra: 10, longSummaries: true, agreement: `---\nname: Agreement\n---\n${"A clause. ".repeat(1060)}\n` });
     await expect(assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root })).rejects.toThrow(/leave \d+ of 16384 bytes for the Map/);
-  }, 60_000);
+  });
 
   it("asks for --member when the post is not in its Map and is attached to nothing in it", async () => {
     const f = fixture({ attach: false });
