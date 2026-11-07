@@ -1,3 +1,4 @@
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -135,7 +136,7 @@ afterEach(() => {
   rmSync(remote, { recursive: true, force: true });
 });
 
-describe("ideaspaces map select", () => {
+describe("ideaspaces map select", { timeout: GIT_INTEGRATION_TIMEOUT }, () => {
   it("builds the fixed Note plus hostname selection without local bindings", async () => {
     const result = await run();
 
@@ -341,7 +342,7 @@ map:
         disclosure: { name: "Finding", summary: "Observed at the selected pin." },
       },
     ]);
-  }, 30_000);
+  });
 
   it("refuses to pin a foreign root with no identified local checkout", async () => {
     writeFileSync(join(root, "notes", "links.map.md"), `---\nname: Links\nmap:\n  roots:\n    - root_node_id: n_aaaaaaaaaaaaaaaaaaaaaaaa\n  members:\n    - root: 0\n      position: README.md\n---\n# Links\n`);

@@ -1,3 +1,4 @@
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -82,7 +83,7 @@ describe("git availability", () => {
     }
     expect(gitAvailable()).toBe(false);
     expect(GIT_UNUSABLE_HINT).toContain("xcode-select --install");
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("reports a zero-exit executable and its version", async () => {
     const stubDirectory = await pathDirectory({ stdout: "git version 2.48.0" });
@@ -92,7 +93,7 @@ describe("git availability", () => {
 
     expect(gitAvailability()).toMatchObject({ state: "usable", version: expect.stringMatching(/^git version /) });
     expect(gitAvailable()).toBe(true);
-  }, 30_000); // Native executable discovery plus two real Git probes took 17.8s on Windows CI.
+  }, GIT_INTEGRATION_TIMEOUT); // Native executable discovery plus two real Git probes took 17.8s on Windows CI.
 
   it("honors IDEASPACES_GIT_BIN explicit executable even with empty PATH", async () => {
     const stubDirectory = await pathDirectory({ stdout: "git version 2.53.0" });
@@ -108,7 +109,7 @@ describe("git availability", () => {
       path: stubBinary,
     });
     expect(gitAvailable()).toBe(true);
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   it("reports absent for non-existent IDEASPACES_GIT_BIN", () => {
     process.env.IDEASPACES_GIT_BIN = "/nonexistent/custom/git";
@@ -132,7 +133,7 @@ describe("git availability", () => {
       expect(availability.detail.trim().length).toBeGreaterThan(0);
     } else expect(availability.detail).toContain("custom git failed");
     expect(availability.path).toBe(stubBinary);
-  });
+  }, GIT_INTEGRATION_TIMEOUT);
 
   describe("gitBinary and normalizeGitBin", () => {
     it("defaults to git when IDEASPACES_GIT_BIN is unset or whitespace", () => {

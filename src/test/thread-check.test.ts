@@ -1,3 +1,4 @@
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -32,7 +33,8 @@ function space() {
   return { dir, a, b, threads: join(dir, "_threads") };
 }
 
-describe("threads check", () => {
+// The real-Git fixture took 5.275s on Windows; adjacent cases took 4.5–4.6s.
+describe("threads check", { timeout: GIT_INTEGRATION_TIMEOUT }, () => {
   it("is clean when every post is as first committed, and READMEs and a new post do not count", () => {
     const { dir, a, threads } = space();
     appendFileSync(join(a.path, "README.md"), "\nCurated.\n");
@@ -95,7 +97,7 @@ describe("threads check", () => {
   });
 });
 
-describe("threads check does not report wrongly", () => {
+describe("threads check does not report wrongly", { timeout: GIT_INTEGRATION_TIMEOUT }, () => {
   it("does not call a post edited or deleted after commit when it was never committed: staged then edited, staged then deleted", () => {
     const { dir, a, threads } = space();
     const fresh = appendPost(a.path, { body: "Fresh", author: "Scout", replyTo: ["latest"] });
