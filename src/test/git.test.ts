@@ -1,10 +1,10 @@
-import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { gitAvailability, gitAvailable, gitBinary, normalizeGitBin, GIT_MISSING_HINT, GIT_UNUSABLE_HINT } from "../git.js";
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 
 const originalPath = process.env.PATH;
 const originalGitBin = process.env.IDEASPACES_GIT_BIN;

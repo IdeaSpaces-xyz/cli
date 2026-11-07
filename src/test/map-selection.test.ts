@@ -1,4 +1,3 @@
-import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +5,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import type { GlobalFlags } from "../types.js";
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 
 const { loadConfigMock, resolveSpaceBindingMock, originUrlMock, fetchContentTreeMock, fetchEntityMock } = vi.hoisted(() => ({
   loadConfigMock: vi.fn(),
@@ -257,7 +257,7 @@ describe("ideaspaces map select", { timeout: GIT_INTEGRATION_TIMEOUT }, () => {
   });
 
   // Real commits, a push to a bare remote and live-root pinning took 8.9s on Windows CI.
-  // Budget this integration fixture, not the command's runtime or the whole test suite.
+  // This measured case motivates the real-Git group's budget, not a runtime deadline.
   it("pins an unpinned Space Map root from its live checkout when selecting a moment", async () => {
     mkdirSync(join(root, "_agent"));
     writeFileSync(join(root, "_agent", "agreement.md"), `---\nname: Space\nroot_node_id: ${ROOT_NODE_ID}\n---\n# Space\n`);

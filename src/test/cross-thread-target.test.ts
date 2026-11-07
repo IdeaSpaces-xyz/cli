@@ -1,4 +1,3 @@
-import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { saveSpace } from "../auth/spaces.js";
 import { threadsCommand } from "../commands/threads.js";
 import { appendPost, createThread, initWorktree, loadThread } from "../local/threads.js";
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 
 const ID = "n_0123456789abcdef01234567";
 const OTHER = "n_ffffffffffffffffffffffff";
@@ -140,7 +140,7 @@ describe("authored cross-Space local Thread selection", { timeout: GIT_INTEGRATI
     git(nested, "init", "-b", "main");
     process.chdir(nested); await refuse();
     expect(process.cwd()).toBe(realpathSync(nested));
-  }, GIT_INTEGRATION_TIMEOUT); // Windows Git process startup can exceed Vitest's 5s default for this refusal matrix.
+  });
 
   it("requires a unique registered checkout or a validated explicit hint, never scans or grants by path", async () => {
     const f = fixture(); process.env.HOME = f.agent; process.chdir(f.agent);
@@ -213,7 +213,7 @@ describe("authored cross-Space local Thread selection", { timeout: GIT_INTEGRATI
     expect((await run(["post", "decision"], { ...base, "reply-to": f.first.post.id })).status).toBe(1);
     expect(posts(f.home)).toHaveLength(3);
     expect(readdirSync(target).filter((name) => name.endsWith(".md"))).toHaveLength(4);
-  }, GIT_INTEGRATION_TIMEOUT); // Windows Git process startup can exceed Vitest's 5s default for this many repositories.
+  });
 });
 
 it("accepts a same-Space aliased absolute pinned path but never a cross-Space aliased path", async () => {

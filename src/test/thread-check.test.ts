@@ -1,4 +1,3 @@
-import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -7,6 +6,7 @@ import { join } from "node:path";
 import { appendPost, createThread } from "../local/threads.js";
 import { checkThreads } from "../local/thread-check.js";
 import { threadsCommand } from "../commands/threads.js";
+import { GIT_INTEGRATION_TIMEOUT } from "./git-integration-timeout.js";
 
 const temp: string[] = [];
 const originalHome = process.env.HOME;
