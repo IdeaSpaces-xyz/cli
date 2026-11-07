@@ -40,7 +40,7 @@ export function reviewsIn(pages, window) {
     .filter((comment) => time(comment.created_at) >= window.from && time(comment.created_at) <= window.to);
 }
 
-// The label may be bold and the verdict may be followed by a reason: "**Recommendation:** Approve."
+// The label may be bold: "**Recommendation:** Approve."
 // A template left unfilled ("Approve / Request Changes") is not a verdict.
 export function recommendation(body) {
   const said = String(body ?? "").split("\n")
@@ -49,9 +49,13 @@ export function recommendation(body) {
     .map((line) => line.replace(/^recommendation:\s*/i, ""));
   if (said.length !== 1) return said.length ? "ambiguous" : "none";
   const text = said[0].toLowerCase();
-  // "Approve" may be followed by an end, punctuation or a bracket, not by a clause: "Approve, but" refuses.
-  const first = /^approve(?:\s*$|[.:;!(—–-]|\s+[(—–-])/.test(text) ? "Approve" : /^request changes\b/.test(text) ? "Request Changes" : /^comment\b/.test(text) ? "Comment" : "ambiguous";
-  return first === "Approve" && /request changes|[/|]\s*comment|comment\s*[/|]/.test(text) ? "ambiguous" : first;
+  // The verdict is the first sentence, and it must be exactly "Approve". What follows is notes for
+  // the author. A condition inside the first sentence ("Approve, once CI is green", "Approve with
+  // minor suggestions", "Approve - but fix X") is not a plain Approve, and a gate that nobody reads
+  // can't weigh it, so it refuses. SLC's prompt should end the line at the verdict.
+  const verdict = text.split(/\.(?:\s|$)/)[0].trim();
+  if (verdict === "approve") return /request changes|[/|]\s*comment|comment\s*[/|]/.test(text) ? "ambiguous" : "Approve";
+  return verdict === "request changes" ? "Request Changes" : verdict === "comment" ? "Comment" : "ambiguous";
 }
 
 export function decide({ ref, groupParents, pr, checkRuns, pages }) {
@@ -70,9 +74,11 @@ export function decide({ ref, groupParents, pr, checkRuns, pages }) {
   if (!window) return { land: false, reason: `no successful ${CHECK} run for head ${head}` };
   const reviews = reviewsIn(pages ?? [], window);
   if (reviews.length !== 1) {
-    return { land: false, reason: `expected one ${REVIEWER} comment inside the ${CHECK} run for ${head}, found ${reviews.length}: ${window.url}. Push a new commit or re-run the SLC review, then queue the PR again.` };
+    return { land: false, reason: `expected one ${REVIEWER} comment inside the ${CHECK} run for ${head}, found ${reviews.length} (any comment from it counts, an @claude reply included): ${window.url}. Push a new commit or re-run the SLC review, then queue the PR again.` };
   }
   const [review] = reviews;
+  // This assumes the review is posted once and never touched. If the action moves to a sticky or
+  // progress comment, this refuses every PR, which is the safe way to fail.
   if (review.updated_at !== review.created_at) {
     return { land: false, reason: `the SLC verdict for ${head} was edited after posting: ${review.html_url}. Push a new commit or re-run the SLC review, then queue the PR again.` };
   }

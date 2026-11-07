@@ -34,15 +34,15 @@ describe("SLC queue gate", () => {
   });
 
   it("reads the label with markdown around it and a reason after it", () => {
-    expect(recommendation("**Recommendation:** Approve. Nothing blocks.")).toBe("Approve");
-    expect(recommendation("Recommendation: **Approve**")).toBe("Approve");
-    expect(recommendation("**Recommendation:** Approve (posted as a comment). The nits can wait.")).toBe("Approve");
+    expect(recommendation("**Recommendation:** Approve.")).toBe("Approve");
+    expect(recommendation("**Recommendation:** Approve. The points above are non-blocking polish.")).toBe("Approve");
     expect(recommendation("**Recommendation:** Request Changes. Items 1 to 3.")).toBe("Request Changes");
-    expect(recommendation("Recommendation: Approve — nits only")).toBe("Approve");
+    expect(recommendation("Recommendation: **Approve**")).toBe("Approve");
+    expect(recommendation("**Recommendation:** Request Changes. Items 1 to 3.")).toBe("Request Changes");
   });
 
   it("does not read a clause after Approve as an Approve", () => {
-    for (const text of ["Approve, but fix item 2 first", "Approve with changes", "Approved once CI is green"]) {
+    for (const text of ["Approve, but fix item 2 first", "Approve with changes", "Approved once CI is green", "Approve - but fix item 2 first", "Approve — don't merge until X", "Approve: after fixing X", "Approve; but later", "Approve (once CI is green)", "Approve (posted as a comment)"]) {
       expect(recommendation(`Recommendation: ${text}`), text).toBe("ambiguous");
     }
   });
