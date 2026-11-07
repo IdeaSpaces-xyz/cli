@@ -3,6 +3,7 @@ import { afterEach, beforeEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate as yieldToRunner } from "node:timers/promises";
 let dir: string;
 let previousGlobal: string | undefined;
 let previousSystem: string | undefined;
@@ -18,10 +19,13 @@ beforeEach(() => {
   process.env.GIT_CONFIG_GLOBAL = global;
   process.env.GIT_CONFIG_SYSTEM = system;
 });
-afterEach(() => {
+afterEach(async () => {
   if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
   else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
   if (previousSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM;
   else process.env.GIT_CONFIG_SYSTEM = previousSystem;
   rmSync(dir, { recursive: true, force: true });
+  // Synchronous Git fixtures can starve the worker's IPC acknowledgements across
+  // tests. Give the poll phase a turn; do not extend/suppress Vitest's RPC errors.
+  await yieldToRunner();
 });
