@@ -286,3 +286,26 @@ describe("where a local post is", () => {
     } finally { process.stdout.write = old; process.chdir(previous); }
   });
 });
+
+describe("a local author is a claim", () => {
+  it("is said once for the Thread, beside every author, and in the JSON a tool reads", async () => {
+    const root = space();
+    const t = opened(root);
+    appendPost(t.path, { body: "I decided this.", author: "The human", replyTo: ["latest"] });
+    const previous = process.cwd(); process.chdir(root);
+    const old = process.stdout.write;
+    let text = "";
+    process.stdout.write = ((s: string) => { text += s; return true; }) as typeof process.stdout.write;
+    const run = async (global: { json: boolean; quiet: boolean }, options: Record<string, string | boolean>) => { text = ""; expect(await threadsCommand.run(["open", "decision"], options, { ...global, yes: false, help: false })).toBe(0); return text; };
+    try {
+      const json = JSON.parse(await run({ json: true, quiet: true }, { depth: "full" }));
+      expect(json.thread).toMatchObject({ author_trust: "claimed", author_note: expect.stringMatching(/claims by whoever wrote the file, not verified identities/) });
+      const human = await run({ json: false, quiet: false }, { depth: "full" });
+      expect(human).toContain("Author names here are claims by whoever wrote the file, not verified identities.");
+      expect(human).toContain("· claimed by The human ·");
+      expect(human).not.toMatch(/· The human ·/);
+      const summary = await run({ json: false, quiet: false }, { depth: "summary", limit: "5" });
+      expect(summary).toContain("claimed by The human");
+    } finally { process.stdout.write = old; process.chdir(previous); }
+  });
+});
