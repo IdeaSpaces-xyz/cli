@@ -73,6 +73,12 @@ export interface SelectedThreadTarget {
   verifyWrite: (live: LocalThread, parents: string[], supersedes?: string) => void;
 }
 
+/** Compare existing directories through one physical spelling. Do not change Thread
+ * paths/cursor keys just to reconcile Windows short names at this boundary. */
+function sameDirectory(left: string, right: string): boolean {
+  return realpathSync.native(left) === realpathSync.native(right);
+}
+
 export function selectLocalThreadTarget(input: string, root: MapRoot, member: MapPositionMember, checkoutHint?: string): SelectedThreadTarget {
   const pin = root.sha;
   if (!pin || !/^[0-9a-f]{40}$/.test(pin)) throw new Error("Selected authored pin must be a full 40-character commit SHA.");
@@ -91,7 +97,7 @@ export function selectLocalThreadTarget(input: string, root: MapRoot, member: Ma
   const directory = resolveLocalThread(slug, checkout);
   // Preserve same-Space paths, but never let a path locate a cross-Space
   // target. Only the hint chooses the checkout; the member chooses its slug.
-  if (input !== slug && (threadBase() !== checkout || resolveLocalThread(input) !== directory)) {
+  if (input !== slug && (!sameDirectory(threadBase(), checkout) || !sameDirectory(resolveLocalThread(input), directory))) {
     throw new Error(`Selected Map member belongs to Thread ${slug}; pass that slug, not a cross-Space path.`);
   }
   const thread = loadThread(directory);

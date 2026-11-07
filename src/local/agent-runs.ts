@@ -126,15 +126,20 @@ export function listAgentRuns(options: ListAgentRunsOptions = {}): AgentRunRecor
     runs = runs.filter((r) => r.parent_id === options.parentId);
   }
   if (options.agent !== undefined && options.agent.trim()) {
-    const raw = options.agent.trim().replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
-    if (raw) {
-      runs = runs.filter((r) => {
-        const norm = r.agent.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
-        return norm === raw || norm.endsWith(`/${raw}`);
-      });
-    } else {
-      runs = [];
-    }
+    const input = options.agent.trim();
+    const normalize = (value: string) => value.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
+    const physical = (value: string): string | undefined => {
+      try { return normalize(realpathSync.native(value)); }
+      catch { return undefined; } // Historical records may name a moved/deleted POV.
+    };
+    const raw = normalize(input);
+    const canonical = physical(input);
+    runs = raw ? runs.filter((r) => {
+      const norm = normalize(r.agent);
+      return norm === raw || norm.endsWith(`/${raw}`) ||
+        (canonical !== undefined && physical(r.agent) === canonical);
+    }) : [];
+
   }
 
   // Sort newest first by started_at descending
