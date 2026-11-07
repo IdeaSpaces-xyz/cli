@@ -26805,7 +26805,7 @@ function discoverAgentReach(opts) {
   const baseCwd = opts.cwd ?? process.cwd();
   let pov;
   try {
-    pov = realpathSync15(opts.povPath);
+    pov = realpathSync15.native(opts.povPath);
   } catch (err) {
     return { addedDirs: [], warnings, errors: [`Cannot resolve POV ${opts.povPath}: ${err instanceof Error ? err.message : String(err)}`] };
   }
@@ -26862,7 +26862,7 @@ function discoverAgentReach(opts) {
         try {
           if (!statSync11(root.checkoutPath).isDirectory())
             throw new Error("not a directory");
-          discoveredCheckouts.push(realpathSync15(root.checkoutPath));
+          discoveredCheckouts.push(realpathSync15.native(root.checkoutPath));
         } catch (err) {
           warnings.push(`Map ${item.path}: checkout ${root.checkoutPath} unavailable (${err instanceof Error ? err.message : String(err)}); not added to reach.`);
         }
@@ -26880,7 +26880,7 @@ function discoverAgentReach(opts) {
     for (const raw of (Array.isArray(opts.reachFlag) ? opts.reachFlag : [opts.reachFlag]).map((s) => s.trim()).filter(Boolean)) {
       const resolved = isAbsolute12(raw) ? raw : resolve32(baseCwd, raw);
       try {
-        const canonical = realpathSync15(resolved);
+        const canonical = realpathSync15.native(resolved);
         if (!statSync11(canonical).isDirectory())
           throw new Error("directory not found");
         explicitReach.push(canonical);
@@ -26917,7 +26917,7 @@ function isContained(root, path) {
 function enteredThroughRoot(root, path) {
   for (let ancestor = path; ; ancestor = dirname19(ancestor)) {
     try {
-      if (realpathSync16(ancestor) === root)
+      if (realpathSync16.native(ancestor) === root)
         return true;
     } catch {
     }
@@ -27290,15 +27290,21 @@ function listAgentRuns(options = {}) {
     runs = runs.filter((r) => r.parent_id === options.parentId);
   }
   if (options.agent !== void 0 && options.agent.trim()) {
-    const raw = options.agent.trim().replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
-    if (raw) {
-      runs = runs.filter((r) => {
-        const norm = r.agent.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
-        return norm === raw || norm.endsWith(`/${raw}`);
-      });
-    } else {
-      runs = [];
-    }
+    const input = options.agent.trim();
+    const normalize = (value4) => value4.replace(/^[\\/]+|[\\/]+$/g, "").replace(/\\/g, "/");
+    const physical2 = (value4) => {
+      try {
+        return normalize(realpathSync17.native(value4));
+      } catch {
+        return void 0;
+      }
+    };
+    const raw = normalize(input);
+    const canonical = physical2(input);
+    runs = raw ? runs.filter((r) => {
+      const norm = normalize(r.agent);
+      return norm === raw || norm.endsWith(`/${raw}`) || canonical !== void 0 && isAbsolute15(r.agent) && physical2(r.agent) === canonical;
+    }) : [];
   }
   runs.sort((a, b) => (b.started_at || "").localeCompare(a.started_at || ""));
   if (typeof options.limit === "number" && options.limit > 0) {
@@ -27734,7 +27740,7 @@ ${thread.orientation}`) > MAX_ORIENTATION_BYTES) {
           return 1;
         }
         try {
-          const canonical = realpathSync19(path);
+          const canonical = realpathSync19.native(path);
           if (enteredThroughRoot(povPath, path) && !isContained(povPath, canonical)) {
             throw new Error("escapes the selected POV");
           }
@@ -31151,6 +31157,13 @@ function locate(root, hint) {
     throw new Error(`Map root ${id} has ${paths.size} registered local checkouts; pass --checkout <absolute Space root> for an explicit validated choice.`);
   return validatedCheckout([...paths][0], id);
 }
+function sameDirectory(left, right) {
+  try {
+    return realpathSync24.native(left) === realpathSync24.native(right);
+  } catch {
+    return false;
+  }
+}
 function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   const pin = root.sha;
   if (!pin || !/^[0-9a-f]{40}$/.test(pin))
@@ -31172,7 +31185,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   }
   const slug = match[1];
   const directory = resolveLocalThread(slug, checkout);
-  if (input !== slug && (threadBase() !== checkout || resolveLocalThread(input) !== directory)) {
+  if (input !== slug && (!sameDirectory(threadBase(), checkout) || !sameDirectory(resolveLocalThread(input), directory))) {
     throw new Error(`Selected Map member belongs to Thread ${slug}; pass that slug, not a cross-Space path.`);
   }
   const thread = loadThread(directory);
