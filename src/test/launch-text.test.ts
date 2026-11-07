@@ -10,7 +10,7 @@ import { claudeConversationOps } from "../claude/local-conversation-ops.js";
 import { localConversationOps as piConversationOps } from "../pi/local-conversation-ops.js";
 import { composeLocalConversationOps } from "../local/runtime.js";
 import { assembleLaunchText, MAX_ORIENTATION_BYTES } from "../local/launch-text.js";
-import { loadMapOrientation } from "../local/map-orientation.js";
+import { loadMapOrientation, MapBudgetError } from "../local/map-orientation.js";
 import { appendPost, createThread, loadThread } from "../local/threads.js";
 import type { GlobalFlags } from "../types.js";
 
@@ -224,7 +224,10 @@ process.stdin.resume(); process.stdin.on("data", () => {}); process.stdin.on("en
 
   it("says when the room left is smaller than any Map can fit", async () => {
     const f = fixture({ extra: 10, longSummaries: true, agreement: `---\nname: Agreement\n---\n${"A clause. ".repeat(1060)}\n` });
-    await expect(assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root })).rejects.toThrow(/leave \d+ of 16384 bytes for the Map/);
+    // Told apart by type, so rewording the message cannot drop the hint.
+    const failure = await assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, pov: f.pov, cwd: f.root }).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(MapBudgetError);
+    expect((failure as Error).message).toMatch(/leave \d+ of 16384 bytes for the Map/);
   });
 
   it("asks for --member when the post is not in its Map and is attached to nothing in it", async () => {

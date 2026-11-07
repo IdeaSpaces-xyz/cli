@@ -20527,6 +20527,12 @@ function formatMapAgentsText(result) {
 // dist/local/map-orientation.js
 var MAP_ORIENTATION_BUDGET = 12e3;
 var LADDER = ["full", "children", "surface", "summary", "name"];
+var MapBudgetError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "MapBudgetError";
+  }
+};
 async function loadMapOrientation(reference, contextRoot, options = {}) {
   const note = loadMapNote(reference, contextRoot);
   const budget = options.budget ?? MAP_ORIENTATION_BUDGET;
@@ -20593,7 +20599,7 @@ async function loadMapOrientation(reference, contextRoot, options = {}) {
       legend = false;
       continue;
     }
-    throw new Error(`Map note ${JSON.stringify(reference)} renders to ${text.length} characters with every member at name; a launch Map may add at most ${budget}. Use a smaller Map.`);
+    throw new MapBudgetError(`Map note ${JSON.stringify(reference)} renders to ${text.length} characters with every member at name; a launch Map may add at most ${budget}. Use a smaller Map.`);
   }
 }
 function isLoadedAsNote(note, map, member2) {
@@ -27358,10 +27364,9 @@ async function loadLaunchMap(reference, context, parts) {
     try {
       loaded = await loadMapOrientation(reference, context, { budget: limit, loadedAsNote: parts.loadedAsNote });
     } catch (error) {
-      const detail3 = error instanceof Error ? error.message : String(error);
-      if (!/every member at name/.test(detail3))
+      if (!(error instanceof MapBudgetError))
         throw error;
-      throw new Error(`${detail3} The Agreement and the Thread frame leave ${room} of ${MAX_ORIENTATION_BYTES} bytes for the Map.`);
+      throw new MapBudgetError(`${error.message} The Agreement and the Thread frame leave ${room} of ${MAX_ORIENTATION_BYTES} bytes for the Map.`);
     }
     const over = Buffer.byteLength(loaded.text) - room;
     if (over <= 0)

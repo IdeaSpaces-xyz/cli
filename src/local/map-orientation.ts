@@ -40,6 +40,14 @@ interface Located {
   name: string | undefined;
 }
 
+/** The Map renders over its budget even with every member at name. Callers tell this from a Map that cannot be read by type, not by wording. */
+export class MapBudgetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MapBudgetError";
+  }
+}
+
 export interface MapOrientationLowered {
   /** Zero-based ordinal in `map.members`. */
   index: number;
@@ -170,7 +178,7 @@ export async function loadMapOrientation(
       legend = false;
       continue;
     }
-    throw new Error(
+    throw new MapBudgetError(
       `Map note ${JSON.stringify(reference)} renders to ${text.length} characters with every member at name; ` +
       `a launch Map may add at most ${budget}. Use a smaller Map.`,
     );

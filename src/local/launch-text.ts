@@ -6,6 +6,7 @@ import { loadMapNote } from "./map-note.js";
 import {
   loadMapOrientation,
   MAP_ORIENTATION_BUDGET,
+  MapBudgetError,
   type MapOrientationLowered,
   type MapOrientationMerged,
   type MapOrientationResult,
@@ -70,10 +71,9 @@ export async function loadLaunchMap(
     try {
       loaded = await loadMapOrientation(reference, context, { budget: limit, loadedAsNote: parts.loadedAsNote });
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
       // Only a size failure is about the room; a Map that cannot be read says what it says.
-      if (!/every member at name/.test(detail)) throw error;
-      throw new Error(`${detail} The Agreement and the Thread frame leave ${room} of ${MAX_ORIENTATION_BYTES} bytes for the Map.`);
+      if (!(error instanceof MapBudgetError)) throw error;
+      throw new MapBudgetError(`${error.message} The Agreement and the Thread frame leave ${room} of ${MAX_ORIENTATION_BYTES} bytes for the Map.`);
     }
     const over = Buffer.byteLength(loaded.text) - room;
     if (over <= 0) return loaded;

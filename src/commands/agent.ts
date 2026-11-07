@@ -231,6 +231,7 @@ async function cmdRun(
         const loaded = await loadLaunchMap(flags.map, povPath, { pov: povOrientation, frame: thread.orientation, loadedAsNote: thread.citation });
         launchMap = { budget: loaded.budget, loadedAsNote: thread.citation };
       } else {
+        // Deliberate: a hosted Thread with --map, and a Space-only --map launch, are not counted against the cap (unchanged by this check).
         const tooLarge = launchSizeError(launchSizes({ pov: povOrientation, frame: thread.orientation }));
         if (tooLarge) throw new Error(tooLarge);
       }
