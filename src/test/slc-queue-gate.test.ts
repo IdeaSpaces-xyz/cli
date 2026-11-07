@@ -38,6 +38,13 @@ describe("SLC queue gate", () => {
     expect(recommendation("Recommendation: **Approve**")).toBe("Approve");
     expect(recommendation("**Recommendation:** Approve (posted as a comment). The nits can wait.")).toBe("Approve");
     expect(recommendation("**Recommendation:** Request Changes. Items 1 to 3.")).toBe("Request Changes");
+    expect(recommendation("Recommendation: Approve — nits only")).toBe("Approve");
+  });
+
+  it("does not read a clause after Approve as an Approve", () => {
+    for (const text of ["Approve, but fix item 2 first", "Approve with changes", "Approved once CI is green"]) {
+      expect(recommendation(`Recommendation: ${text}`), text).toBe("ambiguous");
+    }
   });
 
   it("refuses when nothing was posted in the window, or the comment is from a person", () => {

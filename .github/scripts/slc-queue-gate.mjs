@@ -33,6 +33,7 @@ export function reviewWindow(checkRuns) {
   return run && { from: time(run.started_at), to: time(run.completed_at), url: run.html_url };
 }
 
+// Both ends of the window are inclusive, at the one-second grain GitHub reports.
 export function reviewsIn(pages, window) {
   return pages.flat()
     .filter((comment) => comment.user?.login === REVIEWER && comment.user?.type === "Bot")
@@ -48,7 +49,8 @@ export function recommendation(body) {
     .map((line) => line.replace(/^recommendation:\s*/i, ""));
   if (said.length !== 1) return said.length ? "ambiguous" : "none";
   const text = said[0].toLowerCase();
-  const first = /^approve\b/.test(text) ? "Approve" : /^request changes\b/.test(text) ? "Request Changes" : /^comment\b/.test(text) ? "Comment" : "ambiguous";
+  // "Approve" may be followed by an end, punctuation or a bracket, not by a clause: "Approve, but" refuses.
+  const first = /^approve(?:\s*$|[.:;!(—–-]|\s+[(—–-])/.test(text) ? "Approve" : /^request changes\b/.test(text) ? "Request Changes" : /^comment\b/.test(text) ? "Comment" : "ambiguous";
   return first === "Approve" && /request changes|[/|]\s*comment|comment\s*[/|]/.test(text) ? "ambiguous" : first;
 }
 
@@ -68,11 +70,11 @@ export function decide({ ref, groupParents, pr, checkRuns, pages }) {
   if (!window) return { land: false, reason: `no successful ${CHECK} run for head ${head}` };
   const reviews = reviewsIn(pages ?? [], window);
   if (reviews.length !== 1) {
-    return { land: false, reason: `expected one ${REVIEWER} comment inside the ${CHECK} run for ${head}, found ${reviews.length}: ${window.url}` };
+    return { land: false, reason: `expected one ${REVIEWER} comment inside the ${CHECK} run for ${head}, found ${reviews.length}: ${window.url}. Push a new commit or re-run the SLC review, then queue the PR again.` };
   }
   const [review] = reviews;
   if (review.updated_at !== review.created_at) {
-    return { land: false, reason: `the SLC verdict for ${head} was edited after posting: ${review.html_url}` };
+    return { land: false, reason: `the SLC verdict for ${head} was edited after posting: ${review.html_url}. Push a new commit or re-run the SLC review, then queue the PR again.` };
   }
   const said = recommendation(review.body);
   if (said !== "Approve") {
