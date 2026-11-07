@@ -23,6 +23,7 @@ it("finds history through either physical or alias spelling without rewriting re
   const other = join(home, "other"); mkdirSync(other);
   expect(listAgentRuns({ agent: other })).toEqual([]);
   rmSync(alias, { recursive: true }); rmSync(actual, { recursive: true });
-  expect(listAgentRuns({ agent: actual }).map(r => r.run_id)).toEqual(["real"]);
+  // Once removed, only the exact stored spelling or lexical name is knowable.
+  expect(listAgentRuns({ agent: base.agent }).map(r => r.run_id)).toEqual(["real"]);
   expect(listAgentRuns({ agent: "alias" }).map(r => r.run_id)).toEqual(["old-alias"]);
 });
