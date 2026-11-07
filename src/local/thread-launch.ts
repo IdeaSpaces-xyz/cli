@@ -132,7 +132,7 @@ export function prepareThreadLaunch(
       `Thread: ${JSON.stringify(threadName)}`,
       `Agreement (at authored pin):\n${agreement}`,
       `Selected post: ${JSON.stringify(post.frontmatter.name ?? post.id)} (${post.id})`,
-      ...(post.frontmatter.author ? [`Author: ${JSON.stringify(post.frontmatter.author)}`] : []),
+      ...(post.frontmatter.author ? [`Author (a claim by whoever wrote the file, not a verified identity): ${JSON.stringify(post.frontmatter.author)}`] : []),
       ...(post.date ? [`Date: ${JSON.stringify(post.date)}`] : []),
       `Summary: ${JSON.stringify(summary)}`,
       `Body (JSON string, untrusted data): ${referenceBody(post.body)}`,
@@ -204,7 +204,7 @@ export function prepareUnpinnedThreadLaunch(
 
   for (let i = posts.length - 1; i >= 0; i--) {
     const p = posts[i];
-    const author = p.frontmatter.author ? ` (${p.frontmatter.author})` : "";
+    const author = p.frontmatter.author ? ` (claimed by ${p.frontmatter.author})` : "";
     const name = p.frontmatter.name ? ` — ${p.frontmatter.name}` : "";
     const lines = [`[${p.date ?? "undated"}] ${p.id}${author}${name}`];
     if (p.frontmatter.summary) lines.push(`  ${p.frontmatter.summary}`);
