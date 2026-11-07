@@ -31256,19 +31256,12 @@ function deepLine(value4, max = NO_CUT) {
   return value4;
 }
 function displayPost(post) {
-  const frontmatter = Object.fromEntries(Object.entries(post.frontmatter).map(([key2, item]) => [key2, deepLine(item)]));
-  return {
-    ...post,
-    id: singleLine3(post.id, NO_CUT),
-    ...post.date !== void 0 ? { date: singleLine3(post.date, NO_CUT) } : {},
-    kind: singleLine3(post.kind, NO_CUT),
-    ...post.mark !== void 0 ? { mark: singleLine3(post.mark, NO_CUT) } : {},
-    ...post.supersedes !== void 0 ? { supersedes: singleLine3(post.supersedes, NO_CUT) } : {},
-    frontmatter,
-    inReplyTo: post.inReplyTo.map((id) => singleLine3(id, NO_CUT)),
-    references: post.references.map((id) => singleLine3(id, NO_CUT)),
-    ...post.marks ? { marks: post.marks.map((mark) => ({ ...mark, id: singleLine3(mark.id, NO_CUT), mark: singleLine3(mark.mark, NO_CUT), author: singleLine3(mark.author, NO_CUT) })) } : {}
-  };
+  const { body, path, ...rest } = post;
+  const clean = deepLine(rest);
+  const tags = clean.frontmatter.tags;
+  if (tags !== void 0 && !Array.isArray(tags))
+    clean.frontmatter.tags = typeof tags === "string" ? [tags] : [];
+  return { ...clean, body, path };
 }
 function displayThread(thread) {
   return {
@@ -31286,6 +31279,7 @@ function displayThread(thread) {
 
 // dist/local/thread-check.js
 import { spawnSync as spawnSync17 } from "node:child_process";
+var NO_CUT2 = Number.MAX_SAFE_INTEGER;
 function git4(cwd, args2) {
   const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 512 * 1024 * 1024, timeout: 12e4 });
   return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
@@ -31320,7 +31314,7 @@ function postPath(path) {
 }
 function checkThreads(threadsDir, only) {
   const result = scan(threadsDir, only);
-  return result.note === void 0 ? result : { ...result, note: singleLine3(result.note, 400) };
+  return result.note === void 0 ? result : { ...result, note: singleLine3(result.note, NO_CUT2) };
 }
 function scan(threadsDir, only) {
   const inside = git4(threadsDir, ["rev-parse", "--is-inside-work-tree"]);
@@ -31334,13 +31328,13 @@ function scan(threadsDir, only) {
     if (!post || only && post.thread !== only)
       return;
     const key2 = `${post.thread}/${post.file}`;
-    const entry = found.get(key2) ?? { thread: singleLine3(post.thread, 200), file: singleLine3(post.file, 300), changes: [] };
+    const entry = found.get(key2) ?? { thread: singleLine3(post.thread, NO_CUT2), file: singleLine3(post.file, NO_CUT2), changes: [] };
     entry.changes.push({
       kind: change.kind,
-      ...change.commit !== void 0 ? { commit: singleLine3(change.commit, 64) } : {},
-      ...change.author !== void 0 ? { author: singleLine3(change.author, 120) } : {},
-      ...change.date !== void 0 ? { date: singleLine3(change.date, 40) } : {},
-      ...change.subject !== void 0 ? { subject: singleLine3(change.subject, 200) } : {}
+      ...change.commit !== void 0 ? { commit: singleLine3(change.commit, NO_CUT2) } : {},
+      ...change.author !== void 0 ? { author: singleLine3(change.author, NO_CUT2) } : {},
+      ...change.date !== void 0 ? { date: singleLine3(change.date, NO_CUT2) } : {},
+      ...change.subject !== void 0 ? { subject: singleLine3(change.subject, NO_CUT2) } : {}
     });
     found.set(key2, entry);
   };
@@ -31348,7 +31342,7 @@ function scan(threadsDir, only) {
   const fromHere = (path) => prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
   const status = git4(threadsDir, ["status", "--porcelain=v1", "-z", "--untracked-files=no", "--", ...scope]);
   if (!status.ok)
-    return { checked: false, note: singleLine3(`Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, 400), modified: [] };
+    return { checked: false, note: singleLine3(`Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, NO_CUT2), modified: [] };
   const entries = status.out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const code = entries[i].slice(0, 2), path = fromHere(entries[i].slice(3));
@@ -32081,7 +32075,7 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
           const target = selectLocalThreadTarget(rest[0], root, member2, str2(flags2, "checkout"));
           const rung2 = depth(flags2, "summary");
           const post = displayPost(target.post);
-          const targetName = singleLine3(target.name, 200), targetSummary = singleLine3(target.summary, 1e3);
+          const targetName = singleLine3(target.name, Number.MAX_SAFE_INTEGER), targetSummary = singleLine3(target.summary, Number.MAX_SAFE_INTEGER), targetPosition = singleLine3(target.position, Number.MAX_SAFE_INTEGER);
           const postName = post.frontmatter.name ?? post.id;
           const postSummary = post.frontmatter.summary ?? "";
           const posts3 = rung2 === "name" ? [] : rung2 === "summary" || rung2 === "children" ? [{
@@ -32095,14 +32089,14 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
           }] : [post];
           if (post.warnings?.length)
             for (const warning of post.warnings)
-              output.log(`Post ${target.position}: ${warning.field}: ${warning.warning}`);
+              output.log(`Post ${targetPosition}: ${warning.field}: ${warning.warning}`);
           output.result({
             thread: { path: target.thread.path, name: targetName, summary: rung2 === "name" ? void 0 : targetSummary },
             posts: posts3,
-            ...post.warnings?.length ? { warnings: post.warnings.map((warning) => ({ post: target.position, ...warning })) } : {},
+            ...post.warnings?.length ? { warnings: post.warnings.map((warning) => ({ post: targetPosition, ...warning })) } : {},
             ...rung2 === "full" ? { pinned: target.pinned } : {},
             pin: target.pin,
-            position: target.position,
+            position: targetPosition,
             acknowledged: false
           }, rung2 === "full" || rung2 === "surface" ? target.pinned : rung2 === "name" ? targetName : rung2 === "children" ? `${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB7 in_reply_to ${post.inReplyTo.join(", ") || "\u2014"}` : `${targetName}
 ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB7 in_reply_to ${post.inReplyTo.join(", ") || "\u2014"} \u2014 ${postSummary || "(no summary)"}`);
@@ -32203,7 +32197,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           throw new Error("Pinned open requires both --pin <authored SHA> and --position <_threads/...md>.");
         if (pin && (flags2.since !== void 0 || flags2.post !== void 0))
           throw new Error("Pinned open already selects one authored position; omit --since and --post.");
-        if (position && !position.startsWith(`_threads/${thread.slug}/`)) {
+        if (position && !position.startsWith(`_threads/${stored.slug}/`)) {
           throw new Error(`Pinned member ${position} belongs to another Thread; open its own local path instead.`);
         }
         const pinned = pin && position ? readPinnedThreadMember(threadBase(), pin, position) : void 0;

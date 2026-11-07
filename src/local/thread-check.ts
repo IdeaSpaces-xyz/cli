@@ -12,6 +12,9 @@ import { spawnSync } from "node:child_process";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import { singleLine } from "./claims.js";
 
+/** Nothing is cut: a report names the real file, author and subject. */
+const NO_CUT = Number.MAX_SAFE_INTEGER;
+
 export interface PostChange {
   kind: "edited" | "deleted" | "uncommitted-edit" | "uncommitted-delete";
   commit?: string;
@@ -61,7 +64,7 @@ function postPath(path: string): { thread: string; file: string } | undefined {
  */
 export function checkThreads(threadsDir: string, only?: string): ThreadCheck {
   const result = scan(threadsDir, only);
-  return result.note === undefined ? result : { ...result, note: singleLine(result.note, 400) };
+  return result.note === undefined ? result : { ...result, note: singleLine(result.note, NO_CUT) };
 }
 
 function scan(threadsDir: string, only?: string): ThreadCheck {
@@ -77,13 +80,13 @@ function scan(threadsDir: string, only?: string): ThreadCheck {
     const post = postPath(path);
     if (!post || (only && post.thread !== only)) return;
     const key = `${post.thread}/${post.file}`;
-    const entry = found.get(key) ?? { thread: singleLine(post.thread, 200), file: singleLine(post.file, 300), changes: [] };
+    const entry = found.get(key) ?? { thread: singleLine(post.thread, NO_CUT), file: singleLine(post.file, NO_CUT), changes: [] };
     entry.changes.push({
       kind: change.kind,
-      ...(change.commit !== undefined ? { commit: singleLine(change.commit, 64) } : {}),
-      ...(change.author !== undefined ? { author: singleLine(change.author, 120) } : {}),
-      ...(change.date !== undefined ? { date: singleLine(change.date, 40) } : {}),
-      ...(change.subject !== undefined ? { subject: singleLine(change.subject, 200) } : {}),
+      ...(change.commit !== undefined ? { commit: singleLine(change.commit, NO_CUT) } : {}),
+      ...(change.author !== undefined ? { author: singleLine(change.author, NO_CUT) } : {}),
+      ...(change.date !== undefined ? { date: singleLine(change.date, NO_CUT) } : {}),
+      ...(change.subject !== undefined ? { subject: singleLine(change.subject, NO_CUT) } : {}),
     });
     found.set(key, entry);
   };
@@ -92,7 +95,7 @@ function scan(threadsDir: string, only?: string): ThreadCheck {
   const prefix = git(threadsDir, ["rev-parse", "--show-prefix"]).out.trim();
   const fromHere = (path: string) => (prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path);
   const status = git(threadsDir, ["status", "--porcelain=v1", "-z", "--untracked-files=no", "--", ...scope]);
-  if (!status.ok) return { checked: false, note: singleLine(`Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, 400), modified: [] };
+  if (!status.ok) return { checked: false, note: singleLine(`Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, NO_CUT), modified: [] };
   const entries = status.out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const code = entries[i].slice(0, 2), path = fromHere(entries[i].slice(3));

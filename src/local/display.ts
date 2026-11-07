@@ -16,6 +16,7 @@
  * - `--post` and a pinned read, which print the file exactly as it is, frontmatter included;
  * - the Thread's README and Agreement prose, shown under their own labels (`Current frame:`, `Goal:`);
  * - a post's `path`, which names the file on disk and is never printed into a line of text.
+ * Every other field of a post is cleaned by `deepLine`, whatever it is called, warnings included.
  * Ids are reduced like any other word, for printing only. An id with a control character in it is not a real id, and
  * the copy no longer matches the file, which is why nothing is matched or acknowledged against the copy.
  */
@@ -41,19 +42,15 @@ export function deepLine<T>(value: T, max = NO_CUT): T {
 }
 
 export function displayPost(post: ThreadPost): ThreadPost {
-  const frontmatter = Object.fromEntries(Object.entries(post.frontmatter).map(([key, item]) => [key, deepLine(item)])) as ThreadPost["frontmatter"];
-  return {
-    ...post,
-    id: singleLine(post.id, NO_CUT),
-    ...(post.date !== undefined ? { date: singleLine(post.date, NO_CUT) } : {}),
-    kind: singleLine(post.kind, NO_CUT),
-    ...(post.mark !== undefined ? { mark: singleLine(post.mark, NO_CUT) } : {}),
-    ...(post.supersedes !== undefined ? { supersedes: singleLine(post.supersedes, NO_CUT) } : {}),
-    frontmatter,
-    inReplyTo: post.inReplyTo.map((id) => singleLine(id, NO_CUT)),
-    references: post.references.map((id) => singleLine(id, NO_CUT)),
-    ...(post.marks ? { marks: post.marks.map((mark) => ({ ...mark, id: singleLine(mark.id, NO_CUT), mark: singleLine(mark.mark, NO_CUT), author: singleLine(mark.author, NO_CUT) })) } : {}),
-  };
+  // Structure, not a list of fields: everything but the body and the file's path is cleaned, so a field the protocol adds
+  // later (or a warning quoting one) cannot print raw. The body is the post's text; the path names the file on disk.
+  const { body, path, ...rest } = post;
+  const clean = deepLine(rest) as Omit<ThreadPost, "body" | "path">;
+  // The protocol types `tags` as a list but does not check it, and a writer can give a string; a print site that joins it would crash
+  // the whole read of the Thread. The display copy always holds a list.
+  const tags = (clean.frontmatter as { tags?: unknown }).tags;
+  if (tags !== undefined && !Array.isArray(tags)) (clean.frontmatter as { tags?: unknown }).tags = typeof tags === "string" ? [tags] : [];
+  return { ...clean, body, path } as ThreadPost;
 }
 
 /** A Thread read for display: its posts, names and diagnostics as single lines. Logic that must match files by id or path should use the raw Thread. */

@@ -33,6 +33,8 @@ function space() {
   file("2026-11-07T10-01-00-000Z-msg_b.md", `id: msg_b\ndate: 2026-11-07T10:01:00.000Z\nkind: post\nin_reply_to: [msg_a, ${y(forge("reply"))}]\nauthor: ${y(forge("author-b"))}\nname: ${y(forge("name-b"))}\n`);
   file("2026-11-07T10-02-00-000Z-msg_s.md", `id: msg_s\ndate: 2026-11-07T10:02:00.000Z\nkind: snapshot\nin_reply_to: msg_b\nauthor: ${y(forge("snapshot-author"))}\nname: ${y(forge("snapshot-name"))}\nsummary: ${y(forge("snapshot-summary"))}\n`);
   file("2026-11-07T10-03-00-000Z-msg_m.md", `id: msg_m\ndate: 2026-11-07T10:03:00.000Z\nkind: mark\nmark: ${y(forge("mark"))}\nin_reply_to: msg_b\nauthor: ${y(forge("mark-author"))}\n`);
+  // A post with malformed fields, each carrying a forged line: the protocol keeps it and warns, and none of it may print raw.
+  file("2026-11-07T10-05-00-000Z-msg_w.md", `id: msg_w\ndate: ${y(forge("date"))}\nkind: ${y(forge("kind"))}\ntags: ${y(forge("tags-not-a-list"))}\nreferences: ${y(forge("refs"))}\nin_reply_to: ${y(forge("reply-not-an-id"))}\nattached_to: ${y(forge("attached"))}\nmap: [broken]\nsupersedes: ${y(forge("supersedes"))}\nauthor: ${y(forge("author-w"))}\n`);
   writeFileSync(join(t.path, "README.md"), `---\nname: ${y(forge("thread-name"))}\nsummary: ${y(forge("thread-summary"))}\n---\n\n# Walk\n`);
   const child = createThread("child", "A child", root, "post:msg_a");
   writeFileSync(join(child.path, "README.md"), `---\nname: ${y(forge("child-name"))}\nsummary: ${y(forge("child-summary"))}\n---\n\n# Child\n`);
@@ -43,13 +45,15 @@ function space() {
   return { root, thread: t };
 }
 
+/** Text mode returns everything printed; JSON mode returns stdout alone to parse, and what went to stderr is checked here. */
 async function run(args: string[], flags: Record<string, string | boolean>, json: boolean) {
-  let out = "";
+  let out = "", err = "";
   const stdout = process.stdout.write, stderr = process.stderr.write;
   process.stdout.write = ((s: string) => { out += s; return true; }) as typeof process.stdout.write;
-  process.stderr.write = ((s: string) => { out += s; return true; }) as typeof process.stderr.write;
+  process.stderr.write = ((s: string) => { err += s; return true; }) as typeof process.stderr.write;
   try { await threadsCommand.run(args, flags, { json, quiet: false, yes: false, help: false }); } finally { process.stdout.write = stdout; process.stderr.write = stderr; }
-  return out;
+  if (json) { noForgedLine(err, `${args.join(" ")} (stderr beside JSON)`); return out; }
+  return err + out;
 }
 /** Output the commands print verbatim by design: a post's body and the files themselves. */
 const VERBATIM = new Set(["body", "raw_post", "pinned", "frame", "reference", "readme"]);
@@ -158,5 +162,31 @@ describe("the display copy is only for printing", () => {
     expect(since.posts.map((post: { id: string }) => post.id)).toContain("msg_ctl x");
     const one = JSON.parse(await run(["open", "decision"], { depth: "full", post: ctl }, true));
     expect(one.raw_post).toContain("Control id.");
+  });
+});
+
+describe("a Thread folder name and a pinned position", () => {
+  it("the protocol refuses a position the display copy would change, so matching on either slug is the same today", async () => {
+    const { root } = space();
+    const postFile = "2026-11-07T12-00-00-000Z-msg_o.md";
+    const dir = join(root, "_threads", "odd  folder");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "README.md"), "---\nname: Odd\nsummary: Odd.\n---\n# Odd\n");
+    writeFileSync(join(dir, postFile), "---\nid: msg_o\ndate: 2026-11-07T12:00:00.000Z\nkind: post\nauthor: Eve\n---\n\nIn an odd folder.\n");
+    git(root, "add", "-A"); git(root, "commit", "-qm", "odd folder");
+    process.chdir(root);
+    const text = await run(["open", "odd  folder"], { depth: "full", pin: git(root, "rev-parse", "HEAD"), position: `_threads/odd  folder/${postFile}` }, false);
+    expect(text).toContain("Invalid _threads/ Map position");
+    // The handler matches the position against the folder's real name (`stored.slug`), so this stays true if the grammar ever loosens.
+  });
+});
+
+describe("a malformed tags value", () => {
+  it("does not crash the read of a Thread: the display copy holds a list", async () => {
+    const { root } = space();
+    process.chdir(root);
+    const text = await run(["open", "decision"], { depth: "full" }, false);
+    expect(text).not.toContain("is not a function");
+    expect(text).toContain("tags: before FORGED-tags-not-a-list after");
   });
 });

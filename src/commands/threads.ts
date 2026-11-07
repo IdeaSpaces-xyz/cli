@@ -525,15 +525,15 @@ export const threadsCommand: CommandDef = {
           const target = selectLocalThreadTarget(rest[0], root, member, str(flags, "checkout"));
           const rung = depth(flags, "summary");
           const post = displayPost(target.post);
-          const targetName = singleLine(target.name, 200), targetSummary = singleLine(target.summary, 1000);
+          const targetName = singleLine(target.name, Number.MAX_SAFE_INTEGER), targetSummary = singleLine(target.summary, Number.MAX_SAFE_INTEGER), targetPosition = singleLine(target.position, Number.MAX_SAFE_INTEGER);
           const postName = post.frontmatter.name ?? post.id;
           const postSummary = post.frontmatter.summary ?? "";
           const posts = rung === "name" ? [] : rung === "summary" || rung === "children" ? [{ id: post.id, path: post.path, kind: post.kind,
             date: post.date ?? null, name: postName, ...(rung === "summary" ? { summary: post.frontmatter.summary ?? null } : {}), in_reply_to: post.inReplyTo }] : [post];
-          if (post.warnings?.length) for (const warning of post.warnings) output.log(`Post ${target.position}: ${warning.field}: ${warning.warning}`);
+          if (post.warnings?.length) for (const warning of post.warnings) output.log(`Post ${targetPosition}: ${warning.field}: ${warning.warning}`);
           output.result({ thread: { path: target.thread.path, name: targetName, summary: rung === "name" ? undefined : targetSummary },
-            posts, ...(post.warnings?.length ? { warnings: post.warnings.map((warning) => ({ post: target.position, ...warning })) } : {}),
-            ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: target.position, acknowledged: false },
+            posts, ...(post.warnings?.length ? { warnings: post.warnings.map((warning) => ({ post: targetPosition, ...warning })) } : {}),
+            ...(rung === "full" ? { pinned: target.pinned } : {}), pin: target.pin, position: targetPosition, acknowledged: false },
             rung === "full" || rung === "surface" ? target.pinned : rung === "name" ? targetName : rung === "children" ? `${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"}` : `${targetName}\n${post.id} · ${post.kind} · ${post.date ?? "undated"} · ${postName} · in_reply_to ${post.inReplyTo.join(", ") || "—"} — ${postSummary || "(no summary)"}`);
           return 0;
         }
@@ -623,7 +623,8 @@ export const threadsCommand: CommandDef = {
         if (flags.pin === true || flags.position === true) throw new Error("--pin and --position require values.");
         if (!!pin !== !!position) throw new Error("Pinned open requires both --pin <authored SHA> and --position <_threads/...md>.");
         if (pin && (flags.since !== undefined || flags.post !== undefined)) throw new Error("Pinned open already selects one authored position; omit --since and --post.");
-        if (position && !position.startsWith(`_threads/${thread.slug}/`)) {
+        // The folder's real name, from `stored`: the display copy may have a different one.
+        if (position && !position.startsWith(`_threads/${stored.slug}/`)) {
           throw new Error(`Pinned member ${position} belongs to another Thread; open its own local path instead.`);
         }
         const pinned = pin && position ? readPinnedThreadMember(threadBase(), pin, position) : undefined;
