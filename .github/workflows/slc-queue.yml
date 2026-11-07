@@ -5,6 +5,13 @@ name: SLC Queue Gate
 # when its own workflow differs from main, so that file can't be changed through its own gate.
 # The script is pinned to the queue's base, this file is not: a merge_group run takes the workflow
 # from the group commit, so a PR that edits this file judges itself. Read any diff to it by hand.
+#
+# The ruleset this assumes, on the default branch: merge queue with merge method MERGE, one PR per
+# group, ALLGREEN, and no bypass actors. The classic rule keeps the two required checks and does not
+# require branches to be up to date. Auto-merge is off, so `gh pr merge` cannot queue a PR here:
+#   gh api graphql -f query='mutation($id:ID!,$h:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$h}){mergeQueueEntry{state position}}}' \
+#     -f id=$(gh api repos/IdeaSpaces-xyz/cli/pulls/N --jq .node_id) -f h=<head sha>
+# Merging never publishes: publish.yml runs only when a GitHub release is published.
 on:
   merge_group:
     types: [checks_requested]
