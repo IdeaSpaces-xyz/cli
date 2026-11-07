@@ -11,7 +11,7 @@ export function isContained(root: string, path: string): boolean {
 export function enteredThroughRoot(root: string, path: string): boolean {
   for (let ancestor = path; ; ancestor = dirname(ancestor)) {
     try {
-      if (realpathSync(ancestor) === root) return true;
+      if (realpathSync.native(ancestor) === root) return true;
     } catch { /* An unreadable ancestor grants no authority. */ }
     if (dirname(ancestor) === ancestor) return false;
   }

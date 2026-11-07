@@ -26917,7 +26917,7 @@ function isContained(root, path) {
 function enteredThroughRoot(root, path) {
   for (let ancestor = path; ; ancestor = dirname19(ancestor)) {
     try {
-      if (realpathSync16(ancestor) === root)
+      if (realpathSync16.native(ancestor) === root)
         return true;
     } catch {
     }
