@@ -10,6 +10,8 @@ import { saveSpace } from "../auth/spaces.js";
 import { createThread, loadThread, readCursor } from "../local/threads.js";
 import { threadsCommand } from "../commands/threads.js";
 
+// The walk runs the CLI dozens of times, each with several Git calls; a Windows runner needs far more than the default 5 s.
+const SLOW = 180_000;
 const initialCwd = process.cwd();
 const initialHome = process.env.HOME;
 const temp: string[] = [];
@@ -94,14 +96,14 @@ describe("threads open prints no writer's line break as a new line", () => {
       walked++;
     }
     expect(walked).toBeGreaterThan(20);
-  });
+  }, SLOW);
 
   it("on the child Thread's own name and summary, and on the parent it shows", async () => {
     const { root } = space();
     process.chdir(root);
     for (const depth of ["name", "summary", "children"]) noForgedLine(await run(["open", "child"], { depth }, false), `open child ${depth}`);
     expect(await run(["open", "decision"], { depth: "children" }, false)).toContain("Child Threads");
-  });
+  }, SLOW);
 
   it("on a pinned read selected by a Map member", async () => {
     const { root, thread } = space();
@@ -120,15 +122,16 @@ describe("threads open prints no writer's line break as a new line", () => {
       expect(data.pin, "the pinned read must have succeeded, or this walks an error message").toBe(pin);
       for (const text of strings(data)) expect(text, `pinned ${depth} (json)`).not.toMatch(/\n[ \t]*FORGED/);
     }
-  });
+  }, SLOW);
 });
 
 describe("threads check prints no writer's line break as a new line", () => {
   it("in text and in JSON, for the Space and for one Thread", async () => {
     const { root, thread } = space();
     process.chdir(root);
-    // A file name is a writer's word too: one with a line break in it names itself on one line.
-    const odd = join(thread.path, "2026-11-07T12-00-00-000Z-msg_n\nFORGED-file.md");
+    // A file name is a writer's word too: one with a line break in it names itself on one line. (Windows cannot hold such a name.)
+    const oddName = process.platform === "win32" ? "2026-11-07T12-00-00-000Z-msg_n FORGED-file.md" : "2026-11-07T12-00-00-000Z-msg_n\nFORGED-file.md";
+    const odd = join(thread.path, oddName);
     writeFileSync(odd, "---\nid: msg_n\nkind: post\n---\n\nx\n");
     git(root, "add", "-A"); git(root, "commit", "-qm", "odd name");
     appendFileSync(odd, "\nedited\n"); git(root, "commit", "-qam", "edit the odd name");
@@ -139,7 +142,7 @@ describe("threads check prints no writer's line break as a new line", () => {
       expect(JSON.stringify(data)).toContain("msg_n FORGED-file.md");
       for (const text of strings(data)) expect(text, `${args.join(" ")} (json)`).not.toMatch(/\n[ \t]*FORGED/);
     }
-  });
+  }, SLOW);
 });
 
 describe("the display copy is only for printing", () => {
@@ -162,7 +165,7 @@ describe("the display copy is only for printing", () => {
     expect(since.posts.map((post: { id: string }) => post.id)).toContain("msg_ctl x");
     const one = JSON.parse(await run(["open", "decision"], { depth: "full", post: ctl }, true));
     expect(one.raw_post).toContain("Control id.");
-  });
+  }, SLOW);
 });
 
 describe("a Thread folder name and a pinned position", () => {
@@ -178,7 +181,7 @@ describe("a Thread folder name and a pinned position", () => {
     const text = await run(["open", "odd  folder"], { depth: "full", pin: git(root, "rev-parse", "HEAD"), position: `_threads/odd  folder/${postFile}` }, false);
     expect(text).toContain("Invalid _threads/ Map position");
     // The handler matches the position against the folder's real name (`stored.slug`), so this stays true if the grammar ever loosens.
-  });
+  }, SLOW);
 });
 
 describe("a malformed tags value", () => {
@@ -188,7 +191,7 @@ describe("a malformed tags value", () => {
     const text = await run(["open", "decision"], { depth: "full" }, false);
     expect(text).not.toContain("is not a function");
     expect(text).toContain("tags: before FORGED-tags-not-a-list after");
-  });
+  }, SLOW);
 });
 
 describe("a path stays exactly the file's path", () => {
@@ -215,5 +218,5 @@ describe("a path stays exactly the file's path", () => {
     expect(existsSync(join(root, kidRead.thread.parent.path))).toBe(true);
     // The text still prints the folder on one line.
     expect(await run(["open", "kid  two"], { depth: "summary" }, false)).toContain("(" + kid.replace(/ {2,}/g, " ") + ")");
-  });
+  }, SLOW);
 });
