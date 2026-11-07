@@ -214,6 +214,14 @@ Run `npm ci && npm run build` after any source, lockfile, or `build.mjs` change,
 
 Every server operation the CLI performs is listed in [`contract/api-calls.json`](contract/api-calls.json), generated from `src/auth/api.ts` by `npm run api:inventory`; a test fails when the source changes without it. `npm run check:api -- <openapi.json>` holds that inventory against a server's OpenAPI document and fails on any operation the server does not serve or marks deprecated. The document is an input — set `IDEASPACES_OPENAPI=<path>` to run the same check inside `npm test`.
 
+Real-Git integration groups opt into a named fixture budget; the global test default and production deadlines stay unchanged. The shared fixture cleanup yields one event-loop turn so synchronous Git work cannot starve Vitest worker RPC acknowledgments. To check that boundary, run the opt-in ~66-second probe (excluded from the ordinary suite):
+
+```sh
+node scripts/test-git-isolation.mjs --config scripts/vitest-ipc.config.ts --maxWorkers=1
+```
+
+Setting `VITEST_IPC_NEGATIVE_CONTROL=1` for that command omits setup: all 44 assertions pass, but the unchanged 60-second RPC deadline must produce an `onTaskUpdate` error and exit 1. This is a diagnostic negative control, not a passing test run.
+
 ## License
 
 MIT
