@@ -1,3 +1,4 @@
+import { runHostedSpaceNew, SPACE_NEW_USAGE } from "./hosted-space-new.js";
 import { writeNewMapNote } from "../local/map-note.js";
 import { loadMapNote } from "../local/map-note.js";
 import { runHostedSpaceRemove, SPACE_REMOVE_USAGE } from "./hosted-space-remove.js";
@@ -30,16 +31,18 @@ function hostedArgsError(args: string[], flags: Flags): string | undefined {
 
 export const spacesCommand: CommandDef = {
   name: "spaces",
-  description: "Read, edit and copy hosted Spaces (named Maps); local Maps stay separate",
+  description: "Create, read, edit and copy hosted Spaces (named Maps); local Maps stay separate",
   usage: `ideaspaces spaces list --hosted [--json]
        ideaspaces spaces open <map-id> [--json]
        ideaspaces spaces [list] [--attached-to <ref>] [--include-dormant] [--json]
+       ${SPACE_NEW_USAGE}
        ${SPACE_ADD_USAGE}
        ${SPACE_REMOVE_USAGE}
        ideaspaces spaces import <file.map.md> [--json]
        ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]`,
-  help: "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces update independently. Each referenced item keeps its own access checks.\n\nWithout --hosted, list shows legacy coordination objects. Hosted edits are owner-only. --if-match is the hosted version_id from spaces open --json, not a local file hash. Keep the original --command-id (up to 64 characters) and arguments for exact retries; read the current head afterwards.\n\nRemove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed.\n\nImport creates a personal hosted copy with no new Core. Export creates an independent local UTF-8 Markdown copy and never overwrites an existing path; choose a new path to replace a copy. Use version_id from spaces open --json to export an exact version.",
+  help: "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces update independently. Each referenced item keeps its own access checks.\n\nNew requires --hosted, an explicit --vault (personal, person:user_ID or node:ORG_NODE_ID), an active Sync subscription, and --name, --summary and --message for its Core opening. For a company, use node: followed by org_node_id from vaults --json; company Vaults require a current OWNER. The Core and Map are created together; nothing else is shared. Keep --command-id and every argument unchanged for an exact retry; the Core opening id is derived from that command and Vault.\n\nWithout --hosted, list shows legacy coordination objects. Hosted edits are owner-only. --if-match is the hosted version_id from spaces open --json, not a local file hash. Keep the original --command-id (up to 64 characters) and arguments for exact retries; read the current head afterwards.\n\nRemove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed.\n\nImport creates a personal hosted copy with no new Core. Export creates an independent local UTF-8 Markdown copy and never overwrites an existing path; choose a new path to replace a copy. Use version_id from spaces open --json to export an exact version.",
   examples: [
+    'ideaspaces spaces new --hosted --vault personal --name "Research" --summary "Our research" --message "We work here."',
     "ideaspaces spaces export n_0123456789abcdef01234567 research.map.md",
     "ideaspaces spaces export n_bbbbbbbbbbbbbbbbbbbbbbbb exact-version.map.md",
     "ideaspaces spaces import research.map.md --json",
@@ -54,6 +57,7 @@ export const spacesCommand: CommandDef = {
   ],
   async run(args, flags, global: GlobalFlags) {
     const output = createOutput(global);
+    if (args[0] === "new") return runHostedSpaceNew(args.slice(1), flags, global);
     if (args[0] === "remove") return runHostedSpaceRemove(args.slice(1), flags, global);
     if (args[0] === "add") return runHostedSpaceAdd(args.slice(1), flags, global);
 

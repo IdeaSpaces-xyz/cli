@@ -1693,6 +1693,20 @@ export interface HostedSpaceWriteResult {
   core_thread_id: string | null;
 }
 
+/** Create one Map and its Core in the explicit Vault; never replayed automatically. */
+export async function createHostedSpace(config: ApiConfig, body: {
+  command_id: string; owner: string; name: string; summary: string; core_note: string;
+}): Promise<HostedSpaceWriteResult> {
+  const result = await request<HostedSpaceWriteResult>(config, "POST", `${API_V1}/maps`, body, { statusError: true });
+  if (!result || typeof result.map_id !== "string" || !result.map_id ||
+      typeof result.version_id !== "string" || !result.version_id || result.owner !== body.owner ||
+      !Number.isSafeInteger(result.ordinal) || result.ordinal < 1 ||
+      typeof result.core_thread_id !== "string" || !result.core_thread_id.startsWith("x_")) {
+    throw new SyntaxError("IdeaSpaces returned an unreadable Space creation receipt. Check spaces list --hosted before retrying.");
+  }
+  return result;
+}
+
 /** Owner-only immutable edit, bound to the caller-reviewed head. Never replayed automatically. */
 export async function appendHostedSpaceMember(config: ApiConfig, id: string, body: {
   command_id: string; expected_head_version_id: string; member: unknown;

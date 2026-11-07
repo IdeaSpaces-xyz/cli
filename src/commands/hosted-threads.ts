@@ -281,7 +281,7 @@ function singleLine(flags: Record<string, string | boolean>, key: string, requir
  * One Note, built once from the arguments alone (no date: the service attests
  * received_at), so the same --post-id and arguments resend the same bytes.
  */
-function buildNote(fields: Record<string, unknown>, body: string): string {
+export function buildNote(fields: Record<string, unknown>, body: string): string {
   const note = `---\n${stringify(fields)}---\n\n${body.trim()}\n`;
   if (Buffer.byteLength(note) > MAX_NOTE_BYTES) throw new HostedError("invalid_request", `The Note is larger than the service accepts (${MAX_NOTE_BYTES / 1024} KiB). Shorten --message.`);
   return note;
