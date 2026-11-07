@@ -214,6 +214,8 @@ Run `npm ci && npm run build` after any source, lockfile, or `build.mjs` change,
 
 Every server operation the CLI performs is listed in [`contract/api-calls.json`](contract/api-calls.json), generated from `src/auth/api.ts` by `npm run api:inventory`; a test fails when the source changes without it. `npm run check:api -- <openapi.json>` holds that inventory against a server's OpenAPI document and fails on any operation the server does not serve or marks deprecated. The document is an input — set `IDEASPACES_OPENAPI=<path>` to run the same check inside `npm test`.
 
+The shared test setup yields one native event-loop turn after each case as a mitigation for Vitest 3.2.6 worker RPC starvation during synchronous Git fixtures. It does not extend RPC/test deadlines, suppress worker errors or preempt a single blocking test. Revisit this mitigation when upgrading Vitest.
+
 ## License
 
 MIT
