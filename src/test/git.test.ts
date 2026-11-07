@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { gitAvailability, gitAvailable, gitBinary, normalizeGitBin, GIT_MISSING_HINT, GIT_UNUSABLE_HINT } from "../git.js";
 
 const originalPath = process.env.PATH;
@@ -103,7 +103,7 @@ describe("git availability", () => {
     const availability = gitAvailability();
     expect(availability).toMatchObject({
       state: "usable",
-      version: "git version 2.53.0",
+      version: process.platform === "win32" ? expect.stringMatching(/^git version /) : "git version 2.53.0",
       path: stubBinary,
     });
     expect(gitAvailable()).toBe(true);
@@ -113,7 +113,7 @@ describe("git availability", () => {
     process.env.IDEASPACES_GIT_BIN = "/nonexistent/custom/git";
     const availability = gitAvailability();
     expect(availability.state).toBe("absent");
-    expect(availability.hint).toContain("/nonexistent/custom/git");
+    expect(availability.hint).toContain(resolve("/nonexistent/custom/git"));
   });
 
   it("reports unusable for nonzero-exiting IDEASPACES_GIT_BIN", async () => {
@@ -126,7 +126,10 @@ describe("git availability", () => {
 
     const availability = gitAvailability();
     expect(availability.state).toBe("unusable");
-    expect(availability.detail).toContain("custom git failed");
+    if (process.platform === "win32") {
+      expect(availability.exitCode).not.toBe(0);
+      expect(availability.detail.trim().length).toBeGreaterThan(0);
+    } else expect(availability.detail).toContain("custom git failed");
     expect(availability.path).toBe(stubBinary);
   });
 
@@ -152,7 +155,8 @@ describe("git availability", () => {
     });
 
     it("preserves absolute paths", () => {
-      expect(normalizeGitBin("/opt/custom/bin/git")).toBe("/opt/custom/bin/git");
+      const absolute = resolve("custom", "bin", "git");
+      expect(normalizeGitBin(absolute)).toBe(absolute);
     });
   });
 });

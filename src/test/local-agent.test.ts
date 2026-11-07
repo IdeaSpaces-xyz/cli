@@ -1,8 +1,8 @@
 import { Readable } from "node:stream";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   deriveConversationName,
   buildPiArgs,
@@ -11,6 +11,27 @@ import {
   runLocalTurn,
 } from "../pi/local-agent.js";
 import type { LocalTurnOptions } from "../pi/local-agent.js";
+
+// Only the executable fixture boundary is substituted. The adapter still spawns
+// a real Node child and reads actual RPC pipes; no POSIX shell is needed on Windows.
+const fixtureChildren = vi.hoisted(() => new Set<import("node:child_process").ChildProcess>());
+vi.mock("node:child_process", async importOriginal => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawn: (bin: string, args: string[], options: object) => {
+    if (!bin.endsWith("pi.cjs")) return actual.spawn(bin, args, options);
+    const child = actual.spawn(process.execPath, [bin, ...args], options);
+    fixtureChildren.add(child);
+    child.once("close", () => fixtureChildren.delete(child));
+    return child;
+  } };
+
+});
+
+async function cleanupFixture(path: string): Promise<void> {
+  // Windows cannot delete the child's cwd until its process and pipes close.
+  await Promise.all([...fixtureChildren].map(child => new Promise<void>(resolve => child.once("close", () => resolve()))));
+  rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+}
 
 const baseOpts: LocalTurnOptions = {
   repoPath: "/ws",
@@ -153,9 +174,7 @@ process.stdin.on("data", (input) => {
   emit({ type: "agent_end", willRetry: false, messages: [{ role: "assistant", stopReason: "stop", usage: { input: 12, output: 4, totalTokens: 16, cost: { total: 0.002 } } }] });
 });
 `);
-      const bin = join(tmp, "pi");
-      writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
-      chmodSync(bin, 0o755);
+      const bin = script;
       const events = [];
       for await (const event of runLocalTurn({ ...baseOpts, repoPath: tmp, sessionDir: join(tmp, ".pi", "sessions"), piBin: bin })) events.push(event);
       expect(events.filter((event) => event.type === "error")).toHaveLength(0);
@@ -163,7 +182,7 @@ process.stdin.on("data", (input) => {
       expect(events.filter((event) => event.type === "turn_complete")).toHaveLength(1);
       expect(events.at(-1)).toMatchObject({ type: "turn_complete", result: { response: "Resumed after fetch failed", tool_calls: [{ name: "read", args: { path: "checkpoint.md" } }], usage: { input_tokens: 12, output_tokens: 4, total_tokens: 16, cost_usd: 0.002 } } });
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      await cleanupFixture(tmp);
     }
   });
 });
@@ -180,14 +199,12 @@ process.stdin.on("data", (input) => {
   ${exitAfter ? "setTimeout(() => process.exit(7), 20);" : ""}
 });
 `);
-      const bin = join(tmp, "pi");
-      writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
-      chmodSync(bin, 0o755);
+      const bin = script;
       const emitted = [];
       for await (const event of runLocalTurn({ ...baseOpts, repoPath: tmp, sessionDir: join(tmp, ".pi", "sessions"), piBin: bin })) emitted.push(event);
       return emitted;
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      await cleanupFixture(tmp);
     }
   }
 
@@ -237,7 +254,7 @@ describe("runLocalTurn — missing binary error handling", () => {
       expect(events[0]).toMatchObject({ type: "error", error_type: "pi_exit" });
       expect((events[0] as { message: string }).message).toMatch(/Could not start .*\/nonexistent\/path\/to\/pi/);
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      await cleanupFixture(tmp);
     }
   });
 });

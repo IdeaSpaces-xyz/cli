@@ -3,7 +3,7 @@ import { agentCommand } from "../commands/agent.js";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename, sep } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
 import { acknowledge, appendPost, createThread, initWorktree, isHostedThreadTarget, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
 import { threadsCommand, threadFlagError } from "../commands/threads.js";
@@ -521,7 +521,7 @@ describe("local Threads", () => {
     git(root, "worktree", "move", join(root, "private-discussion"), worktree);
     expect(pushWorktree(root, "team")).toBe("team");
     expect(git(root, "ls-remote", "team", "refs/heads/threads")).toContain("refs/heads/threads");
-  });
+  }, 30_000); // Real worktree/commit/pinned-read fixture exceeded 5s on Windows.
 
   it("default reply-to targets the opening post and warns on stderr; --reply-to latest targets newest tip", async () => {
     const root = fixture(); process.env.HOME = root;
@@ -632,7 +632,7 @@ describe("local Threads", () => {
       // Child Thread attached by post path
       const childThread = await run(["new", "child-thread"], { about: "Child discussion" });
       writeFileSync(join(root, "_threads", "child-thread", "_agent", "agreement.md"),
-        `---\nname: Agreement — Child\nsummary: Child summary\nattached_to: _threads/parent-thread/${pDecision.path.split("/").pop()}\n---\n# Child\n`);
+        `---\nname: Agreement — Child\nsummary: Child summary\nattached_to: _threads/parent-thread/${basename(pDecision.path)}\n---\n# Child\n`);
 
       const cOpeningId = childThread.opening_post_id;
       const cSnapshot = await run(["post", "child-thread"], { message: "Snapshot state", name: "Snapshot 1", summary: "Snapshot summary", kind: "snapshot", "reply-to": cOpeningId });
@@ -655,7 +655,7 @@ describe("local Threads", () => {
       expect(parentChildren.branches.length).toBeGreaterThanOrEqual(1);
       await run(["new", "sibling-child"], { about: "Sibling child" });
       writeFileSync(join(root, "_threads", "sibling-child", "_agent", "agreement.md"),
-        `---\nname: Agreement — Sibling\nattached_to: _threads/parent-thread/${pDecision.path.split("/").pop()}\n---\n`);
+        `---\nname: Agreement — Sibling\nattached_to: _threads/parent-thread/${basename(pDecision.path)}\n---\n`);
       const boundedChildren = await run(["open", "parent-thread"], { depth: "children", limit: "1" });
       expect(boundedChildren.child_threads).toHaveLength(1);
       expect(boundedChildren.child_threads_total).toBe(2);
@@ -952,7 +952,7 @@ it("keeps local x_-prefixed slugs and directory paths local", async () => {
     text = "";
     errors = "";
     expect(await threadsCommand.run(["post", "x_notes"], { message: "Stays local", author: "Fixture" }, { ...global, quiet: false })).toBe(0);
-    expect(JSON.parse(text).path).toContain("_threads/x_notes/");
+    expect(JSON.parse(text).path).toContain(join("_threads", "x_notes") + sep);
     expect(errors).toContain("writes there"); // a folder that shadows an id says so on a write
     expect(await threadsCommand.run(["ack", "x_notes"], { seq: "1" }, global)).toBe(1);
     expect(fetched).not.toHaveBeenCalled();
