@@ -175,7 +175,7 @@ function localText(
   }
 
   const shared = options?.share ? shareLine(options.share) : undefined;
-  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})\n${rung === "full" ? thread.summary : clip(thread.summary, 400)}\n${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} · ${thread.allPosts.length} posts${shared ? `\n${shared}` : ""}${thread.allPosts.length ? `\n${AUTHOR_CLAIM_NOTE}` : ""}`;
+  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${singleLine(thread.path, Number.MAX_SAFE_INTEGER)})\n${rung === "full" ? thread.summary : clip(thread.summary, 400)}\n${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} · ${thread.allPosts.length} posts${shared ? `\n${shared}` : ""}${thread.allPosts.length ? `\n${AUTHOR_CLAIM_NOTE}` : ""}`;
   const stateOf = (p: LocalThread["posts"][number]): string => { const state = options?.share?.states.get(p.path); return state ? ` · ${STATE_WORDS[state]}` : ""; };
 
   if (rung === "summary") {

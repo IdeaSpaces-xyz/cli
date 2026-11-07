@@ -15,7 +15,8 @@
  * - a post's `body`, which is its text and is shown as the body;
  * - `--post` and a pinned read, which print the file exactly as it is, frontmatter included;
  * - the Thread's README and Agreement prose, shown under their own labels (`Current frame:`, `Goal:`);
- * - a post's `path`, which names the file on disk and is never printed into a line of text.
+ * - paths: a post's `path`, a Thread's, a parent's or a child Thread's `path` and `unreadable_posts` name files on disk and stay
+ *   exact so they still match them; text that prints one runs it through `singleLine` first.
  * Every other field of a post is cleaned by `deepLine`, whatever it is called, warnings included.
  * Ids are reduced like any other word, for printing only. An id with a control character in it is not a real id, and
  * the copy no longer matches the file, which is why nothing is matched or acknowledged against the copy.
@@ -25,6 +26,9 @@ import { singleLine } from "./claims.js";
 import type { LocalThread } from "./threads.js";
 
 const NO_CUT = Number.MAX_SAFE_INTEGER;
+
+/** Object keys whose values name files on disk (`path` of a post, a parent or a child Thread) and stay exactly as they are. */
+const RAW_KEYS: ReadonlySet<string> = new Set(["path", "unreadable_posts"]);
 
 /**
  * Every string inside a value reduced to one line; numbers, booleans and null pass through. No field is cut:
@@ -36,7 +40,8 @@ export function deepLine<T>(value: T, max = NO_CUT): T {
   if (typeof value === "string") return singleLine(value, max) as T;
   if (Array.isArray(value)) return value.map((item) => deepLine(item, max)) as T;
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, deepLine(item, max)])) as T;
+    // A path names a file on disk and must keep matching it: it is data for a tool, never printed into a line of text as it is.
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, RAW_KEYS.has(key) ? item : deepLine(item, max)])) as T;
   }
   return value;
 }
@@ -64,6 +69,7 @@ export function displayThread(thread: LocalThread): LocalThread {
     posts: thread.posts.map(displayPost),
     allPosts: thread.allPosts.map(displayPost),
     warnings: thread.warnings.map((warning) => singleLine(warning, NO_CUT)),
-    unreadablePosts: thread.unreadablePosts.map((path) => singleLine(path, NO_CUT)),
+    // File names, kept as they are so they still match the files; they are only ever printed through `singleLine`.
+    unreadablePosts: thread.unreadablePosts,
   };
 }

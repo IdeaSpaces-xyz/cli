@@ -31245,13 +31245,14 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
 
 // dist/local/display.js
 var NO_CUT = Number.MAX_SAFE_INTEGER;
+var RAW_KEYS = /* @__PURE__ */ new Set(["path", "unreadable_posts"]);
 function deepLine(value4, max = NO_CUT) {
   if (typeof value4 === "string")
     return singleLine3(value4, max);
   if (Array.isArray(value4))
     return value4.map((item) => deepLine(item, max));
   if (value4 && typeof value4 === "object") {
-    return Object.fromEntries(Object.entries(value4).map(([key2, item]) => [key2, deepLine(item, max)]));
+    return Object.fromEntries(Object.entries(value4).map(([key2, item]) => [key2, RAW_KEYS.has(key2) ? item : deepLine(item, max)]));
   }
   return value4;
 }
@@ -31273,7 +31274,8 @@ function displayThread(thread) {
     posts: thread.posts.map(displayPost),
     allPosts: thread.allPosts.map(displayPost),
     warnings: thread.warnings.map((warning) => singleLine3(warning, NO_CUT)),
-    unreadablePosts: thread.unreadablePosts.map((path) => singleLine3(path, NO_CUT))
+    // File names, kept as they are so they still match the files; they are only ever printed through `singleLine`.
+    unreadablePosts: thread.unreadablePosts
   };
 }
 
@@ -31653,7 +31655,7 @@ function localText(thread, posts2, rung, options) {
     ].filter(Boolean).join("\n\n");
   }
   const shared = options?.share ? shareLine(options.share) : void 0;
-  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${thread.path})
+  const context = `${rung === "full" ? thread.name : clip(thread.name, 200)} (${singleLine3(thread.path, Number.MAX_SAFE_INTEGER)})
 ${rung === "full" ? thread.summary : clip(thread.summary, 400)}
 ${thread.closed === "unknown" ? "closed: unknown" : thread.closed ? "closed" : "open"} \xB7 ${thread.allPosts.length} posts${shared ? `
 ${shared}` : ""}${thread.allPosts.length ? `

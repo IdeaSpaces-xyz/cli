@@ -3,7 +3,7 @@
 // followed by FORGED, and fails if any output line starts with it, in text or as a string in the JSON.
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { saveSpace } from "../auth/spaces.js";
@@ -188,5 +188,32 @@ describe("a malformed tags value", () => {
     const text = await run(["open", "decision"], { depth: "full" }, false);
     expect(text).not.toContain("is not a function");
     expect(text).toContain("tags: before FORGED-tags-not-a-list after");
+  });
+});
+
+describe("a path stays exactly the file's path", () => {
+  it("with a double space in a file or folder name: unreadable_posts, the Thread's, the parent's and a child Thread's path all still match the disk", async () => {
+    const { root, thread } = space();
+    // An unreadable post with a double space in its name, and a child Thread in a folder with a double space.
+    const bad = "2026-11-07T13-00-00-000Z-bad  post.md";
+    writeFileSync(join(thread.path, bad), "---\nkind: post\n---\n\nNo id, so it cannot be read.\n");
+    const kid = join(root, "_threads", "kid  two");
+    mkdirSync(kid);
+    writeFileSync(join(kid, "README.md"), "---\nname: Kid\nsummary: Kid.\n---\n# Kid\n");
+    writeFileSync(join(kid, "2026-11-07T13-01-00-000Z-msg_k.md"), "---\nid: msg_k\ndate: 2026-11-07T13:01:00.000Z\nkind: post\nattached_to: post:msg_a\nauthor: Eve\n---\n\nOpening of the kid.\n");
+    process.chdir(root);
+    const parentRead = JSON.parse(await run(["open", "decision"], { depth: "children", post: "msg_a" }, true));
+    expect(parentRead.thread.unreadable_posts).toEqual([expect.stringContaining("bad  post.md")]);
+    expect(existsSync(join(thread.path, parentRead.thread.unreadable_posts[0].replace(/^.*\//, "")))).toBe(true);
+    const childPaths: string[] = parentRead.child_threads.map((child: { path: string }) => child.path);
+    expect(childPaths).toContain(kid);
+    for (const path of childPaths) expect(existsSync(path), path).toBe(true);
+    const kidRead = JSON.parse(await run(["open", "kid  two"], { depth: "summary" }, true));
+    expect(kidRead.thread.path).toBe(kid);
+    // The parent's `path` is the post it hangs from, relative to the Space.
+    expect(kidRead.thread.parent.path).toBe("_threads/decision/2026-11-07T10-00-00-000Z-msg_a.md");
+    expect(existsSync(join(root, kidRead.thread.parent.path))).toBe(true);
+    // The text still prints the folder on one line.
+    expect(await run(["open", "kid  two"], { depth: "summary" }, false)).toContain("(" + kid.replace(/ {2,}/g, " ") + ")");
   });
 });
