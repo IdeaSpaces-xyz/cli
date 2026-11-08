@@ -1,6 +1,6 @@
 {
   "name": "@ideaspaces/cli",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "type": "module",
   "description": "IdeaSpaces CLI — capture durable agent knowledge from the command line",
   "keywords": [
