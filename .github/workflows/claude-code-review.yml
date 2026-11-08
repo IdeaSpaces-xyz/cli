@@ -87,9 +87,20 @@ jobs:
 
             **CLI-Specific Issues:** [list or "None detected"]
 
+            **Blocking issues:** [list or "None"]
+
+            **Follow-ups:** [non-blocking suggestions, or "None"]
+
             **Detailed Feedback:** [specific issues and suggestions]
 
-            **Recommendation:** Approve / Request Changes / Comment
+            **Recommendation:** [Approve | Request Changes | Comment]
+
+            ## Choosing the Recommendation
+            - Approve when nothing blocks. Put follow-ups in their own Follow-ups section of the Approve; a follow-up is never a reason to withhold it.
+            - Request Changes for a blocker, and name it under Blocking issues.
+            - Comment only when you could not verify the change. Say what you could not verify.
+            - Required checks (CI, build, tests, other status checks) are the merge queue's job and never a blocker. Do not withhold Approve because a check is red, pending or missing.
+            - The merge queue lands only on a plain Approve and reads one line: the Recommendation line. Write it once, with exactly one of Approve, Request Changes or Comment and nothing after it. Notes go in Follow-ups or Detailed Feedback. No other line starts with "Recommendation:".
 
             Use `gh pr comment` to post your review.
 
