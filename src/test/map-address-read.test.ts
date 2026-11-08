@@ -387,8 +387,9 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       expect(stub.text).toContain("none shown: no member fits the room this launch leaves");
       expect(stub.dropped.map((entry) => entry.index)).toEqual([0, 1]);
       // Smaller than a pointer: the only refusal, told apart by type.
-      await expect(loadMapOrientation("long.map.md", space, { budget: 100 })).rejects.toThrow("not even as a pointer");
-      await expect(loadMapOrientation("long.map.md", space, { budget: 100 })).rejects.toBeInstanceOf(MapBudgetError);
+      const refusal = await loadMapOrientation("long.map.md", space, { budget: 100 }).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(MapBudgetError);
+      expect((refusal as Error).message).toContain("not even as a pointer");
     });
 
     it("labels roots that share a default name by identity, as the resolver accepts them", async () => {
