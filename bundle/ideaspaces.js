@@ -14211,7 +14211,7 @@ import { join as join13 } from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
 
 // dist/version.js
-var CLI_VERSION = true ? "0.8.2" : "0.0.0-dev";
+var CLI_VERSION = true ? "0.9.0" : "0.0.0-dev";
 
 // dist/update-check.js
 var UPDATE_CHECK_COMMAND = "__update-check";
