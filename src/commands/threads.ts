@@ -290,7 +290,9 @@ export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
   usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|init|push> ...",
-  help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.",
+  help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.\n\n" +
+    "launch-text builds the text a session starts with when it is launched from a post of a local Thread. The frame is that Thread as it is now: its Agreement in full, its newest Map (the newest snapshot that carries one, else the opening post's), and one line per post written since that Map. The Note, a member of the Map, is loaded whole, pinned in its own Thread; any other Thread's Agreement is one line and where to read it. " +
+    "A launch is never refused for size: Map members are lowered, then dropped from the last up, and the posts-since lines and the Thread's Agreement give way before the Note does. What did not arrive whole is named, with where to read it. --budget lowers the Map's character budget; the whole text is still held to 16 KiB in bytes. Reads the Note at its authored pin and writes nothing.",
   examples: [
     "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
@@ -311,7 +313,7 @@ export const threadsCommand: CommandDef = {
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
-    "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # --budget lowers the Map's character budget; the whole text stays within 16 KiB. The text a session launched from that post starts with: its own Map at its depths, the Note pinned in its Thread, the Agreement when --pov is given; says what was lowered. Reads at authored pins; writes nothing",
+    "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # the text a session launched from that post starts with; see --help",
     "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'",
     "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
     "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
@@ -357,7 +359,7 @@ export const threadsCommand: CommandDef = {
         if (rest.length !== 1) throw new Error("Usage: threads launch-text <slug|path> --post <msg_id> [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]");
         if (isHostedThreadTarget(rest[0])) throw new Error("threads launch-text reads a local Thread; a hosted x_ Thread has no pinned Map to launch from.");
         const post = str(flags, "post");
-        if (!post) throw new Error("--post <msg_id> is required: name the post whose Map and Note the session starts from. Run `ideaspaces threads open <thread>` to list posts.");
+        if (!post) throw new Error("--post <msg_id> is required: name the post the session starts from. Run `ideaspaces threads open <thread>` to list posts.");
         let budget: number | undefined;
         if (flags.budget !== undefined) {
           const raw = str(flags, "budget") ?? "";
@@ -370,7 +372,13 @@ export const threadsCommand: CommandDef = {
         for (const entry of launch.cut) {
           output.log(entry.kind === "depth"
             ? `Lowered [${entry.index}] ${entry.address} ${entry.declared}→${entry.effective}: ${entry.reason}`
-            : `Legend left out: ${entry.reason}`);
+            : entry.kind === "dropped"
+              ? `Dropped [${entry.index}] ${entry.address} (declared ${entry.declared}): ${entry.reason}`
+              : entry.kind === "legend"
+                ? `Legend left out: ${entry.reason}`
+                : entry.kind === "posts"
+                  ? `Posts not listed (${entry.omitted}): ${entry.reason}`
+                  : `Agreement as a line: ${entry.reason}`);
         }
         for (const entry of launch.merged) output.log(`Not repeated ${entry.address} [${entry.index}]: it is this launch's Note`);
         output.result(launch, launch.text);

@@ -738,14 +738,13 @@ map:
       expect(resAfter.data).toEqual(resBefore.data);
     });
 
-    it("refuses when map is over budget even with all members lowered to name", async () => {
+    it("refuses only when not even a pointer to the Map fits the budget", async () => {
       await setupSpaceWithMap();
 
       const result = await runMap(["home.map.md"], { orientation: true, budget: "50" }, JSON_FLAGS);
 
       expect(result.exit).toBe(1);
-      expect(result.stderr).toContain("renders to");
-      expect(result.stderr).toContain("every member at name");
+      expect(result.stderr).toContain("cannot be summarised in 50 characters, not even as a pointer to it");
     });
 
     it("validates --budget and rejects non-positive, non-integer, hex, or exponential values", async () => {

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   type ContentLookTarget,
   type MapAddressMember,
@@ -15,11 +16,13 @@ import { inspectSpaceMapRoots, mapContextDir, type SpaceMapRootDrift } from "./s
 
 /**
  * What a launch Map may add to the session's starting context, in characters. Over it, members
- * are read at a lower depth, the last member first, rather than cut.
+ * are read at a lower depth, the last member first; a member that cannot fit even at name is dropped,
+ * the last one first, and the Map says which. Nothing is refused for size unless not even the Map's
+ * header fits.
  */
 export const MAP_ORIENTATION_BUDGET = 12_000;
 
-/** The order depths are lowered in when over budget: the most text first. */
+/** The order depths are lowered in when over budget: the most text first. Raising walks it the other way. */
 const LADDER: readonly MapDepth[] = ["full", "children", "surface", "summary", "name"];
 
 interface MemberRead {
@@ -35,12 +38,15 @@ interface MemberRead {
   merged: boolean;
 }
 
+/** The Map's header, roots and members were all dropped and still did not fit; what remains is a pointer. */
+const STUB_REASON = "no member fits the room this launch leaves";
+
 interface Located {
   drift: SpaceMapRootDrift;
   name: string | undefined;
 }
 
-/** The Map renders over its budget even with every member at name. Callers tell this from a Map that cannot be read by type, not by wording. */
+/** The budget is smaller than even a pointer to the Map. Callers tell this from a Map that cannot be read by type, not by wording. */
 export class MapBudgetError extends Error {
   constructor(message: string) {
     super(message);
@@ -55,8 +61,19 @@ export interface MapOrientationLowered {
   effective: MapDepth;
   /** The member's position inside its root. */
   position: string;
-  /** `@root//position`: what to give is_look or is_navigate to read the member whole. */
+  /** `@root//position`: the member's address, for a tool that reads by address. */
   address: string;
+  /** Where the member is on this machine, when its root is checked out here: readable with any file tool. */
+  path?: string;
+}
+
+/** A member the Map left out because even at name it did not fit; the launch says so and where to read it. */
+export interface MapOrientationDropped {
+  index: number;
+  declared: MapDepth;
+  position: string;
+  address: string;
+  path?: string;
 }
 
 /** A member the Map did not repeat because the same post is loaded whole elsewhere in the launch. */
@@ -77,6 +94,8 @@ export interface MapOrientationResult {
   lowered: MapOrientationLowered[];
   /** Members left out because the launch loads that post whole as its Note. */
   merged: MapOrientationMerged[];
+  /** Members dropped to fit, the last first; each is named in the text with where to read it. */
+  dropped: MapOrientationDropped[];
   legend: boolean;
   /** The Map has a legend and the budget dropped it. */
   legendOmitted: boolean;
@@ -134,39 +153,25 @@ export async function loadMapOrientation(
   }
 
   const effective = new Map<number, MapDepth>(reads.map((entry) => [entry.index, entry.declared]));
+  const dropped = new Set<number>();
   let legend = true;
-  for (;;) {
-    for (const entry of reads) if (!entry.merged) await ensureLook(entry, effective.get(entry.index)!);
-    const text = render(note, kind, at, located, reads, effective, { budget, legend }, agents);
-    if (text.length <= budget) {
-      const lowered: MapOrientationLowered[] = reads
-        .filter((entry) => !entry.merged && effective.get(entry.index) !== entry.declared)
-        .map((entry) => ({
-          index: entry.index,
-          declared: entry.declared,
-          effective: effective.get(entry.index)!,
-          position: entry.member.position,
-          address: entry.label,
-        }));
-      const merged: MapOrientationMerged[] = reads
-        .filter((entry) => entry.merged)
-        .map((entry) => ({ index: entry.index, declared: entry.declared, position: entry.member.position, address: entry.label }));
-      return {
-        text,
-        note,
-        localRoots: kind === "space" ? [...new Set(inspected.flatMap((root) => root.checkoutPath ? [root.checkoutPath] : []))] : [],
-        firstRoot: kind === "space" ? inspected[0]?.checkoutPath ?? undefined : undefined,
-        budget,
-        lowered,
-        merged,
-        legend: Boolean(note.legend && legend),
-        legendOmitted: Boolean(note.legend) && !legend,
-      };
-    }
+  const shape = (): MapShape => ({ budget, legend, dropped });
+  const fits = async (): Promise<string | undefined> => {
+    for (const entry of reads) if (!entry.merged && !dropped.has(entry.index)) await ensureLook(entry, effective.get(entry.index)!);
+    const text = render(note, kind, at, located, reads, effective, shape(), agents);
+    return text.length <= budget ? text : undefined;
+  };
+  const live = (entry: MemberRead) => !entry.merged && !dropped.has(entry.index);
 
+  // Lower: the last member a rung at a time, then the one before it, until the Map fits.
+  let text: string | undefined;
+  let stub = false;
+  for (;;) {
+    text = await fits();
+    if (text !== undefined) break;
     // Only a member that was read has depth to give; an unreachable one is already a line.
     const next = [...reads].reverse().find((entry) => {
-      if (entry.merged) return false;
+      if (!live(entry)) return false;
       const depth = effective.get(entry.index)!;
       return depth !== "name" && typeof entry.looks.get(depth) === "object";
     });
@@ -178,11 +183,90 @@ export async function loadMapOrientation(
       legend = false;
       continue;
     }
-    throw new MapBudgetError(
-      `Map note ${JSON.stringify(reference)} renders to ${text.length} characters with every member at name; ` +
-      `a launch Map may add at most ${budget}. Use a smaller Map.`,
-    );
+    // Nothing is left to lower: drop members from the last one up, so what is authored first stays.
+    const drop = [...reads].reverse().find((entry) => !dropped.has(entry.index));
+    if (drop) {
+      dropped.add(drop.index);
+      continue;
+    }
+    // Every member is dropped and the header and roots alone are over: a pointer to the Map is all that can be said.
+    text = renderStub(note, reads.length);
+    stub = true;
+    if (text.length > budget) {
+      throw new MapBudgetError(
+        `Map note ${JSON.stringify(reference)} cannot be summarised in ${budget} characters, not even as a pointer to it. ` +
+        `Give the Map more room or use a smaller Map.`,
+      );
+    }
+    break;
   }
+
+  // Refill: the lowering stops at the first fit, which leaves room a rung can have taken too much of.
+  // Give it back in authored order, so the first members are restored first and the last stay dropped longest.
+  if (!stub) {
+    for (const entry of reads) {
+      if (dropped.has(entry.index)) {
+        dropped.delete(entry.index);
+        effective.set(entry.index, "name");
+        if ((await fits()) === undefined) {
+          dropped.add(entry.index);
+          continue;
+        }
+      }
+      if (entry.merged) continue;
+      for (;;) {
+        const current = effective.get(entry.index)!;
+        const raised = raiseDepth(current, entry.declared);
+        if (raised === current) break;
+        effective.set(entry.index, raised);
+        if ((await fits()) === undefined) {
+          effective.set(entry.index, current);
+          break;
+        }
+      }
+    }
+    if (!legend && note.legend) {
+      legend = true;
+      if ((await fits()) === undefined) legend = false;
+    }
+    text = (await fits())!;
+  }
+
+  const lowered: MapOrientationLowered[] = reads
+    .filter((entry) => !entry.merged && !dropped.has(entry.index) && !stub && effective.get(entry.index) !== entry.declared)
+    .map((entry) => ({
+      index: entry.index,
+      declared: entry.declared,
+      effective: effective.get(entry.index)!,
+      position: entry.member.position,
+      address: entry.label,
+      ...locate(entry),
+    }));
+  const dropList: MapOrientationDropped[] = reads
+    .filter((entry) => !entry.merged && (stub || dropped.has(entry.index)))
+    .map((entry) => ({ index: entry.index, declared: entry.declared, position: entry.member.position, address: entry.label, ...locate(entry) }));
+  const merged: MapOrientationMerged[] = reads
+    .filter((entry) => entry.merged)
+    .map((entry) => ({ index: entry.index, declared: entry.declared, position: entry.member.position, address: entry.label }));
+  return {
+    text,
+    note,
+    localRoots: kind === "space" ? [...new Set(inspected.flatMap((root) => root.checkoutPath ? [root.checkoutPath] : []))] : [],
+    firstRoot: kind === "space" ? inspected[0]?.checkoutPath ?? undefined : undefined,
+    budget,
+    lowered,
+    merged,
+    dropped: dropList,
+    legend: Boolean(note.legend && legend && !stub),
+    legendOmitted: Boolean(note.legend) && (!legend || stub),
+  };
+}
+
+/** Where a member is on this machine, when its root has a checkout here. */
+function locate(entry: MemberRead): { path?: string } {
+  const root = entry.read.checkoutPath;
+  if (!root) return {};
+  return { path: entry.member.position === "." ? root : join(root, entry.member.position) };
 }
 
 /** Same post: same root (by identity), same pin, same position. A different pin is a different version. */
@@ -195,6 +279,15 @@ function isLoadedAsNote(note: MapBlock | undefined, map: MapBlock, member: MapPo
   if (!noteRoot || !root || member.position !== wanted.position || root.sha !== noteRoot.sha) return false;
   const same = (a?: string, b?: string) => a !== undefined && a === b;
   return same(root.root_node_id, noteRoot.root_node_id) || same(root.repo, noteRoot.repo);
+}
+
+/** One rung up the ladder, never past the depth the Map declared. */
+function raiseDepth(depth: MapDepth, declared: MapDepth): MapDepth {
+  const at = LADDER.indexOf(depth);
+  const ceiling = LADDER.indexOf(declared);
+  // A depth off the ladder was lowered straight to name; it is raised the same way, straight back.
+  if (at === -1 || ceiling === -1) return depth === "name" ? declared : depth;
+  return at > ceiling ? LADDER[at - 1] : depth;
 }
 
 function lowerDepth(depth: MapDepth): MapDepth {
@@ -227,6 +320,23 @@ async function ensureLook(entry: MemberRead, depth: MapDepth): Promise<void> {
   entry.looks.set(depth, looked.status === "ok" ? looked.result.target : "reason" in looked ? looked.reason : looked.text);
 }
 
+/** What a render leaves out to fit: the legend, and the members dropped. */
+interface MapShape {
+  budget: number;
+  legend: boolean;
+  dropped: ReadonlySet<number>;
+}
+
+/** A Map that cannot show even its header: where it is, how many members it has, and that none fit. */
+function renderStub(note: LoadedMapNote, members: number): string {
+  return [
+    // Nothing authored but a path is repeated here, so there is nothing to mark as untrusted.
+    "[IdeaSpaces Map]",
+    `Map note: ${quoted(note.path)} — ${members} position members, none shown: ${STUB_REASON}. Read the Map note itself for them.`,
+    "[End IdeaSpaces Map]",
+  ].join("\n");
+}
+
 function render(
   note: LoadedMapNote,
   kind: "space" | "thread",
@@ -234,11 +344,11 @@ function render(
   located: Located[],
   reads: MemberRead[],
   effective: Map<number, MapDepth>,
-  state: { budget: number; legend: boolean },
+  state: MapShape,
   agents?: MapAgentsResult,
 ): string {
   const lowered = reads
-    .filter((entry) => !entry.merged && effective.get(entry.index) !== entry.declared)
+    .filter((entry) => !entry.merged && !state.dropped.has(entry.index) && effective.get(entry.index) !== entry.declared)
     .map((entry) => `[${entry.index}] ${entry.declared}→${effective.get(entry.index)}`);
   const lines = [
     "[IdeaSpaces Map]",
@@ -248,7 +358,7 @@ function render(
     `Map note: ${quoted(note.path)} (a ${kind}'s Map: members read at ${at === "pin" ? "the pin" : "HEAD, drift shown"})`,
     // The read tools are named alike in every consumer of this launch (MCP server and Pi).
     `Read any member by address with is_look or is_navigate (address "@<root>//<position>"); this Map is the default. ${LAUNCH_MAP_ENV} names it.`,
-    `Budget: ${state.budget} characters${lowered.length ? `; lowered to fit: ${lowered.join(", ")}` : ""}${state.legend ? "" : "; legend omitted"}`,
+    `Budget: ${state.budget} characters${lowered.length ? `; lowered to fit: ${lowered.join(", ")}` : ""}${state.dropped.size ? `; dropped to fit: ${[...state.dropped].sort((a, b) => a - b).map((index) => `[${index}]`).join(", ")}` : ""}${state.legend ? "" : "; legend omitted"}`,
   ];
   if (note.name) lines.push(`Name: ${quoted(note.name)}`);
   if (note.summary) lines.push(`Summary: ${quoted(note.summary)}`);
@@ -309,7 +419,9 @@ function render(
         : position.endsWith(".map.md")
           ? "Map"
           : entry.read.kind === "directory" ? "Folder" : "Note";
-    lines.push(...renderMember(entry, effective.get(index)!, kind === "space" ? type : undefined));
+    lines.push(...(state.dropped.has(index)
+      ? renderDropped(entry, kind === "space" ? type : undefined)
+      : renderMember(entry, effective.get(index)!, kind === "space" ? type : undefined)));
   }
 
   if (kind === "space") {
@@ -329,6 +441,12 @@ function render(
   }
   lines.push("[End IdeaSpaces Map]");
   return lines.join("\n");
+}
+
+/** A member that did not fit even at name: its address, and the place on this machine to read it. */
+function renderDropped(entry: MemberRead, type?: string): string[] {
+  const path = locate(entry).path;
+  return [`  [${entry.index}] ${entry.label} — ${type ? `${type}, ` : ""}dropped to fit (declared ${entry.declared}); read it at ${path ? quoted(path) : "its address"}`];
 }
 
 /**

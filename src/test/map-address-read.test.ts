@@ -364,19 +364,31 @@ describe("reading a Map member by address", { timeout: 30_000 }, () => {
       expect(text).toContain("[0] @notes//ideas — Folder, directory, children at head");
     });
 
-    it("omits the legend before refusing, and refuses when names alone do not fit", async () => {
+    it("omits the legend before lowering anything it can keep, drops members when names do not fit, and refuses only when not even a pointer does", async () => {
       const long = Array.from({ length: 60 }, (_, line) => `Legend line ${line} of the curator's prose.`).join("\n");
       writeMap(join(space, "long.map.md"), [{ root_node_id: ID_PLANS, sha: "b".repeat(40), name: "plans" }], [
+        { root: 0, position: "plans/one.md", depth: "full" },
         { root: 0, position: "plans/one.md", depth: "full" },
       ], long);
       const roomy = await loadMapOrientation("long.map.md", space);
       expect(roomy.text).toContain("Legend line 59");
-      const tight = await loadMapOrientation("long.map.md", space, { budget: 2_300 });
-      expect(tight.text.length).toBeLessThanOrEqual(2_300);
-      expect(tight.text).toContain("lowered to fit: [0] full→name; legend omitted");
-      expect(tight.text).not.toContain("Legend line");
-      await expect(loadMapOrientation("long.map.md", space, { budget: 200 })).rejects.toThrow("every member at name");
-      await expect(loadMapOrientation("long.map.md", space, { budget: 200 })).rejects.toBeInstanceOf(MapBudgetError);
+      // Without its legend the members fit as declared, so nothing is lowered to make room.
+      const noLegend = await loadMapOrientation("long.map.md", space, { budget: roomy.text.length - 400 });
+      expect(noLegend.text).toContain("legend omitted");
+      expect(noLegend.text).not.toContain("Legend line");
+      expect(noLegend.legendOmitted).toBe(true);
+      expect(noLegend.lowered).toEqual([]);
+      // One character short of that: members are lowered, the last among them, and nothing is refused.
+      const tighter = await loadMapOrientation("long.map.md", space, { budget: noLegend.text.length - 1 });
+      expect(tighter.text.length).toBeLessThanOrEqual(noLegend.text.length - 1);
+      expect(tighter.lowered.map((entry) => entry.index)).toContain(1);
+      // Not even the header fits: a pointer to the Map, every member named as dropped.
+      const stub = await loadMapOrientation("long.map.md", space, { budget: 420 });
+      expect(stub.text).toContain("none shown: no member fits the room this launch leaves");
+      expect(stub.dropped.map((entry) => entry.index)).toEqual([0, 1]);
+      // Smaller than a pointer: the only refusal, told apart by type.
+      await expect(loadMapOrientation("long.map.md", space, { budget: 100 })).rejects.toThrow("not even as a pointer");
+      await expect(loadMapOrientation("long.map.md", space, { budget: 100 })).rejects.toBeInstanceOf(MapBudgetError);
     });
 
     it("labels roots that share a default name by identity, as the resolver accepts them", async () => {
