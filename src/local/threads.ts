@@ -170,7 +170,7 @@ export function isHostedThreadTarget(value: string, cwd = process.cwd()): boolea
 
 /** A Thread's own Agreement is optional for reading and posting: an absent one
  * declares no parent and is reported once as a warning, never a refusal. */
-function threadAgreementContent(path: string): string | null {
+export function threadAgreementContent(path: string): string | null {
   const agent = join(path, "_agent");
   if (!lexists(agent)) return null;
   safeDirectory(agent);

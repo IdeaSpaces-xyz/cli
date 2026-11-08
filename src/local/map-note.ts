@@ -23,6 +23,14 @@ export interface LoadedMapNote {
   map: MapBlock;
 }
 
+/** The note is a valid file with frontmatter but carries no `map:` block. Callers tell it from an unreadable or invalid Map by type, not by wording. */
+export class NoMapBlockError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NoMapBlockError";
+  }
+}
+
 function scalar(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.replace(/\s+/g, " ").trim() : undefined;
 }
@@ -65,7 +73,7 @@ export function loadMapNote(reference: string, contextRoot: string): LoadedMapNo
   }
   const parsed = parseMap(frontmatter.map);
   if (parsed.status === "absent") {
-    throw new Error(`Map note ${quoted(reference)} has no map block.`);
+    throw new NoMapBlockError(`Map note ${quoted(reference)} has no map block.`);
   }
   if (parsed.status === "invalid") {
     const issues = parsed.issues.map(({ path, code }) => `${path} (${code})`).join(", ");

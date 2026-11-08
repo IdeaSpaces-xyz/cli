@@ -152,6 +152,7 @@ export const mapCommand: CommandDef = {
           path: orientationResult.note.path,
           budget: orientationResult.budget,
           lowered: orientationResult.lowered,
+          dropped: orientationResult.dropped,
           legend: orientationResult.legend,
           text: orientationResult.text,
         };
