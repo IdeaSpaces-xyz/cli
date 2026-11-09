@@ -13,7 +13,7 @@ const THREAD_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
     read: "depth new ack kind since post map member checkout pin position limit order agreement reader",
     new: "about attached-to map",
     attach: "message author",
-    post: "map member checkout reply-to kind mark author name summary supersedes message tags no-check-links",
+    post: "map member checkout reply-to kind mark author name summary supersedes message tags to no-check-links",
     posts: "space scope limit since depth order cursor",
     close: "map reply-to kind author name summary supersedes message",
     render: "",
@@ -51,6 +51,7 @@ export function hostedVerbFlagError(verb: string, flags: Flags): string | undefi
   const known = HOSTED_VERB_FLAGS[verb === "read" ? "open" : verb === "reply" ? "post" : verb];
   const unknown = known && Object.keys(flags).find((flag) => !known.has(flag));
   if (!unknown) return undefined;
-  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
+  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags."
+    : unknown === "to" ? " A hosted post carries no addressee yet; name who you ask in the message." : "";
   return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
 }

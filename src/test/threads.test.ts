@@ -7,6 +7,7 @@ import { join, basename, sep } from "node:path";
 import { parseThreadPost } from "@ideaspaces/protocol";
 import { acknowledge, appendPost, createThread, initWorktree, isHostedThreadTarget, listLocal, loadThread, pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, resolveThreadParent, computeBranches } from "../local/threads.js";
 import { threadsCommand, threadFlagError } from "../commands/threads.js";
+import { hostedVerbFlagError } from "../commands/thread-flags.js";
 import { searchCommand } from "../commands/search.js";
 import { push as genericPush } from "../git.js";
 
@@ -895,6 +896,58 @@ describe("local Threads", () => {
       await run(["new", "bare"], { about: "Bare" });
       expect((await run(["open", "bare"], { depth: "summary" })).thread.current_map).toMatchObject({ status: "none", reason: "no_map", post: null, members: 0 });
     } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
+  });
+
+  it("names who a local post asks with --to, shows it on read, and refuses what a reader would drop", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const old = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean>) => {
+      out = ""; err = "";
+      const code = await threadsCommand.run(args, options, flags); if (code !== 0) throw new Error(err);
+      return JSON.parse(out);
+    };
+    try {
+      await run(["new", "asks"], { about: "Asks" });
+      const dir = join(root, "_threads", "asks");
+      const one = await run(["post", "asks"], { author: "Integrator", message: "Can you read the ancestor walk?", to: "Security" });
+      const raw = readFileSync(one.path, "utf8");
+      expect(raw).toContain("to: Security");
+      const many = await run(["post", "asks"], { author: "Integrator", message: "Both of you", kind: "snapshot", to: " Security , UI/UX,Security" });
+      expect(readFileSync(many.path, "utf8")).toMatch(/to:\n {2}- Security\n {2}- UI\/UX\n/);
+      expect(loadThread(dir).allPosts.find((post) => post.id === many.id)?.to).toEqual(["Security", "UI/UX"]);
+
+      const summary = await run(["open", "asks"], { depth: "summary", limit: "10" });
+      expect(summary.posts.find((post: { id: string }) => post.id === one.id).to).toEqual(["Security"]);
+      expect(summary.posts.find((post: { id: string }) => !post.to)).toBeTruthy(); // The opening asks no one.
+      out = "";
+      expect(await threadsCommand.run(["open", "asks"], { depth: "full" }, { ...flags, json: false })).toBe(0);
+      expect(out).toContain(`${many.id} · claimed by Integrator · to Security, UI/UX · snapshot`);
+
+      // Refused before any file: blank, too long, too many, and on close.
+      const before = readdirSync(dir).sort();
+      for (const to of [",", "a".repeat(201), Array.from({ length: 21 }, (_, i) => `n${i}`).join(",")]) {
+        err = "";
+        expect(await threadsCommand.run(["post", "asks"], { author: "Integrator", message: "Bad", to }, flags)).toBe(1);
+        expect(err).toContain("--to must name who the post asks");
+      }
+      err = "";
+      expect(await threadsCommand.run(["post", "asks"], { author: "Integrator", message: "Empty", to: true }, flags)).toBe(1);
+      expect(err).toContain("--to requires a value");
+      err = "";
+      expect(await threadsCommand.run(["close", "asks"], { author: "Integrator", message: "Done", to: "Security" }, flags)).toBe(1);
+      expect(err).toContain("--to");
+      expect(readdirSync(dir).sort()).toEqual(before);
+    } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
+  });
+
+  it("refuses --to on a hosted post by name, with why", () => {
+    expect(hostedVerbFlagError("post", { message: "Hi", to: "Security" })).toContain("--to is not supported by hosted threads post");
+    expect(hostedVerbFlagError("reply", { message: "Hi", to: "Security" })).toContain("carries no addressee yet");
   });
 
   it("writes and folds mark posts; validates before writing or accepting literal escapes", async () => {

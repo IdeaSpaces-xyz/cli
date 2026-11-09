@@ -229,7 +229,7 @@ function localText(
         posts
           .map(
             (p) =>
-              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${clip(p.frontmatter.name ?? p.id, 200)} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${claimedBy(p.frontmatter.author)}${stateOf(p)}${p.marks?.length ? ` · marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}\n  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`,
+              `${p.id} · ${p.kind} · ${p.date ?? "undated"} · ${clip(p.frontmatter.name ?? p.id, 200)} · in_reply_to ${p.inReplyTo.join(", ") || "—"} · ${claimedBy(p.frontmatter.author)}${p.to?.length ? ` · to ${clip(p.to.join(", "), 400)}` : ""}${stateOf(p)}${p.marks?.length ? ` · marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}\n  ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`,
           )
           .join("\n\n"),
       );
@@ -262,7 +262,7 @@ function localText(
     context,
     ...posts.map(
       (p) =>
-        `\n${p.id} · ${claimedBy(p.frontmatter.author)} · ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`,
+        `\n${p.id} · ${claimedBy(p.frontmatter.author)}${p.to?.length ? ` · to ${p.to.join(", ")}` : ""} · ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`,
     ),
   ].join("\n");
 }
@@ -324,6 +324,7 @@ export const threadsCommand: CommandDef = {
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
   usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|init|push> ...",
   help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.\n\n" +
+    "post --to names who a local post asks: one name or a comma-separated list, as an author would write it (Security, UI/UX) or a typed address (agent:…, person:…). Any kind of post may ask. It is the writer's claim and grants, notifies and restricts nothing; open shows it as 'to …' and returns it as to in JSON. Hosted posts carry no addressee yet.\n\n" +
     "A local Thread's current Map is the Map of its newest post that carries one, whatever its kind; a post without a Map leaves it as it was, and a post whose Map does not parse is passed over and named. open shows it in one line and, with --json, as thread.current_map: status (post, opening or none), the post it came from with its kind, the Map, and anything passed over. To move it, post with --map; every root needs a SHA and every position member a depth.\n\n" +
     "launch-text builds the text a session starts with when it is launched from a post of a local Thread. The frame is that Thread as it is now: its Agreement in full, its current Map, and one line per post written since that Map. The Note, a member of the Map, is loaded whole, pinned in its own Thread; any other Thread's Agreement is one line and where to read it. " +
     "A launch is never refused for size: Map members are lowered, then dropped from the last up, and the posts-since lines and the Thread's Agreement give way before the Note does. What did not arrive whole is named, with where to read it. --budget lowers the Map's character budget; the whole text is still held to 16 KiB in bytes. Reads the Note at its authored pin and writes nothing.",
@@ -344,7 +345,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
-    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
+    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--to Security,UI/UX] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags; --to names who the post asks`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
     "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # the text a session launched from that post starts with; see --help",
@@ -732,7 +733,7 @@ export const threadsCommand: CommandDef = {
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
             summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null,
-            ...stateField(p), ...(p.marks?.length ? { marks: p.marks } : {}), ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
+            ...stateField(p), ...(p.marks?.length ? { marks: p.marks } : {}), ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}), ...(p.to?.length ? { to: p.to } : {}) }
           : { ...p, ...stateField(p) });
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;
@@ -809,7 +810,7 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || hostedTarget) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
-        for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags"]) {
+        for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags", "to"]) {
           if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
         }
         if (sub === "close" && flags.kind !== undefined && flags.kind !== "closure") throw new Error("threads close always appends a closure post; omit --kind.");
@@ -833,11 +834,12 @@ export const threadsCommand: CommandDef = {
         if (selected && !parents?.length) throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
         const tags = typeof flags.tags === "string" ? flags.tags.split(",").map((t) => t.trim()) : undefined;
+        const to = typeof flags.to === "string" ? flags.to.split(",") : undefined;
 
         const body = str(flags, "message") ?? await stdin();
         const { post, path, warnings } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, checkLinks: flags["no-check-links"] !== true, name: str(flags, "name"),
           summary: str(flags, "summary"), author: target ? selectedWriterName() : writerName(str(flags, "author")), replyTo: parents,
-          kind: kind as ThreadKind, mark: str(flags, "mark"), supersedes: str(flags, "supersedes"), map, tags,
+          kind: kind as ThreadKind, mark: str(flags, "mark"), supersedes: str(flags, "supersedes"), map, tags, to,
           rejectEscapedNewlines: typeof flags.message === "string", verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
         for (const warning of warnings) output.log(`Link warning: ${warning}`);

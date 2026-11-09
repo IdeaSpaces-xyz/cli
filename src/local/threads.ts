@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { HOSTED_THREAD_ID, currentThreadMap, isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, currentThreadMap, isPinnedMomentMap, parseAddressees, THREAD_ADDRESSEE_MAX_LENGTH, THREAD_ADDRESSEES_MAX, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -461,6 +461,15 @@ export function validateThreadMomentMap(input: unknown): void {
   }
 }
 
+/** Who a post asks, by the protocol's `to` rule; the writer refuses what a reader would drop. */
+export function validateAddressees(to: readonly string[]): string[] {
+  const named = parseAddressees([...to]);
+  if (!named || named.length === 0) {
+    throw new Error(`--to must name who the post asks: one name or a comma-separated list, each one line and at most ${THREAD_ADDRESSEE_MAX_LENGTH} characters, at most ${THREAD_ADDRESSEES_MAX}. Use a name as an author writes it (Security, UI/UX) or a typed address (agent:…, person:…).`);
+  }
+  return named;
+}
+
 /** Tags are a post's labels in either location, so both writers refuse the same values. */
 export function validateTags(tags: readonly string[]): void {
   if (new Set(tags).size > 20) throw new Error("Tags are limited to 20 distinct values per post.");
@@ -474,6 +483,8 @@ export function validateTags(tags: readonly string[]): void {
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
+  /** Who the post asks (protocol `to`). */
+  to?: string[];
   rejectEscapedNewlines?: boolean;
   /** Check the body's file-relative Markdown links before the write (the `threads post` command sets it). */
   checkLinks?: boolean;
@@ -492,6 +503,7 @@ export function appendPost(dir: string, options: {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
   }
   if (options.tags !== undefined) validateTags(options.tags);
+  const to = options.to === undefined ? undefined : validateAddressees(options.to);
   validateMarkOptions(options.kind, options.mark, options.replyTo);
   if (options.attachedTo !== undefined && thread.allPosts.length) throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
   const byId = new Map(thread.allPosts.map((post) => [post.id, post]));
@@ -547,7 +559,9 @@ export function appendPost(dir: string, options: {
     ...(options.supersedes ? { supersedes: options.supersedes } : {}),
     ...(options.name ? { name: options.name } : {}), ...(options.summary ? { summary: options.summary } : {}),
     ...(options.tags && options.tags.length ? { tags: [...new Set(options.tags)] } : {}),
-    ...(options.author ? { author: options.author } : {}), ...(options.map !== undefined ? { map: options.map } : {}),
+    ...(options.author ? { author: options.author } : {}),
+    ...(to ? { to: to.length === 1 ? to[0] : to } : {}),
+    ...(options.map !== undefined ? { map: options.map } : {}),
   };
   const content = `---\n${stringify(fields)}---\n\n${options.body.trim()}\n`;
   const parsed = parseThreadPost(content, basename(path));
