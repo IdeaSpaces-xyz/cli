@@ -12516,6 +12516,16 @@ function parseThreadPost(content, path = "") {
       warnings.push({ field: "supersedes", warning: "invalid_supersedes" });
     }
   }
+  let to;
+  if ("to" in fm && fm.to !== null && fm.to !== void 0) {
+    const named = parseAddressees(fm.to);
+    if (named) {
+      if (named.length)
+        to = named;
+    } else {
+      warnings.push({ field: "to", warning: "invalid_to" });
+    }
+  }
   let attachedTo;
   if ("attached_to" in fm) {
     const parsed2 = parseThreadAttachment(fm.attached_to);
@@ -12566,9 +12576,28 @@ function parseThreadPost(content, path = "") {
     ...mark ? { mark } : {},
     ...attachedTo ? { attachedTo } : {},
     ...supersedes ? { supersedes } : {},
+    ...to ? { to } : {},
     ...mapResult ? { mapResult } : {}
   };
   return { status: "valid", post };
+}
+var THREAD_ADDRESSEE_MAX_LENGTH = 200;
+var THREAD_ADDRESSEES_MAX = 20;
+function parseAddressees(value4) {
+  const list4 = typeof value4 === "string" ? [value4] : Array.isArray(value4) ? value4 : null;
+  if (!list4)
+    return null;
+  const named = [];
+  for (const entry of list4) {
+    if (typeof entry !== "string")
+      return null;
+    const trimmed = entry.trim();
+    if (!trimmed || /[\r\n]/.test(trimmed) || trimmed.length > THREAD_ADDRESSEE_MAX_LENGTH)
+      return null;
+    if (!named.includes(trimmed))
+      named.push(trimmed);
+  }
+  return named.length > THREAD_ADDRESSEES_MAX ? null : named;
 }
 function inspectThreadPosts(sources, agreementAttachment) {
   const sorted = sources.filter((source) => parseThreadAttachment(source.path)?.kind === "path").sort((a, b) => compareOrdinal(a.path, b.path));
@@ -23993,6 +24022,13 @@ function validateThreadMomentMap(input) {
     throw new Error("Thread post Map must pin every root and choose a depth for each position.");
   }
 }
+function validateAddressees(to) {
+  const named = parseAddressees([...to]);
+  if (!named || named.length === 0) {
+    throw new Error(`--to must name who the post asks: one name or a comma-separated list, each one line and at most ${THREAD_ADDRESSEE_MAX_LENGTH} characters, at most ${THREAD_ADDRESSEES_MAX}. Use a name as an author writes it (Security, UI/UX) or a typed address (agent:\u2026, person:\u2026).`);
+  }
+  return named;
+}
 function validateTags(tags) {
   if (new Set(tags).size > 20)
     throw new Error("Tags are limited to 20 distinct values per post.");
@@ -24021,6 +24057,7 @@ function appendPost(dir, options) {
   }
   if (options.tags !== void 0)
     validateTags(options.tags);
+  const to = options.to === void 0 ? void 0 : validateAddressees(options.to);
   validateMarkOptions(options.kind, options.mark, options.replyTo);
   if (options.attachedTo !== void 0 && thread.allPosts.length)
     throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
@@ -24086,6 +24123,7 @@ Fix the path (it is relative to the post file), remove the link, or pass --no-ch
     ...options.summary ? { summary: options.summary } : {},
     ...options.tags && options.tags.length ? { tags: [...new Set(options.tags)] } : {},
     ...options.author ? { author: options.author } : {},
+    ...to ? { to: to.length === 1 ? to[0] : to } : {},
     ...options.map !== void 0 ? { map: options.map } : {}
   };
   const content = `---
@@ -24375,7 +24413,7 @@ var THREAD_FLAGS = Object.fromEntries(Object.entries({
   read: "depth new ack kind since post map member checkout pin position limit order agreement reader",
   new: "about attached-to map",
   attach: "message author",
-  post: "map member checkout reply-to kind mark author name summary supersedes message tags no-check-links",
+  post: "map member checkout reply-to kind mark author name summary supersedes message tags to no-check-links",
   posts: "space scope limit since depth order cursor",
   close: "map reply-to kind author name summary supersedes message",
   render: "",
@@ -24408,7 +24446,7 @@ function hostedVerbFlagError(verb, flags2) {
   const unknown = known && Object.keys(flags2).find((flag) => !known.has(flag));
   if (!unknown)
     return void 0;
-  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags." : "";
+  const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags." : unknown === "to" ? " A hosted post carries no addressee yet; name who you ask in the message." : "";
   return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
 }
 
@@ -32298,7 +32336,7 @@ ${AUTHOR_CLAIM_NOTE}` : ""}`;
   ${clip(s.frontmatter.summary ?? "(no summary)", 400)}`);
     }
     if (options?.filtered && posts2.length) {
-      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${claimedBy(p.frontmatter.author)}${stateOf(p)}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}
+      parts.push(posts2.map((p) => `${p.id} \xB7 ${p.kind} \xB7 ${p.date ?? "undated"} \xB7 ${clip(p.frontmatter.name ?? p.id, 200)} \xB7 in_reply_to ${p.inReplyTo.join(", ") || "\u2014"} \xB7 ${claimedBy(p.frontmatter.author)}${p.to?.length ? ` \xB7 to ${clip(p.to.join(", "), 400)}` : ""}${stateOf(p)}${p.marks?.length ? ` \xB7 marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}
   ${clip(p.frontmatter.summary ?? "(no summary)", 400)}`).join("\n\n"));
     }
     return parts.join("\n\n");
@@ -32330,7 +32368,7 @@ ${childLines.join("\n")}`);
   return [
     context,
     ...posts2.map((p) => `
-${p.id} \xB7 ${claimedBy(p.frontmatter.author)} \xB7 ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
+${p.id} \xB7 ${claimedBy(p.frontmatter.author)}${p.to?.length ? ` \xB7 to ${p.to.join(", ")}` : ""} \xB7 ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` \u21B3 ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` \xB7 tags: ${p.frontmatter.tags.join(", ")}` : ""}
 ${p.frontmatter.name ?? ""}
 ${p.body}${p.marks?.length ? `
 Marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`)
@@ -32392,7 +32430,7 @@ var threadsCommand = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
   usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|init|push> ...",
-  help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.\n\nA local Thread's current Map is the Map of its newest post that carries one, whatever its kind; a post without a Map leaves it as it was, and a post whose Map does not parse is passed over and named. open shows it in one line and, with --json, as thread.current_map: status (post, opening or none), the post it came from with its kind, the Map, and anything passed over. To move it, post with --map; every root needs a SHA and every position member a depth.\n\nlaunch-text builds the text a session starts with when it is launched from a post of a local Thread. The frame is that Thread as it is now: its Agreement in full, its current Map, and one line per post written since that Map. The Note, a member of the Map, is loaded whole, pinned in its own Thread; any other Thread's Agreement is one line and where to read it. A launch is never refused for size: Map members are lowered, then dropped from the last up, and the posts-since lines and the Thread's Agreement give way before the Note does. What did not arrive whole is named, with where to read it. --budget lowers the Map's character budget; the whole text is still held to 16 KiB in bytes. Reads the Note at its authored pin and writes nothing.",
+  help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.\n\npost --to names who a local post asks: one name or a comma-separated list, as an author would write it (Security, UI/UX) or a typed address (agent:\u2026, person:\u2026). Any kind of post may ask. It is the writer's claim and grants, notifies and restricts nothing; open shows it as 'to \u2026' and returns it as to in JSON. Hosted posts carry no addressee yet.\n\nA local Thread's current Map is the Map of its newest post that carries one, whatever its kind; a post without a Map leaves it as it was, and a post whose Map does not parse is passed over and named. open shows it in one line and, with --json, as thread.current_map: status (post, opening or none), the post it came from with its kind, the Map, and anything passed over. To move it, post with --map; every root needs a SHA and every position member a depth.\n\nlaunch-text builds the text a session starts with when it is launched from a post of a local Thread. The frame is that Thread as it is now: its Agreement in full, its current Map, and one line per post written since that Map. The Note, a member of the Map, is loaded whole, pinned in its own Thread; any other Thread's Agreement is one line and where to read it. A launch is never refused for size: Map members are lowered, then dropped from the last up, and the posts-since lines and the Thread's Agreement give way before the Note does. What did not arrive whole is named, with where to read it. --budget lowers the Map's character budget; the whole text is still held to 16 KiB in bytes. Reads the Note at its authored pin and writes nothing.",
   examples: [
     "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
@@ -32410,7 +32448,7 @@ var threadsCommand = {
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
-    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
+    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--to Security,UI/UX] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags; --to names who the post asks`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
     "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # the text a session launched from that post starts with; see --help",
@@ -32902,7 +32940,8 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           author: p.frontmatter.author ?? null,
           ...stateField(p),
           ...p.marks?.length ? { marks: p.marks } : {},
-          ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
+          ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {},
+          ...p.to?.length ? { to: p.to } : {}
         } : { ...p, ...stateField(p) });
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
         const rawPost = postId2 && posts2.length ? readFileSync22(join45(thread.path, posts2[0].path), "utf8") : void 0;
@@ -33024,7 +33063,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || hostedTarget)
           throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
-        for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags"]) {
+        for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags", "to"]) {
           if (flags2[flag] === true)
             throw new Error(`--${flag} requires a value.`);
         }
@@ -33055,6 +33094,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
           throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str2(flags2, "checkout")) : void 0;
         const tags = typeof flags2.tags === "string" ? flags2.tags.split(",").map((t) => t.trim()) : void 0;
+        const to = typeof flags2.to === "string" ? flags2.to.split(",") : void 0;
         const body = str2(flags2, "message") ?? await stdin();
         const { post, path, warnings } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), {
           body,
@@ -33068,6 +33108,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
           supersedes: str2(flags2, "supersedes"),
           map,
           tags,
+          to,
           rejectEscapedNewlines: typeof flags2.message === "string",
           verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`)
