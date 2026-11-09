@@ -1,0 +1,54 @@
+name: Verify registry install
+
+on:
+  # Test the verifier itself against a frozen, already-published baseline.
+  pull_request:
+    paths:
+      - '.github/workflows/registry-install.yml'
+      - '.github/scripts/check-registry-install.ps1'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact already-published CLI version at this ref
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Registry install (${{ matrix.os }}, Node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        node: ['22', '24']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        if: github.event_name == 'pull_request'
+        with:
+          ref: v0.9.0
+          path: registry-source
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install exact public npm artifact in isolation
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'pull_request' && '0.9.0' || inputs.version }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          $verifier = Join-Path $env:GITHUB_WORKSPACE '.github/scripts/check-registry-install.ps1'
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            Set-Location (Join-Path $env:GITHUB_WORKSPACE 'registry-source')
+            $env:EXPECTED_COMMIT = (& git rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot read baseline source commit.' }
+          }
+          & $verifier
