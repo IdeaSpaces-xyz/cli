@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { HOSTED_THREAD_ID, isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, currentThreadMap, isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -92,6 +92,11 @@ export interface LocalThread {
   /** Where the Thread started: the opening post's attachment, immutable. */
   origin: ThreadAttachment | "unknown" | null;
   readme: string;
+  /**
+   * The Map the Thread stands on now, by the protocol's rule: the Map of the newest post that
+   * carries one, whatever its kind. Post paths are file names, as in `posts`.
+   */
+  currentMap: CurrentThreadMap;
 }
 
 function git(cwd: string, args: string[]): string {
@@ -213,6 +218,12 @@ export function loadThread(dir: string): LocalThread {
   const timeline = reconstructThreadTimeline(allPosts);
   const openingPath = [...sources].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)[0]?.path;
   const opening = inspection.posts.find((post) => post.path === openingPath);
+  const found = currentThreadMap(sources);
+  const currentMap: CurrentThreadMap = {
+    ...found,
+    ...(found.post ? { post: { ...found.post, path: basename(found.post.path) } } : {}),
+    skipped: found.skipped.map((entry) => ({ ...entry, path: basename(entry.path) })),
+  };
   const warnings = [
     ...(agreementContent === null ? [NO_THREAD_AGREEMENT] : []),
     ...inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`),
@@ -224,7 +235,7 @@ export function loadThread(dir: string): LocalThread {
     posts: timeline.posts, allPosts, warnings, unreadablePosts: inspection.unreadable.map((post) => post.path),
     closed: inspection.closed,
     ...(inspection.writeRefusal ? { writeRefusal: inspection.writeRefusal } : {}),
-    attachment: inspection.parent, origin: inspection.origin, readme,
+    attachment: inspection.parent, origin: inspection.origin, readme, currentMap,
   };
 }
 

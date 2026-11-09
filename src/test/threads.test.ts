@@ -827,6 +827,76 @@ describe("local Threads", () => {
     } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
   });
 
+  it("reports the current Map and where it came from, and refuses an unpinned snapshot Map before writing", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const old = process.cwd(); process.chdir(root);
+    const stdoutWrite = process.stdout.write, stderrWrite = process.stderr.write;
+    let out = "", err = "";
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string) => { err += chunk; return true; }) as typeof process.stderr.write;
+    const flags = { json: true, quiet: true, yes: false, help: false };
+    const run = async (args: string[], options: Record<string, string | boolean>) => {
+      out = ""; err = "";
+      const code = await threadsCommand.run(args, options, flags); if (code !== 0) throw new Error(err);
+      return JSON.parse(out);
+    };
+    const root0 = { root_node_id: "n_0123456789abcdef01234567", sha: "a".repeat(40) };
+    const member = (position: string) => ({ root: 0, position, depth: "summary" });
+    try {
+      writeFileSync(join(root, "opening.map.json"), JSON.stringify({ map: { roots: [root0], members: [member("notes/a.md")] } }));
+      writeFileSync(join(root, "next.map.json"), JSON.stringify({ map: { roots: [root0], members: [member("notes/b.md"), member("notes/c.md")] } }));
+      const thread = await run(["new", "frame"], { about: "Frame", map: "opening.map.json" });
+      const dir = join(root, "_threads", "frame");
+
+      // The opening post's Map, until a later post carries one.
+      let read = await run(["open", "frame"], { depth: "summary" });
+      expect(read.thread.current_map).toMatchObject({ status: "opening", post: { id: thread.opening_post_id }, members: 1, skipped: [] });
+      await run(["post", "frame"], { author: "Scout", message: "Where we are, no Map", kind: "snapshot" });
+      read = await run(["open", "frame"], { depth: "summary" });
+      expect(read.thread.current_map).toMatchObject({ status: "opening", post: { id: thread.opening_post_id } });
+
+      // A post with a Map replaces it, whatever its kind; a later post without one does not.
+      await run(["post", "frame"], { author: "Scout", message: "Moved on", kind: "snapshot", map: "next.map.json" });
+      const cites = await run(["post", "frame"], { author: "Scout", message: "Cites the opening Map again", map: "opening.map.json" });
+      read = await run(["open", "frame"], { depth: "summary" });
+      expect(read.thread.current_map).toMatchObject({ status: "post", post: { id: cites.id, kind: "post" }, members: 1 });
+      const snap = await run(["post", "frame"], { author: "Scout", message: "Moved on again", kind: "snapshot", map: "next.map.json" });
+      await run(["post", "frame"], { author: "Scout", message: "Just talk" });
+      read = await run(["open", "frame"], { depth: "surface" });
+      expect(read.thread.current_map).toMatchObject({ status: "post", post: { id: snap.id, path: basename(snap.path), kind: "snapshot" }, members: 2,
+        lookback: { examined: 2, stopped: false } });
+      expect(read.thread.current_map.map.members.map((entry: { position: string }) => entry.position)).toEqual(["notes/b.md", "notes/c.md"]);
+
+      // A newer snapshot whose Map does not parse is passed over and named, in JSON and in text.
+      writeFileSync(join(dir, "2999-01-01T00-00-00-000Z-msg_broken.md"), "---\nid: msg_broken\nkind: snapshot\nmap:\n  roots: invalid\n  members: []\n---\nBroken\n");
+      read = await run(["open", "frame"], { depth: "summary" });
+      expect(read.thread.current_map).toMatchObject({ status: "post", post: { id: snap.id },
+        skipped: [{ path: "2999-01-01T00-00-00-000Z-msg_broken.md", id: "msg_broken", reason: "invalid_map" }] });
+      out = "";
+      expect(await threadsCommand.run(["open", "frame"], { depth: "summary" }, { ...flags, json: false })).toBe(0);
+      expect(out).toContain(`Current Map: snapshot post ${snap.id} · 2 members · passed over msg_broken (Map does not parse)`);
+      // A name read orients only.
+      expect((await run(["open", "frame"], { depth: "name" })).thread.current_map).toBeUndefined();
+
+      // A post's Map is a moment: every root pinned, every position given a depth, refused before any file.
+      const before = readdirSync(dir).sort();
+      writeFileSync(join(root, "unpinned.map.json"), JSON.stringify({ map: { roots: [{ root_node_id: root0.root_node_id }], members: [member("notes/a.md")] } }));
+      err = "";
+      expect(await threadsCommand.run(["post", "frame"], { author: "Scout", message: "Unpinned", kind: "snapshot", map: "unpinned.map.json" }, flags)).toBe(1);
+      expect(err).toContain("root 0");
+      expect(err).toContain("has no SHA");
+      writeFileSync(join(root, "no-depth.map.json"), JSON.stringify({ map: { roots: [root0], members: [{ root: 0, position: "notes/a.md" }] } }));
+      err = "";
+      expect(await threadsCommand.run(["post", "frame"], { author: "Scout", message: "No depth", kind: "snapshot", map: "no-depth.map.json" }, flags)).toBe(1);
+      expect(err).toContain("no depth ceiling");
+      expect(readdirSync(dir).sort()).toEqual(before);
+
+      // No Map anywhere is a state with its reason, not an error.
+      await run(["new", "bare"], { about: "Bare" });
+      expect((await run(["open", "bare"], { depth: "summary" })).thread.current_map).toMatchObject({ status: "none", reason: "no_map", post: null, members: 0 });
+    } finally { process.chdir(old); process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; }
+  });
+
   it("writes and folds mark posts; validates before writing or accepting literal escapes", async () => {
     const root = fixture(); process.env.HOME = root;
     const old = process.cwd(); process.chdir(root);

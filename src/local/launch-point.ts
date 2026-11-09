@@ -12,26 +12,28 @@ type ThreadPost = LocalThread["posts"][number];
 export interface LaunchMapSource {
   post: ThreadPost;
   file: string;
-  /** `snapshot`: the newest snapshot that carries a Map. `opening`: no snapshot does, so the opening post's. */
-  origin: "snapshot" | "opening";
+  /** `post`: the newest post after the opening that carries a Map, of any kind. `opening`: none does, so the opening post's. */
+  origin: "post" | "opening";
 }
 
 /**
- * The Thread's newest Map: the newest snapshot that carries one, else the opening post's. A launch
- * reads it whichever post it starts from, so a session started from a late post sees the Map as it
- * stands, not the day the Thread opened.
+ * The Thread's current Map, by the protocol's rule (`currentThreadMap`): the Map of the newest post
+ * that carries one, whatever its kind. A launch reads it whichever post it starts from, so a session
+ * started from a late post sees the Map as it stands, not the day the Thread opened.
  */
 export function findLaunchMap(holder: LocalThread, directory: string): LaunchMapSource {
-  const carries = (post: ThreadPost) => post.mapResult !== undefined && post.mapResult.status !== "absent";
-  for (let index = holder.posts.length - 1; index >= 0; index--) {
-    const post = holder.posts[index];
-    if (post.kind === "snapshot" && carries(post)) return { post, file: join(directory, post.path), origin: "snapshot" };
-  }
-  const opening = holder.allPosts.find((post) => post.id === holder.thread_id);
-  if (opening && carries(opening)) return { post: opening, file: join(directory, opening.path), origin: "opening" };
+  const current = holder.currentMap;
+  const post = current.post ? holder.allPosts.find((entry) => entry.id === current.post!.id) : undefined;
+  if (post && current.status !== "none") return { post, file: join(directory, post.path), origin: current.status };
+  const passed = current.skipped.length
+    ? ` Passed over: ${current.skipped.map((entry) => `${entry.id ?? entry.path} (${entry.reason === "invalid_map" ? "its Map does not parse" : "unreadable"})`).join(", ")}.`
+    : "";
+  const why = current.reason === "empty" ? "it has no posts"
+    : current.reason === "opening_unknown" ? "its opening post was not read"
+    : "no post in it carries one";
   throw new NoMapBlockError(
-    `Thread ${holder.slug} has no Map to launch from: no snapshot carries one and ${opening ? `its opening post ${opening.id}` : "it has no opening post"} has none. ` +
-    "Post a snapshot with a map: block, or launch from a Thread that has one.",
+    `Thread ${holder.slug} has no Map to launch from: ${why}.${passed} ` +
+    "Post with a Map (`threads post --map <file>`), or launch from a Thread that has one.",
   );
 }
 
@@ -177,9 +179,14 @@ export function renderLaunchFrame(input: LaunchFrameInput): LaunchFrame {
     summary: typeof facts.summary === "string" ? facts.summary : undefined,
   };
   const kept = sinceLines(since, started.id, input.sinceBudget, input.sinceMax);
-  const mapWhere = map.origin === "snapshot"
-    ? `the newest snapshot that carries one, ${map.post.id} (${map.post.date ?? "undated"})`
-    : `the opening post's, ${map.post.id} (${map.post.date ?? "undated"}); no snapshot carries a Map`;
+  // A newer snapshot whose Map does not parse, or a post that does not read, is named, never hidden.
+  const skipped = holder.currentMap.skipped;
+  const passed = skipped.length
+    ? `; passed over ${skipped.slice(0, 3).map((entry) => `${singleLine(entry.id ?? entry.path, 120)} (${entry.reason === "invalid_map" ? "its Map does not parse" : "unreadable"})`).join(", ")}${skipped.length > 3 ? ` and ${skipped.length - 3} more` : ""}`
+    : "";
+  const mapWhere = (map.origin === "post"
+    ? `the newest post that carries one, ${map.post.id} (${map.post.kind}, ${map.post.date ?? "undated"})`
+    : `the opening post's, ${map.post.id} (${map.post.date ?? "undated"}); no later post carries a Map`) + passed;
   // A listed line marks the post the launch started from; the line below is for when it is not on a line.
   const startedLine = started.id === map.post.id
     ? `Started from: post ${started.id}, the post that carries this Map`

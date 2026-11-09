@@ -188,7 +188,7 @@ describe("threads launch-text", () => {
     expect(result.bytes).toBe(Buffer.byteLength(result.text));
   });
 
-  it("starts from any post: the Thread's newest snapshot with a Map, and a line for each post since it", async () => {
+  it("starts from any post: the Thread's newest post with a Map, and a line for each post since it", async () => {
     const f = fixture();
     const middle = appendPost(f.launch.dir, { body: "Before the snapshot.", name: "A first thought", summary: "Said before", author: "Scout" });
     const snap = snapshot(f, [
@@ -199,7 +199,7 @@ describe("threads launch-text", () => {
     const later = appendPost(f.launch.dir, { body: "Built.", name: "Slice built", author: "Integrator", kind: "delivery" });
     // From the post after the snapshot, which carries no Map of its own.
     const result = await assembleLaunchText({ thread: f.launch.dir, post: decided.post.id, member: "0", cwd: f.root });
-    expect(result.map_post).toMatchObject({ id: snap.post.id, origin: "snapshot" });
+    expect(result.map_post).toMatchObject({ id: snap.post.id, kind: "snapshot", origin: "post" });
     expect(result.text).toContain("SNAPSHOT-ONLY-SUMMARY");
     expect(result.text).not.toContain("Summary of note 1");
     expect(result.post.id).toBe(decided.post.id);
@@ -210,19 +210,54 @@ describe("threads launch-text", () => {
     expect(lines[0]).toContain(`${decided.post.id} (claimed by UI/UX, post) — "Tick before Backend" — "The human agreed"  ← launched from here`);
     expect(lines[1]).toContain(`${later.post.id} (claimed by Integrator, delivery) — "Slice built"`);
     expect(result.text).not.toContain(middle.post.id);
-    expect(result.text).toContain(`the newest snapshot that carries one, ${snap.post.id}`);
+    expect(result.text).toContain(`the newest post that carries one, ${snap.post.id} (snapshot,`);
   });
 
-  it("reads the opening post's Map when no snapshot carries one, and lists every post since it", async () => {
+  it("takes the Map of a newer post of any kind, which a snapshot no longer outranks", async () => {
     const f = fixture();
-    // A snapshot without a Map, and a plain post, do not replace the opening post's Map.
+    snapshot(f, [{ root: 0, position: `_threads/target/${basename(f.note.file)}`, depth: "full", summary: "The Note itself" }]);
+    const cited = appendPost(f.launch.dir, { body: "Delivered, with what it stands on.", summary: "Delivery", author: "Integrator",
+      map: { roots: [{ root_node_id: ROOT_ID, sha: f.pin }], members: [
+        { root: 0, position: `_threads/target/${basename(f.note.file)}`, depth: "full", summary: "The Note itself" },
+        { root: 0, position: "docs/n1.md", depth: "summary", summary: "POST-MAP-ONLY" },
+      ] } });
+    const result = await assembleLaunchText({ thread: f.launch.dir, post: cited.post.id, cwd: f.root });
+    expect(result.map_post).toMatchObject({ id: cited.post.id, kind: "post", origin: "post" });
+    expect(result.text).toContain("POST-MAP-ONLY");
+    expect(result.text).toContain(`the newest post that carries one, ${cited.post.id} (post,`);
+  });
+
+  it("reads the opening post's Map when no later post carries one, and lists every post since it", async () => {
+    const f = fixture();
+    // A snapshot without a Map, and a plain post without one, do not replace the opening post's Map.
     appendPost(f.launch.dir, { body: "No Map here.", summary: "Snapshot without a Map", kind: "snapshot" });
     const plain = appendPost(f.launch.dir, { body: "Just talk.", summary: "Plain" });
     const result = await assembleLaunchText({ thread: f.launch.dir, post: plain.post.id, cwd: f.root });
     expect(result.map_post).toMatchObject({ id: f.launch.id, origin: "opening" });
     expect(result.since.total).toBe(2);
     expect(result.text).toContain(`the opening post's, ${f.launch.id}`);
-    expect(result.text).toContain("no snapshot carries a Map");
+    expect(result.text).toContain("no later post carries a Map");
+  });
+
+  it("passes over a newer post whose Map does not parse, and names it in the frame", async () => {
+    const f = fixture();
+    const snap = snapshot(f, [{ root: 0, position: `_threads/target/${basename(f.note.file)}`, depth: "full", summary: "The Note itself" }]);
+    // Posts are files; a hand-written snapshot with a broken Map sorts newest by its stamp.
+    writeFileSync(join(f.launch.dir, "2999-01-01T00-00-00-000Z-msg_broken.md"), "---\nid: msg_broken\nkind: snapshot\nmap:\n  roots: invalid\n  members: []\n---\nBroken\n");
+    const result = await assembleLaunchText({ thread: f.launch.dir, post: snap.post.id, cwd: f.root });
+    expect(result.map_post).toMatchObject({ id: snap.post.id, origin: "post" });
+    expect(result.text).toContain(`the newest post that carries one, ${snap.post.id}`);
+    expect(result.text).toContain("passed over msg_broken (its Map does not parse)");
+  });
+
+  it("names a broken opening Map when no post carries a readable one", async () => {
+    const f = fixture();
+    const broken = createThread("broken-opening", "Opening Map broken", f.root);
+    writeFileSync(join(broken.path, "2026-01-01T00-00-00-000Z-msg_00000000-0000-4000-8000-000000000001.md"), "---\nid: msg_00000000-0000-4000-8000-000000000001\nmap:\n  roots: invalid\n  members: []\n---\nStart\n");
+    const failure = await assembleLaunchText({ thread: broken.path, post: "msg_00000000-0000-4000-8000-000000000001", cwd: f.root }).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(NoMapBlockError);
+    expect((failure as Error).message).toContain("no post in it carries one");
+    expect((failure as Error).message).toContain("Passed over: msg_00000000-0000-4000-8000-000000000001 (its Map does not parse)");
   });
 
   it("quotes what other people wrote, so a post cannot forge the frame", async () => {
@@ -453,7 +488,7 @@ describe("threads launch-text", () => {
     const opening = appendPost(bare.path, { body: "Just talk.", summary: "No Map here" });
     const failure = await assembleLaunchText({ thread: bare.path, post: opening.post.id, cwd: f.root }).catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(NoMapBlockError);
-    expect((failure as Error).message).toMatch(/no snapshot carries one and its opening post msg_[0-9a-f-]+ has none/);
+    expect((failure as Error).message).toContain("no post in it carries one");
     await expect(assembleLaunchText({ thread: f.launch.dir, post: "msg_00000000-0000-0000-0000-000000000000", cwd: f.root })).rejects.toThrow(/has no post msg_0+/);
     await expect(assembleLaunchText({ thread: f.launch.dir, post: "latest", cwd: f.root })).rejects.toThrow(/needs a post id/);
   });
