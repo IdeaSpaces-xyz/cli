@@ -38,12 +38,12 @@ try {
   Set-Location $homeDir
   $reportedVersion = & $cli --version
   if ($LASTEXITCODE -ne 0 -or ($reportedVersion -join "`n").Trim() -ne $version) { throw 'Installed executable/shim did not report the release version.' }
-  $spacesHelp = & $cli spaces --help
+  $spacesHelp = & $cli spaces --help 2>&1
   if ($LASTEXITCODE -ne 0) { throw 'Installed spaces help failed.' }
   foreach ($verb in @('list', 'open', 'new', 'add', 'remove', 'import', 'export')) {
     if (($spacesHelp -join "`n") -notmatch "\b$verb\b") { throw "Installed spaces help lacks $verb." }
   }
-  $threadsHelp = & $cli threads --help
+  $threadsHelp = & $cli threads --help 2>&1
   if ($LASTEXITCODE -ne 0 -or ($threadsHelp -join "`n") -notmatch '--home') { throw 'Installed Threads help lacks hosted Space placement.' }
   if (($threadsHelp -join "`n") -notmatch 'launch-text') { throw 'Installed Threads help lacks launch-text.' }
   Write-Output (@{ version = $version; gitHead = $meta.gitHead; integrity = $meta.dist.integrity; bundleSha256 = $actualHash.ToLowerInvariant(); node = (& node --version); nativeWindowsShim = $IsWindows; result = 'PASS' } | ConvertTo-Json -Compress)
