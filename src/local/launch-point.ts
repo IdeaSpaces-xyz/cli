@@ -26,7 +26,7 @@ export function findLaunchMap(holder: LocalThread, directory: string): LaunchMap
   const post = current.post ? holder.allPosts.find((entry) => entry.id === current.post!.id) : undefined;
   if (post && current.status !== "none") return { post, file: join(directory, post.path), origin: current.status };
   const passed = current.skipped.length
-    ? ` Passed over: ${current.skipped.map((entry) => `${entry.id ?? entry.path} (${entry.reason === "invalid_map" ? "its Map does not parse" : "unreadable"})`).join(", ")}.`
+    ? ` Passed over: ${current.skipped.map((entry) => `${singleLine(entry.id ?? entry.path, 120)} (${entry.reason === "invalid_map" ? "its Map does not parse" : "unreadable"})`).join(", ")}.`
     : "";
   const why = current.reason === "empty" ? "it has no posts"
     : current.reason === "opening_unknown" ? "its opening post was not read"
@@ -185,8 +185,8 @@ export function renderLaunchFrame(input: LaunchFrameInput): LaunchFrame {
     ? `; passed over ${skipped.slice(0, 3).map((entry) => `${singleLine(entry.id ?? entry.path, 120)} (${entry.reason === "invalid_map" ? "its Map does not parse" : "unreadable"})`).join(", ")}${skipped.length > 3 ? ` and ${skipped.length - 3} more` : ""}`
     : "";
   const mapWhere = (map.origin === "post"
-    ? `the newest post that carries one, ${map.post.id} (${map.post.kind}, ${map.post.date ?? "undated"})`
-    : `the opening post's, ${map.post.id} (${map.post.date ?? "undated"}); no later post carries a Map`) + passed;
+    ? `the newest post that carries one, ${singleLine(map.post.id, 120)} (${singleLine(map.post.kind, 60)}, ${map.post.date ?? "undated"})`
+    : `the opening post's, ${singleLine(map.post.id, 120)} (${map.post.date ?? "undated"}); no later post carries a Map`) + passed;
   // A listed line marks the post the launch started from; the line below is for when it is not on a line.
   const startedLine = started.id === map.post.id
     ? `Started from: post ${started.id}, the post that carries this Map`

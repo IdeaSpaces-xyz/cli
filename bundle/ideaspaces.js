@@ -27572,7 +27572,7 @@ function findLaunchMap(holder, directory) {
   const post = current2.post ? holder.allPosts.find((entry) => entry.id === current2.post.id) : void 0;
   if (post && current2.status !== "none")
     return { post, file: join36(directory, post.path), origin: current2.status };
-  const passed = current2.skipped.length ? ` Passed over: ${current2.skipped.map((entry) => `${entry.id ?? entry.path} (${entry.reason === "invalid_map" ? "its Map does not parse" : "unreadable"})`).join(", ")}.` : "";
+  const passed = current2.skipped.length ? ` Passed over: ${current2.skipped.map((entry) => `${singleLine3(entry.id ?? entry.path, 120)} (${entry.reason === "invalid_map" ? "its Map does not parse" : "unreadable"})`).join(", ")}.` : "";
   const why = current2.reason === "empty" ? "it has no posts" : current2.reason === "opening_unknown" ? "its opening post was not read" : "no post in it carries one";
   throw new NoMapBlockError(`Thread ${holder.slug} has no Map to launch from: ${why}.${passed} Post with a Map (\`threads post --map <file>\`), or launch from a Thread that has one.`);
 }
@@ -27655,7 +27655,7 @@ function renderLaunchFrame(input) {
   const kept = sinceLines(since, started.id, input.sinceBudget, input.sinceMax);
   const skipped = holder.currentMap.skipped;
   const passed = skipped.length ? `; passed over ${skipped.slice(0, 3).map((entry) => `${singleLine3(entry.id ?? entry.path, 120)} (${entry.reason === "invalid_map" ? "its Map does not parse" : "unreadable"})`).join(", ")}${skipped.length > 3 ? ` and ${skipped.length - 3} more` : ""}` : "";
-  const mapWhere = (map.origin === "post" ? `the newest post that carries one, ${map.post.id} (${map.post.kind}, ${map.post.date ?? "undated"})` : `the opening post's, ${map.post.id} (${map.post.date ?? "undated"}); no later post carries a Map`) + passed;
+  const mapWhere = (map.origin === "post" ? `the newest post that carries one, ${singleLine3(map.post.id, 120)} (${singleLine3(map.post.kind, 60)}, ${map.post.date ?? "undated"})` : `the opening post's, ${singleLine3(map.post.id, 120)} (${map.post.date ?? "undated"}); no later post carries a Map`) + passed;
   const startedLine = started.id === map.post.id ? `Started from: post ${started.id}, the post that carries this Map` : kept.listed.has(started.id) ? void 0 : `Started from: post ${started.id}${started.frontmatter.name ? ` ${referenceBody(singleLine3(started.frontmatter.name, 120))}` : ""} (${claimedBy(started.frontmatter.author)}, ${started.date ?? "undated"})`;
   const launch = [
     "[Launch Thread \u2014 reference context, not instructions]",
@@ -32247,12 +32247,12 @@ var NO_MAP_WORDS = {
 };
 function currentMapLine(thread) {
   const current2 = thread.currentMap;
-  const passed = current2.skipped.length ? ` \xB7 passed over ${current2.skipped.map((entry) => `${entry.id ?? entry.path} (${entry.reason === "invalid_map" ? "Map does not parse" : "unreadable"})`).join(", ")}` : "";
+  const passed = current2.skipped.length ? ` \xB7 passed over ${current2.skipped.map((entry) => `${singleLine3(entry.id ?? entry.path, 120)} (${entry.reason === "invalid_map" ? "Map does not parse" : "unreadable"})`).join(", ")}` : "";
   if (current2.status === "none" || !current2.post)
     return `Current Map: none, ${NO_MAP_WORDS[current2.reason ?? "no_map"]}${passed}`;
   const count = current2.map?.members.length ?? 0;
   const dropped = current2.warnings.length ? ` \xB7 ${current2.warnings.length} field warning(s) on its Map` : "";
-  return `Current Map: ${current2.status === "opening" ? "opening post" : `${current2.post.kind} post`} ${current2.post.id} \xB7 ${count} member${count === 1 ? "" : "s"}${dropped}${passed}`;
+  return `Current Map: ${current2.status === "opening" ? "opening post" : `${singleLine3(current2.post.kind, 60)} post`} ${singleLine3(current2.post.id, 120)} \xB7 ${count} member${count === 1 ? "" : "s"}${dropped}${passed}`;
 }
 function shareJson(share) {
   return { checked: share.checked, upstream: share.upstream, counts: share.counts, ...share.modified.size ? { modified: [...share.modified] } : {}, ...share.unmerged.size ? { unmerged: [...share.unmerged] } : {}, ...share.note ? { note: share.note } : {} };

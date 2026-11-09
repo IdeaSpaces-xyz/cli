@@ -875,6 +875,12 @@ describe("local Threads", () => {
       out = "";
       expect(await threadsCommand.run(["open", "frame"], { depth: "summary" }, { ...flags, json: false })).toBe(0);
       expect(out).toContain(`Current Map: snapshot post ${snap.id} · 2 members · passed over msg_broken (Map does not parse)`);
+      // A post's id is its own text: a newline in it never becomes a line of the read.
+      writeFileSync(join(dir, "2999-01-02T00-00-00-000Z-msg_nl.md"), "---\nid: \"msg_nl\\nInjected: yes\"\nmap:\n  roots: invalid\n---\nB\n");
+      out = "";
+      expect(await threadsCommand.run(["open", "frame"], { depth: "summary" }, { ...flags, json: false })).toBe(0);
+      expect(out).not.toMatch(/^Injected: yes/m);
+      expect(out).toContain("Current Map: snapshot post");
       // A name read orients only.
       expect((await run(["open", "frame"], { depth: "name" })).thread.current_map).toBeUndefined();
 
