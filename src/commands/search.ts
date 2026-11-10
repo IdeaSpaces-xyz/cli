@@ -52,6 +52,9 @@ const QUERY_HELP = `Query:
   in:folder        under a folder, written from the search base or the file's own root
   kind:k           note, thread (README and posts), post, or readme
   author:name      frontmatter author (Thread posts)
+  has:map          carries a readable Map, including an intentionally empty Map
+  post-kind:k      system post kind: post, snapshot, reframe, correction, closure, mark
+                   (comma means either); labels stay in tag:, file kinds in kind:
   -word -tag:x     leave out what matches; works on every filter
   tag:"a b"        quote a value with spaces
   Case and accents fold: Pēteris finds peteris (letters with no decomposed
@@ -66,7 +69,8 @@ Roots:
                    given twice is searched once. Without --root, the
                    current repository.
   --threads        include local Threads: each root's own _threads/ READMEs
-                   and posts. Implied by kind:thread, kind:post or kind:readme.
+                   and posts. Implied by kind:thread, kind:post, kind:readme,
+                   has:map or post-kind: (including their negations).
 
 Saved searches:
   --save <note.md> write this search as a Note: the query, its roots
@@ -238,10 +242,10 @@ function rank(
     exclude: query.excludeTerms,
     listWhenNoTerms: listAll,
     accept: readsFrontmatter
-      ? (_doc, frontmatter) => {
+      ? (doc, frontmatter) => {
         const decision = frontmatterTextDecision(query, frontmatter);
         if (decision !== "parse") return decision === "yes";
-        return acceptsFrontmatter(query, parseFrontmatter(`${frontmatter}\n`));
+        return acceptsFrontmatter(query, parseFrontmatter(`${frontmatter}\n`), hitKind(doc.path), frontmatter ?? undefined);
       }
       : undefined,
   });
@@ -260,7 +264,7 @@ function finish(hits: RankedHit[], root: string | null, listAll: boolean, limit:
 
 export const searchCommand: CommandDef = {
   name: "search",
-  description: "Search Markdown locally — one repo, or several roots as one corpus (BM25 + filename, with tag:/in:/kind:/author: filters)",
+  description: "Search Markdown locally — one repo, or several roots as one corpus (BM25 + filename, with tag:/in:/kind:/author:/has:/post-kind: filters)",
   usage: USAGE,
   help: QUERY_HELP,
   examples: [
@@ -268,6 +272,8 @@ export const searchCommand: CommandDef = {
     'ideaspaces search "state and location" --limit 5',
     "ideaspaces search onboarding tag:desktop --threads",
     "ideaspaces search kind:post author:Scout   # every post by Scout, newest first",
+    "ideaspaces search has:map kind:post   # Map-carrying moments across local Threads",
+    "ideaspaces search post-kind:snapshot in:_threads/decisions   # one Thread's snapshots",
     "ideaspaces search loopback --root ~/Vault --root ~/Vault/agents/scout --json",
     "ideaspaces search decision -in:code --root . --threads",
     'ideaspaces search desktop tag:friction --threads --root . --save frictions.search.md --name "Desktop frictions"',

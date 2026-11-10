@@ -9,6 +9,8 @@
  *   in:agents/integrator          under that folder (from the search base or the file's root)
  *   kind:thread                   Thread READMEs and posts (also: note, post, readme)
  *   author:Scout                  frontmatter `author` is "Scout" (Thread posts)
+ *   has:map                       a readable Map, whatever the record's kind
+ *   post-kind:snapshot            a system post kind, not a file kind or tag
  *   -draft  -tag:old  -in:code    leave out what matches
  *   tag:"series a"                quote a value that has spaces
  *
@@ -17,6 +19,7 @@
  * `peteris` and `PETERIS` are the same word, tag, or author.
  */
 
+import { parseMap, parseThreadPost, THREAD_KINDS } from "@ideaspaces/protocol";
 import { fold, tokenize } from "./search.js";
 
 export const QUERY_KINDS = ["note", "thread", "post", "readme"] as const;
@@ -35,7 +38,7 @@ const KIND_ALIASES: Record<string, HitKind[]> = {
   thread_readme: ["thread_readme"],
 };
 
-const FILTER_KEYS = new Set(["tag", "in", "kind", "author"]);
+const FILTER_KEYS = new Set(["tag", "in", "kind", "author", "has", "post-kind"]);
 
 export interface ParsedQuery {
   /** The text as given, for echoing back. */
@@ -55,6 +58,11 @@ export interface ParsedQuery {
   excludeKinds: HitKind[];
   authors: string[];
   excludeAuthors: string[];
+  /** System post kinds, separate from the file-kind filter and retrieval tags. */
+  postKinds: string[];
+  excludePostKinds: string[];
+  hasMap: boolean;
+  excludeMap: boolean;
 }
 
 export class QueryError extends Error {}
@@ -98,6 +106,7 @@ export function parseQuery(raw: string): ParsedQuery {
   const parsed: ParsedQuery = {
     raw, terms: [], excludeTerms: [], tags: [], excludeTags: [],
     inPaths: [], excludeIn: [], kinds: [], excludeKinds: [], authors: [], excludeAuthors: [],
+    postKinds: [], excludePostKinds: [], hasMap: false, excludeMap: false,
   };
   const terms = new Set<string>();
   const excluded = new Set<string>();
@@ -139,6 +148,20 @@ export function parseQuery(raw: string): ParsedQuery {
         for (const kind of kinds) if (!target.includes(kind)) target.push(kind);
         break;
       }
+      case "has": {
+        if (value !== "map") throw new QueryError("has: takes map, for example has:map (or -has:map).");
+        if (negated) parsed.excludeMap = true;
+        else parsed.hasMap = true;
+        break;
+      }
+      case "post-kind": {
+        const kinds = value.toLowerCase().split(",").map((part) => part.trim());
+        if (kinds.some((kind) => !THREAD_KINDS.includes(kind as typeof THREAD_KINDS[number]))) {
+          throw new QueryError(`post-kind: takes a system kind: ${THREAD_KINDS.join(", ")}. Labels belong in tag:.`);
+        }
+        (negated ? parsed.excludePostKinds : parsed.postKinds).push(...kinds);
+        break;
+      }
       case "author": {
         const names = value.split(",").map((name) => fold(name.trim())).filter(Boolean);
         (negated ? parsed.excludeAuthors : parsed.authors).push(...names);
@@ -156,6 +179,8 @@ function example(key: string): string {
     case "tag": return "tag:onboarding";
     case "in": return "in:agents/integrator";
     case "kind": return "kind:thread";
+    case "has": return "has:map";
+    case "post-kind": return "post-kind:snapshot";
     default: return "author:Scout";
   }
 }
@@ -164,12 +189,14 @@ function example(key: string): string {
 export function hasFilters(q: ParsedQuery): boolean {
   return q.excludeTerms.length > 0 || q.tags.length > 0 || q.excludeTags.length > 0 ||
     q.inPaths.length > 0 || q.excludeIn.length > 0 || q.kinds.length > 0 || q.excludeKinds.length > 0 ||
-    q.authors.length > 0 || q.excludeAuthors.length > 0;
+    q.authors.length > 0 || q.excludeAuthors.length > 0 ||
+    q.postKinds.length > 0 || q.excludePostKinds.length > 0 || q.hasMap || q.excludeMap;
 }
 
-/** True when the query, as written, can only be answered from Thread files. */
+/** True when the query should include local Thread files without an explicit --threads. */
 export function wantsThreads(q: ParsedQuery): boolean {
-  return q.kinds.length > 0 && q.kinds.every((kind) => kind !== "note");
+  return q.hasMap || q.excludeMap || q.postKinds.length > 0 || q.excludePostKinds.length > 0 ||
+    (q.kinds.length > 0 && q.kinds.every((kind) => kind !== "note"));
 }
 
 function underFolder(location: string, folder: string): boolean {
@@ -197,7 +224,8 @@ export function frontmatterTags(value: unknown): string[] {
 
 /** Whether the query reads frontmatter to decide a hit. */
 export function needsFrontmatter(q: ParsedQuery): boolean {
-  return q.tags.length > 0 || q.excludeTags.length > 0 || q.authors.length > 0 || q.excludeAuthors.length > 0;
+  return q.tags.length > 0 || q.excludeTags.length > 0 || q.authors.length > 0 || q.excludeAuthors.length > 0 ||
+    q.hasMap || q.excludeMap || q.postKinds.length > 0 || q.excludePostKinds.length > 0;
 }
 
 /**
@@ -206,6 +234,8 @@ export function needsFrontmatter(q: ParsedQuery): boolean {
  * when nothing they read is present and none is required, else "parse".
  */
 export function frontmatterTextDecision(q: ParsedQuery, block: string | null): "yes" | "no" | "parse" {
+  // Map/kind semantics need the actual YAML and the post reader, not a text heuristic.
+  if (q.hasMap || q.excludeMap || q.postKinds.length || q.excludePostKinds.length) return "parse";
   const required = q.tags.length > 0 || q.authors.length > 0;
   if (block === null) return required ? "no" : "yes";
   const text = fold(block);
@@ -229,8 +259,22 @@ export function frontmatterTextDecision(q: ParsedQuery, block: string | null): "
 }
 
 /** Frontmatter-level filters, applied to a document that already hit. */
-export function acceptsFrontmatter(q: ParsedQuery, frontmatter: Record<string, unknown> | null): boolean {
+export function acceptsFrontmatter(
+  q: ParsedQuery, frontmatter: Record<string, unknown> | null, kind: HitKind = "note", raw?: string,
+): boolean {
   if (!needsFrontmatter(q)) return true;
+  const parsedPost = kind === "thread_post" && raw ? parseThreadPost(`${raw}\n`) : undefined;
+  const post = parsedPost?.status === "valid" ? parsedPost.post : undefined;
+  if (q.hasMap || q.excludeMap) {
+    // A Thread Map keeps surviving members exactly as its normal reader does.
+    const hasMap = kind === "thread_post"
+      ? post?.mapResult?.status === "valid"
+      : parseMap(frontmatter?.map).status === "valid";
+    if (q.hasMap && !hasMap) return false;
+    if (q.excludeMap && hasMap) return false;
+  }
+  if (q.postKinds.length > 0 && (!post || !q.postKinds.includes(post.kind))) return false;
+  if (post && q.excludePostKinds.includes(post.kind)) return false;
   const tags = new Set(frontmatterTags(frontmatter?.tags));
   if (!q.tags.every((group) => group.some((tag) => tags.has(tag)))) return false;
   if (q.excludeTags.some((tag) => tags.has(tag))) return false;
