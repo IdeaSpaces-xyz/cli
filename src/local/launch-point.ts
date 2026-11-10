@@ -12,26 +12,28 @@ type ThreadPost = LocalThread["posts"][number];
 export interface LaunchMapSource {
   post: ThreadPost;
   file: string;
-  /** `snapshot`: the newest snapshot that carries a Map. `opening`: no snapshot does, so the opening post's. */
-  origin: "snapshot" | "opening";
+  /** `post`: the newest post that carries a valid Map, of any kind. `opening`: no later post does, so the opening post's. */
+  origin: "post" | "opening";
 }
 
 /**
- * The Thread's newest Map: the newest snapshot that carries one, else the opening post's. A launch
- * reads it whichever post it starts from, so a session started from a late post sees the Map as it
- * stands, not the day the Thread opened.
+ * The Thread's current Map, by the protocol's rule: the Map of the newest post that carries one,
+ * whatever its kind, else the opening post's. Newest is filename order, whose stamp is the instant
+ * of writing. A Map that does not parse is passed over, as the protocol does. A launch reads it
+ * whichever post it starts from, so a session started from a late post sees the Map as it stands,
+ * not the day the Thread opened.
  */
 export function findLaunchMap(holder: LocalThread, directory: string): LaunchMapSource {
-  const carries = (post: ThreadPost) => post.mapResult !== undefined && post.mapResult.status !== "absent";
-  for (let index = holder.posts.length - 1; index >= 0; index--) {
-    const post = holder.posts[index];
-    if (post.kind === "snapshot" && carries(post)) return { post, file: join(directory, post.path), origin: "snapshot" };
-  }
+  const carries = (post: ThreadPost) => post.mapResult?.status === "valid";
   const opening = holder.allPosts.find((post) => post.id === holder.thread_id);
-  if (opening && carries(opening)) return { post: opening, file: join(directory, opening.path), origin: "opening" };
+  const newestFirst = holder.posts.filter((post) => post.id !== opening?.id).sort((a, b) => (a.path < b.path ? 1 : a.path > b.path ? -1 : 0));
+  for (const post of newestFirst) {
+    if (carries(post)) return { post, file: join(directory, post.path), origin: "post" };
+  }
+  if (opening && opening.mapResult !== undefined && opening.mapResult.status !== "absent") return { post: opening, file: join(directory, opening.path), origin: "opening" };
   throw new NoMapBlockError(
-    `Thread ${holder.slug} has no Map to launch from: no snapshot carries one and ${opening ? `its opening post ${opening.id}` : "it has no opening post"} has none. ` +
-    "Post a snapshot with a map: block, or launch from a Thread that has one.",
+    `Thread ${holder.slug} has no Map to launch from: no post carries one and ${opening ? `its opening post ${opening.id}` : "it has no opening post"} has none. ` +
+    "Post with a map: block (a snapshot always carries one), or launch from a Thread that has one.",
   );
 }
 
@@ -177,9 +179,9 @@ export function renderLaunchFrame(input: LaunchFrameInput): LaunchFrame {
     summary: typeof facts.summary === "string" ? facts.summary : undefined,
   };
   const kept = sinceLines(since, started.id, input.sinceBudget, input.sinceMax);
-  const mapWhere = map.origin === "snapshot"
-    ? `the newest snapshot that carries one, ${map.post.id} (${map.post.date ?? "undated"})`
-    : `the opening post's, ${map.post.id} (${map.post.date ?? "undated"}); no snapshot carries a Map`;
+  const mapWhere = map.origin === "post"
+    ? `the newest post that carries one, ${map.post.id}${map.post.kind && map.post.kind !== "post" ? ` (${map.post.kind}, ${map.post.date ?? "undated"})` : ` (${map.post.date ?? "undated"})`}`
+    : `the opening post's, ${map.post.id} (${map.post.date ?? "undated"}); no later post carries a Map`;
   // A listed line marks the post the launch started from; the line below is for when it is not on a line.
   const startedLine = started.id === map.post.id
     ? `Started from: post ${started.id}, the post that carries this Map`
