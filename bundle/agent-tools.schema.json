@@ -1,0 +1,565 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ideaspaces.xyz/schema/agent-tools.v1.json",
+  "title": "IdeaSpaces agent tool contracts v1",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "ideaspaces.agent-tools"
+    },
+    "version": {
+      "const": 1
+    },
+    "cli": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "version",
+        "commit"
+      ],
+      "additionalProperties": false
+    },
+    "protocol": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "version",
+        "commit"
+      ],
+      "additionalProperties": false
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "groups": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "job": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "use_when": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "job",
+          "name",
+          "use_when"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    },
+    "exclusions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "threads": {
+          "type": "object"
+        },
+        "agent": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "threads",
+        "agent"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema",
+    "version",
+    "cli",
+    "protocol",
+    "digest",
+    "groups",
+    "entries",
+    "exclusions",
+    "capabilities"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "object",
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "array"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "items": {
+          "$ref": "#/$defs/parameter"
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "default": {},
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pattern": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9.-]*$"
+        },
+        "owner": {
+          "enum": [
+            "cli",
+            "host"
+          ]
+        },
+        "implemented_by": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "status": {
+          "enum": [
+            "active",
+            "retired"
+          ]
+        },
+        "refusal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "job": {
+          "type": "string",
+          "pattern": "^J(?:[1-9]|1[0-6])$"
+        },
+        "effect": {
+          "enum": [
+            "read",
+            "write-local",
+            "write-hosted",
+            "share",
+            "launch",
+            "account",
+            "status"
+          ]
+        },
+        "reach": {
+          "enum": [
+            "local",
+            "hosted",
+            "local+hosted"
+          ]
+        },
+        "confirm": {
+          "enum": [
+            "none",
+            "plan-then-yes",
+            "person-presses-send",
+            "person-presses-start",
+            "browser"
+          ]
+        },
+        "requires": {
+          "type": "object",
+          "properties": {
+            "cli": {
+              "type": "string",
+              "minLength": 1
+            },
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "cli"
+          ],
+          "additionalProperties": false
+        },
+        "text": {
+          "type": "object",
+          "properties": {
+            "does": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "pattern": "\\S"
+            },
+            "use_when": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "pattern": "\\S"
+            },
+            "check": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "pattern": "\\S"
+            },
+            "bound": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "pattern": "\\S"
+            }
+          },
+          "required": [
+            "does",
+            "use_when",
+            "check",
+            "bound"
+          ],
+          "additionalProperties": false
+        },
+        "bound": {
+          "oneOf": [
+            {
+              "enum": [
+                "unbounded",
+                "n/a"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "unit": {
+                  "enum": [
+                    "entries",
+                    "posts",
+                    "bytes",
+                    "lines"
+                  ]
+                },
+                "default": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "max": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "says": {
+                  "type": "boolean"
+                },
+                "continue": {
+                  "enum": [
+                    "since",
+                    "cursor"
+                  ]
+                }
+              },
+              "required": [
+                "unit",
+                "says"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "parameters": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/parameter"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "object"
+                }
+              },
+              "required": [
+                "properties",
+                "required",
+                "additionalProperties"
+              ]
+            }
+          ]
+        },
+        "cli": {
+          "type": "object",
+          "properties": {
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1
+            },
+            "positional": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "flags": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "flag": {
+                    "type": "string",
+                    "pattern": "^--[a-z][a-z-]*$"
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "list": {
+                    "enum": [
+                      "csv",
+                      "repeat"
+                    ]
+                  },
+                  "boolean": {
+                    "const": "bare"
+                  }
+                },
+                "required": [
+                  "flag"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "local_flags": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "hosted_flags": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "alias_flags": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "required": [
+            "argv",
+            "positional",
+            "flags"
+          ],
+          "additionalProperties": false
+        },
+        "calls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "json": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "json"
+          ],
+          "additionalProperties": false
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "status",
+        "job",
+        "effect",
+        "reach",
+        "confirm",
+        "requires",
+        "text",
+        "bound",
+        "parameters"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "retired"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "refusal"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "owner": {
+                "const": "cli"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "cli"
+            ]
+          },
+          "else": {
+            "required": [
+              "implemented_by"
+            ],
+            "not": {
+              "required": [
+                "cli"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
