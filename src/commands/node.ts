@@ -224,6 +224,7 @@ export const nodeCommand: CommandDef = {
   name: "node",
   description: "Resolve (get), write (put), or view version history (history) of a note — by id or path (use --json for structured data)",
   usage: USAGE,
+  subcommands: { get: USAGE_GET, put: USAGE_PUT, history: USAGE_HISTORY },
   examples: [
     "ideaspaces node get repo_abc node_xyz --json",
     "ideaspaces node put repo_abc notes/a.md --content '# Hi'",

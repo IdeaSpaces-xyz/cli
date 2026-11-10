@@ -14211,7 +14211,7 @@ import { join as join13 } from "node:path";
 import { randomUUID as randomUUID2 } from "node:crypto";
 
 // dist/version.js
-var CLI_VERSION = true ? "0.9.1" : "0.0.0-dev";
+var CLI_VERSION = true ? "0.9.2" : "0.0.0-dev";
 
 // dist/update-check.js
 var UPDATE_CHECK_COMMAND = "__update-check";
@@ -18716,6 +18716,7 @@ var changeCommand = {
   name: "change",
   description: "Mint a Change-Id for a decision spanning multiple commits/repos",
   usage: USAGE,
+  subcommands: { new: USAGE },
   examples: [
     'ideaspaces change new "auth session model"',
     "ideaspaces change new --handle surface-collapse --json"
@@ -21799,6 +21800,15 @@ var mapCommand = {
        ideaspaces map <map-note> --orientation [--budget <chars>] [--json]
        ${MAP_EDIT_USAGE}
        ${MAP_SELECT_USAGE}`,
+  subcommands: {
+    ...Object.fromEntries(["create", "add", "remove"].map((verb) => [
+      verb,
+      MAP_EDIT_USAGE.split("\n").map((line3) => line3.trim()).filter((line3) => line3.startsWith(`ideaspaces map ${verb} `)).join("\n       ")
+    ])),
+    select: MAP_SELECT_USAGE
+  },
+  helpArgument: () => true,
+  // A folder/Map name is also valid here.
   examples: [
     "ideaspaces map . --json",
     "ideaspaces map home.map.md --orientation",
@@ -23117,6 +23127,9 @@ var skillsCommand = {
   name: "skills",
   description: "List the skill catalog, print one skill, or sync space skills to .claude/skills",
   usage: "ideaspaces skills [<name>] | ideaspaces skills sync [--check]",
+  subcommands: { sync: "ideaspaces skills sync [--check]" },
+  helpArgument: () => true,
+  // Other words are protocol skill names, not verbs.
   examples: [
     "ideaspaces skills",
     "ideaspaces skills capture",
@@ -23178,6 +23191,7 @@ var credentialCommand = {
   name: "credential",
   description: "Git credential helper (invoked by git \u2014 usually not run directly)",
   usage: "ideaspaces credential <get|store|erase>",
+  subcommands: Object.fromEntries(["get", "store", "erase"].map((verb) => [verb, `ideaspaces credential ${verb}`])),
   async run(args2) {
     const action = args2[0];
     if (action === "store" || action === "erase") {
@@ -26935,6 +26949,13 @@ function makeConversationCommand(local) {
     name: "conversation",
     description: "Create and run a private conversation",
     usage: USAGE7,
+    subcommands: {
+      new: "ideaspaces conversation new <repo_id> [--name <text>] [--agent <node_id>]",
+      send: "ideaspaces conversation send <repo_id> <conversation_id> --message <text>\n       ideaspaces conversation send --local --context <path> --conversation <id> --message <text> [--runtime pi|claude] [--map <note>] [--ext <paths>] [--skill <dirs>] [--pi-bin <path>] [--pi-model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--claude-bin <path>] [--claude-model <name>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--autocompact <window>] [--working-root <path>] [--focus <path>] [--session-dir <dir>]",
+      get: "ideaspaces conversation get <repo_id> <conversation_id>",
+      cancel: "ideaspaces conversation cancel <repo_id> <conversation_id>",
+      compact: "ideaspaces conversation compact --local --context <path> --conversation <id> [--runtime pi|claude]"
+    },
     examples: [
       "ideaspaces conversation new repo_abc --name 'Kickoff'",
       "ideaspaces conversation new repo_abc --agent agent_node_xyz  # pick the agent",
@@ -28098,9 +28119,11 @@ function flagString2(flags2, name) {
 }
 var RUN_ARGS = "<pov> --message <text> [--task <text>] [--runtime pi|claude] [--model <name>] [--parent <id>] [--parent-tool-use-id <id>] [--run-id <id>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--topic <Pi session name>] --ext <paths> (required for Pi) [--skill <dirs>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--map <note>] [--conversation <id>] [--thread <path|x_id> [--thread-map <note> --thread-member <ordinal>]] [--json]";
 var RUN_USAGE = `ideaspaces agent run ${RUN_ARGS}`;
+var RUNS_USAGE = "ideaspaces agent runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]";
 var RECORD_ARGS = "--run-id <id> [--parent <id>] [--parent-tool-use-id <id>] [--agent <path>] [--task <text>] [--message <text>] [--harness pi|claude] [--model <name>] [--model-requested <name>] [--model-observed <name>] [--conversation <id>] [--status running|completed|failed|interrupted|cancelled] [--started <iso>] [--ended <iso>] [--json]";
 var RECORD_USAGE = `ideaspaces agent record ${RECORD_ARGS}`;
 var LIST_USAGE = "ideaspaces agent list --map <file> [--json]";
+var CAPABILITIES_USAGE = "ideaspaces agent capabilities [--json]";
 var USAGE8 = `ideaspaces agent <run|runs|record|list|capabilities> \u2026 (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; record ${RECORD_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 function readAgentDefaults(povPath) {
   const available = [
@@ -28686,6 +28709,7 @@ function makeAgentCommand(local) {
     name: "agent",
     description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. `agent record` appends run lifecycle updates (session start, task, model, completion) for external sessions and hooks; updates merge into the existing run. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE8,
+    subcommands: { run: RUN_USAGE, runs: RUNS_USAGE, record: RECORD_USAGE, list: LIST_USAGE, capabilities: CAPABILITIES_USAGE },
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",
@@ -28948,6 +28972,7 @@ var nodeCommand = {
   name: "node",
   description: "Resolve (get), write (put), or view version history (history) of a note \u2014 by id or path (use --json for structured data)",
   usage: USAGE9,
+  subcommands: { get: USAGE_GET, put: USAGE_PUT, history: USAGE_HISTORY },
   examples: [
     "ideaspaces node get repo_abc node_xyz --json",
     "ideaspaces node put repo_abc notes/a.md --content '# Hi'",
@@ -31072,6 +31097,17 @@ var shareCommand = {
   name: "share",
   description: "Inspect and manage access (log is per-node: share log [--node <id>])",
   usage: USAGE12,
+  subcommands: {
+    person: "ideaspaces share person <email|@handle> [--grade explore|fork|collaborate] [--history] [--repo <url>]",
+    team: "ideaspaces share team <hostname> [--grade explore|fork|collaborate] [--repo <url>]",
+    status: "ideaspaces share status [<repo-url>|--repo <url>]",
+    log: "ideaspaces share log [<repo-url>|--repo <url>] [--node <node-id>] [--json]",
+    list: "ideaspaces share list [--repo <url>]",
+    remove: "ideaspaces share remove <email|@handle|team:hostname> [--repo <url>]",
+    resend: "ideaspaces share resend <email> [--repo <url>]",
+    history: "ideaspaces share history <email|@handle> <on|off> [--repo <url>]",
+    visibility: "ideaspaces share visibility <public|private> [--yes] [--repo <url>]"
+  },
   examples: [
     "ideaspaces share person someone@example.com --grade explore",
     "ideaspaces share person @someone --grade fork",
@@ -31257,6 +31293,16 @@ var requestCommand = {
   name: "request",
   description: "Ask for access to shared Content, and list, approve or decline requests",
   usage: REQUEST_USAGE,
+  subcommands: {
+    ask: "ideaspaces request ask <node_id> [--grade viewer|editor|copying] [--reason <text>]",
+    list: "ideaspaces request list [--incoming|--mine]",
+    incoming: "ideaspaces request incoming",
+    approve: "ideaspaces request approve <request_id> [--grade viewer|editor|copying]",
+    deny: "ideaspaces request deny <request_id>",
+    decline: "ideaspaces request decline <request_id>",
+    cancel: "ideaspaces request cancel <request_id>"
+  },
+  helpArgument: (word) => /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/.test(word),
   examples: [
     "ideaspaces request n_0123456789abcdef01234567 --grade viewer --reason 'Need to review finding'",
     "ideaspaces request list",
@@ -31514,6 +31560,15 @@ var spacesCommand = {
        ideaspaces spaces import <file.map.md> [--json]
        ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]`,
   help: "A Space is a view over references, not a Repo. Adding a reference shares nothing. Local and hosted Spaces update independently. Each referenced item keeps its own access checks.\n\nNew requires --hosted, an explicit --vault (personal, person:user_ID or node:ORG_NODE_ID), an active Sync subscription, and --name, --summary and --message for its Core opening. For a company, use node: followed by org_node_id from vaults --json; company Vaults require a current OWNER. The Core and Map are created together; nothing else is shared. Keep --command-id and every argument unchanged for an exact retry; the Core opening id is derived from that command and Vault.\n\nWithout --hosted, list shows legacy coordination objects. Hosted edits are owner-only. --if-match is the hosted version_id from spaces open --json, not a local file hash. Keep the original --command-id (up to 64 characters) and arguments for exact retries; read the current head afterwards.\n\nRemove previews locally; --yes confirms removal of a reference, never its content. The Core reference cannot be removed.\n\nImport creates a personal hosted copy with no new Core. Export creates an independent local UTF-8 Markdown copy and never overwrites an existing path; choose a new path to replace a copy. Use version_id from spaces open --json to export an exact version.",
+  subcommands: {
+    list: "ideaspaces spaces list --hosted [--json]\n       ideaspaces spaces list [--attached-to <ref>] [--include-dormant] [--json]",
+    open: "ideaspaces spaces open <map-id> [--json]",
+    new: SPACE_NEW_USAGE,
+    add: SPACE_ADD_USAGE,
+    remove: SPACE_REMOVE_USAGE,
+    import: "ideaspaces spaces import <file.map.md> [--json]",
+    export: "ideaspaces spaces export <map-or-version-id> <file.map.md> [--json]"
+  },
   examples: [
     'ideaspaces spaces new --hosted --vault personal --name "Research" --summary "Our research" --message "We work here."',
     "ideaspaces spaces export n_0123456789abcdef01234567 research.map.md",
@@ -32141,7 +32196,7 @@ function clip(text, bytes, marker = "\u2026 [shortened; read the exact file or u
   return result + marker;
 }
 function threadSection(markdown, heading) {
-  const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
+  const match = new RegExp(`^## (?:\\d+\\.\\s+)?${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
   return match?.[1]?.trim() || void 0;
 }
 function threadFrame(thread) {
@@ -32308,8 +32363,32 @@ function writerName(explicit) {
 var threadsCommand = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|init|push> ...",
+  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|check|init|push|capabilities> ...",
   help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.\n\nlaunch-text builds the text a session starts with when it is launched from a post of a local Thread. The frame is that Thread as it is now: its Agreement in full, its newest Map (the newest snapshot that carries one, else the opening post's), and one line per post written since that Map. The Note, a member of the Map, is loaded whole, pinned in its own Thread; any other Thread's Agreement is one line and where to read it. A launch is never refused for size: Map members are lowered, then dropped from the last up, and the posts-since lines and the Thread's Agreement give way before the Note does. What did not arrive whole is named, with where to read it. --budget lowers the Map's character budget; the whole text is still held to 16 KiB in bytes. Reads the Note at its authored pin and writes nothing.",
+  subcommands: {
+    capabilities: "ideaspaces threads capabilities --json",
+    list: "ideaspaces threads list [<directory>] [--depth name|summary|full] [--new|--unread] [--hosted] [--limit <n>] [--cursor <cursor>] [--reader <name>]",
+    recent: "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit <n>]",
+    ...Object.fromEntries(["open", "read"].map((verb) => [
+      verb,
+      `ideaspaces threads ${verb} <slug|path> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|activity-id>] [--limit <n>] [--order older|newer] [--new] [--ack] [--reader <name>] [--agreement summary|full] [--map <file> --member <n> [--checkout <root>]] [--pin <sha> --position <path>]
+       ideaspaces threads ${verb} x_<id> [--limit <n>] [--cursor <cursor>]`
+    ])),
+    new: "ideaspaces threads new <slug> --about <title> [--attached-to <post>] [--map <file>]\n       ideaspaces threads new --hosted --name <title> --summary <text> --message <text> [--home map:<id>] [--recipients <handles-or-emails>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    post: "ideaspaces threads post <slug|path> --message <text> [--reply-to <id>] [--kind <kind>] [--mark <value>] [--supersedes <id>] [--author <name>] [--name <title>] [--summary <text>] [--tags <labels>] [--map <file> [--member <n> --checkout <root>]] [--no-check-links]\n       ideaspaces threads post x_<id> --message <text> [--reply-to <id>] [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    send: "ideaspaces threads send <@handle|email> --name <title> --summary <text> --message <text> [--home map:<id>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    reply: "ideaspaces threads reply x_<id> --reply-to <id> --message <text> [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    ack: "ideaspaces threads ack <slug|path> --through <id|latest> [--reader <name>]\n       ideaspaces threads ack --recent <cursor> [--reader <name>]\n       ideaspaces threads ack x_<id> (--cursor <cursor>|--seq <n>)",
+    close: "ideaspaces threads close <slug|path> --message <text> [--reply-to <id>] [--author <name>] [--name <title>] [--summary <text>] [--map <file>]\n       ideaspaces threads close x_<id> --message <text> [--post-id <id>] [--yes]",
+    rename: "ideaspaces threads rename x_<id> --name <title> --summary <text> --message <text> [--post-id <id>]",
+    locate: "ideaspaces threads locate <opening-id> <space-root> [<space-root> ...]",
+    "launch-text": "ideaspaces threads launch-text <slug|path> --post <id> [--member <n>] [--pov <agent-folder>] [--budget <chars>] [--json]",
+    attach: "ideaspaces threads attach <slug|path> <post> --message <text> [--author <name>]",
+    render: "ideaspaces threads render <slug|path>",
+    check: "ideaspaces threads check [<slug|path>] [--strict]",
+    init: "ideaspaces threads init",
+    push: "ideaspaces threads push --remote <team-remote>"
+  },
   examples: [
     "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
@@ -32706,16 +32785,21 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
         const reader = readerName(str2(flags2, "reader"));
         const seen = newOnly ? readCursor(stored, reader) : /* @__PURE__ */ new Set();
-        let posts2 = stored.posts.filter((p) => !seen.has(p.id));
+        const postOrder = new Map(stored.posts.map((post, index) => [post.id, index]));
+        const events = [...stored.allPosts].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || Number(a.kind === "mark") - Number(b.kind === "mark") || (postOrder.get(a.id) ?? 0) - (postOrder.get(b.id) ?? 0));
+        const activity = new Map(events.map((post, index) => [post.id, index]));
+        const lastActivity = (post) => [post.id, ...(post.marks ?? []).map((mark) => mark.id)].reduce((last, id) => (activity.get(id) ?? -1) > (activity.get(last) ?? -1) ? id : last, post.id);
+        const timeline = rung === "summary" ? [...stored.posts].sort((a, b) => activity.get(lastActivity(a)) - activity.get(lastActivity(b))) : stored.posts;
+        let posts2 = timeline.filter((p) => !seen.has(p.id) || rung === "summary" && p.marks?.some((m) => !seen.has(m.id)));
         if (since) {
-          const at = stored.posts.findIndex((p) => p.id === since);
+          const at = (rung === "summary" ? events : stored.posts).findIndex((p) => p.id === since);
           if (at !== -1)
-            posts2 = stored.posts.slice(at + 1);
+            posts2 = rung === "summary" ? timeline.filter((p) => activity.get(lastActivity(p)) > at) : stored.posts.slice(at + 1);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
             const undated = posts2.filter((p) => !p.date).length;
             if (undated)
               output.log(`${undated} undated post(s) in Thread ${thread.slug} cannot be compared to --since ${since}; omitted.`);
-            posts2 = posts2.filter((p) => p.date && Date.parse(p.date) > Date.parse(since));
+            posts2 = posts2.filter((p) => [p, ...rung === "summary" ? p.marks ?? [] : []].some((event) => event.date && Date.parse(event.date) > Date.parse(since)));
           } else
             throw new Error(`--since needs a post id in this Thread or a valid ISO date: ${since}`);
         }
@@ -32770,7 +32854,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md"))
           throw new Error("Pinned post is invalid.");
         if (ack)
-          acknowledge(stored, posts2, reader);
+          acknowledge(stored, [...posts2, ...posts2.flatMap((p) => p.marks ?? [])], reader);
         posts2 = posts2.map(displayPost);
         const effectiveRung = postId2 ? "full" : rung;
         let parent = null;
@@ -32864,12 +32948,18 @@ Parent lookup incomplete: ${parentWarning}`;
           humanText = `${renderContentFocus(focus)}
 
 ${humanText}`;
-        if (effectiveRung === "full" && !postId2 && posts2.length < totalMatching) {
-          const cursor = posts2.at(-1)?.id;
+        if (!postId2 && ["summary", "surface", "full"].includes(effectiveRung) && posts2.length < totalMatching) {
+          const last = posts2.at(-1);
+          const cursor = last && effectiveRung !== "surface" && order !== "newer" ? effectiveRung === "summary" ? lastActivity(last) : last.id : void 0;
+          const next = cursor ? `Continue with --since ${cursor} --order older.` : "Read the complete range with --depth summary --order older --limit 50; then continue with --since <last activity id>.";
           humanText += `
 
-Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
+Showing ${posts2.length} of ${totalMatching} matching posts. ${next}`;
         }
+        const nextActivity = effectiveRung === "summary" && posts2.length ? lastActivity(posts2.at(-1)) : void 0;
+        if (nextActivity && posts2.at(-1)?.id !== nextActivity)
+          humanText += `
+Last activity: ${nextActivity} (folded mark; use this id with --since).`;
         output.result({
           schema: "ideaspaces.local-thread.open.v4",
           ...focus?.status === "ok" ? { reference: focus } : {},
@@ -32897,6 +32987,7 @@ Showing ${posts2.length} of ${totalMatching} matching posts. ${order === "newer"
           ...pinned ? { pinned: effectiveRung === "full" ? pinned : void 0, pin, position } : {},
           shown: posts2.length,
           matching: totalMatching,
+          ...nextActivity ? { last_activity_id: nextActivity } : {},
           acknowledged: ack
         }, humanText);
         return 0;
@@ -36000,7 +36091,24 @@ function printHelp() {
   lines.push("  --version        Print this CLI's version");
   lines.push("  --token-fd <n>   Host-run only (IDEASPACES_AUTH=host): read the app's {api_url, access_token} once from inherited fd n");
   lines.push("", "Run: ideaspaces <command> --help for command-specific help.");
-  process.stderr.write(lines.join("\n") + "\n");
+  process.stdout.write(lines.join("\n") + "\n");
+}
+function commandHelp(cmd2, args2) {
+  const verb = args2[0];
+  let usage = cmd2.usage;
+  if (verb && cmd2.subcommands) {
+    if (Object.hasOwn(cmd2.subcommands, verb))
+      usage = cmd2.subcommands[verb];
+    else if (!cmd2.helpArgument?.(verb))
+      return void 0;
+  }
+  const lines = [`Usage: ${usage}`, "", cmd2.description];
+  if (cmd2.help)
+    lines.push("", cmd2.help);
+  const examples = verb && cmd2.subcommands && Object.hasOwn(cmd2.subcommands, verb) ? cmd2.examples?.filter((line3) => line3.startsWith(`ideaspaces ${cmd2.name} ${verb} `) || line3.startsWith(`ideaspaces ${cmd2.name} ${verb} #`)) : cmd2.examples;
+  if (examples?.length)
+    lines.push("", "Examples:", ...examples.map((line3) => `  ${line3}`));
+  return lines.join("\n") + "\n";
 }
 function printPowerHelp() {
   const lines = [
@@ -36012,7 +36120,7 @@ function printPowerHelp() {
     lines.push(`  ${cmd2.name.padEnd(14)} ${cmd2.description}`);
   }
   lines.push("", "Run: ideaspaces power <command> --help for details.");
-  process.stderr.write(lines.join("\n") + "\n");
+  process.stdout.write(lines.join("\n") + "\n");
 }
 
 // dist/host-token-flag.js
@@ -36110,7 +36218,7 @@ if (!command || global2.help && !command) {
 var resolvedCommand = command;
 var resolvedArgs = args;
 if (command === "power") {
-  if (global2.help || !args[0]) {
+  if (!args[0]) {
     printPowerHelp();
     process.exit(0);
   }
@@ -36129,15 +36237,14 @@ Run: ideaspaces --help
   process.exit(1);
 }
 if (global2.help) {
-  const lines = [`Usage: ${cmd.usage}`, "", cmd.description];
-  if (cmd.help)
-    lines.push("", cmd.help);
-  if (cmd.examples?.length) {
-    lines.push("", "Examples:");
-    for (const ex of cmd.examples)
-      lines.push(`  ${ex}`);
+  const help = commandHelp(cmd, resolvedArgs);
+  if (!help) {
+    process.stderr.write(`Unknown ${cmd.name} subcommand: ${resolvedArgs[0]}
+Run: ideaspaces ${cmd.name} --help
+`);
+    process.exit(1);
   }
-  process.stderr.write(lines.join("\n") + "\n");
+  process.stdout.write(help);
   process.exit(0);
 }
 try {

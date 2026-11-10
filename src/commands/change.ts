@@ -48,6 +48,7 @@ export const changeCommand: CommandDef = {
   name: "change",
   description: "Mint a Change-Id for a decision spanning multiple commits/repos",
   usage: USAGE,
+  subcommands: { new: USAGE },
   examples: [
     'ideaspaces change new "auth session model"',
     "ideaspaces change new --handle surface-collapse --json",

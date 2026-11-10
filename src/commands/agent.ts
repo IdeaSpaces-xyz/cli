@@ -765,6 +765,7 @@ export function makeAgentCommand(local: LocalConversationOps): CommandDef {
     name: "agent",
     description: "Run or list local POVs. Launchers check `agent capabilities --json` for what run guarantees, never this help text. Claude adds the enclosing Space and Map checkouts automatically; repeat --reach <dir> for extras. The first JSON line discloses reach. --read-only exposes only Claude Read/Grep/Glob and drops all MCP servers; no bypass in agent run. Pi requires explicit --ext paths and has no purpose tool scoping. --conversation resumes a nonempty POV transcript. Pinned Thread launches append a snapshot. `agent record` appends run lifecycle updates (session start, task, model, completion) for external sessions and hooks; updates merge into the existing run. See README 'agent run' for reach, permission, and trust details.",
     usage: USAGE,
+    subcommands: { run: RUN_USAGE, runs: RUNS_USAGE, record: RECORD_USAGE, list: LIST_USAGE, capabilities: CAPABILITIES_USAGE },
     examples: [
       "ideaspaces agent list --map home.map.md",
       "ideaspaces agent list --map home.map.md --json",

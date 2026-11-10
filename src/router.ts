@@ -154,7 +154,24 @@ export function printHelp(): void {
   lines.push("  --version        Print this CLI's version");
   lines.push("  --token-fd <n>   Host-run only (IDEASPACES_AUTH=host): read the app's {api_url, access_token} once from inherited fd n");
   lines.push("", "Run: ideaspaces <command> --help for command-specific help.");
-  process.stderr.write(lines.join("\n") + "\n");
+  process.stdout.write(lines.join("\n") + "\n");
+}
+
+/** Help is metadata, never a command invocation. Unknown verbs must not look like valid help. */
+export function commandHelp(cmd: CommandDef, args: string[]): string | undefined {
+  const verb = args[0];
+  let usage = cmd.usage;
+  if (verb && cmd.subcommands) {
+    if (Object.hasOwn(cmd.subcommands, verb)) usage = cmd.subcommands[verb];
+    else if (!cmd.helpArgument?.(verb)) return undefined;
+  }
+  const lines = [`Usage: ${usage}`, "", cmd.description];
+  if (cmd.help) lines.push("", cmd.help);
+  const examples = verb && cmd.subcommands && Object.hasOwn(cmd.subcommands, verb)
+    ? cmd.examples?.filter((line) => line.startsWith(`ideaspaces ${cmd.name} ${verb} `) || line.startsWith(`ideaspaces ${cmd.name} ${verb} #`))
+    : cmd.examples;
+  if (examples?.length) lines.push("", "Examples:", ...examples.map((line) => `  ${line}`));
+  return lines.join("\n") + "\n";
 }
 
 export function printPowerHelp(): void {
@@ -167,5 +184,5 @@ export function printPowerHelp(): void {
     lines.push(`  ${cmd.name.padEnd(14)} ${cmd.description}`);
   }
   lines.push("", "Run: ideaspaces power <command> --help for details.");
-  process.stderr.write(lines.join("\n") + "\n");
+  process.stdout.write(lines.join("\n") + "\n");
 }

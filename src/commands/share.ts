@@ -901,6 +901,17 @@ export const shareCommand: CommandDef = {
   name: "share",
   description: "Inspect and manage access (log is per-node: share log [--node <id>])",
   usage: USAGE,
+  subcommands: {
+    person: "ideaspaces share person <email|@handle> [--grade explore|fork|collaborate] [--history] [--repo <url>]",
+    team: "ideaspaces share team <hostname> [--grade explore|fork|collaborate] [--repo <url>]",
+    status: "ideaspaces share status [<repo-url>|--repo <url>]",
+    log: "ideaspaces share log [<repo-url>|--repo <url>] [--node <node-id>] [--json]",
+    list: "ideaspaces share list [--repo <url>]",
+    remove: "ideaspaces share remove <email|@handle|team:hostname> [--repo <url>]",
+    resend: "ideaspaces share resend <email> [--repo <url>]",
+    history: "ideaspaces share history <email|@handle> <on|off> [--repo <url>]",
+    visibility: "ideaspaces share visibility <public|private> [--yes] [--repo <url>]",
+  },
   examples: [
     "ideaspaces share person someone@example.com --grade explore",
     "ideaspaces share person @someone --grade fork",
