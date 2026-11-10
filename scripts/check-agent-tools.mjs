@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { entries } from "../dist/agent-tools/data.js";
 
-export function checkSourceFlags() {
+export function checkSourceFlags(readSource = path => readFileSync(path, "utf8")) {
   const files = {
     look: "commands/look.ts", navigate: "commands/navigate.ts", inspect: "commands/inspect.ts",
     ls: "commands/ls.ts", times: "commands/times.ts", write: "commands/write.ts", commit: "commands/commit.ts",
@@ -25,7 +25,7 @@ export function checkSourceFlags() {
     const command = routing[key] ?? key;
     const accepted = new Set(entries.filter(e => e.cli?.argv[0] === command).flatMap(e => Object.values(e.cli.flags).flatMap(f => [f.flag.replace(/^--/, ""), ...(f.aliases ?? []).map(a => a.replace(/^-+/, ""))])));
     for (const flag of refused[command] ?? []) accepted.add(flag);
-    const source = ts.createSourceFile(file, readFileSync(`src/${file}`, "utf8"), ts.ScriptTarget.Latest, true);
+    const source = ts.createSourceFile(file, readSource(`src/${file}`), ts.ScriptTarget.Latest, true);
     function visit(node) {
       let name;
       if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "flags") name = node.name.text;

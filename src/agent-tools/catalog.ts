@@ -19,8 +19,9 @@ export function validateEntries(items: readonly Entry[]): void {
   for (const entry of items) {
     if (ids.has(entry.id)) throw new Error(`Duplicate agent-tools id: ${entry.id}`);
     ids.add(entry.id);
-    for (const [field, value] of Object.entries(entry.text)) {
-      if (!value.trim()) throw new Error(`${entry.id}: empty text.${field}`);
+    for (const field of ["does", "use_when", "check", "bound"] as const) {
+      const value = entry.text[field];
+      if (typeof value !== "string" || !value.trim()) throw new Error(`${entry.id}: empty text.${field}`);
       if ([...value].length > 300) throw new Error(`${entry.id}: text.${field} exceeds 300 characters`);
     }
     if (Buffer.byteLength(composeDescription(entry), "utf8") > 1200) throw new Error(`${entry.id}: composed description exceeds 1200 bytes`);
@@ -54,7 +55,7 @@ export function discover(catalog: Catalog, selector?: string): Record<string, un
   const metadata = { schema: catalog.schema, version: catalog.version, cli: catalog.cli, protocol: catalog.protocol, digest: catalog.digest };
   if (!selector) return { ...metadata, groups: catalog.groups, unbounded: catalog.entries.filter(e => e.bound === "unbounded").map(e => e.id), exclusions: catalog.exclusions };
   const entry = catalog.entries.find(e => e.id === selector);
-  // Group names such as write/commit are also command ids: group wins unless dotted.
+  // Group slugs do not collide with entry ids, including bare ids such as write.
   const group = catalog.groups.find(g => g.id === selector || g.job === selector);
   if (group) return { ...metadata, group, entries: catalog.entries.filter(e => e.job === group.job).map(e => ({ id: e.id, does: e.text.does, use_when: e.text.use_when })) };
   if (entry) return { ...metadata, entry, ...(entry.id === "threads.capabilities" ? { capabilities: catalog.capabilities.threads } : entry.id === "agent.capabilities" ? { capabilities: catalog.capabilities.agent } : {}) };

@@ -103,8 +103,8 @@ export const entries: Entry[] = [
     "text": {
       "does": "Read one local Note, Content directory, Thread or pinned Map address.",
       "use_when": "Deepen one identified target; use navigate for orientation.",
-      "check": "Check nextCursor and continue with since. Thread summaries show folded marks; open the post for body evidence.",
-      "bound": "Rungs bound detail; directory pages report shown, matching and nextCursor. Continue with since."
+      "check": "Check target.page.nextCursor and continue with since. Thread summaries show folded marks; open the post for body evidence.",
+      "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since."
     },
     "bound": {
       "unit": "entries",
@@ -132,7 +132,7 @@ export const entries: Entry[] = [
         },
         "contract": {
           "type": "string",
-          "description": "The contract option for look; see this entry's check and bound.",
+          "description": "Reference frame: foundation or agreement, never caller authority.",
           "enum": [
             "foundation",
             "agreement"
@@ -157,7 +157,7 @@ export const entries: Entry[] = [
         },
         "order": {
           "type": "string",
-          "description": "The order option for look; see this entry's check and bound.",
+          "description": "Page direction: older or newer; since advances forward with older.",
           "enum": [
             "older",
             "newer"
@@ -169,7 +169,7 @@ export const entries: Entry[] = [
         },
         "pin": {
           "type": "string",
-          "description": "The pin option for look; see this entry's check and bound."
+          "description": "Exact authored Git commit for reading a local path."
         },
         "map": {
           "type": "string",
@@ -177,7 +177,7 @@ export const entries: Entry[] = [
         },
         "at": {
           "type": "string",
-          "description": "The at option for look; see this entry's check and bound.",
+          "description": "Read a Map address at its authored pin or checkout head.",
           "enum": [
             "pin",
             "head"
@@ -185,7 +185,7 @@ export const entries: Entry[] = [
         },
         "new": {
           "type": "string",
-          "description": "The new option for look; see this entry's check and bound."
+          "description": "Select activity after a local reader position; hosted list uses service unread counts."
         }
       },
       "required": [],
@@ -241,6 +241,9 @@ export const entries: Entry[] = [
         "depth",
         "reference",
         "target",
+        "target.page.shown",
+        "target.page.total",
+        "target.page.nextCursor",
         "map",
         "portable",
         "dirty"
@@ -274,7 +277,7 @@ export const entries: Entry[] = [
         },
         "focus": {
           "type": "boolean",
-          "description": "The focus option for navigate; see this entry's check and bound."
+          "description": "Read the target as bounded reference focus without changing caller authority."
         },
         "agreement": {
           "type": "string",
@@ -282,34 +285,37 @@ export const entries: Entry[] = [
         },
         "contract": {
           "type": "string",
-          "description": "The contract option for navigate; see this entry's check and bound."
+          "description": "Reference frame: foundation or agreement, never caller authority."
         },
         "depth": {
-          "type": "string",
-          "description": "Progressive-disclosure rung or numeric tree depth as documented."
+          "type": "integer",
+          "description": "Progressive-disclosure rung or numeric tree depth as documented.",
+          "minimum": 1,
+          "maximum": 4,
+          "default": 1
         },
         "mark_seen": {
           "type": "boolean",
-          "description": "The mark-seen option for navigate; see this entry's check and bound."
+          "description": "Record the orientation checkpoint explicitly."
         },
         "workspace": {
           "type": "string",
-          "description": "The workspace option for navigate; see this entry's check and bound."
+          "description": "Workspace directory used for orientation/state."
         },
         "mount": {
           "type": "array",
-          "description": "The mount option for navigate; see this entry's check and bound.",
+          "description": "Additional content roots for workspace orientation.",
           "items": {
             "type": "string"
           }
         },
         "pullable": {
           "type": "string",
-          "description": "The pullable option for navigate; see this entry's check and bound."
+          "description": "Additional pullable source declarations for workspace state."
         },
         "no_git": {
           "type": "boolean",
-          "description": "The no-git option for navigate; see this entry's check and bound."
+          "description": "Omit Git-derived orientation state."
         },
         "map": {
           "type": "string",
@@ -317,7 +323,7 @@ export const entries: Entry[] = [
         },
         "at": {
           "type": "string",
-          "description": "The at option for navigate; see this entry's check and bound."
+          "description": "Read a Map address at its authored pin or checkout head."
         }
       },
       "required": [],
@@ -371,7 +377,14 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "text",
+        "position",
+        "root",
+        "repoRoot",
+        "manifest",
+        "space"
+      ]
     }
   },
   {
@@ -406,7 +419,7 @@ export const entries: Entry[] = [
         },
         "mode": {
           "type": "string",
-          "description": "The mode option for inspect; see this entry's check and bound.",
+          "description": "Markdown inspection mode: summary, outline or section.",
           "enum": [
             "summary",
             "outline",
@@ -416,16 +429,16 @@ export const entries: Entry[] = [
         },
         "heading": {
           "type": "string",
-          "description": "The heading option for inspect; see this entry's check and bound."
+          "description": "Exact case-sensitive Markdown heading for section mode."
         },
         "occurrence": {
           "type": "integer",
-          "description": "The occurrence option for inspect; see this entry's check and bound.",
+          "description": "One-based duplicate heading occurrence in section mode.",
           "minimum": 1
         },
         "max_bytes": {
           "type": "integer",
-          "description": "The max-bytes option for inspect; see this entry's check and bound.",
+          "description": "Maximum UTF-8 inspection payload bytes, 128..1048576.",
           "minimum": 128,
           "maximum": 1048576,
           "default": 51200
@@ -494,15 +507,23 @@ export const entries: Entry[] = [
         },
         "depth": {
           "type": "string",
-          "description": "Progressive-disclosure rung or numeric tree depth as documented."
+          "description": "Progressive-disclosure rung or numeric tree depth as documented.",
+          "enum": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "full"
+          ],
+          "default": "1"
         },
         "orientation": {
           "type": "boolean",
-          "description": "The orientation option for map.read; see this entry's check and bound."
+          "description": "Render a bounded orientation from the Map instead of a derived Content tree."
         },
         "budget": {
           "type": "integer",
-          "description": "The budget option for map.read; see this entry's check and bound.",
+          "description": "Character budget for bounded Map/orientation rendering.",
           "minimum": 0
         }
       },
@@ -533,7 +554,17 @@ export const entries: Entry[] = [
       "map"
     ],
     "output": {
-      "json": []
+      "json": [
+        "kind",
+        "path",
+        "file_sha",
+        "roots",
+        "members",
+        "omitted_entries",
+        "lowered",
+        "dropped",
+        "text"
+      ]
     }
   },
   {
@@ -553,7 +584,12 @@ export const entries: Entry[] = [
       "check": "Check truncation before treating the list as complete.",
       "bound": "Default limit 25; scan caps at 5000 entries and depth 10. Check truncated and narrow the path/query."
     },
-    "bound": "n/a",
+    "bound": {
+      "unit": "entries",
+      "default": 25,
+      "max": 5000,
+      "says": true
+    },
     "parameters": {
       "type": "object",
       "properties": {
@@ -563,7 +599,7 @@ export const entries: Entry[] = [
         },
         "query": {
           "type": "string",
-          "description": "The query option for ls; see this entry's check and bound."
+          "description": "Filename filtering text for ls."
         },
         "limit": {
           "type": "integer",
@@ -592,7 +628,14 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "root",
+        "query",
+        "scanned",
+        "truncated",
+        "total",
+        "entries"
+      ]
     }
   },
   {
@@ -627,7 +670,9 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "files"
+      ]
     }
   },
   {
@@ -644,13 +689,12 @@ export const entries: Entry[] = [
     "text": {
       "does": "Read one local or hosted Thread at a selected rung.",
       "use_when": "Read a Thread or one exact post; use list for discovery.",
-      "check": "Compare shown with matching. A snapshot plus tail can omit intervening posts; page since the snapshot.",
-      "bound": "Local default 4 tail posts, max 500; hosted default 50, max 200. Continue with since locally or cursor remotely."
+      "check": "Compare shown with matching. A snapshot plus tail can omit intervening posts; page since the snapshot. For folded marks, continue since last_activity_id.",
+      "bound": "Local surface defaults to 5 including the head; other pages default to 10. Hosted defaults to 50, max 200. Continue since locally or cursor remotely."
     },
     "bound": {
       "unit": "posts",
-      "default": 4,
-      "max": 500,
+      "default": 5,
       "says": true,
       "continue": "since"
     },
@@ -667,11 +711,11 @@ export const entries: Entry[] = [
         },
         "new": {
           "type": "boolean",
-          "description": "The new option for threads.open; see this entry's check and bound."
+          "description": "Select activity after a local reader position; hosted list uses service unread counts."
         },
         "ack": {
           "type": "boolean",
-          "description": "The ack option for threads.open; see this entry's check and bound."
+          "description": "Explicitly acknowledge the selected local read; reading alone never acknowledges."
         },
         "since": {
           "type": "string",
@@ -687,30 +731,29 @@ export const entries: Entry[] = [
         },
         "member": {
           "type": "integer",
-          "description": "The member option for threads.open; see this entry's check and bound.",
+          "description": "Zero-based authored Map member ordinal.",
           "minimum": 0
         },
         "checkout": {
           "type": "string",
-          "description": "The checkout option for threads.open; see this entry's check and bound."
+          "description": "Absolute checkout root for an explicitly selected Map member."
         },
         "pin": {
           "type": "string",
-          "description": "The pin option for threads.open; see this entry's check and bound."
+          "description": "Exact authored Git commit for reading a local path."
         },
         "position": {
           "type": "string",
-          "description": "The position option for threads.open; see this entry's check and bound."
+          "description": "Repository-relative position of a Map member."
         },
         "limit": {
           "type": "integer",
           "description": "Maximum results in this page; inspect returned continuation/counts.",
-          "minimum": 1,
-          "maximum": 500
+          "minimum": 1
         },
         "order": {
           "type": "string",
-          "description": "The order option for threads.open; see this entry's check and bound."
+          "description": "Page direction: older or newer; since advances forward with older."
         },
         "agreement": {
           "type": "string",
@@ -718,11 +761,15 @@ export const entries: Entry[] = [
         },
         "reader": {
           "type": "string",
-          "description": "The reader option for threads.open; see this entry's check and bound."
+          "description": "Local reader identity; defaults to IDEASPACES_READER or person."
         },
         "cursor": {
           "type": "string",
           "description": "Opaque continuation/read position returned by this operation."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Compatibility filter accepted only by the read alias."
         }
       },
       "required": [],
@@ -820,8 +867,11 @@ export const entries: Entry[] = [
         "matching",
         "has_more",
         "posts",
-        "snapshot",
-        "childThreads"
+        "thread.snapshot",
+        "child_threads",
+        "cursor",
+        "older_cursor",
+        "last_activity_id"
       ]
     }
   },
@@ -868,7 +918,11 @@ export const entries: Entry[] = [
       "local_flags": []
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "readme",
+        "timeline"
+      ]
     }
   },
   {
@@ -924,7 +978,11 @@ export const entries: Entry[] = [
       "local_flags": []
     },
     "output": {
-      "json": []
+      "json": [
+        "status",
+        "thread_id",
+        "matches"
+      ]
     }
   },
   {
@@ -969,7 +1027,11 @@ export const entries: Entry[] = [
       "skills"
     ],
     "output": {
-      "json": []
+      "json": [
+        "name",
+        "description",
+        "content"
+      ]
     }
   },
   {
@@ -995,7 +1057,7 @@ export const entries: Entry[] = [
       "properties": {
         "check": {
           "type": "boolean",
-          "description": "The check option for skills.sync; see this entry's check and bound."
+          "description": "Report drift/update state without applying changes."
         }
       },
       "required": [],
@@ -1015,7 +1077,14 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "created",
+        "updated",
+        "removed",
+        "unchanged",
+        "skipped",
+        "privateAgentLevels"
+      ]
     }
   },
   {
@@ -1066,7 +1135,10 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "node_id",
+        "content"
+      ]
     }
   },
   {
@@ -1086,7 +1158,11 @@ export const entries: Entry[] = [
       "check": "Check whether the path is local or hosted; shallow Git history may be incomplete.",
       "bound": "Local limit defaults to 20; hosted returns its service result without client paging."
     },
-    "bound": "n/a",
+    "bound": {
+      "unit": "entries",
+      "default": 20,
+      "says": true
+    },
     "parameters": {
       "type": "object",
       "properties": {
@@ -1101,11 +1177,12 @@ export const entries: Entry[] = [
         "limit": {
           "type": "integer",
           "description": "Maximum results in this page; inspect returned continuation/counts.",
-          "minimum": 1
+          "minimum": 1,
+          "default": 20
         },
         "cwd": {
           "type": "string",
-          "description": "The cwd option for node.history; see this entry's check and bound."
+          "description": "Directory in which local path history is resolved."
         }
       },
       "required": [],
@@ -1130,7 +1207,12 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "created",
+        "total",
+        "history"
+      ]
     }
   },
   {
@@ -1175,7 +1257,7 @@ export const entries: Entry[] = [
         },
         "attached_to": {
           "type": "string",
-          "description": "The attached-to option for write; see this entry's check and bound."
+          "description": "Parent entity/post reference for the Note or local Thread."
         },
         "map": {
           "type": "string",
@@ -1308,7 +1390,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "commit_sha",
+        "node_id"
+      ]
     }
   },
   {
@@ -1346,27 +1432,27 @@ export const entries: Entry[] = [
         },
         "author_name": {
           "type": "string",
-          "description": "The author-name option for commit; see this entry's check and bound."
+          "description": "Explicit Git commit author name."
         },
         "author_email": {
           "type": "string",
-          "description": "The author-email option for commit; see this entry's check and bound."
+          "description": "Explicit Git commit author email."
         },
         "op": {
           "type": "string",
-          "description": "The op option for commit; see this entry's check and bound."
+          "description": "Commit operation trailer."
         },
         "change_id": {
           "type": "string",
-          "description": "The change-id option for commit; see this entry's check and bound."
+          "description": "Change-Id trailer for the commit."
         },
         "conversation": {
           "type": "string",
-          "description": "The conversation option for commit; see this entry's check and bound."
+          "description": "Existing local runtime conversation id."
         },
         "co_author": {
           "type": "string",
-          "description": "The co-author option for commit; see this entry's check and bound."
+          "description": "Agent identity for a co-author commit trailer."
         },
         "message": {
           "type": "string",
@@ -1454,12 +1540,12 @@ export const entries: Entry[] = [
         },
         "member": {
           "type": "integer",
-          "description": "The member option for threads.post; see this entry's check and bound.",
+          "description": "Zero-based authored Map member ordinal.",
           "minimum": 0
         },
         "checkout": {
           "type": "string",
-          "description": "The checkout option for threads.post; see this entry's check and bound."
+          "description": "Absolute checkout root for an explicitly selected Map member."
         },
         "reply_to": {
           "type": "array",
@@ -1490,7 +1576,7 @@ export const entries: Entry[] = [
         },
         "supersedes": {
           "type": "string",
-          "description": "The supersedes option for threads.post; see this entry's check and bound."
+          "description": "Prior post id superseded by a correction."
         },
         "message": {
           "type": "string",
@@ -1598,7 +1684,14 @@ export const entries: Entry[] = [
       ]
     },
     "output": {
-      "json": []
+      "json": [
+        "id",
+        "path",
+        "kind",
+        "in_reply_to",
+        "state",
+        "warnings"
+      ]
     }
   },
   {
@@ -1608,7 +1701,7 @@ export const entries: Entry[] = [
     "job": "J4",
     "effect": "write-local",
     "reach": "local+hosted",
-    "confirm": "none",
+    "confirm": "plan-then-yes",
     "requires": {
       "cli": ">=0.9.0"
     },
@@ -1655,7 +1748,7 @@ export const entries: Entry[] = [
         },
         "supersedes": {
           "type": "string",
-          "description": "The supersedes option for threads.close; see this entry's check and bound."
+          "description": "Prior post id superseded by a correction."
         },
         "message": {
           "type": "string",
@@ -1664,6 +1757,10 @@ export const entries: Entry[] = [
         "post_id": {
           "type": "string",
           "description": "Stable id for exact hosted resend after uncertain delivery."
+        },
+        "yes": {
+          "type": "boolean",
+          "description": "Explicit application of the previously read plan."
         }
       },
       "required": [
@@ -1707,6 +1804,10 @@ export const entries: Entry[] = [
         },
         "post_id": {
           "flag": "--post-id"
+        },
+        "yes": {
+          "flag": "--yes",
+          "boolean": "bare"
         }
       },
       "local_flags": [
@@ -1725,7 +1826,12 @@ export const entries: Entry[] = [
       ]
     },
     "output": {
-      "json": []
+      "json": [
+        "id",
+        "path",
+        "kind",
+        "in_reply_to"
+      ]
     }
   },
   {
@@ -1755,11 +1861,11 @@ export const entries: Entry[] = [
         },
         "about": {
           "type": "string",
-          "description": "The about option for threads.new; see this entry's check and bound."
+          "description": "Local Thread title, or a portable contextual entity where supported."
         },
         "attached_to": {
           "type": "string",
-          "description": "The attached-to option for threads.new; see this entry's check and bound."
+          "description": "Parent entity/post reference for the Note or local Thread."
         },
         "map": {
           "type": "string",
@@ -1787,7 +1893,7 @@ export const entries: Entry[] = [
         },
         "recipients": {
           "type": "array",
-          "description": "The recipients option for threads.new; see this entry's check and bound.",
+          "description": "Explicit hosted recipients, handles or emails.",
           "items": {
             "type": "string"
           }
@@ -1801,7 +1907,7 @@ export const entries: Entry[] = [
         },
         "home": {
           "type": "string",
-          "description": "The home option for threads.new; see this entry's check and bound."
+          "description": "Hosted map:<id> placement, or Home scaffold destination for create."
         }
       },
       "required": [],
@@ -1871,7 +1977,13 @@ export const entries: Entry[] = [
       ]
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "slug",
+        "thread_id",
+        "opening_post_id",
+        "date"
+      ]
     }
   },
   {
@@ -1901,7 +2013,7 @@ export const entries: Entry[] = [
         },
         "parent": {
           "type": "string",
-          "description": "Positional parent for threads.attach."
+          "description": "Parent run id for local records; explicit value overrides environment discovery."
         },
         "message": {
           "type": "string",
@@ -1942,7 +2054,13 @@ export const entries: Entry[] = [
       ]
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "previous_parent",
+        "parent",
+        "reframe",
+        "cycle_check_skipped"
+      ]
     }
   },
   {
@@ -1979,7 +2097,9 @@ export const entries: Entry[] = [
       "local_flags": []
     },
     "output": {
-      "json": []
+      "json": [
+        "path"
+      ]
     }
   },
   {
@@ -2005,7 +2125,7 @@ export const entries: Entry[] = [
       "properties": {
         "remote": {
           "type": "string",
-          "description": "The remote option for threads.push; see this entry's check and bound."
+          "description": "Explicit Git remote for the Threads branch."
         }
       },
       "required": [
@@ -2029,7 +2149,9 @@ export const entries: Entry[] = [
       ]
     },
     "output": {
-      "json": []
+      "json": [
+        "remote"
+      ]
     }
   },
   {
@@ -2057,33 +2179,6 @@ export const entries: Entry[] = [
           "type": "string",
           "description": "Positional recipient for threads.send."
         },
-        "space": {
-          "type": "string",
-          "description": "The space option for threads.send; see this entry's check and bound."
-        },
-        "about": {
-          "type": "string",
-          "description": "The about option for threads.send; see this entry's check and bound."
-        },
-        "map": {
-          "type": "string",
-          "description": "Authored Map input/path; references grant no access."
-        },
-        "share": {
-          "type": "string",
-          "description": "The share option for threads.send; see this entry's check and bound."
-        },
-        "share_roots": {
-          "type": "array",
-          "description": "The share-roots option for threads.send; see this entry's check and bound.",
-          "items": {
-            "type": "string"
-          }
-        },
-        "space_map": {
-          "type": "string",
-          "description": "The space-map option for threads.send; see this entry's check and bound."
-        },
         "name": {
           "type": "string",
           "description": "Human-readable name/title."
@@ -2096,17 +2191,13 @@ export const entries: Entry[] = [
           "type": "string",
           "description": "Exact message/content; stdin is accepted where documented."
         },
-        "send_id": {
-          "type": "string",
-          "description": "The send-id option for threads.send; see this entry's check and bound."
-        },
-        "grade": {
-          "type": "string",
-          "description": "The grade option for threads.send; see this entry's check and bound."
-        },
         "post_id": {
           "type": "string",
           "description": "Stable id for exact hosted resend after uncertain delivery."
+        },
+        "map": {
+          "type": "string",
+          "description": "Authored Map input/path; references grant no access."
         },
         "tags": {
           "type": "array",
@@ -2117,7 +2208,7 @@ export const entries: Entry[] = [
         },
         "home": {
           "type": "string",
-          "description": "The home option for threads.send; see this entry's check and bound."
+          "description": "Hosted map:<id> placement, or Home scaffold destination for create."
         }
       },
       "required": [
@@ -2137,25 +2228,6 @@ export const entries: Entry[] = [
         "recipient"
       ],
       "flags": {
-        "space": {
-          "flag": "--space"
-        },
-        "about": {
-          "flag": "--about"
-        },
-        "map": {
-          "flag": "--map"
-        },
-        "share": {
-          "flag": "--share"
-        },
-        "share_roots": {
-          "flag": "--share-roots",
-          "list": "csv"
-        },
-        "space_map": {
-          "flag": "--space-map"
-        },
         "name": {
           "flag": "--name"
         },
@@ -2165,14 +2237,11 @@ export const entries: Entry[] = [
         "message": {
           "flag": "--message"
         },
-        "send_id": {
-          "flag": "--send-id"
-        },
-        "grade": {
-          "flag": "--grade"
-        },
         "post_id": {
           "flag": "--post-id"
+        },
+        "map": {
+          "flag": "--map"
         },
         "tags": {
           "flag": "--tags",
@@ -2182,19 +2251,6 @@ export const entries: Entry[] = [
           "flag": "--home"
         }
       },
-      "local_flags": [
-        "space",
-        "about",
-        "map",
-        "share",
-        "share-roots",
-        "space-map",
-        "name",
-        "summary",
-        "message",
-        "send-id",
-        "grade"
-      ],
       "hosted_flags": [
         "name",
         "summary",
@@ -2308,14 +2364,6 @@ export const entries: Entry[] = [
           "list": "csv"
         }
       },
-      "local_flags": [
-        "map",
-        "name",
-        "summary",
-        "message",
-        "send-id",
-        "reply-to"
-      ],
       "hosted_flags": [
         "reply-to",
         "message",
@@ -2357,19 +2405,19 @@ export const entries: Entry[] = [
         },
         "through": {
           "type": "string",
-          "description": "The through option for threads.ack; see this entry's check and bound."
+          "description": "Exact local post id or latest to acknowledge through."
         },
         "recent": {
           "type": "string",
-          "description": "The recent option for threads.ack; see this entry's check and bound."
+          "description": "Returned local activity cursor to acknowledge explicitly."
         },
         "reader": {
           "type": "string",
-          "description": "The reader option for threads.ack; see this entry's check and bound."
+          "description": "Local reader identity; defaults to IDEASPACES_READER or person."
         },
         "seq": {
           "type": "integer",
-          "description": "The seq option for threads.ack; see this entry's check and bound.",
+          "description": "Hosted sequence number to acknowledge explicitly.",
           "minimum": 0
         },
         "cursor": {
@@ -2444,13 +2492,13 @@ export const entries: Entry[] = [
           "type": "string",
           "description": "Local Thread slug/path or hosted x_ id."
         },
-        "name": {
-          "type": "string",
-          "description": "Human-readable name/title."
-        },
         "message": {
           "type": "string",
           "description": "Exact message/content; stdin is accepted where documented."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name/title."
         },
         "summary": {
           "type": "string",
@@ -2478,11 +2526,11 @@ export const entries: Entry[] = [
         "thread"
       ],
       "flags": {
-        "name": {
-          "flag": "--name"
-        },
         "message": {
           "flag": "--message"
+        },
+        "name": {
+          "flag": "--name"
         },
         "summary": {
           "flag": "--summary"
@@ -2491,9 +2539,6 @@ export const entries: Entry[] = [
           "flag": "--post-id"
         }
       },
-      "local_flags": [
-        "name"
-      ],
       "hosted_flags": [
         "message",
         "name",
@@ -2538,7 +2583,11 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "schema",
+        "transport",
+        "legacy_exchange_fallback"
+      ]
     }
   },
   {
@@ -2564,15 +2613,15 @@ export const entries: Entry[] = [
       "properties": {
         "new": {
           "type": "boolean",
-          "description": "The new option for threads.list; see this entry's check and bound."
+          "description": "Select activity after a local reader position; hosted list uses service unread counts."
         },
         "unread": {
           "type": "boolean",
-          "description": "The unread option for threads.list; see this entry's check and bound."
+          "description": "Only hosted service-unread Threads or local reader-unread Threads."
         },
         "space": {
           "type": "string",
-          "description": "The space option for threads.list; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         },
         "depth": {
           "type": "string",
@@ -2597,11 +2646,11 @@ export const entries: Entry[] = [
         },
         "open": {
           "type": "boolean",
-          "description": "The open option for threads.list; see this entry's check and bound."
+          "description": "Include open local Threads when filtering discovery."
         },
         "reader": {
           "type": "string",
-          "description": "The reader option for threads.list; see this entry's check and bound."
+          "description": "Local reader identity; defaults to IDEASPACES_READER or person."
         },
         "hosted": {
           "type": "boolean",
@@ -2677,7 +2726,14 @@ export const entries: Entry[] = [
       ]
     },
     "output": {
-      "json": []
+      "json": [
+        "schema",
+        "threads",
+        "hosted_checked",
+        "local_complete",
+        "hosted_error",
+        "cursor"
+      ]
     }
   },
   {
@@ -2713,7 +2769,7 @@ export const entries: Entry[] = [
         },
         "reader": {
           "type": "string",
-          "description": "The reader option for threads.recent; see this entry's check and bound."
+          "description": "Local reader identity; defaults to IDEASPACES_READER or person."
         },
         "limit": {
           "type": "integer",
@@ -2787,7 +2843,7 @@ export const entries: Entry[] = [
         },
         "strict": {
           "type": "boolean",
-          "description": "The strict option for threads.check; see this entry's check and bound."
+          "description": "Fail on changed posts or incomplete Git evidence."
         }
       },
       "required": [],
@@ -2812,7 +2868,13 @@ export const entries: Entry[] = [
       ]
     },
     "output": {
-      "json": []
+      "json": [
+        "schema",
+        "path",
+        "checked",
+        "clean",
+        "modified"
+      ]
     }
   },
   {
@@ -2874,7 +2936,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "sha",
+        "status"
+      ]
     }
   },
   {
@@ -2920,7 +2986,7 @@ export const entries: Entry[] = [
         },
         "position": {
           "type": "string",
-          "description": "The position option for map.add; see this entry's check and bound."
+          "description": "Repository-relative position of a Map member."
         },
         "root": {
           "type": "integer",
@@ -2929,15 +2995,15 @@ export const entries: Entry[] = [
         },
         "root_node_id": {
           "type": "string",
-          "description": "The root-node-id option for map.add; see this entry's check and bound."
+          "description": "Stable repository root identity, not a filesystem path."
         },
         "sha": {
           "type": "string",
-          "description": "The sha option for map.add; see this entry's check and bound."
+          "description": "Exact Git commit pin for a Map root."
         },
         "checkout": {
           "type": "string",
-          "description": "The checkout option for map.add; see this entry's check and bound."
+          "description": "Absolute checkout root for an explicitly selected Map member."
         }
       },
       "required": [
@@ -2982,7 +3048,12 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "sha",
+        "member_index",
+        "status"
+      ]
     }
   },
   {
@@ -3020,11 +3091,11 @@ export const entries: Entry[] = [
         },
         "root_node_id": {
           "type": "string",
-          "description": "The root-node-id option for map.remove; see this entry's check and bound."
+          "description": "Stable repository root identity, not a filesystem path."
         },
         "position": {
           "type": "string",
-          "description": "The position option for map.remove; see this entry's check and bound."
+          "description": "Repository-relative position of a Map member."
         }
       },
       "required": [
@@ -3054,7 +3125,12 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "sha",
+        "member_index",
+        "status"
+      ]
     }
   },
   {
@@ -3084,35 +3160,35 @@ export const entries: Entry[] = [
         },
         "hostname": {
           "type": "string",
-          "description": "The hostname option for map.select; see this entry's check and bound."
+          "description": "Organization hostname, or target hosting namespace as selected by the command."
         },
         "note_depth": {
           "type": "string",
-          "description": "The note-depth option for map.select; see this entry's check and bound."
+          "description": "Portable Note disclosure rung."
         },
         "entity_depth": {
           "type": "string",
-          "description": "The entity-depth option for map.select; see this entry's check and bound."
+          "description": "Portable entity disclosure, name or summary."
         },
         "note_name": {
           "type": "string",
-          "description": "The note-name option for map.select; see this entry's check and bound."
+          "description": "Authored label for the Note reference."
         },
         "note_summary": {
           "type": "string",
-          "description": "The note-summary option for map.select; see this entry's check and bound."
+          "description": "Authored context for the Note reference."
         },
         "entity_name": {
           "type": "string",
-          "description": "The entity-name option for map.select; see this entry's check and bound."
+          "description": "Authored label for the entity reference."
         },
         "entity_summary": {
           "type": "string",
-          "description": "The entity-summary option for map.select; see this entry's check and bound."
+          "description": "Authored context for the entity reference."
         },
         "about": {
           "type": "string",
-          "description": "The about option for map.select; see this entry's check and bound."
+          "description": "Local Thread title, or a portable contextual entity where supported."
         }
       },
       "required": [
@@ -3156,7 +3232,10 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "roots",
+        "members"
+      ]
     }
   },
   {
@@ -3186,11 +3265,11 @@ export const entries: Entry[] = [
         },
         "attached_to": {
           "type": "string",
-          "description": "The attached-to option for spaces.list; see this entry's check and bound."
+          "description": "Parent entity/post reference for the Note or local Thread."
         },
         "include_dormant": {
           "type": "boolean",
-          "description": "The include-dormant option for spaces.list; see this entry's check and bound."
+          "description": "Include dormant legacy coordination objects."
         }
       },
       "required": [],
@@ -3217,7 +3296,10 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "maps",
+        "spaces"
+      ]
     }
   },
   {
@@ -3262,7 +3344,12 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "map_id",
+        "version_id",
+        "members",
+        "omitted_members"
+      ]
     }
   },
   {
@@ -3292,7 +3379,7 @@ export const entries: Entry[] = [
         },
         "vault": {
           "type": "string",
-          "description": "The vault option for spaces.new; see this entry's check and bound."
+          "description": "Explicit personal or organization Vault identity for Space creation."
         },
         "name": {
           "type": "string",
@@ -3349,7 +3436,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "map_id",
+        "version_id",
+        "command_id"
+      ]
     }
   },
   {
@@ -3403,15 +3494,15 @@ export const entries: Entry[] = [
         },
         "position": {
           "type": "string",
-          "description": "The position option for spaces.add; see this entry's check and bound."
+          "description": "Repository-relative position of a Map member."
         },
         "root_node_id": {
           "type": "string",
-          "description": "The root-node-id option for spaces.add; see this entry's check and bound."
+          "description": "Stable repository root identity, not a filesystem path."
         },
         "sha": {
           "type": "string",
-          "description": "The sha option for spaces.add; see this entry's check and bound."
+          "description": "Exact Git commit pin for a Map root."
         }
       },
       "required": [
@@ -3457,7 +3548,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "map_id",
+        "version_id",
+        "command_id"
+      ]
     }
   },
   {
@@ -3499,7 +3594,7 @@ export const entries: Entry[] = [
         },
         "yes": {
           "type": "boolean",
-          "description": "The yes option for spaces.remove; see this entry's check and bound."
+          "description": "Explicit application of the previously read plan."
         }
       },
       "required": [
@@ -3532,7 +3627,13 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "preview",
+        "map_id",
+        "member_ordinal",
+        "version_id",
+        "command_id"
+      ]
     }
   },
   {
@@ -3577,7 +3678,9 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "map_id"
+      ]
     }
   },
   {
@@ -3628,7 +3731,11 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "source",
+        "copy"
+      ]
     }
   },
   {
@@ -3663,7 +3770,9 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "vaults"
+      ]
     }
   },
   {
@@ -3697,7 +3806,7 @@ export const entries: Entry[] = [
         },
         "as": {
           "type": "string",
-          "description": "The as option for get; see this entry's check and bound."
+          "description": "Explicit get mode: clone, fork or link; used with yes."
         },
         "name": {
           "type": "string",
@@ -3705,7 +3814,7 @@ export const entries: Entry[] = [
         },
         "yes": {
           "type": "boolean",
-          "description": "The yes option for get; see this entry's check and bound."
+          "description": "Explicit application of the previously read plan."
         }
       },
       "required": [
@@ -3735,7 +3844,14 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "address",
+        "kind",
+        "root_node_id",
+        "modes",
+        "logged_in",
+        "next"
+      ]
     }
   },
   {
@@ -3784,7 +3900,13 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "repo_id",
+        "root_node_id",
+        "repo_url",
+        "path",
+        "identity_state"
+      ]
     }
   },
   {
@@ -3841,7 +3963,13 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "path",
+        "root_node_id",
+        "source_root_node_id",
+        "source_history_copied",
+        "published"
+      ]
     }
   },
   {
@@ -3890,7 +4018,12 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "repo_id",
+        "root_node_id",
+        "namespace",
+        "path"
+      ]
     }
   },
   {
@@ -3920,7 +4053,7 @@ export const entries: Entry[] = [
         },
         "delete": {
           "type": "boolean",
-          "description": "The delete option for forget; see this entry's check and bound."
+          "description": "Delete the local checkout folder as well as unregister it; explicit destructive intent required."
         }
       },
       "required": [
@@ -3943,7 +4076,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "forgotten",
+        "deleted",
+        "path"
+      ]
     }
   },
   {
@@ -3978,7 +4115,9 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "clones"
+      ]
     }
   },
   {
@@ -4004,15 +4143,15 @@ export const entries: Entry[] = [
       "properties": {
         "from": {
           "type": "string",
-          "description": "The from option for integrate; see this entry's check and bound."
+          "description": "Integration channel: remote or fork source."
         },
         "rebase": {
           "type": "boolean",
-          "description": "The rebase option for integrate; see this entry's check and bound."
+          "description": "Integrate by rebase (default true) rather than merge."
         },
         "yes": {
           "type": "boolean",
-          "description": "The yes option for integrate; see this entry's check and bound."
+          "description": "Explicit application of the previously read plan."
         }
       },
       "required": [],
@@ -4064,7 +4203,7 @@ export const entries: Entry[] = [
       "properties": {
         "yes": {
           "type": "boolean",
-          "description": "The yes option for update; see this entry's check and bound."
+          "description": "Explicit application of the previously read plan."
         }
       },
       "required": [],
@@ -4109,11 +4248,11 @@ export const entries: Entry[] = [
       "properties": {
         "dry_run": {
           "type": "boolean",
-          "description": "The dry-run option for pull; see this entry's check and bound."
+          "description": "Preview remote sync state without pushing or integrating."
         },
         "rebase": {
           "type": "boolean",
-          "description": "The rebase option for pull; see this entry's check and bound.",
+          "description": "Integrate by rebase (default true) rather than merge.",
           "default": true
         }
       },
@@ -4137,7 +4276,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "upstream",
+        "dry_run",
+        "integrated"
+      ]
     }
   },
   {
@@ -4163,7 +4306,7 @@ export const entries: Entry[] = [
       "properties": {
         "dry_run": {
           "type": "boolean",
-          "description": "The dry-run option for push; see this entry's check and bound."
+          "description": "Preview remote sync state without pushing or integrating."
         }
       },
       "required": [],
@@ -4182,7 +4325,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "upstream",
+        "dry_run",
+        "pushed"
+      ]
     }
   },
   {
@@ -4227,7 +4374,17 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "upstream",
+        "ahead",
+        "behind",
+        "fetched",
+        "incoming",
+        "incoming_unavailable",
+        "outgoing",
+        "source",
+        "integrated"
+      ]
     }
   },
   {
@@ -4253,7 +4410,7 @@ export const entries: Entry[] = [
       "properties": {
         "fetch": {
           "type": "boolean",
-          "description": "The fetch option for catalog; see this entry's check and bound."
+          "description": "Explicitly fetch remote refs before reporting state."
         }
       },
       "required": [],
@@ -4272,7 +4429,12 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "logged_in",
+        "username",
+        "notes",
+        "entries"
+      ]
     }
   },
   {
@@ -4307,7 +4469,10 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "username",
+        "repos"
+      ]
     }
   },
   {
@@ -4333,7 +4498,7 @@ export const entries: Entry[] = [
       "properties": {
         "slug": {
           "type": "string",
-          "description": "The slug option for publish; see this entry's check and bound."
+          "description": "Hosted repository route slug."
         },
         "name": {
           "type": "string",
@@ -4341,11 +4506,11 @@ export const entries: Entry[] = [
         },
         "hostname": {
           "type": "string",
-          "description": "The hostname option for publish; see this entry's check and bound."
+          "description": "Organization hostname, or target hosting namespace as selected by the command."
         },
         "yes": {
           "type": "boolean",
-          "description": "The yes option for publish; see this entry's check and bound."
+          "description": "Explicit application of the previously read plan."
         }
       },
       "required": [],
@@ -4373,7 +4538,14 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "plan",
+        "applied",
+        "repo_id",
+        "root_node_id",
+        "repo_url",
+        "identity_state"
+      ]
     }
   },
   {
@@ -4403,26 +4575,26 @@ export const entries: Entry[] = [
         },
         "fetch": {
           "type": "boolean",
-          "description": "The fetch option for status; see this entry's check and bound."
+          "description": "Explicitly fetch remote refs before reporting state."
         },
         "workspace": {
           "type": "string",
-          "description": "The workspace option for status; see this entry's check and bound."
+          "description": "Workspace directory used for orientation/state."
         },
         "mount": {
           "type": "array",
-          "description": "The mount option for status; see this entry's check and bound.",
+          "description": "Additional content roots for workspace orientation.",
           "items": {
             "type": "string"
           }
         },
         "pullable": {
           "type": "string",
-          "description": "The pullable option for status; see this entry's check and bound."
+          "description": "Additional pullable source declarations for workspace state."
         },
         "contract": {
           "type": "string",
-          "description": "The contract option for status; see this entry's check and bound."
+          "description": "Reference frame: foundation or agreement, never caller authority."
         }
       },
       "required": [],
@@ -4457,7 +4629,17 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "repoRoot",
+        "branch",
+        "ahead",
+        "behind",
+        "dirty",
+        "tracked_captures",
+        "path",
+        "sha",
+        "revision"
+      ]
     }
   },
   {
@@ -4491,7 +4673,7 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.status; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         }
       },
       "required": [],
@@ -4545,7 +4727,7 @@ export const entries: Entry[] = [
         },
         "node": {
           "type": "string",
-          "description": "The node option for share.log; see this entry's check and bound."
+          "description": "Exact node id for the per-node share log."
         },
         "repo": {
           "type": "string",
@@ -4553,7 +4735,7 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.log; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         }
       },
       "required": [],
@@ -4580,7 +4762,13 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "repo_id",
+        "node_id",
+        "scope",
+        "complete_repo_log",
+        "events"
+      ]
     }
   },
   {
@@ -4610,11 +4798,11 @@ export const entries: Entry[] = [
         },
         "grade": {
           "type": "string",
-          "description": "The grade option for share.person; see this entry's check and bound."
+          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
         },
         "history": {
           "type": "boolean",
-          "description": "The history option for share.person; see this entry's check and bound."
+          "description": "Explicitly grant hosted history access when sharing with a person."
         },
         "repo": {
           "type": "string",
@@ -4622,7 +4810,7 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.person; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         }
       },
       "required": [
@@ -4681,11 +4869,11 @@ export const entries: Entry[] = [
       "properties": {
         "hostname": {
           "type": "string",
-          "description": "Positional hostname for share.team."
+          "description": "Organization hostname, or target hosting namespace as selected by the command."
         },
         "grade": {
           "type": "string",
-          "description": "The grade option for share.team; see this entry's check and bound."
+          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
         },
         "repo": {
           "type": "string",
@@ -4693,7 +4881,7 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.team; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         }
       },
       "required": [
@@ -4752,7 +4940,7 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.list; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         }
       },
       "required": [],
@@ -4774,7 +4962,14 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "target_node_id",
+        "visibility",
+        "people",
+        "pending_invites",
+        "teams",
+        "unavailable"
+      ]
     }
   },
   {
@@ -4808,7 +5003,7 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.remove; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         }
       },
       "required": [
@@ -4834,7 +5029,10 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "revoked",
+        "target_node_id"
+      ]
     }
   },
   {
@@ -4868,7 +5066,7 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.resend; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         }
       },
       "required": [
@@ -4932,7 +5130,7 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.history; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         }
       },
       "required": [
@@ -4994,11 +5192,11 @@ export const entries: Entry[] = [
         },
         "space": {
           "type": "string",
-          "description": "The space option for share.visibility; see this entry's check and bound."
+          "description": "Compatibility repository URL selector for share."
         },
         "yes": {
           "type": "boolean",
-          "description": "The yes option for share.visibility; see this entry's check and bound."
+          "description": "Explicit application of the previously read plan."
         }
       },
       "required": [
@@ -5028,7 +5226,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "plan",
+        "applied",
+        "visibility"
+      ]
     }
   },
   {
@@ -5058,11 +5260,11 @@ export const entries: Entry[] = [
         },
         "grade": {
           "type": "string",
-          "description": "The grade option for request.ask; see this entry's check and bound."
+          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
         },
         "reason": {
           "type": "string",
-          "description": "The reason option for request.ask; see this entry's check and bound."
+          "description": "Reason supplied with an access request."
         }
       },
       "required": [
@@ -5088,7 +5290,12 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "id",
+        "requested_grade",
+        "target_node_id",
+        "state"
+      ]
     }
   },
   {
@@ -5114,19 +5321,19 @@ export const entries: Entry[] = [
       "properties": {
         "incoming": {
           "type": "boolean",
-          "description": "The incoming option for request.list; see this entry's check and bound."
+          "description": "List incoming requests (the default)."
         },
         "mine": {
           "type": "boolean",
-          "description": "The mine option for request.list; see this entry's check and bound."
+          "description": "List requests made by this account, not incoming requests."
         },
         "own": {
           "type": "boolean",
-          "description": "The own option for request.list; see this entry's check and bound."
+          "description": "Compatibility spelling of mine for request list."
         },
         "include_terminal": {
           "type": "boolean",
-          "description": "The include-terminal option for request.list; see this entry's check and bound."
+          "description": "Include terminal states when listing your access requests."
         }
       },
       "required": [],
@@ -5161,7 +5368,9 @@ export const entries: Entry[] = [
       "request incoming"
     ],
     "output": {
-      "json": []
+      "json": [
+        "requests"
+      ]
     }
   },
   {
@@ -5191,7 +5400,7 @@ export const entries: Entry[] = [
         },
         "grade": {
           "type": "string",
-          "description": "The grade option for request.approve; see this entry's check and bound."
+          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
         }
       },
       "required": [
@@ -5214,7 +5423,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "id",
+        "approved_grade",
+        "state"
+      ]
     }
   },
   {
@@ -5262,7 +5475,10 @@ export const entries: Entry[] = [
       "request decline"
     ],
     "output": {
-      "json": []
+      "json": [
+        "id",
+        "state"
+      ]
     }
   },
   {
@@ -5307,7 +5523,10 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "id",
+        "state"
+      ]
     }
   },
   {
@@ -5333,7 +5552,7 @@ export const entries: Entry[] = [
       "properties": {
         "pov": {
           "type": "string",
-          "description": "Positional pov for agent.run."
+          "description": "Local agent POV folder."
         },
         "message": {
           "type": "string",
@@ -5341,11 +5560,11 @@ export const entries: Entry[] = [
         },
         "task": {
           "type": "string",
-          "description": "The task option for agent.run; see this entry's check and bound."
+          "description": "Short task description stored on the local run."
         },
         "runtime": {
           "type": "string",
-          "description": "The runtime option for agent.run; see this entry's check and bound.",
+          "description": "Local runtime, pi or claude.",
           "enum": [
             "pi",
             "claude"
@@ -5354,53 +5573,53 @@ export const entries: Entry[] = [
         },
         "model": {
           "type": "string",
-          "description": "The model option for agent.run; see this entry's check and bound."
+          "description": "Requested runtime model, or hosted conversation model tier."
         },
         "parent": {
           "type": "string",
-          "description": "The parent option for agent.run; see this entry's check and bound."
+          "description": "Parent run id for local records; explicit value overrides environment discovery."
         },
         "parent_tool_use_id": {
           "type": "string",
-          "description": "The parent-tool-use-id option for agent.run; see this entry's check and bound."
+          "description": "Parent tool-use coordinate recorded for run attribution."
         },
         "run_id": {
           "type": "string",
-          "description": "The run-id option for agent.run; see this entry's check and bound."
+          "description": "Stable local run record id; agent record can also use IDEASPACES_RUN_ID."
         },
         "pi_thinking": {
           "type": "string",
-          "description": "The pi-thinking option for agent.run; see this entry's check and bound."
+          "description": "Pi thinking level forwarded to the runtime."
         },
         "pi_trust": {
           "type": "string",
-          "description": "The pi-trust option for agent.run; see this entry's check and bound."
+          "description": "Pi resource trust: saved or explicit."
         },
         "topic": {
           "type": "string",
-          "description": "The topic option for agent.run; see this entry's check and bound."
+          "description": "Explicit name for a new Pi agent transcript only."
         },
         "ext": {
           "type": "array",
-          "description": "The ext option for agent.run; see this entry's check and bound.",
+          "description": "Explicit Pi extension paths; not ambient discovery.",
           "items": {
             "type": "string"
           }
         },
         "skill": {
           "type": "array",
-          "description": "The skill option for agent.run; see this entry's check and bound.",
+          "description": "Explicit local runtime skill directories.",
           "items": {
             "type": "string"
           }
         },
         "claude_effort": {
           "type": "string",
-          "description": "The claude-effort option for agent.run; see this entry's check and bound."
+          "description": "Claude effort level; the installed runtime validates it."
         },
         "permission_mode": {
           "type": "string",
-          "description": "The permission-mode option for agent.run; see this entry's check and bound."
+          "description": "Claude permission mode; bypassPermissions is refused."
         },
         "read_only": {
           "type": "boolean",
@@ -5419,7 +5638,7 @@ export const entries: Entry[] = [
         },
         "conversation": {
           "type": "string",
-          "description": "The conversation option for agent.run; see this entry's check and bound."
+          "description": "Existing local runtime conversation id."
         },
         "thread": {
           "type": "string",
@@ -5427,44 +5646,44 @@ export const entries: Entry[] = [
         },
         "thread_map": {
           "type": "string",
-          "description": "The thread-map option for agent.run; see this entry's check and bound."
+          "description": "Authored Map selecting the source Thread of a local run."
         },
         "thread_member": {
           "type": "integer",
-          "description": "The thread-member option for agent.run; see this entry's check and bound.",
+          "description": "Zero-based source Thread Map member ordinal.",
           "minimum": 0
         },
         "pi_bin": {
           "type": "string",
-          "description": "The pi-bin option for agent.run; see this entry's check and bound."
+          "description": "Explicit Pi executable path."
         },
         "claude_bin": {
           "type": "string",
-          "description": "The claude-bin option for agent.run; see this entry's check and bound."
+          "description": "Explicit Claude Code executable path."
         },
         "pi_model": {
           "type": "string",
-          "description": "The pi-model option for agent.run; see this entry's check and bound."
+          "description": "Pi provider/model selector."
         },
         "claude_model": {
           "type": "string",
-          "description": "The claude-model option for agent.run; see this entry's check and bound."
+          "description": "Claude Code model selector."
         },
         "session_dir": {
           "type": "string",
-          "description": "The session-dir option for agent.run; see this entry's check and bound."
+          "description": "Local runtime transcript directory."
         },
         "working_root": {
           "type": "string",
-          "description": "The working-root option for agent.run; see this entry's check and bound."
+          "description": "Local launch working-set root, not permission to widen reach."
         },
         "focus": {
           "type": "string",
-          "description": "The focus option for agent.run; see this entry's check and bound."
+          "description": "Reference focus path for a local runtime launch."
         },
         "autocompact": {
           "type": "string",
-          "description": "The autocompact option for agent.run; see this entry's check and bound."
+          "description": "Claude auto-compaction window, auto or 100k–1M."
         }
       },
       "required": [
@@ -5602,11 +5821,11 @@ export const entries: Entry[] = [
       "properties": {
         "parent": {
           "type": "string",
-          "description": "The parent option for agent.runs; see this entry's check and bound."
+          "description": "Parent run id for local records; explicit value overrides environment discovery."
         },
         "agent": {
           "type": "string",
-          "description": "The agent option for agent.runs; see this entry's check and bound."
+          "description": "Agent Actor node id or local POV filter, as selected by this command."
         },
         "limit": {
           "type": "integer",
@@ -5636,7 +5855,10 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "runs",
+        "total"
+      ]
     }
   },
   {
@@ -5662,23 +5884,23 @@ export const entries: Entry[] = [
       "properties": {
         "run_id": {
           "type": "string",
-          "description": "The run-id option for agent.record; see this entry's check and bound."
+          "description": "Stable local run record id; agent record can also use IDEASPACES_RUN_ID."
         },
         "parent": {
           "type": "string",
-          "description": "The parent option for agent.record; see this entry's check and bound."
+          "description": "Parent run id for local records; explicit value overrides environment discovery."
         },
         "parent_tool_use_id": {
           "type": "string",
-          "description": "The parent-tool-use-id option for agent.record; see this entry's check and bound."
+          "description": "Parent tool-use coordinate recorded for run attribution."
         },
         "agent": {
           "type": "string",
-          "description": "The agent option for agent.record; see this entry's check and bound."
+          "description": "Agent Actor node id or local POV filter, as selected by this command."
         },
         "task": {
           "type": "string",
-          "description": "The task option for agent.record; see this entry's check and bound."
+          "description": "Short task description stored on the local run."
         },
         "message": {
           "type": "string",
@@ -5686,35 +5908,35 @@ export const entries: Entry[] = [
         },
         "harness": {
           "type": "string",
-          "description": "The harness option for agent.record; see this entry's check and bound."
+          "description": "Observed run harness, pi or claude."
         },
         "model": {
           "type": "string",
-          "description": "The model option for agent.record; see this entry's check and bound."
+          "description": "Requested runtime model, or hosted conversation model tier."
         },
         "model_requested": {
           "type": "string",
-          "description": "The model-requested option for agent.record; see this entry's check and bound."
+          "description": "Model id requested by the launcher; not an observed model."
         },
         "model_observed": {
           "type": "string",
-          "description": "The model-observed option for agent.record; see this entry's check and bound."
+          "description": "Model id actually reported by the runtime; omit if unknown."
         },
         "conversation": {
           "type": "string",
-          "description": "The conversation option for agent.record; see this entry's check and bound."
+          "description": "Existing local runtime conversation id."
         },
         "status": {
           "type": "string",
-          "description": "The status option for agent.record; see this entry's check and bound."
+          "description": "Observed run status, not an inferred process probe."
         },
         "started": {
           "type": "string",
-          "description": "The started option for agent.record; see this entry's check and bound."
+          "description": "Observed run start time, ISO timestamp."
         },
         "ended": {
           "type": "string",
-          "description": "The ended option for agent.record; see this entry's check and bound."
+          "description": "Observed run end time, ISO timestamp."
         }
       },
       "required": [
@@ -5774,7 +5996,12 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "run_id",
+        "status",
+        "model_requested",
+        "model_observed"
+      ]
     }
   },
   {
@@ -5821,7 +6048,9 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "agents"
+      ]
     }
   },
   {
@@ -5857,7 +6086,10 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "schema",
+        "features"
+      ]
     }
   },
   {
@@ -5866,15 +6098,15 @@ export const entries: Entry[] = [
     "status": "active",
     "job": "J11",
     "effect": "write-hosted",
-    "reach": "hosted",
+    "reach": "local+hosted",
     "confirm": "none",
     "requires": {
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Create a private hosted conversation.",
+      "does": "Create a private hosted conversation or mint a local runtime conversation id.",
       "use_when": "Start a hosted conversation for a repo and optional Agent Actor.",
-      "check": "Check returned conversation id and selected repo.",
+      "check": "Hosted creation needs repo_id; local creation needs local and a selected runtime. Check returned conversation_id.",
       "bound": "One conversation per call."
     },
     "bound": "n/a",
@@ -5891,36 +6123,18 @@ export const entries: Entry[] = [
         },
         "agent": {
           "type": "string",
-          "description": "The agent option for conversation.new; see this entry's check and bound."
+          "description": "Agent Actor node id or local POV filter, as selected by this command."
         },
         "local": {
           "type": "boolean",
           "description": "Use the local runtime rather than hosted conversation."
         },
-        "context": {
-          "type": "string",
-          "description": "The context option for conversation.new; see this entry's check and bound."
-        },
         "runtime": {
           "type": "string",
-          "description": "The runtime option for conversation.new; see this entry's check and bound."
-        },
-        "model_tier": {
-          "type": "string",
-          "description": "The model-tier option for conversation.new; see this entry's check and bound."
-        },
-        "claude_bin": {
-          "type": "string",
-          "description": "The claude-bin option for conversation.new; see this entry's check and bound."
-        },
-        "claude_auth": {
-          "type": "string",
-          "description": "The claude-auth option for conversation.new; see this entry's check and bound."
+          "description": "Local runtime, pi or claude."
         }
       },
-      "required": [
-        "repo_id"
-      ],
+      "required": [],
       "additionalProperties": false
     },
     "cli": {
@@ -5942,25 +6156,15 @@ export const entries: Entry[] = [
           "flag": "--local",
           "boolean": "bare"
         },
-        "context": {
-          "flag": "--context"
-        },
         "runtime": {
           "flag": "--runtime"
-        },
-        "model_tier": {
-          "flag": "--model-tier"
-        },
-        "claude_bin": {
-          "flag": "--claude-bin"
-        },
-        "claude_auth": {
-          "flag": "--claude-auth"
         }
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "id"
+      ]
     }
   },
   {
@@ -6002,15 +6206,15 @@ export const entries: Entry[] = [
         },
         "context": {
           "type": "string",
-          "description": "The context option for conversation.send; see this entry's check and bound."
+          "description": "Local runtime context directory."
         },
         "conversation": {
           "type": "string",
-          "description": "The conversation option for conversation.send; see this entry's check and bound."
+          "description": "Existing local runtime conversation id."
         },
         "runtime": {
           "type": "string",
-          "description": "The runtime option for conversation.send; see this entry's check and bound.",
+          "description": "Local runtime, pi or claude.",
           "enum": [
             "pi",
             "claude"
@@ -6023,49 +6227,49 @@ export const entries: Entry[] = [
         },
         "ext": {
           "type": "array",
-          "description": "The ext option for conversation.send; see this entry's check and bound.",
+          "description": "Explicit Pi extension paths; not ambient discovery.",
           "items": {
             "type": "string"
           }
         },
         "skill": {
           "type": "array",
-          "description": "The skill option for conversation.send; see this entry's check and bound.",
+          "description": "Explicit local runtime skill directories.",
           "items": {
             "type": "string"
           }
         },
         "pi_bin": {
           "type": "string",
-          "description": "The pi-bin option for conversation.send; see this entry's check and bound."
+          "description": "Explicit Pi executable path."
         },
         "pi_model": {
           "type": "string",
-          "description": "The pi-model option for conversation.send; see this entry's check and bound."
+          "description": "Pi provider/model selector."
         },
         "pi_thinking": {
           "type": "string",
-          "description": "The pi-thinking option for conversation.send; see this entry's check and bound."
+          "description": "Pi thinking level forwarded to the runtime."
         },
         "pi_trust": {
           "type": "string",
-          "description": "The pi-trust option for conversation.send; see this entry's check and bound."
+          "description": "Pi resource trust: saved or explicit."
         },
         "claude_bin": {
           "type": "string",
-          "description": "The claude-bin option for conversation.send; see this entry's check and bound."
+          "description": "Explicit Claude Code executable path."
         },
         "claude_model": {
           "type": "string",
-          "description": "The claude-model option for conversation.send; see this entry's check and bound."
+          "description": "Claude Code model selector."
         },
         "claude_effort": {
           "type": "string",
-          "description": "The claude-effort option for conversation.send; see this entry's check and bound."
+          "description": "Claude effort level; the installed runtime validates it."
         },
         "permission_mode": {
           "type": "string",
-          "description": "The permission-mode option for conversation.send; see this entry's check and bound."
+          "description": "Claude permission mode; bypassPermissions is refused."
         },
         "read_only": {
           "type": "boolean",
@@ -6080,35 +6284,35 @@ export const entries: Entry[] = [
         },
         "autocompact": {
           "type": "string",
-          "description": "The autocompact option for conversation.send; see this entry's check and bound."
+          "description": "Claude auto-compaction window, auto or 100k–1M."
         },
         "working_root": {
           "type": "string",
-          "description": "The working-root option for conversation.send; see this entry's check and bound."
+          "description": "Local launch working-set root, not permission to widen reach."
         },
         "focus": {
           "type": "string",
-          "description": "The focus option for conversation.send; see this entry's check and bound."
+          "description": "Reference focus path for a local runtime launch."
         },
         "session_dir": {
           "type": "string",
-          "description": "The session-dir option for conversation.send; see this entry's check and bound."
+          "description": "Local runtime transcript directory."
         },
         "model": {
           "type": "string",
-          "description": "The model option for conversation.send; see this entry's check and bound."
+          "description": "Requested runtime model, or hosted conversation model tier."
         },
         "thinking": {
           "type": "boolean",
-          "description": "The thinking option for conversation.send; see this entry's check and bound."
+          "description": "Enable hosted model thinking explicitly."
         },
         "model_tier": {
           "type": "string",
-          "description": "The model-tier option for conversation.send; see this entry's check and bound."
+          "description": "Local conversation model-tier metadata."
         },
         "claude_auth": {
           "type": "string",
-          "description": "The claude-auth option for conversation.send; see this entry's check and bound."
+          "description": "Claude authentication mode: login or api-key."
         },
         "thread": {
           "type": "string",
@@ -6116,11 +6320,11 @@ export const entries: Entry[] = [
         },
         "thread_map": {
           "type": "string",
-          "description": "The thread-map option for conversation.send; see this entry's check and bound."
+          "description": "Authored Map selecting the source Thread of a local run."
         },
         "thread_member": {
           "type": "integer",
-          "description": "The thread-member option for conversation.send; see this entry's check and bound.",
+          "description": "Zero-based source Thread Map member ordinal.",
           "minimum": 0
         }
       },
@@ -6244,15 +6448,15 @@ export const entries: Entry[] = [
     "status": "active",
     "job": "J11",
     "effect": "read",
-    "reach": "hosted",
+    "reach": "local+hosted",
     "confirm": "none",
     "requires": {
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Read one hosted conversation and its messages.",
+      "does": "Read one hosted or local conversation and its history.",
       "use_when": "Inspect an exact hosted conversation.",
-      "check": "Check the conversation identity and message states.",
+      "check": "Hosted reads need repo_id and conversation_id. Local reads need local and conversation, plus optional context.",
       "bound": "Service result without client-side paging; output may be large."
     },
     "bound": "n/a",
@@ -6273,21 +6477,18 @@ export const entries: Entry[] = [
         },
         "context": {
           "type": "string",
-          "description": "The context option for conversation.get; see this entry's check and bound."
+          "description": "Local runtime context directory."
         },
         "runtime": {
           "type": "string",
-          "description": "The runtime option for conversation.get; see this entry's check and bound."
+          "description": "Local runtime, pi or claude."
         },
         "conversation": {
           "type": "string",
-          "description": "The conversation option for conversation.get; see this entry's check and bound."
+          "description": "Existing local runtime conversation id."
         }
       },
-      "required": [
-        "repo_id",
-        "conversation_id"
-      ],
+      "required": [],
       "additionalProperties": false
     },
     "cli": {
@@ -6316,7 +6517,10 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "conversation",
+        "messages"
+      ]
     }
   },
   {
@@ -6347,22 +6551,6 @@ export const entries: Entry[] = [
         "conversation_id": {
           "type": "string",
           "description": "Positional conversation id for conversation.cancel."
-        },
-        "local": {
-          "type": "boolean",
-          "description": "Use the local runtime rather than hosted conversation."
-        },
-        "context": {
-          "type": "string",
-          "description": "The context option for conversation.cancel; see this entry's check and bound."
-        },
-        "runtime": {
-          "type": "string",
-          "description": "The runtime option for conversation.cancel; see this entry's check and bound."
-        },
-        "conversation": {
-          "type": "string",
-          "description": "The conversation option for conversation.cancel; see this entry's check and bound."
         }
       },
       "required": [
@@ -6380,24 +6568,12 @@ export const entries: Entry[] = [
         "repo_id",
         "conversation_id"
       ],
-      "flags": {
-        "local": {
-          "flag": "--local",
-          "boolean": "bare"
-        },
-        "context": {
-          "flag": "--context"
-        },
-        "runtime": {
-          "flag": "--runtime"
-        },
-        "conversation": {
-          "flag": "--conversation"
-        }
-      }
+      "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "status"
+      ]
     }
   },
   {
@@ -6414,7 +6590,7 @@ export const entries: Entry[] = [
     "text": {
       "does": "Compact a local runtime conversation.",
       "use_when": "Runtime context needs compaction; this is not a shared-state edit.",
-      "check": "Check selected context, conversation and runtime; raw history remains runtime-owned.",
+      "check": "Only Claude currently supports compaction; Pi refuses. Check context and conversation; raw history remains runtime-owned.",
       "bound": "One local conversation per call."
     },
     "bound": "n/a",
@@ -6427,20 +6603,28 @@ export const entries: Entry[] = [
         },
         "context": {
           "type": "string",
-          "description": "The context option for conversation.compact; see this entry's check and bound."
+          "description": "Local runtime context directory."
         },
         "conversation": {
           "type": "string",
-          "description": "The conversation option for conversation.compact; see this entry's check and bound."
+          "description": "Existing local runtime conversation id."
         },
         "runtime": {
           "type": "string",
-          "description": "The runtime option for conversation.compact; see this entry's check and bound.",
+          "description": "Local runtime, pi or claude.",
           "enum": [
             "pi",
             "claude"
           ],
           "default": "pi"
+        },
+        "claude_auth": {
+          "type": "string",
+          "description": "Claude authentication mode: login or api-key."
+        },
+        "claude_bin": {
+          "type": "string",
+          "description": "Explicit Claude Code executable path."
         }
       },
       "required": [
@@ -6469,6 +6653,12 @@ export const entries: Entry[] = [
         },
         "runtime": {
           "flag": "--runtime"
+        },
+        "claude_auth": {
+          "flag": "--claude-auth"
+        },
+        "claude_bin": {
+          "flag": "--claude-bin"
         }
       }
     },
@@ -6507,7 +6697,11 @@ export const entries: Entry[] = [
         },
         "context": {
           "type": "string",
-          "description": "The context option for conversations; see this entry's check and bound."
+          "description": "Local runtime context directory."
+        },
+        "runtime": {
+          "type": "string",
+          "description": "Local runtime, pi or claude."
         }
       },
       "required": [],
@@ -6527,11 +6721,19 @@ export const entries: Entry[] = [
         },
         "context": {
           "flag": "--context"
+        },
+        "runtime": {
+          "flag": "--runtime"
         }
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "repo_id",
+        "conversations",
+        "total",
+        "has_more"
+      ]
     }
   },
   {
@@ -6557,7 +6759,7 @@ export const entries: Entry[] = [
       "properties": {
         "owner": {
           "type": "string",
-          "description": "The owner option for agents; see this entry's check and bound."
+          "description": "Agent Actor owner selector, person:user or hostname:domain."
         }
       },
       "required": [],
@@ -6575,7 +6777,9 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "agents"
+      ]
     }
   },
   {
@@ -6609,16 +6813,16 @@ export const entries: Entry[] = [
         },
         "member": {
           "type": "integer",
-          "description": "The member option for threads.launch-text; see this entry's check and bound.",
+          "description": "Zero-based authored Map member ordinal.",
           "minimum": 0
         },
         "pov": {
           "type": "string",
-          "description": "The pov option for threads.launch-text; see this entry's check and bound."
+          "description": "Local agent POV folder."
         },
         "budget": {
           "type": "integer",
-          "description": "The budget option for threads.launch-text; see this entry's check and bound.",
+          "description": "Character budget for bounded Map/orientation rendering.",
           "minimum": 0
         }
       },
@@ -6658,7 +6862,11 @@ export const entries: Entry[] = [
       ]
     },
     "output": {
-      "json": []
+      "json": [
+        "text",
+        "cut",
+        "merged"
+      ]
     }
   },
   {
@@ -6684,11 +6892,11 @@ export const entries: Entry[] = [
       "properties": {
         "pi_bin": {
           "type": "string",
-          "description": "The pi-bin option for pi.status; see this entry's check and bound."
+          "description": "Explicit Pi executable path."
         },
         "ext": {
           "type": "array",
-          "description": "The ext option for pi.status; see this entry's check and bound.",
+          "description": "Explicit Pi extension paths; not ambient discovery.",
           "items": {
             "type": "string"
           }
@@ -6713,7 +6921,13 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "binary",
+        "providers",
+        "configured",
+        "extensions",
+        "ready"
+      ]
     }
   },
   {
@@ -6739,7 +6953,7 @@ export const entries: Entry[] = [
       "properties": {
         "pi_bin": {
           "type": "string",
-          "description": "The pi-bin option for pi.models; see this entry's check and bound."
+          "description": "Explicit Pi executable path."
         }
       },
       "required": [],
@@ -6757,7 +6971,9 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "models"
+      ]
     }
   },
   {
@@ -6811,7 +7027,12 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "provider",
+        "method",
+        "configured",
+        "authPath"
+      ]
     }
   },
   {
@@ -6857,7 +7078,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "provider",
+        "removed",
+        "authPath"
+      ]
     }
   },
   {
@@ -6883,11 +7108,11 @@ export const entries: Entry[] = [
       "properties": {
         "claude_bin": {
           "type": "string",
-          "description": "The claude-bin option for claude.status; see this entry's check and bound."
+          "description": "Explicit Claude Code executable path."
         },
         "claude_auth": {
           "type": "string",
-          "description": "The claude-auth option for claude.status; see this entry's check and bound."
+          "description": "Claude authentication mode: login or api-key."
         }
       },
       "required": [],
@@ -6908,7 +7133,14 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "binary",
+        "login",
+        "auth",
+        "ready",
+        "models",
+        "capabilities"
+      ]
     }
   },
   {
@@ -6934,7 +7166,7 @@ export const entries: Entry[] = [
       "properties": {
         "claude_bin": {
           "type": "string",
-          "description": "The claude-bin option for claude.models; see this entry's check and bound."
+          "description": "Explicit Claude Code executable path."
         }
       },
       "required": [],
@@ -6952,7 +7184,11 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "binary",
+        "models",
+        "capabilities"
+      ]
     }
   },
   {
@@ -6999,7 +7235,9 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "change_id"
+      ]
     }
   },
   {
@@ -7034,7 +7272,11 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "logged_in",
+        "web_url",
+        "env_override_active"
+      ]
     }
   },
   {
@@ -7072,7 +7314,10 @@ export const entries: Entry[] = [
       "power logout"
     ],
     "output": {
-      "json": []
+      "json": [
+        "logged_out",
+        "env_override_active"
+      ]
     }
   },
   {
@@ -7110,7 +7355,11 @@ export const entries: Entry[] = [
       "status account"
     ],
     "output": {
-      "json": []
+      "json": [
+        "logged_in",
+        "api_url",
+        "username"
+      ]
     }
   },
   {
@@ -7148,7 +7397,12 @@ export const entries: Entry[] = [
       "status doctor"
     ],
     "output": {
-      "json": []
+      "json": [
+        "schema_version",
+        "ok",
+        "platform",
+        "checks"
+      ]
     }
   },
   {
@@ -7174,7 +7428,7 @@ export const entries: Entry[] = [
       "properties": {
         "check": {
           "type": "boolean",
-          "description": "The check option for upgrade; see this entry's check and bound."
+          "description": "Report drift/update state without applying changes."
         }
       },
       "required": [],
@@ -7193,7 +7447,15 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "current",
+        "latest",
+        "behind",
+        "upgraded",
+        "install",
+        "path",
+        "advice"
+      ]
     }
   },
   {
@@ -7232,7 +7494,9 @@ export const entries: Entry[] = [
       "-v"
     ],
     "output": {
-      "json": []
+      "json": [
+        "version"
+      ]
     }
   },
   {
@@ -7262,23 +7526,23 @@ export const entries: Entry[] = [
         },
         "shared": {
           "type": "boolean",
-          "description": "The shared option for create; see this entry's check and bound."
+          "description": "Create shared agent instructions rather than private local defaults."
         },
         "agent": {
           "type": "boolean",
-          "description": "The agent option for create; see this entry's check and bound."
+          "description": "Agent Actor node id or local POV filter, as selected by this command."
         },
         "foundation": {
           "type": "boolean",
-          "description": "The foundation option for create; see this entry's check and bound."
+          "description": "Choose a Foundation scaffold instead of Agreement."
         },
         "home": {
           "type": "string",
-          "description": "The home option for create; see this entry's check and bound."
+          "description": "Hosted map:<id> placement, or Home scaffold destination for create."
         },
         "yes": {
           "type": "boolean",
-          "description": "The yes option for create; see this entry's check and bound."
+          "description": "Explicit application of the previously read plan."
         }
       },
       "required": [],
@@ -7314,7 +7578,14 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "target",
+        "shape",
+        "plan",
+        "scaffolded",
+        "root_node_id",
+        "identity_state"
+      ]
     }
   },
   {
@@ -7326,7 +7597,7 @@ export const entries: Entry[] = [
     "reach": "local",
     "confirm": "none",
     "requires": {
-      "cli": ">=0.9.0"
+      "cli": ">=0.10.0"
     },
     "text": {
       "does": "Discover agent contracts progressively by group and id.",
@@ -7356,7 +7627,16 @@ export const entries: Entry[] = [
       "flags": {}
     },
     "output": {
-      "json": []
+      "json": [
+        "schema",
+        "version",
+        "cli",
+        "protocol",
+        "digest",
+        "groups",
+        "entries",
+        "entry"
+      ]
     }
   },
   {
@@ -7376,13 +7656,17 @@ export const entries: Entry[] = [
       "check": "Check result roots, match count and any unresolved saved references. Saving does not share content.",
       "bound": "Default limit 20, no result maximum; scan truncation/incomplete roots are reported. Narrow query/roots or increase limit."
     },
-    "bound": "n/a",
+    "bound": {
+      "unit": "entries",
+      "default": 20,
+      "says": true
+    },
     "parameters": {
       "type": "object",
       "properties": {
         "query": {
           "type": "string",
-          "description": "Positional query for search."
+          "description": "Filename filtering text for ls."
         },
         "root": {
           "type": "array",
@@ -7393,7 +7677,7 @@ export const entries: Entry[] = [
         },
         "threads": {
           "type": "boolean",
-          "description": "The threads option for search; see this entry's check and bound."
+          "description": "Include Thread Notes in search."
         },
         "limit": {
           "type": "integer",
@@ -7403,7 +7687,7 @@ export const entries: Entry[] = [
         },
         "save": {
           "type": "string",
-          "description": "The save option for search; see this entry's check and bound."
+          "description": "Write a search result Map to this local Note path."
         },
         "name": {
           "type": "string",
@@ -7419,7 +7703,7 @@ export const entries: Entry[] = [
         },
         "open": {
           "type": "string",
-          "description": "The open option for search; see this entry's check and bound."
+          "description": "Include open local Threads when filtering discovery."
         }
       },
       "required": [],
@@ -7463,7 +7747,17 @@ export const entries: Entry[] = [
       }
     },
     "output": {
-      "json": []
+      "json": [
+        "query",
+        "scanned",
+        "total",
+        "matched",
+        "results",
+        "map",
+        "map_status",
+        "complete",
+        "saved"
+      ]
     }
   },
   {
@@ -7553,7 +7847,37 @@ export const entries: Entry[] = [
     "bound": "n/a",
     "parameters": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "space": {
+          "type": "string",
+          "description": "Compatibility repository URL selector for share."
+        },
+        "scope": {
+          "type": "string",
+          "description": "The scope option for threads.posts; see this entry's check and bound."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum results in this page; inspect returned continuation/counts.",
+          "minimum": 1
+        },
+        "since": {
+          "type": "string",
+          "description": "Continuation position from the prior page or ISO filter where supported."
+        },
+        "depth": {
+          "type": "string",
+          "description": "Progressive-disclosure rung or numeric tree depth as documented."
+        },
+        "order": {
+          "type": "string",
+          "description": "Page direction: older or newer; since advances forward with older."
+        },
+        "cursor": {
+          "type": "string",
+          "description": "Opaque continuation/read position returned by this operation."
+        }
+      },
       "required": [],
       "additionalProperties": false
     },
@@ -7563,7 +7887,38 @@ export const entries: Entry[] = [
         "posts"
       ],
       "positional": [],
-      "flags": {}
+      "flags": {
+        "space": {
+          "flag": "--space"
+        },
+        "scope": {
+          "flag": "--scope"
+        },
+        "limit": {
+          "flag": "--limit"
+        },
+        "since": {
+          "flag": "--since"
+        },
+        "depth": {
+          "flag": "--depth"
+        },
+        "order": {
+          "flag": "--order"
+        },
+        "cursor": {
+          "flag": "--cursor"
+        }
+      },
+      "local_flags": [
+        "space",
+        "scope",
+        "limit",
+        "since",
+        "depth",
+        "order",
+        "cursor"
+      ]
     }
   },
   {
@@ -7597,7 +7952,8 @@ export const entries: Entry[] = [
         "expand"
       ],
       "positional": [],
-      "flags": {}
+      "flags": {},
+      "local_flags": []
     }
   },
   {
@@ -7621,7 +7977,12 @@ export const entries: Entry[] = [
     "bound": "n/a",
     "parameters": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "grade": {
+          "type": "string",
+          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+        }
+      },
       "required": [],
       "additionalProperties": false
     },
@@ -7631,7 +7992,14 @@ export const entries: Entry[] = [
         "add"
       ],
       "positional": [],
-      "flags": {}
+      "flags": {
+        "grade": {
+          "flag": "--grade"
+        }
+      },
+      "local_flags": [
+        "grade"
+      ]
     }
   },
   {

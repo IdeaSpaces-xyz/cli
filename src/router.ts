@@ -1,5 +1,4 @@
 import type { CommandDef } from "./types.js";
-import { cataloguedCommand } from "./agent-tools/flags.js";
 import { capabilitiesCommand } from "./commands/capabilities.js";
 
 // Top-level commands
@@ -136,7 +135,7 @@ export function findCommand_(name: string): CommandDef | undefined {
   const command = topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name)
     ?? retiredCommands.find((c) => c.name === name)
     ?? hiddenCommands.find((c) => c.name === name);
-  return command ? cataloguedCommand(command) : undefined;
+  return command;
 }
 
 export function printHelp(): void {
