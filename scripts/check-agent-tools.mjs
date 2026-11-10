@@ -1,4 +1,7 @@
 // Drift is a build failure, not an extra flag silently ignored by a command.
+// This checks literal flags.x / flags["x"] and the helpers named below, grouped
+// by command family. Dynamic keys, destructuring and new helper dialects need
+// an explicit catalog/test update; the entrypoint still refuses undeclared flags.
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { entries } from "../dist/agent-tools/data.js";
@@ -15,9 +18,10 @@ export function checkSourceFlags(readSource = path => readFileSync(path, "utf8")
     catalog: "commands/catalog.ts", repos: "commands/repos.ts", publish: "commands/publish.ts", status: "commands/status.ts", share: "commands/share.ts", request: "commands/request.ts",
     agent: "commands/agent.ts", conversation: "commands/conversation.ts", conversations: "commands/conversations.ts", agents: "commands/agents.ts", change: "commands/change.ts",
     login: "commands/login.ts", logout: "commands/power/logout.ts", whoami: "commands/whoami.ts", doctor: "commands/doctor.ts", upgrade: "commands/upgrade.ts", create: "commands/create.ts", search: "commands/search.ts",
+    "local-runtime": "local/runtime.ts", "pi-conversation": "pi/local-conversation-ops.ts", "claude-conversation": "claude/local-conversation-ops.ts",
     "pi-status": "pi/pi-status.ts", "pi-models": "pi/pi-models.ts", "pi-login": "pi/pi-login.ts", "pi-logout": "pi/pi-logout.ts", "claude-status": "claude/claude-status.ts", "claude-models": "claude/claude-models.ts",
   };
-  const routing = { "map-edit": "map", "map-selection": "map", "hosted-threads": "threads", "space-new": "spaces", "space-add": "spaces", "space-remove": "spaces" };
+  const routing = { "map-edit": "map", "map-selection": "map", "hosted-threads": "threads", "space-new": "spaces", "space-add": "spaces", "space-remove": "spaces", "local-runtime": "conversation", "pi-conversation": "conversation", "claude-conversation": "conversation" };
   // These reads exist only to print explicit compatibility refusals, not accepted options.
   const refused = { fork: ["location", "slug"], publish: ["force"], conversation: ["topic"] };
   const errors = [];

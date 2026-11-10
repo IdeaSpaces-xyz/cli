@@ -114,6 +114,8 @@ describe("agent tool contract data", () => {
       for (const flag of allowedFlags(entry.id)) expect(catalogFlagError(command, verbs, { [flag]: "--literal-value" }), `${entry.id} --${flag}`).toBeUndefined();
       expect(catalogFlagError(command, verbs, { "not-a-declared-flag": true }), entry.id).toContain("--not-a-declared-flag");
     }
+    expect(catalogFlagError("spaces", ["open", "n_0123456789ab"], { hosted: true })).toBeUndefined();
+    expect(catalogFlagError("agent", ["run", "pov"], { "claude-auth": "api-key", "model-tier": "local" })).toBeUndefined();
     expect(allowedFlags("threads.post", "hosted").has("kind")).toBe(false);
     expect(allowedFlags("threads.post", "local").has("kind")).toBe(true);
     expect(entries.find(e => e.id === "commit")?.parameters.properties?.all.description).toContain("NOT this session");

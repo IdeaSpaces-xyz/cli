@@ -9,6 +9,7 @@ import { ApiStatusError, NetworkError, fetchVaults, importHostedSpace, exportHos
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
+import { allowedFlags } from "../agent-tools/flags.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -18,7 +19,8 @@ function flagString(flags: Flags, name: string): string | undefined {
 
 function hostedArgsError(args: string[], flags: Flags): string | undefined {
   if (flags["attached-to"] !== undefined || flags["include-dormant"] !== undefined) return "Legacy list filters do not apply to hosted Spaces. Use spaces list --hosted.";
-  const unknown = Object.keys(flags).find(f => f !== "hosted");
+  const allowed = allowedFlags(args[0] === "open" ? "spaces.open" : "spaces.list", "hosted");
+  const unknown = Object.keys(flags).find(f => !allowed.has(f));
   if (unknown) return `Unknown flag for hosted Spaces: --${unknown}.`;
   if (args[0] === "open") {
     if (args.length !== 2) return "Usage: ideaspaces spaces open <map-id> [--json]";

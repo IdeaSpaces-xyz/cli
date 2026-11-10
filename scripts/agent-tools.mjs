@@ -21,6 +21,6 @@ export function generateCatalog() {
   const bytes = JSON.stringify(catalog, null, 2) + "\n";
   writeFileSync("bundle/agent-tools.json", bytes);
   writeFileSync("bundle/agent-tools.schema.json", JSON.stringify(schema, null, 2) + "\n");
-  console.log(`Agent-tools: ${catalog.entries.length} entries, ${catalog.digest}; unbounded: ${catalog.entries.filter(e => e.bound === "unbounded").map(e => e.id).join(", ")}`);
+  console.error(`Agent-tools: ${catalog.entries.length} entries, ${catalog.digest}; unbounded: ${catalog.entries.filter(e => e.bound === "unbounded").map(e => e.id).join(", ")}`);
   return catalog;
 }

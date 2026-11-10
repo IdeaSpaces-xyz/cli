@@ -3293,7 +3293,10 @@ export const entries: Entry[] = [
           "flag": "--include-dormant",
           "boolean": "bare"
         }
-      }
+      },
+      "hosted_flags": [
+        "hosted"
+      ]
     },
     "output": {
       "json": [
@@ -3326,6 +3329,10 @@ export const entries: Entry[] = [
         "map_id": {
           "type": "string",
           "description": "Positional map id for spaces.open."
+        },
+        "hosted": {
+          "type": "boolean",
+          "description": "Use hosted routing rather than the local/legacy path."
         }
       },
       "required": [
@@ -3341,7 +3348,15 @@ export const entries: Entry[] = [
       "positional": [
         "map_id"
       ],
-      "flags": {}
+      "flags": {
+        "hosted": {
+          "flag": "--hosted",
+          "boolean": "bare"
+        }
+      },
+      "hosted_flags": [
+        "hosted"
+      ]
     },
     "output": {
       "json": [
@@ -5669,6 +5684,14 @@ export const entries: Entry[] = [
           "type": "string",
           "description": "Claude Code model selector."
         },
+        "claude_auth": {
+          "type": "string",
+          "description": "Claude authentication mode: login or api-key."
+        },
+        "model_tier": {
+          "type": "string",
+          "description": "Local conversation model-tier metadata."
+        },
         "session_dir": {
           "type": "string",
           "description": "Local runtime transcript directory."
@@ -5779,6 +5802,12 @@ export const entries: Entry[] = [
         },
         "claude_model": {
           "flag": "--claude-model"
+        },
+        "claude_auth": {
+          "flag": "--claude-auth"
+        },
+        "model_tier": {
+          "flag": "--model-tier"
         },
         "session_dir": {
           "flag": "--session-dir"
