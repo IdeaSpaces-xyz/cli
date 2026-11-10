@@ -287,6 +287,14 @@ export function latestLocalActivity(posts: ThreadPost[]): string | null {
   }, null);
 }
 
+export function earliestLocalActivity(posts: ThreadPost[]): string | null {
+  return posts.reduce<string | null>((first, post) => {
+    const at = activityAt(post);
+    const time = at ? Date.parse(at) : NaN;
+    return Number.isFinite(time) && (!first || time < Date.parse(first)) ? at : first;
+  }, null);
+}
+
 export function resolveThreadParent(threadDir: string, knownThreads?: LocalThread[]): ThreadParentInfo | null {
   const agreementPath = join(threadDir, "_agent", "agreement.md");
   const agreementContent = threadAgreementContent(safeDirectory(threadDir));
