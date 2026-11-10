@@ -78,6 +78,36 @@ afterEach(async () => {
 });
 
 describe("search --root: one corpus across several roots", () => {
+  it("finds Map-carrying moments and system kinds locally, across Threads and roots", async () => {
+    const map = "map:\n  roots: []\n  members: []\n";
+    write(join(vault, "notes/map.md"), `---\nname: A Map\nkind: snapshot\n${map}---\nLegend`);
+    write(join(vault, "_threads/onboard/01.md"), `---\nid: msg_moment\nkind: post\ntags: [decision]\n${map}---\nMoment`);
+    write(join(vault, "_threads/other/01.md"), `---\nid: msg_snapshot\nkind: snapshot\n${map}---\nState`);
+    write(join(vault, "_threads/other/02.md"), "---\nid: msg_legacy\nkind: snapshot\n---\nLegacy state");
+    write(join(vault, "_threads/other/03.md"), "---\nid: msg_invalid\nmap: broken\n---\nBad Map");
+    write(join(vault, "_threads/other/04.md"), "---\nid: msg_label\ntags: [snapshot]\n---\nLabel only");
+    write(join(vault, "_threads/other/05.md"), "---\nid: msg_spaced\nkind: 'snapshot '\n---\nUnknown kind");
+    // Keep the same Map as the tolerant Thread reader: one bad member does not erase the good one.
+    write(join(vault, "_threads/other/06.md"), "---\nid: msg_partial\nmap:\n  roots:\n    - root_node_id: n_0123456789abcdef01234567\n  members:\n    - root: 0\n      position: notes/map.md\n    - root: 0\n      position: _assets/bad.md\n---\nPartial Map");
+    const paths = (data: any) => data.results.map((r: any) => r.path).sort();
+    const local = await run(["has:map"], {});
+    expect(local.exit).toBe(0);
+    expect(paths(local.json)).toEqual(["_threads/onboard/01.md", "_threads/other/01.md", "_threads/other/06.md", "notes/map.md"]);
+    expect(paths(await search("has:map kind:post", [vault]))).toEqual(["_threads/onboard/01.md", "_threads/other/01.md", "_threads/other/06.md"]);
+    expect(paths(await search("has:map in:_threads/onboard", [vault]))).toEqual(["_threads/onboard/01.md"]);
+    expect(paths(await search("post-kind:snapshot", [vault]))).toEqual(["_threads/other/01.md", "_threads/other/02.md"]);
+    expect(paths(await search("post-kind:snapshot -has:map", [vault]))).toEqual(["_threads/other/02.md"]);
+    expect(paths(await search("has:map -post-kind:snapshot kind:post", [vault]))).toEqual(["_threads/onboard/01.md", "_threads/other/06.md"]);
+    expect(paths(await search("has:map tag:decision", [vault]))).toEqual(["_threads/onboard/01.md"]);
+    // kind:post remains the path kind; post-kind:post includes legacy posts with no kind field.
+    expect(paths(await search("post-kind:post tag:snapshot", [vault]))).toEqual(["_threads/other/04.md"]);
+    const agent = join(vault, "agents/scout");
+    write(join(agent, "_threads/agent/01.md"), `---\nid: msg_agent\nkind: snapshot\n${map}---\nAgent state`);
+    const across = await search("has:map post-kind:snapshot", [vault, agent]);
+    expect(across.results.map((r: any) => r.root).sort()).toEqual([agent, vault].sort());
+    expect(across.complete).toBe(true);
+  });
+
   it("ranks every root against shared corpus statistics", async () => {
     const data = await search("loopback", [vault, join(vault, "agents", "scout")]);
     // The same three documents scored as one corpus give the same order and scores.

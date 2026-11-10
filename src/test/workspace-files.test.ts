@@ -200,10 +200,11 @@ it("harvests mark and the other kinds as Thread writes", () => {
   const cli = join(process.cwd(), "bundle/ideaspaces.js");
   const run = (...args: string[]) => JSON.parse(execFileSync(process.execPath, [cli, "--json", "threads", ...args],
     { cwd: dir, encoding: "utf8" })) as { id: string; path: string; kind: string; opening_post_id: string };
+  writeFileSync(join(dir, "empty.map.md"), "---\nmap:\n  roots: []\n  members: []\n---\nEmpty frame\n");
   const opening = run("new", "kinds", "--about", "Kinds").opening_post_id;
   const posts = [
     run("post", "kinds", "--kind", "mark", "--mark", "claimed", "--reply-to", opening, "--message", "Claimed", "--author", "Probe"),
-    run("post", "kinds", "--kind", "snapshot", "--message", "Where it stands", "--author", "Probe"),
+    run("post", "kinds", "--kind", "snapshot", "--map", "empty.map.md", "--message", "Where it stands", "--author", "Probe"),
     run("post", "kinds", "--kind", "reframe", "--message", "A new frame", "--author", "Probe"),
   ];
   const ws = harvestLocalFiles(
@@ -223,7 +224,8 @@ it("harvests successful local is_threads post and close files for Pi and normali
     { cwd: dir, encoding: "utf8" })) as { id: string; path: string; kind: string };
   run("new", "probe", "--about", "Disposable proof");
   const piPost = run("post", "probe", "--message", "Pi wrote this", "--author", "Pi Probe");
-  const claudePost = run("post", "probe", "--message", "Claude wrote this", "--author", "Claude Probe", "--kind", "snapshot");
+  writeFileSync(join(dir, "empty.map.md"), "---\nmap:\n  roots: []\n  members: []\n---\nEmpty frame\n");
+  const claudePost = run("post", "probe", "--message", "Claude wrote this", "--author", "Claude Probe", "--kind", "snapshot", "--map", "empty.map.md");
   const closure = run("close", "probe", "--message", "Done", "--author", "Claude Probe");
   const piResult = { content: [{ type: "text", text: JSON.stringify(piPost) }], details: {} };
   const claudeResult = [{ type: "text", text: JSON.stringify(claudePost) }];

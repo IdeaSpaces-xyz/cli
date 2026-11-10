@@ -511,6 +511,9 @@ export function appendPost(dir: string, options: {
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
   if (options.supersedes && options.kind !== "correction") throw new Error("--supersedes requires --kind correction.");
+  if (options.kind === "snapshot" && options.map === undefined) {
+    throw new Error("A snapshot requires a Map. Add --map <note> naming a pinned Map note; no post written.");
+  }
   if (options.map !== undefined) validateThreadMomentMap(options.map);
   const warnings: string[] = [];
   if (options.checkLinks) {
