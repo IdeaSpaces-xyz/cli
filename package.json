@@ -38,6 +38,7 @@
     "@types/cmd-shim": "^5.0.2",
     "@types/node": "^22.0.0",
     "@types/proper-lockfile": "^4.1.4",
+    "ajv": "^8.20.0",
     "cmd-shim": "^6.0.3",
     "esbuild": "^0.28.0",
     "proper-lockfile": "^4.1.2",

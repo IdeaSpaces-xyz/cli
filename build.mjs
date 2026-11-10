@@ -1,8 +1,13 @@
 import * as esbuild from "esbuild";
-import { chmod, readFile } from "node:fs/promises";
+import { chmod, readFile, mkdir } from "node:fs/promises";
+import { generateCatalog } from "./scripts/agent-tools.mjs";
+import { checkSourceFlags } from "./scripts/check-agent-tools.mjs";
 
 const outfile = "bundle/ideaspaces.js";
 const { version } = JSON.parse(await readFile("package.json", "utf8"));
+await mkdir("bundle", { recursive: true });
+checkSourceFlags();
+const catalog = generateCatalog();
 
 await esbuild.build({
   entryPoints: ["dist/main.js"],
@@ -19,7 +24,7 @@ await esbuild.build({
   },
   external: [],
   // The app and the plugin carry this file alone, so the version has to live inside it.
-  define: { __IDEASPACES_CLI_VERSION__: JSON.stringify(version) },
+  define: { __IDEASPACES_CLI_VERSION__: JSON.stringify(version), __IDEASPACES_AGENT_CATALOG__: JSON.stringify(catalog) },
 });
 
 // npm strips invalid bin entries during publication. esbuild creates files as
