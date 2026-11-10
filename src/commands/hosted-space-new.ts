@@ -6,6 +6,7 @@ import { createOutput } from "../output.js";
 import type { GlobalFlags } from "../types.js";
 import { buildNote } from "./hosted-threads.js";
 import { NODE_ID, type Flags } from "./thread-flags.js";
+import { allowedFlags } from "../agent-tools/flags.js";
 
 export const SPACE_NEW_USAGE = "ideaspaces spaces new --hosted --vault <personal|person:user_ID|node:ORG_NODE_ID> --name <name> --summary <summary> --message <Core-opening> [--command-id <id>] [--json]";
 
@@ -26,7 +27,7 @@ export async function runHostedSpaceNew(args: string[], flags: Flags, global: Gl
   let commandId: string | undefined;
   let attempted = false;
   try {
-    const known = new Set(["hosted", "vault", "name", "summary", "message", "command-id"]);
+    const known = allowedFlags("spaces.new");
     const unknown = Object.keys(flags).find(f => !known.has(f));
     if (unknown) throw new Error(`Unknown flag for spaces new: --${unknown}.`);
     if (args.length || flags.hosted !== true) throw new Error(SPACE_NEW_USAGE);

@@ -8,6 +8,7 @@ import { assembleLaunchText } from "../local/launch-text.js";
 import { selectLocalThreadTarget } from "../local/cross-thread-target.js";
 import { isHostAuth, peekConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
+import { threadsCapabilities } from "../agent-tools/catalog.js";
 import type { CommandDef } from "../types.js";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
@@ -370,7 +371,7 @@ export const threadsCommand: CommandDef = {
     try {
       if (sub === "capabilities") {
         if (rest.length || Object.keys(flags).length) throw new Error("Usage: threads capabilities --json");
-        output.result({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, "Hosted Threads use /threads only (no legacy exchange fallback).");
+        output.result(threadsCapabilities, "Hosted Threads use /threads only (no legacy exchange fallback).");
         return 0;
       }
       const hostedTarget = TAKES_THREAD_ID.has(sub ?? "") && isHostedThreadTarget(rest[0] ?? "");

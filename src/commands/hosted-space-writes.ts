@@ -5,6 +5,7 @@ import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { GlobalFlags } from "../types.js";
 import { NODE_ID, type Flags } from "./thread-flags.js";
+import { allowedFlags } from "../agent-tools/flags.js";
 
 export const SPACE_ADD_USAGE = "ideaspaces spaces add <map-id> <address> --if-match <head-version-id> [--command-id <id>] [--depth name|summary] [--name <name>] [--summary <summary>]\n       ideaspaces spaces add <map-id> --position <path> --root-node-id <id> [--sha <commit>] --if-match <head-version-id> [--command-id <id>] [--depth name|summary|surface|children|full]";
 
@@ -19,7 +20,7 @@ export async function runHostedSpaceAdd(args: string[], flags: Flags, global: Gl
   let commandId: string | undefined;
   let attempted = false;
   try {
-    const known = new Set(["if-match", "command-id", "position", "root-node-id", "sha", "depth", "name", "summary"]);
+    const known = allowedFlags("spaces.add");
     const unknown = Object.keys(flags).find(f => !known.has(f));
     if (unknown) throw new Error(`Unknown flag for spaces add: --${unknown}.`);
     const [id, address] = args;

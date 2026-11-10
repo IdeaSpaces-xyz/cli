@@ -37,6 +37,7 @@ import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap, threadP
 import { lookAtCommit } from "../local/map-look.js";
 import { readCheckoutAt } from "../local/map-resolve.js";
 import type { CommandDef } from "../types.js";
+import { allowedFlags } from "../agent-tools/flags.js";
 
 const DEPTHS = "<name|summary|surface|children|full>";
 const USAGE =
@@ -97,7 +98,7 @@ export const lookCommand: CommandDef = {
     }
 
     const raw = args[0]?.trim() ?? ".";
-    const allowed = new Set(["depth", "contract", "agreement", "limit", "pin", "map", "at", "new", "since", "order", "post"]);
+    const allowed = allowedFlags("look");
     const unknown = Object.keys(flags).find((flag) => !allowed.has(flag));
     if (unknown) {
       output.error(`Unknown flag for look: --${unknown}`);

@@ -1,4 +1,5 @@
 import type { CommandDef } from "./types.js";
+import { capabilitiesCommand } from "./commands/capabilities.js";
 
 // Top-level commands
 import { doctorCommand } from "./commands/doctor.js";
@@ -70,6 +71,7 @@ const conversationsCommand = makeConversationsCommand(localConversationOps);
 const agentCommand = makeAgentCommand(localConversationOps);
 
 const topLevel: CommandDef[] = [
+  capabilitiesCommand,
   doctorCommand,
   createCommand,
   loginCommand,
@@ -130,9 +132,10 @@ const retiredCommands = [followCommand, unfollowCommand];
 const hiddenCommands = [updateCheckCommand];
 
 export function findCommand_(name: string): CommandDef | undefined {
-  return topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name)
+  const command = topLevel.find((c) => c.name === name) ?? power.find((c) => c.name === name)
     ?? retiredCommands.find((c) => c.name === name)
     ?? hiddenCommands.find((c) => c.name === name);
+  return command;
 }
 
 export function printHelp(): void {

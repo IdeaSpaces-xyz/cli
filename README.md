@@ -135,6 +135,53 @@ be coordinated; merging this source does not update installed plugins.
 | Run a local agent | `agent run` (`--runtime=pi` or `--runtime=claude`, `--model`, `--parent`, pinned local `--thread`), `agent runs` (query run records), `agent record` (append/update run records), `agent capabilities`, `pi-status`, `pi-login`, `pi-logout`, `pi-models`, `claude-status`, `claude-models`, `conversation send --local` (`--runtime=pi`, the default, or `--runtime=claude` for your own Claude Code), `conversation compact --local` |
 | Housekeeping | `status doctor` (`doctor`), `credential`, `power logout` |
 
+## Discover agent contracts
+
+```sh
+ideaspaces capabilities --json               # fourteen groups, with use_when
+ideaspaces capabilities threads --json       # J4 ids, does and use_when
+ideaspaces capabilities threads.post --json  # complete entry, including parameters/check/bound
+```
+
+Group selectors also accept job ids (`J1`–`J14`). For example, `read` includes
+`look` and `threads.open`; `hosted-threads` includes hosted sending; `thread-status`
+includes listing and recent activity. Bare command ids such as `write`, `commit`,
+`agents` and `search` select full entries, not groups. Unknown selectors fail with
+an instruction to list groups.
+
+The version-1 `ideaspaces.agent-tools` catalog and its JSON Schema ship as
+`bundle/agent-tools.json` and `bundle/agent-tools.schema.json`. The executable embeds
+the same catalog, so discovery works offline, without sign-in or adjacent files.
+Every rung includes the installed CLI/protocol build identities and the SHA-256
+of the key-sorted entries. `cli.commit` identifies the source commit, not a later
+artifact-only commit or merge commit when history is available. A shallow source
+checkout instead identifies its available checkout pin. Full-history CI verifies
+checked-in regeneration; source builds need a Git checkout.
+The complete artifact also contains the unchanged `threads capabilities` and
+`agent capabilities` documents; selecting those entry ids returns their documents.
+
+Each entry separates what it does, when to use it, what to check and how output is
+bounded. `unbounded` entries are listed explicitly at the first rung. Output fields
+are selected fields a caller acts on, not an exhaustive response schema; local and
+hosted variants can differ. Retired ids retain their refusal. The explicit exclusions
+include `agent_session` (removed), `is_cli` (a skill's shell alias) and `is_share`
+(no native tool).
+
+A catalog is a contract, **not an exposure list or an authority grant**. Hosts retain
+their permissions, sign-in, confirmation and session state. Shared `change.open`,
+`change.close` and `session.status` definitions are marked host-owned and implemented
+by MCP/Pi; they are not new CLI verbs. In particular, CLI `commit --all` still means
+all staged paths, not a host's session-owned captures.
+
+Authors edit `src/agent-tools/`; `npm run build` validates the format, rejects empty
+`check`/`bound`, text over 300 characters or composed descriptions over 1,200 UTF-8
+bytes, checks literal flag reads for drift, and regenerates all three bundled artifacts.
+The entrypoint's unknown-flag boundary and routing-specific flag allowlists derive
+from this data. Adding a required parameter, removing/narrowing one, or changing an
+id's meaning needs a new id or format version; optional additions are compatible.
+Commit source changes first, build, then commit generated artifacts. CI verifies
+byte-for-byte regeneration in PRs and merge groups.
+
 ## What the CLI promises
 
 - **`write`** touches only the file you name and keeps frontmatter you did not set. `--map JSON|YAML|FILE` writes a validated Map block to a Note. Pass the returned `sha` as `--if-match` for a safe second write; `--force` overwrites.

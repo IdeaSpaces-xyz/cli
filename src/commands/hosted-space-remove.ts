@@ -4,6 +4,7 @@ import { loadConfig } from "../auth/credentials.js";
 import { createOutput } from "../output.js";
 import type { GlobalFlags } from "../types.js";
 import { NODE_ID, type Flags } from "./thread-flags.js";
+import { allowedFlags } from "../agent-tools/flags.js";
 
 export const SPACE_REMOVE_USAGE = "ideaspaces spaces remove <map-id> <member-ordinal> --if-match <head-version-id> [--command-id <id>] [--yes]";
 
@@ -12,7 +13,7 @@ export async function runHostedSpaceRemove(args: string[], flags: Flags, global:
   let commandId: string | undefined;
   let attempted = false;
   try {
-    const unknown = Object.keys(flags).find(f => !["if-match", "command-id"].includes(f));
+    const unknown = Object.keys(flags).find(f => !allowedFlags("spaces.remove").has(f));
     if (unknown) throw new Error(`Unknown flag for spaces remove: --${unknown}.`);
     const [id, rawOrdinal] = args;
     if (args.length !== 2 || !NODE_ID.test(id ?? "") || !/^(0|[1-9]\d*)$/.test(rawOrdinal ?? "") || !Number.isSafeInteger(Number(rawOrdinal))) throw new Error(SPACE_REMOVE_USAGE);
