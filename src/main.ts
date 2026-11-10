@@ -1,5 +1,5 @@
 import { writeSync } from "node:fs";
-import { findCommand_, printHelp, printPowerHelp } from "./router.js";
+import { commandHelp, findCommand_, printHelp, printPowerHelp } from "./router.js";
 import { handleError } from "./errors.js";
 import { createOutput } from "./output.js";
 import { STATUS_SECTIONS } from "./commands/status.js";
@@ -74,7 +74,7 @@ let resolvedCommand = command;
 let resolvedArgs = args;
 
 if (command === "power") {
-  if (global.help || !args[0]) {
+  if (!args[0]) {
     printPowerHelp();
     process.exit(0);
   }
@@ -96,13 +96,12 @@ if (!cmd) {
 }
 
 if (global.help) {
-  const lines = [`Usage: ${cmd.usage}`, "", cmd.description];
-  if (cmd.help) lines.push("", cmd.help);
-  if (cmd.examples?.length) {
-    lines.push("", "Examples:");
-    for (const ex of cmd.examples) lines.push(`  ${ex}`);
+  const help = commandHelp(cmd, resolvedArgs);
+  if (!help) {
+    process.stderr.write(`Unknown ${cmd.name} subcommand: ${resolvedArgs[0]}\nRun: ideaspaces ${cmd.name} --help\n`);
+    process.exit(1);
   }
-  process.stderr.write(lines.join("\n") + "\n");
+  process.stdout.write(help);
   process.exit(0);
 }
 

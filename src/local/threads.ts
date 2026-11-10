@@ -562,7 +562,7 @@ export function readCursor(thread: LocalThread, reader = PERSON_READER): Set<str
   return new Set((data as { seen: string[] }).seen);
 }
 
-export function acknowledge(thread: LocalThread, posts: ThreadPost[], reader = PERSON_READER): void {
+export function acknowledge(thread: LocalThread, posts: readonly { id: string }[], reader = PERSON_READER): void {
   const seen = readCursor(thread, reader);
   for (const post of posts) seen.add(post.id);
   const path = cursorPath(thread, reader);

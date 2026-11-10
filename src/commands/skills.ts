@@ -16,6 +16,8 @@ export const skillsCommand: CommandDef = {
   name: "skills",
   description: "List the skill catalog, print one skill, or sync space skills to .claude/skills",
   usage: "ideaspaces skills [<name>] | ideaspaces skills sync [--check]",
+  subcommands: { sync: "ideaspaces skills sync [--check]" },
+  helpArgument: () => true, // Other words are protocol skill names, not verbs.
   examples: [
     "ideaspaces skills",
     "ideaspaces skills capture",

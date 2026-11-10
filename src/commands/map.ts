@@ -53,6 +53,12 @@ export const mapCommand: CommandDef = {
   name: "map",
   description: "Display a curated Space Map (*.map.md) or derive a local Content Map",
   usage: `ideaspaces map [<folder|map-note>] [--depth <1..4|full>] [--json]\n       ideaspaces map <map-note> --orientation [--budget <chars>] [--json]\n       ${MAP_EDIT_USAGE}\n       ${MAP_SELECT_USAGE}`,
+  subcommands: {
+    ...Object.fromEntries(["create", "add", "remove"].map((verb) => [verb,
+      MAP_EDIT_USAGE.split("\n").map((line) => line.trim()).filter((line) => line.startsWith(`ideaspaces map ${verb} `)).join("\n       ")])),
+    select: MAP_SELECT_USAGE,
+  },
+  helpArgument: () => true, // A folder/Map name is also valid here.
   examples: [
     "ideaspaces map . --json",
     "ideaspaces map home.map.md --orientation",

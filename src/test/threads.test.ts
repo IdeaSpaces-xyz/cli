@@ -278,7 +278,7 @@ describe("local Threads", () => {
     const root = fixture(); process.env.HOME = root;
     const thread = createThread("disclosure", "Disclosure", root);
     writeFileSync(join(thread.path, "README.md"), "---\nname: Disclosure\nsummary: A decision\n---\n\n# Disclosure\n\n## Current frame\n\nToday we decide.\n");
-    writeFileSync(join(thread.path, "_agent/agreement.md"), "---\nname: Agreement — Disclosure\nsummary: A decision\n---\n\n# Agreement\n\n## Goal\n\nKeep it honest.\n\n## Done when\n\nOne reply is read.\n");
+    writeFileSync(join(thread.path, "_agent/agreement.md"), "---\nname: Agreement — Disclosure\nsummary: A decision\n---\n\n# Agreement\n\n## 3. Goal\n\nKeep it honest.\n\n## 6. Done when\n\nOne reply is read.\n");
     const first = appendPost(thread.path, { body: "Private opening", author: "Agent A", name: "Opening" });
     const second = appendPost(thread.path, { body: "Private reply", author: "Agent B", name: "Reply", summary: "A bounded decision", replyTo: [first.post.id] });
     const previous = process.cwd(); process.chdir(root);
@@ -307,6 +307,52 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["open", "disclosure"], { post: second.post.id, since: first.post.id }, global)).toBe(1);
       expect(await threadsCommand.run(["open", "disclosure"], { depth: "name", ack: true }, global)).toBe(1);
     } finally { process.stdout.write = write; process.chdir(previous); }
+  });
+
+  it("pages summary activity through folded marks, with a text count and usable cursor", async () => {
+    const root = fixture(); process.env.HOME = root;
+    const thread = createThread("activity", "Activity", root);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    let target: ReturnType<typeof appendPost>, before: ReturnType<typeof appendPost>, first: ReturnType<typeof appendPost>;
+    let mark: ReturnType<typeof appendPost>, last: ReturnType<typeof appendPost>;
+    try {
+      vi.setSystemTime(new Date("2026-11-09T10:00:00Z"));
+      target = appendPost(thread.path, { body: "Opening", name: "Target", author: "Scout" });
+      vi.setSystemTime(new Date("2026-11-09T10:00:01Z"));
+      before = appendPost(thread.path, { body: "Before", name: "Before" });
+      vi.setSystemTime(new Date("2026-11-09T10:00:02Z"));
+      first = appendPost(thread.path, { body: "First", name: "First" });
+      vi.setSystemTime(new Date("2026-11-09T10:00:03Z"));
+      mark = appendPost(thread.path, { body: "Claim", name: "Claim", kind: "mark", mark: "claimed", author: "Integrator", replyTo: [target.post.id] });
+      vi.setSystemTime(new Date("2026-11-09T10:00:04Z"));
+      last = appendPost(thread.path, { body: "Last", name: "Last" });
+    } finally { vi.useRealTimers(); }
+    const previous = process.cwd(); process.chdir(root);
+    const original = process.stdout.write; let text = "";
+    process.stdout.write = ((chunk: string) => { text += chunk; return true; }) as typeof process.stdout.write;
+    const global = { json: false, quiet: true, yes: false, help: false };
+    const open = async (since: string, limit: string) => {
+      text = "";
+      expect(await threadsCommand.run(["open", "activity"], { depth: "summary", since, limit }, global)).toBe(0);
+      return text;
+    };
+    try {
+      const page1 = await open(before.post.id, "2");
+      expect(page1).toContain(`${target.post.id} · post`);
+      expect(page1).toContain("marks: claimed (claimed by Integrator)");
+      expect(page1).toContain("Showing 2 of 3 matching posts.");
+      expect(page1).toContain(`Continue with --since ${mark.post.id} --order older.`);
+      const page2 = await open(mark.post.id, "2");
+      expect(page2).toContain(last.post.id);
+      expect(page2).not.toContain(`\n${target.post.id} · post`);
+      expect(page2).not.toContain("Showing 1 of 3");
+      const datePage = await open(first.post.date!, "10");
+      expect(datePage).toContain("marks: claimed (claimed by Integrator)");
+      text = "";
+      expect(await threadsCommand.run(["open", "activity"], { depth: "summary", limit: "1", order: "newer" }, global)).toBe(0);
+      expect(text).toContain("Showing 1 of 4 matching posts.");
+      expect(text).toContain("--order older");
+    } finally { process.stdout.write = original; process.chdir(previous); }
   });
 
   it("preserves exact frame and summary fields in JSON while marking shortened human text", async () => {

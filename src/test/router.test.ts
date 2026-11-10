@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findCommand_, printHelp } from "../router.js";
+import { commandHelp, findCommand_, printHelp } from "../router.js";
 
 describe("router", () => {
   it("exposes the local readiness doctor", () => {
@@ -41,8 +41,8 @@ describe("router", () => {
 
   it("registers every command name uniquely in help output", () => {
     const lines: string[] = [];
-    const origWrite = process.stderr.write;
-    (process.stderr.write as unknown as (s: string) => boolean) = (chunk: string | Uint8Array) => {
+    const origWrite = process.stdout.write;
+    (process.stdout.write as unknown as (s: string) => boolean) = (chunk: string | Uint8Array) => {
       lines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
       return true;
     };
@@ -53,7 +53,18 @@ describe("router", () => {
       const duplicates = commandNames.filter((name, idx) => commandNames.indexOf(name) !== idx);
       expect(duplicates).toEqual([]);
     } finally {
-      process.stderr.write = origWrite;
+      process.stdout.write = origWrite;
     }
+  });
+
+  it("prints verb-specific help and refuses invented verbs", () => {
+    const threads = findCommand_("threads")!;
+    expect(commandHelp(threads, ["open"])).toContain("Usage: ideaspaces threads open <slug|path>");
+    expect(commandHelp(threads, ["open"])).not.toContain("ideaspaces threads post <slug|path>");
+    expect(commandHelp(threads, ["imaginary"])).toBeUndefined();
+    expect(commandHelp(findCommand_("agent")!, ["run"])).toContain("Usage: ideaspaces agent run");
+    expect(commandHelp(findCommand_("spaces")!, ["import"])).toContain("Usage: ideaspaces spaces import");
+    expect(commandHelp(findCommand_("map")!, ["home.map.md"])).toContain("Usage: ideaspaces map [<folder|map-note>]");
+    expect(commandHelp(findCommand_("look")!, ["notes/a.md"])).toContain("Usage: ideaspaces look");
   });
 });

@@ -34,9 +34,9 @@ describe("retired subscription commands", () => {
     expect(loadConfig).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
   });
   it("neither advertises follow commands nor exports subscription API helpers", () => {
-    const err = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const out = vi.spyOn(process.stdout, "write").mockReturnValue(true);
     printHelp();
-    const help = err.mock.calls.map(c => c[0]).join("");
+    const help = out.mock.calls.map(c => c[0]).join("");
     for (const command of [followCommand, unfollowCommand]) {
       expect(command.help).toContain("No request was sent");
       expect(command.description).toContain("Retired");

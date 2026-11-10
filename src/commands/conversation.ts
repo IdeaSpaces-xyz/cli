@@ -201,6 +201,13 @@ export function makeConversationCommand(local: LocalConversationOps): CommandDef
     name: "conversation",
     description: "Create and run a private conversation",
     usage: USAGE,
+    subcommands: {
+      new: "ideaspaces conversation new <repo_id> [--name <text>] [--agent <node_id>]",
+      send: "ideaspaces conversation send <repo_id> <conversation_id> --message <text>\n       ideaspaces conversation send --local --context <path> --conversation <id> --message <text> [--runtime pi|claude] [--map <note>] [--ext <paths>] [--skill <dirs>] [--pi-bin <path>] [--pi-model <name>] [--pi-thinking <level>] [--pi-trust saved|explicit] [--claude-bin <path>] [--claude-model <name>] [--claude-effort <level>] [--permission-mode <mode>] [--read-only] [--reach <dir> ...] [--autocompact <window>] [--working-root <path>] [--focus <path>] [--session-dir <dir>]",
+      get: "ideaspaces conversation get <repo_id> <conversation_id>",
+      cancel: "ideaspaces conversation cancel <repo_id> <conversation_id>",
+      compact: "ideaspaces conversation compact --local --context <path> --conversation <id> [--runtime pi|claude]",
+    },
     examples: [
       "ideaspaces conversation new repo_abc --name 'Kickoff'",
       "ideaspaces conversation new repo_abc --agent agent_node_xyz  # pick the agent",

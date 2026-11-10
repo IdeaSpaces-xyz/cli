@@ -190,7 +190,7 @@ describe("the background check command", () => {
     try {
       expect(findCommand_("__update-check")).toBe(updateCheckCommand);
       const help: string[] = [];
-      const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => { help.push(String(chunk)); return true; });
+      const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => { help.push(String(chunk)); return true; });
       printHelp();
       spy.mockRestore();
       expect(help.join("")).toContain("upgrade");

@@ -202,6 +202,16 @@ export const requestCommand: CommandDef = {
   name: "request",
   description: "Ask for access to shared Content, and list, approve or decline requests",
   usage: REQUEST_USAGE,
+  subcommands: {
+    ask: "ideaspaces request ask <node_id> [--grade viewer|editor|copying] [--reason <text>]",
+    list: "ideaspaces request list [--incoming|--mine]",
+    incoming: "ideaspaces request incoming",
+    approve: "ideaspaces request approve <request_id> [--grade viewer|editor|copying]",
+    deny: "ideaspaces request deny <request_id>",
+    decline: "ideaspaces request decline <request_id>",
+    cancel: "ideaspaces request cancel <request_id>",
+  },
+  helpArgument: (word) => /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/.test(word),
   examples: [
     "ideaspaces request n_0123456789abcdef01234567 --grade viewer --reason 'Need to review finding'",
     "ideaspaces request list",

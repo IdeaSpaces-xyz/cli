@@ -14,6 +14,10 @@ export interface CommandDef {
   description: string;
   usage: string;
   examples?: string[];
+  /** Help-only usage per verb. Never execute a command to answer --help. */
+  subcommands?: Record<string, string>;
+  /** Mixed commands may also take a path, id or skill name in the verb slot. */
+  helpArgument?: (word: string) => boolean;
   /** Longer reference shown by `--help` after the description (e.g. a query syntax). */
   help?: string;
   run(args: string[], flags: Record<string, string | boolean>, global: GlobalFlags): Promise<number>;

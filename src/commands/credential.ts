@@ -25,6 +25,7 @@ export const credentialCommand: CommandDef = {
   description:
     "Git credential helper (invoked by git — usually not run directly)",
   usage: "ideaspaces credential <get|store|erase>",
+  subcommands: Object.fromEntries(["get", "store", "erase"].map((verb) => [verb, `ideaspaces credential ${verb}`])),
   async run(args) {
     const action = args[0];
 

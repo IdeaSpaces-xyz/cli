@@ -61,8 +61,8 @@ try {
   if (result.status !== 0) {
     throw new Error(result.stderr || `Installed CLI exited ${result.status}`);
   }
-  // Human-readable CLI output goes to stderr so --json can reserve stdout.
-  if (!result.stderr.includes("Usage: ideaspaces <command> [options]") || !result.stderr.includes("look")) {
+  // Explicitly requested help is primary output; errors remain on stderr.
+  if (result.stderr || !result.stdout.includes("Usage: ideaspaces <command> [options]") || !result.stdout.includes("look")) {
     throw new Error("Installed CLI did not render the expected help output.");
   }
 
@@ -82,8 +82,26 @@ try {
     shell: process.platform === "win32",
   });
   if (sectionHelp.error) throw sectionHelp.error;
-  if (sectionHelp.status !== 0 || !sectionHelp.stderr.includes("Usage: ideaspaces status account")) {
+  if (sectionHelp.status !== 0 || sectionHelp.stderr || !sectionHelp.stdout.includes("Usage: ideaspaces status account")) {
     throw new Error("Installed CLI did not route `status account --help` to the section.");
+  }
+
+  const verbHelp = spawnSync(executablePath, ["threads", "open", "--help"], {
+    encoding: "utf8", shell: process.platform === "win32",
+  });
+  if (verbHelp.error) throw verbHelp.error;
+  if (verbHelp.status !== 0 || verbHelp.stderr ||
+      !verbHelp.stdout.includes("Usage: ideaspaces threads open <slug|path>") ||
+      verbHelp.stdout.includes("ideaspaces threads post <slug|path>")) {
+    throw new Error("Installed CLI did not render threads open's own help on stdout.");
+  }
+  const unknownVerb = spawnSync(executablePath, ["threads", "not-a-verb", "--help"], {
+    encoding: "utf8", shell: process.platform === "win32",
+  });
+  if (unknownVerb.error) throw unknownVerb.error;
+  if (unknownVerb.status !== 1 || unknownVerb.stdout ||
+      !unknownVerb.stderr.includes("Unknown threads subcommand")) {
+    throw new Error("Installed CLI treated an unknown Threads verb as supported.");
   }
 
   const lookRoot = join(temp, "look-fixture");

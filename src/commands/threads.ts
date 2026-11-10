@@ -98,7 +98,7 @@ function clip(text: string, bytes: number, marker = "… [shortened; read the ex
   return result + marker;
 }
 function threadSection(markdown: string, heading: string): string | undefined {
-  const match = new RegExp(`^## ${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
+  const match = new RegExp(`^## (?:\\d+\\.\\s+)?${heading}\\s*\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`, "m").exec(markdown);
   return match?.[1]?.trim() || undefined;
 }
 function threadFrame(thread: LocalThread) {
@@ -289,10 +289,31 @@ function writerName(explicit?: string): string {
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|init|push> ...",
+  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|check|init|push|capabilities> ...",
   help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.\n\n" +
     "launch-text builds the text a session starts with when it is launched from a post of a local Thread. The frame is that Thread as it is now: its Agreement in full, its newest Map (the newest snapshot that carries one, else the opening post's), and one line per post written since that Map. The Note, a member of the Map, is loaded whole, pinned in its own Thread; any other Thread's Agreement is one line and where to read it. " +
     "A launch is never refused for size: Map members are lowered, then dropped from the last up, and the posts-since lines and the Thread's Agreement give way before the Note does. What did not arrive whole is named, with where to read it. --budget lowers the Map's character budget; the whole text is still held to 16 KiB in bytes. Reads the Note at its authored pin and writes nothing.",
+  subcommands: {
+    capabilities: "ideaspaces threads capabilities --json",
+    list: "ideaspaces threads list [<directory>] [--depth name|summary|full] [--new|--unread] [--hosted] [--limit <n>] [--cursor <cursor>] [--reader <name>]",
+    recent: "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit <n>]",
+    ...Object.fromEntries(["open", "read"].map((verb) => [verb,
+      `ideaspaces threads ${verb} <slug|path> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|activity-id>] [--limit <n>] [--order older|newer] [--new] [--ack] [--reader <name>] [--agreement summary|full] [--map <file> --member <n> [--checkout <root>]] [--pin <sha> --position <path>]\n       ideaspaces threads ${verb} x_<id> [--limit <n>] [--cursor <cursor>]`])),
+    new: "ideaspaces threads new <slug> --about <title> [--attached-to <post>] [--map <file>]\n       ideaspaces threads new --hosted --name <title> --summary <text> --message <text> [--home map:<id>] [--recipients <handles-or-emails>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    post: "ideaspaces threads post <slug|path> --message <text> [--reply-to <id>] [--kind <kind>] [--mark <value>] [--supersedes <id>] [--author <name>] [--name <title>] [--summary <text>] [--tags <labels>] [--map <file> [--member <n> --checkout <root>]] [--no-check-links]\n       ideaspaces threads post x_<id> --message <text> [--reply-to <id>] [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    send: "ideaspaces threads send <@handle|email> --name <title> --summary <text> --message <text> [--home map:<id>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    reply: "ideaspaces threads reply x_<id> --reply-to <id> --message <text> [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    ack: "ideaspaces threads ack <slug|path> --through <id|latest> [--reader <name>]\n       ideaspaces threads ack --recent <cursor> [--reader <name>]\n       ideaspaces threads ack x_<id> (--cursor <cursor>|--seq <n>)",
+    close: "ideaspaces threads close <slug|path> --message <text> [--reply-to <id>] [--author <name>] [--name <title>] [--summary <text>] [--map <file>]\n       ideaspaces threads close x_<id> --message <text> [--post-id <id>] [--yes]",
+    rename: "ideaspaces threads rename x_<id> --name <title> --summary <text> --message <text> [--post-id <id>]",
+    locate: "ideaspaces threads locate <opening-id> <space-root> [<space-root> ...]",
+    "launch-text": "ideaspaces threads launch-text <slug|path> --post <id> [--member <n>] [--pov <agent-folder>] [--budget <chars>] [--json]",
+    attach: "ideaspaces threads attach <slug|path> <post> --message <text> [--author <name>]",
+    render: "ideaspaces threads render <slug|path>",
+    check: "ideaspaces threads check [<slug|path>] [--strict]",
+    init: "ideaspaces threads init",
+    push: "ideaspaces threads push --remote <team-remote>",
+  },
   examples: [
     "ideaspaces threads capabilities --json  # integrations refuse a stale CLI before any remote call",
     "ideaspaces threads list [--new|--unread]  # local Threads plus all accessible hosted Threads; Unread is the web's count",
@@ -605,15 +626,36 @@ export const threadsCommand: CommandDef = {
         if (postId && (newOnly || since || limit !== undefined || order)) throw new Error("--post selects one immutable post; omit --new, --since, --limit and --order, which select a range.");
         const reader = readerName(str(flags, "reader"));
         const seen = newOnly ? readCursor(stored, reader) : new Set<string>();
-        let posts = stored.posts.filter((p) => !seen.has(p.id));
+        // File names can tie within a millisecond. Keep causally reconstructed
+        // post order on ties; fold same-timestamp marks after posts so a --since
+        // post read never drops a newer mark behind its target.
+        const postOrder = new Map(stored.posts.map((post, index) => [post.id, index]));
+        const events = [...stored.allPosts].sort((a, b) =>
+          (a.date ?? "").localeCompare(b.date ?? "") ||
+          Number(a.kind === "mark") - Number(b.kind === "mark") ||
+          (postOrder.get(a.id) ?? 0) - (postOrder.get(b.id) ?? 0));
+        const activity = new Map(events.map((post, index) => [post.id, index]));
+        const lastActivity = (post: LocalThread["posts"][number]) =>
+          [post.id, ...(post.marks ?? []).map((mark) => mark.id)]
+            .reduce((last, id) => (activity.get(id) ?? -1) > (activity.get(last) ?? -1) ? id : last, post.id);
+        // A summary is an activity page: a folded mark brings its target into
+        // the range even when that target predates --since. Page by that activity
+        // (the mark id), not the older target, or the next page repeats forever.
+        const timeline = rung === "summary"
+          ? [...stored.posts].sort((a, b) => activity.get(lastActivity(a))! - activity.get(lastActivity(b))!)
+          : stored.posts;
+        let posts = timeline.filter((p) => !seen.has(p.id) || rung === "summary" && p.marks?.some((m) => !seen.has(m.id)));
         if (since) {
-          const at = stored.posts.findIndex((p) => p.id === since);
+          const at = (rung === "summary" ? events : stored.posts).findIndex((p) => p.id === since);
           // --since post-id is exclusive in the Thread's deterministic post order.
-          if (at !== -1) posts = stored.posts.slice(at + 1);
+          if (at !== -1) posts = rung === "summary"
+            ? timeline.filter((p) => activity.get(lastActivity(p))! > at)
+            : stored.posts.slice(at + 1);
           else if (/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(since) && !Number.isNaN(Date.parse(since))) {
             const undated = posts.filter((p) => !p.date).length;
             if (undated) output.log(`${undated} undated post(s) in Thread ${thread.slug} cannot be compared to --since ${since}; omitted.`);
-            posts = posts.filter((p) => p.date && Date.parse(p.date) > Date.parse(since));
+            posts = posts.filter((p) => [p, ...(rung === "summary" ? p.marks ?? [] : [])]
+              .some((event) => event.date && Date.parse(event.date) > Date.parse(since)));
           } else throw new Error(`--since needs a post id in this Thread or a valid ISO date: ${since}`);
         }
         // Count the entire selected range before the surface head moves it.
@@ -662,7 +704,7 @@ export const threadsCommand: CommandDef = {
         }
         const pinned = pin && position ? readPinnedThreadMember(threadBase(), pin, position) : undefined;
         if (pinned && parseThreadPost(pinned).status !== "valid" && !position?.endsWith("README.md")) throw new Error("Pinned post is invalid.");
-        if (ack) acknowledge(stored, posts, reader);
+        if (ack) acknowledge(stored, [...posts, ...posts.flatMap((p) => p.marks ?? [])], reader);
         // Selection and the cursor are done on what was written; from here the posts are only printed.
         posts = posts.map(displayPost);
         const effectiveRung = postId ? "full" : rung;
@@ -725,10 +767,18 @@ export const threadsCommand: CommandDef = {
         // A name read orients: the Agreement line stays, the Space's skills do not, and the CLI has no session to show them once.
         const focus = reference?.status === "ok" && effectiveRung === "name" ? { ...reference, skills: [] } : reference;
         if (focus?.status === "ok") humanText = `${renderContentFocus(focus)}\n\n${humanText}`;
-        if (effectiveRung === "full" && !postId && posts.length < totalMatching) {
-          const cursor = posts.at(-1)?.id;
-          humanText += `\n\nShowing ${posts.length} of ${totalMatching} matching posts. ${order === "newer" ? "For forward paging, switch to --order older." : cursor ? `Continue with --since ${cursor} --order older.` : "Narrow the range with --since."}`;
+        if (!postId && ["summary", "surface", "full"].includes(effectiveRung) && posts.length < totalMatching) {
+          const last = posts.at(-1);
+          // A surface is a head plus tail, not a contiguous page. Restart an
+          // oldest-first summary to avoid silently skipping its middle.
+          const cursor = last && effectiveRung !== "surface" && order !== "newer"
+            ? effectiveRung === "summary" ? lastActivity(last) : last.id : undefined;
+          const next = cursor ? `Continue with --since ${cursor} --order older.`
+            : "Read the complete range with --depth summary --order older --limit 50; then continue with --since <last activity id>.";
+          humanText += `\n\nShowing ${posts.length} of ${totalMatching} matching posts. ${next}`;
         }
+        const nextActivity = effectiveRung === "summary" && posts.length ? lastActivity(posts.at(-1)!) : undefined;
+        if (nextActivity && posts.at(-1)?.id !== nextActivity) humanText += `\nLast activity: ${nextActivity} (folded mark; use this id with --since).`;
         output.result({ schema: "ideaspaces.local-thread.open.v4", ...(focus?.status === "ok" ? { reference: focus } : {}), ...(referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {}), thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
           closed: thread.closed, parent, warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
           ...(share ? { share: shareJson(share) } : {}), author_trust: "claimed", author_note: AUTHOR_CLAIM_NOTE,
@@ -738,7 +788,7 @@ export const threadsCommand: CommandDef = {
           ...(effectiveRung === "children" || postId ? { child_threads: childThreads, child_threads_total: allChildThreads.length, child_threads_complete: childWarnings === 0 } : {}),
           ...(effectiveRung === "children" ? { branches, branches_total: allBranches.length } : {}),
           ...(rawPost ? { raw_post: rawPost } : {}),
-          ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), shown: posts.length, matching: totalMatching, acknowledged: ack },
+          ...(pinned ? { pinned: effectiveRung === "full" ? pinned : undefined, pin, position } : {}), shown: posts.length, matching: totalMatching, ...(nextActivity ? { last_activity_id: nextActivity } : {}), acknowledged: ack },
           humanText); return 0;
       }
       if (sub === "attach") {
