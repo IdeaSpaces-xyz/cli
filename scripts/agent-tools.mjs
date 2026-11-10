@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { sourceCommit } from "./source-commit.mjs";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { buildCatalog } from "../dist/agent-tools/catalog.js";
 
@@ -9,11 +9,10 @@ export function generateCatalog() {
   const protocol = lock.packages["node_modules/@ideaspaces/protocol"];
   const protocolCommit = protocol.resolved.split("#").at(-1);
   if (!/^[a-f0-9]{40}$/.test(protocolCommit)) throw new Error("Catalog needs an exact protocol commit from the lockfile");
-  // Source provenance, not the later artifact-only commit or merge-group commit.
-  // CI checks out full history so this remains reproducible in PRs and the queue.
+  // Source provenance, not the later artifact-only commit or merge-group commit. CI checks out full
+  // history; a copy without it keeps the committed record (see source-commit.mjs).
   const sourcePaths = ["src", "scripts", "build.mjs", "package.json", "package-lock.json", "tsconfig.json"];
-  const commit = execFileSync("git", ["log", "-1", "--format=%H", "--", ...sourcePaths], { encoding: "utf8" }).trim();
-  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error("Catalog needs a Git source commit; build from a checkout");
+  const commit = sourceCommit(sourcePaths, { version: pkg.version });
   const catalog = buildCatalog({ version: pkg.version, commit }, { version: protocol.version, commit: protocolCommit });
   const schema = JSON.parse(readFileSync("src/agent-tools/agent-tools.schema.json", "utf8"));
   const validate = new Ajv2020({ strict: false, allErrors: true }).compile(schema);

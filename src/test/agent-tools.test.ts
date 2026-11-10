@@ -120,4 +120,9 @@ describe("agent tool contract data", () => {
     expect(allowedFlags("threads.post", "local").has("kind")).toBe(true);
     expect(entries.find(e => e.id === "commit")?.parameters.properties?.all.description).toContain("NOT this session");
   });
+
+  it("accepts --if-match on map add, which the Desktop engine sends for a compare-and-set Map edit", () => {
+    expect(catalogFlagError("map", ["add", "m.map.md", "thread:x_1"], { "if-match": "abc" })).toBeUndefined();
+    expect(catalogFlagError("map", ["add", "m.map.md", "thread:x_1"], { "if-mach": "abc" })).toContain("--if-mach");
+  });
 });
