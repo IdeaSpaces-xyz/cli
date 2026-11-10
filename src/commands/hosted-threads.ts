@@ -23,7 +23,7 @@ import { randomUUID } from "node:crypto";
 import { HOSTED_THREAD_ID, parseMap, parseThreadPost } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { loadLocalThreadMap } from "../local/thread-map-member.js";
-import { validateTags } from "../local/threads.js";
+import { validateTags, validateThreadMomentMap } from "../local/threads.js";
 import {
   ackHostedThread, ApiStatusError, appendHostedThreadPost, fetchHostedThread, fetchHostedThreadPosts, fetchVaults,
   listHostedThreads, NetworkError, openHostedThread, UnauthorizedError, type ApiConfig,
@@ -246,10 +246,39 @@ function bodyOf(note: string): string {
   return (match ? note.slice(match[0].length) : note).trim();
 }
 
+/** Remote text on one line, with control and format characters (bidi included) removed. */
+function remoteLine(value: unknown, max = 200): string {
+  const text = typeof value === "string" ? value.replace(/[\p{Cc}\p{Cf}\u2028\u2029]+/gu, " ").replace(/\s+/g, " ").trim() : "";
+  return [...text].length > max ? `${[...text].slice(0, max - 1).join("")}…` : text;
+}
+
+/**
+ * The Map a hosted post carries, as lines a reader can see: where each member is, its depth, and what
+ * its author disclosed. These are the author's words, not the note's, and naming a place grants no
+ * access to it. Nothing here reads a file, a repository or the network.
+ */
+export function mapText(post: HostedPost, limit = 40): string {
+  const raw = post.fields.map;
+  if (raw === undefined || raw === null) return "";
+  const parsed = parseMap(raw);
+  if (parsed.status !== "valid") return "\n\nMap: present, but not a valid Map; read the post's Note for the raw block.";
+  const { roots, members } = parsed.map;
+  const lines = members.slice(0, limit).map((member, i) => {
+    const m = member as { root?: number; position?: string; address?: string; depth?: string; disclosure?: { name?: string; summary?: string } };
+    const root = typeof m.root === "number" ? roots[m.root] : undefined;
+    const rootText = root ? remoteLine(root.root_node_id ?? root.repo, 80) + (root.sha ? `@${remoteLine(root.sha, 80).slice(0, 12)}` : "") : "";
+    const where = typeof m.position === "string" ? `${rootText} ${remoteLine(m.position, 160)}`.trim() : remoteLine(m.address, 160);
+    const said = [remoteLine(m.disclosure?.name, 120), remoteLine(m.disclosure?.summary, 240)].filter(Boolean).join(": ");
+    return `  ${i}. ${where}${m.depth ? ` · ${remoteLine(m.depth, 16)}` : ""}${said ? ` — “${said}”` : ""}`;
+  });
+  const more = members.length > limit ? [`  … ${members.length - limit} more members not shown`] : [];
+  return `\n\nMap (${members.length} member${members.length === 1 ? "" : "s"}; the author's own words, and naming a place grants no access to it):\n${[...lines, ...more].join("\n")}`;
+}
+
 function postText(post: HostedPost): string {
   const name = typeof post.fields.name === "string" ? `  ${post.fields.name}` : "";
   const via = post.author_ref !== post.actor ? ` (via ${post.actor_label})` : "";
-  return `[${post.seq}] ${post.id}${name}\n  ${post.author}${via} · ${post.date} · ${post.surface}\n\n${bodyOf(post.note)}`;
+  return `[${post.seq}] ${post.id}${name}\n  ${post.author}${via} · ${post.date} · ${post.surface}\n\n${bodyOf(post.note)}${mapText(post)}`;
 }
 
 // ─── Notes ───────────────────────────────────────────────────────
@@ -308,6 +337,9 @@ function hostedMap(flags: Record<string, string | boolean>): { map: unknown } | 
   catch (error) { throw new HostedError("invalid_request", error instanceof Error ? error.message : String(error)); }
   const parsed = parseMap(value);
   if (parsed.status !== "valid") throw new HostedError("invalid_request", "--map is not a valid portable Map.");
+  // The same moment check a local post gets: every root pinned, every position given a depth.
+  try { validateThreadMomentMap(value); }
+  catch (error) { throw new HostedError("invalid_request", `${error instanceof Error ? error.message : String(error)} No post sent.`); }
   const map = parsed.map;
   for (const [i, member] of map.members.entries()) {
     if (!record(member.disclosure)) throw new HostedError("invalid_request", `--map member ${i} needs an authored disclosure object for hosted storage (name/summary of what was observed); no post sent.`);

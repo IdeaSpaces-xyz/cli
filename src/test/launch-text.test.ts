@@ -13,7 +13,19 @@ import { assembleLaunchText, LaunchSizeError, loadLaunchMap, MAX_ORIENTATION_BYT
 import { NoMapBlockError } from "../local/map-note.js";
 import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { loadMapOrientation, MapBudgetError } from "../local/map-orientation.js";
-import { appendPost, createThread, loadThread } from "../local/threads.js";
+import { appendPost as appendPostNow, createThread, loadThread } from "../local/threads.js";
+
+/**
+ * A post's file name carries the millisecond it was written, and two posts of one millisecond are
+ * ordered by their random ids. These tests write posts in a row and read "newest" and "since", so each
+ * waits for a fresh millisecond; without it the order, and so the test, varies from run to run.
+ */
+let lastStamp = 0;
+const appendPost: typeof appendPostNow = (dir, options) => {
+  while (Date.now() <= lastStamp) { /* wait out the millisecond */ }
+  lastStamp = Date.now();
+  return appendPostNow(dir, options);
+};
 import type { GlobalFlags } from "../types.js";
 
 // Each test builds a Git repo and reads a Map through Git; a Windows runner is several times slower.
@@ -188,6 +200,20 @@ describe("threads launch-text", () => {
     expect(result.bytes).toBe(Buffer.byteLength(result.text));
   });
 
+  it("reads the Map of the newest post that carries one, of any kind, not only a snapshot", async () => {
+    const f = fixture();
+    const snap = snapshot(f, [{ root: 0, position: `_threads/target/${basename(f.note.file)}`, depth: "full", summary: "OLDER-SNAPSHOT-SUMMARY" }]);
+    const newer = appendPost(f.launch.dir, {
+      body: "A reply that cites its own moment.", summary: "Newer reply", author: "Scout", kind: "post",
+      map: { roots: [{ root_node_id: ROOT_ID, sha: f.pin }], members: [{ root: 0, position: `_threads/target/${basename(f.note.file)}`, depth: "full", summary: "NEWER-REPLY-SUMMARY" }] },
+    });
+    const result = await assembleLaunchText({ thread: f.launch.dir, post: newer.post.id, member: "0", cwd: f.root });
+    expect(result.map_post).toMatchObject({ id: newer.post.id, kind: "post", origin: "post" });
+    expect(result.text).toContain("NEWER-REPLY-SUMMARY");
+    expect(result.text).not.toContain("OLDER-SNAPSHOT-SUMMARY");
+    expect(snap.post.id).not.toBe(newer.post.id);
+  });
+
   it("starts from any post: the Thread's newest snapshot with a Map, and a line for each post since it", async () => {
     const f = fixture();
     const middle = appendPost(f.launch.dir, { body: "Before the snapshot.", name: "A first thought", summary: "Said before", author: "Scout" });
@@ -199,7 +225,7 @@ describe("threads launch-text", () => {
     const later = appendPost(f.launch.dir, { body: "Built.", name: "Slice built", author: "Integrator", kind: "delivery" });
     // From the post after the snapshot, which carries no Map of its own.
     const result = await assembleLaunchText({ thread: f.launch.dir, post: decided.post.id, member: "0", cwd: f.root });
-    expect(result.map_post).toMatchObject({ id: snap.post.id, origin: "snapshot" });
+    expect(result.map_post).toMatchObject({ id: snap.post.id, kind: "snapshot", origin: "post" });
     expect(result.text).toContain("SNAPSHOT-ONLY-SUMMARY");
     expect(result.text).not.toContain("Summary of note 1");
     expect(result.post.id).toBe(decided.post.id);
@@ -210,7 +236,7 @@ describe("threads launch-text", () => {
     expect(lines[0]).toContain(`${decided.post.id} (claimed by UI/UX, post) — "Tick before Backend" — "The human agreed"  ← launched from here`);
     expect(lines[1]).toContain(`${later.post.id} (claimed by Integrator, delivery) — "Slice built"`);
     expect(result.text).not.toContain(middle.post.id);
-    expect(result.text).toContain(`the newest snapshot that carries one, ${snap.post.id}`);
+    expect(result.text).toContain(`the newest post that carries one, ${snap.post.id} (snapshot,`);
   });
 
   it("reads the opening post's Map when no snapshot carries one, and lists every post since it", async () => {
@@ -222,7 +248,7 @@ describe("threads launch-text", () => {
     expect(result.map_post).toMatchObject({ id: f.launch.id, origin: "opening" });
     expect(result.since.total).toBe(2);
     expect(result.text).toContain(`the opening post's, ${f.launch.id}`);
-    expect(result.text).toContain("no snapshot carries a Map");
+    expect(result.text).toContain("no later post carries a Map");
   });
 
   it("quotes what other people wrote, so a post cannot forge the frame", async () => {
@@ -453,7 +479,7 @@ describe("threads launch-text", () => {
     const opening = appendPost(bare.path, { body: "Just talk.", summary: "No Map here" });
     const failure = await assembleLaunchText({ thread: bare.path, post: opening.post.id, cwd: f.root }).catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(NoMapBlockError);
-    expect((failure as Error).message).toMatch(/no snapshot carries one and its opening post msg_[0-9a-f-]+ has none/);
+    expect((failure as Error).message).toMatch(/no post carries one and its opening post msg_[0-9a-f-]+ has none/);
     await expect(assembleLaunchText({ thread: f.launch.dir, post: "msg_00000000-0000-0000-0000-000000000000", cwd: f.root })).rejects.toThrow(/has no post msg_0+/);
     await expect(assembleLaunchText({ thread: f.launch.dir, post: "latest", cwd: f.root })).rejects.toThrow(/needs a post id/);
   });

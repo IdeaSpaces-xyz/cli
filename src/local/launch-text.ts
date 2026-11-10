@@ -143,8 +143,8 @@ export interface LaunchText {
   thread: { slug: string; path: string };
   /** The post the session starts from. */
   post: { id: string; path: string };
-  /** The post whose Map was read: the Thread's newest snapshot that carries one, else its opening post. */
-  map_post: { id: string; path: string; origin: "snapshot" | "opening" };
+  /** The post whose Map was read: the Thread's newest post that carries one, of any kind, else its opening post. */
+  map_post: { id: string; path: string; kind: string; origin: "post" | "opening" };
   /** Posts written after the Map's post: how many, and how many the frame lists. */
   since: { total: number; listed: number };
   /** The post this launch loads whole, with its Thread pinned: a member of the Map. */
@@ -313,7 +313,7 @@ export async function assembleLaunchText(input: LaunchTextInput): Promise<Launch
     max_bytes: MAX_ORIENTATION_BYTES,
     thread: { slug: holder.slug, path: directory },
     post: { id: started.id, path: startedFile },
-    map_post: { id: source.post.id, path: source.file, origin: source.origin },
+    map_post: { id: source.post.id, path: source.file, kind: source.post.kind, origin: source.origin },
     since: { total: since.length, listed: since.length - frame.omittedSince },
     note: {
       thread: pinned.receipt.thread,

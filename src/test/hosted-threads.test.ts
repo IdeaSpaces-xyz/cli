@@ -712,6 +712,55 @@ describe("Inbox removal: all hosted operations use /threads", () => {
   });
 });
 
+const ROOT = "n_" + "c".repeat(24);
+const SHA = "d".repeat(40);
+const hostedMapFlags = (map: unknown) => ({ hosted: true, name: "Map", summary: "Why", message: "Opening", map: JSON.stringify(map) });
+
+it("holds a hosted --map to the moment check: every root pinned, every position given a depth, before any request", async () => {
+  const disclosure = { name: "A note", summary: "What it says" };
+  expect(await threads(["new"], hostedMapFlags({ roots: [{ root_node_id: ROOT }], members: [{ root: 0, position: "docs/a.md", depth: "summary", disclosure }] }))).toBe(1);
+  expect(json().error.message).toMatch(/root 0 .* has no SHA\. Pin the root.* No post sent\./);
+  expect(await threads(["new"], hostedMapFlags({ roots: [{ root_node_id: ROOT, sha: SHA }], members: [{ root: 0, position: "docs/a.md", disclosure }] }))).toBe(1);
+  expect(json().error.message).toMatch(/position member 0 has no depth ceiling.* No post sent\./);
+  expect(calls).toEqual([]);
+});
+
+it("accepts a pinned hosted Map whose positions have depths", async () => {
+  const map = { roots: [{ root_node_id: ROOT, sha: SHA }], members: [{ root: 0, position: "docs/a.md", depth: "summary", disclosure: { name: "A note", summary: "What it says" } }] };
+  serve({ "POST /api/v1/threads": call => ({ status: 201, body: { ...fixture("thread-posts-latest").posts[0], thread_id: T, post_id: "msg_open", seq: 1, note: JSON.parse(call.body!).note } }) });
+  expect(await threads(["new"], { ...hostedMapFlags(map), "post-id": "msg_open" })).toBe(0);
+  expect(calls.map(path)).toEqual(["POST /api/v1/threads"]);
+});
+
+describe("threads open x_… shows a post's Map", () => {
+  const withMap = (map: unknown) => {
+    const page = fixture("thread-posts-latest");
+    page.posts[0] = { ...page.posts[0], fields: { ...page.posts[0].fields, map } };
+    serve({ [`GET /api/v1/threads/${T}`]: "thread-head", [`GET /api/v1/threads/${T}/posts`]: () => ({ status: 200, body: page }) });
+  };
+  it("lists each member's place, depth and disclosure as the author's words, in the text view and the JSON", async () => {
+    withMap({ roots: [{ root_node_id: ROOT, sha: SHA }], members: [
+      { root: 0, position: "docs/a.md", depth: "summary", disclosure: { name: "A note", summary: "What it says" } },
+      { address: "https://example.org/context", depth: "summary", disclosure: { name: "Context\u202e", summary: "Observed link" } },
+    ] });
+    expect(await threads(["open", T], { limit: "2" }, TEXT_FLAGS)).toBe(0);
+    expect(stdout).toContain("Map (2 members; the author's own words, and naming a place grants no access to it):");
+    expect(stdout).toContain(`0. ${ROOT}@${"d".repeat(12)} docs/a.md · summary — “A note: What it says”`);
+    expect(stdout).toContain("1. https://example.org/context · summary — “Context: Observed link”");
+    expect(stdout).not.toContain("\u202e");
+    expect(await threads(["open", T], { limit: "2" })).toBe(0);
+    expect(json().posts[0].fields.map.members).toHaveLength(2);
+  });
+  it("says so when a post's Map is not a valid Map, and shows nothing for a post without one", async () => {
+    withMap({ roots: "nope" });
+    expect(await threads(["open", T], { limit: "2" }, TEXT_FLAGS)).toBe(0);
+    expect(stdout).toContain("Map: present, but not a valid Map");
+    serve({ [`GET /api/v1/threads/${T}`]: "thread-head", [`GET /api/v1/threads/${T}/posts`]: "thread-posts-latest" });
+    expect(await threads(["open", T], { limit: "2" }, TEXT_FLAGS)).toBe(0);
+    expect(stdout).not.toContain("Map");
+  });
+});
+
 it("requires the service Map disclosure profile before sending, never fabricating observed fields", async () => {
   expect(await threads(["new"], { hosted: true, name: "Map", summary: "Why", message: "Opening", map: JSON.stringify({ roots: [], members: [{ address: "https://example.org", depth: "summary" }] }) })).toBe(1);
   expect(json().error.message).toContain("authored disclosure");
