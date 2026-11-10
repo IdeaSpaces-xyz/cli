@@ -13,7 +13,7 @@ import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, attachThread, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, threadsDirectory, NoAgreementError,
-  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, validateMarkOptions, validateThreadMomentMap,
+  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, earliestLocalActivity, attachmentText, validateMarkOptions, validateThreadMomentMap,
   isHostedThreadTarget, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { claimedBy, markText, singleLine } from "../local/claims.js";
@@ -62,6 +62,24 @@ function activityOf(row: { latest_activity_at?: string | null; last_post_at?: st
   return Number.isNaN(at) ? 0 : at;
 }
 
+/** Who a Thread belongs to: the README names someone (`owner:`/`holder:`, "Held by X" in the summary, or a `Holder:` line), else whoever opened it. */
+export function threadOwner(thread: LocalThread): { owner: string | null; owner_source: "readme" | "opening_post" | null } {
+  const fm = parseFrontmatter(thread.readme) ?? {};
+  const clean = (value: string) => value.replace(/[*_`]/g, "").trim();
+  for (const key of ["owner", "holder"]) {
+    const value = fm[key];
+    if (typeof value === "string" && clean(value)) return { owner: clean(value), owner_source: "readme" };
+  }
+  const summary = typeof fm.summary === "string" ? fm.summary : "";
+  const held = /\bHeld by ([\w/-]+)/.exec(summary);
+  if (held) return { owner: held[1], owner_source: "readme" };
+  const line = /^(?:Holder|Owner):\s*\**([^*\n(,.;]+)/m.exec(thread.readme.replace(/^---\n[\s\S]*?\n---\n/, ""));
+  if (line && clean(line[1])) return { owner: clean(line[1]), owner_source: "readme" };
+  const opening = thread.allPosts.find((post) => post.id === thread.thread_id);
+  const author = opening?.frontmatter.author;
+  return typeof author === "string" && author.trim() ? { owner: author.trim(), owner_source: "opening_post" } : { owner: null, owner_source: null };
+}
+
 function localRows(threads: LocalThread[], newOnly: boolean, onError: (message: string) => void, reader?: string) {
   return threads.filter((thread) => {
     if (!newOnly) return true;
@@ -78,7 +96,9 @@ function localRows(threads: LocalThread[], newOnly: boolean, onError: (message: 
     return { source: "local" as const, id: thread.path, thread_id: thread.thread_id, slug: thread.slug, name: thread.name,
       summary: thread.summary, count: thread.allPosts.length, closed: thread.closed,
       warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
-      latest_activity_at: latestLocalActivity(thread.posts), parent, ...(parent_warning ? { parent_warning } : {}) };
+      latest_activity_at: latestLocalActivity(thread.posts), parent,
+      attached_to: thread.attachment ? attachmentText(thread.attachment) : null,
+      ...threadOwner(thread), first_post_at: earliestLocalActivity(thread.posts), newest_post_at: latestLocalActivity(thread.posts), ...(parent_warning ? { parent_warning } : {}) };
   });
 }
 function reportThreadWarnings(thread: LocalThread, output: Output): void {
@@ -329,6 +349,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
+    "ideaspaces threads list --json  # each local row: attached_to, owner (+ owner_source), first_post_at, newest_post_at; owner = README `owner:`/`holder:`, `Held by X` in its summary or a `Holder:` line, else the opening post's author",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot --map <note>] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags; snapshot requires --map <note>`,
@@ -519,7 +540,7 @@ export const threadsCommand: CommandDef = {
         }
         const rows = [...local, ...hosted].filter((row) => !yes(flags, "open") || row.closed !== true).sort((a, b) => activityOf(b) - activityOf(a)).map((row) => {
           if (rung === "name") return { source: row.source, id: row.id, name: row.name,
-            ...(row.source === "local" ? { closed: row.closed, slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent } : { unread_count: row.unread_count, ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
+            ...(row.source === "local" ? { closed: row.closed, slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent, attached_to: row.attached_to, owner: row.owner, owner_source: row.owner_source, first_post_at: row.first_post_at, newest_post_at: row.newest_post_at } : { unread_count: row.unread_count, ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }

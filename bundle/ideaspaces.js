@@ -23774,6 +23774,13 @@ function latestLocalActivity(posts2) {
     return Number.isFinite(time) && (!latest || time > Date.parse(latest)) ? at : latest;
   }, null);
 }
+function earliestLocalActivity(posts2) {
+  return posts2.reduce((first, post) => {
+    const at = activityAt(post);
+    const time = at ? Date.parse(at) : NaN;
+    return Number.isFinite(time) && (!first || time < Date.parse(first)) ? at : first;
+  }, null);
+}
 function resolveThreadParent2(threadDir, knownThreads) {
   const agreementPath = join30(threadDir, "_agent", "agreement.md");
   const agreementContent = threadAgreementContent(safeDirectory(threadDir));
@@ -32180,6 +32187,25 @@ function activityOf(row) {
   const at = Date.parse(row.latest_activity_at ?? row.last_post_at ?? "");
   return Number.isNaN(at) ? 0 : at;
 }
+function threadOwner(thread) {
+  const fm = parseFrontmatter(thread.readme) ?? {};
+  const clean = (value4) => value4.replace(/[*_`]/g, "").trim();
+  for (const key2 of ["owner", "holder"]) {
+    const value4 = fm[key2];
+    if (typeof value4 === "string" && clean(value4))
+      return { owner: clean(value4), owner_source: "readme" };
+  }
+  const summary = typeof fm.summary === "string" ? fm.summary : "";
+  const held2 = /\bHeld by ([\w/-]+)/.exec(summary);
+  if (held2)
+    return { owner: held2[1], owner_source: "readme" };
+  const line3 = /^(?:Holder|Owner):\s*\**([^*\n(,.;]+)/m.exec(thread.readme.replace(/^---\n[\s\S]*?\n---\n/, ""));
+  if (line3 && clean(line3[1]))
+    return { owner: clean(line3[1]), owner_source: "readme" };
+  const opening = thread.allPosts.find((post) => post.id === thread.thread_id);
+  const author = opening?.frontmatter.author;
+  return typeof author === "string" && author.trim() ? { owner: author.trim(), owner_source: "opening_post" } : { owner: null, owner_source: null };
+}
 function localRows(threads, newOnly, onError, reader) {
   return threads.filter((thread) => {
     if (!newOnly)
@@ -32208,6 +32234,10 @@ function localRows(threads, newOnly, onError, reader) {
       unreadable_posts: thread.unreadablePosts,
       latest_activity_at: latestLocalActivity(thread.posts),
       parent,
+      attached_to: thread.attachment ? attachmentText(thread.attachment) : null,
+      ...threadOwner(thread),
+      first_post_at: earliestLocalActivity(thread.posts),
+      newest_post_at: latestLocalActivity(thread.posts),
       ...parent_warning ? { parent_warning } : {}
     };
   });
@@ -32439,6 +32469,7 @@ var threadsCommand = {
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
+    "ideaspaces threads list --json  # each local row: attached_to, owner (+ owner_source), first_post_at, newest_post_at; owner = README `owner:`/`holder:`, `Held by X` in its summary or a `Holder:` line, else the opening post's author",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot --map <note>] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags; snapshot requires --map <note>`,
@@ -32673,7 +32704,7 @@ ${matches2.map((t) => `- ${t.path}`).join("\n")}` : "Thread not found in the sup
               source: row.source,
               id: row.id,
               name: row.name,
-              ...row.source === "local" ? { closed: row.closed, slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent } : { unread_count: row.unread_count, ...row.closed !== void 0 ? { closed: row.closed } : {} }
+              ...row.source === "local" ? { closed: row.closed, slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent, attached_to: row.attached_to, owner: row.owner, owner_source: row.owner_source, first_post_at: row.first_post_at, newest_post_at: row.newest_post_at } : { unread_count: row.unread_count, ...row.closed !== void 0 ? { closed: row.closed } : {} }
             };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
