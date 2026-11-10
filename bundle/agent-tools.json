@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.10.0",
-    "commit": "a883cac0d3e25d06d04b08edb4b6ae83518068ed"
+    "commit": "440894811b179de8f4655c08634e893f2962d694"
   },
   "protocol": {
     "version": "0.32.0",
     "commit": "5d5db8ab1a30154930b407afe16bd8d905286975"
   },
-  "digest": "sha256:a7afad83923681dad33a730b2a76f6522c3b1c4d95301fa7cc1c1a7882755df2",
+  "digest": "sha256:d452d85a6a96ab571c928e5729473b3ff1c8da4859558ffb5fec4f4131df0a3d",
   "groups": [
     {
       "id": "read",
@@ -3301,7 +3301,10 @@
             "flag": "--include-dormant",
             "boolean": "bare"
           }
-        }
+        },
+        "hosted_flags": [
+          "hosted"
+        ]
       },
       "output": {
         "json": [
@@ -3334,6 +3337,10 @@
           "map_id": {
             "type": "string",
             "description": "Positional map id for spaces.open."
+          },
+          "hosted": {
+            "type": "boolean",
+            "description": "Use hosted routing rather than the local/legacy path."
           }
         },
         "required": [
@@ -3349,7 +3356,15 @@
         "positional": [
           "map_id"
         ],
-        "flags": {}
+        "flags": {
+          "hosted": {
+            "flag": "--hosted",
+            "boolean": "bare"
+          }
+        },
+        "hosted_flags": [
+          "hosted"
+        ]
       },
       "output": {
         "json": [
@@ -5677,6 +5692,14 @@
             "type": "string",
             "description": "Claude Code model selector."
           },
+          "claude_auth": {
+            "type": "string",
+            "description": "Claude authentication mode: login or api-key."
+          },
+          "model_tier": {
+            "type": "string",
+            "description": "Local conversation model-tier metadata."
+          },
           "session_dir": {
             "type": "string",
             "description": "Local runtime transcript directory."
@@ -5787,6 +5810,12 @@
           },
           "claude_model": {
             "flag": "--claude-model"
+          },
+          "claude_auth": {
+            "flag": "--claude-auth"
+          },
+          "model_tier": {
+            "flag": "--model-tier"
           },
           "session_dir": {
             "flag": "--session-dir"
