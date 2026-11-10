@@ -7,6 +7,7 @@ import { parseArgs } from "./argv.js";
 import { takeTokenFd } from "./host-token-flag.js";
 import { afterCommand } from "./update-check.js";
 import { CLI_VERSION } from "./version.js";
+import { catalogFlagError } from "./agent-tools/flags.js";
 
 // ─── Main ──────────────────────────────────────────────────────────
 
@@ -60,6 +61,8 @@ if (global.gitBin) {
 }
 
 if (!command && (flags.version !== undefined || flags.v !== undefined)) {
+  const unknown = Object.keys(flags).find(flag => flag !== "version" && flag !== "v");
+  if (unknown) { process.stderr.write(`Unknown flag for version: --${unknown}\n`); process.exit(1); }
   process.stdout.write(global.json ? `${JSON.stringify({ version: CLI_VERSION })}\n` : `${CLI_VERSION}\n`);
   process.exit(0);
 }
@@ -106,6 +109,8 @@ if (global.help) {
 }
 
 try {
+  const flagError = catalogFlagError(cmd.name, resolvedArgs, flags);
+  if (flagError) throw new Error(flagError);
   // Before the command does anything: read the host's token once and close the fd.
   takeTokenFd(global.tokenFd, cmd.name);
   const exitCode = await cmd.run(resolvedArgs, flags, global);

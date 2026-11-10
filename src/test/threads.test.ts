@@ -256,8 +256,8 @@ describe("local Threads", () => {
   it("accepts a documented flag per verb before enforcing unknown-flag rejection", () => {
     for (const [verb, flag] of Object.entries({
       list: "depth", open: "post", read: "since", new: "about", post: "reply-to",
-      posts: "limit", close: "message", render: "", init: "", push: "remote", send: "grade",
-      reply: "send-id", expand: "", add: "grade", rename: "name",
+      posts: "limit", close: "message", render: "", init: "", push: "remote", send: "name",
+      reply: "reply-to", expand: "", add: "grade", rename: "name",
     })) {
       expect(threadFlagError(verb, flag ? { [flag]: "value" } : {}), verb).toBeUndefined();
       expect(threadFlagError(verb, { typo: true }), verb).toContain("--typo");

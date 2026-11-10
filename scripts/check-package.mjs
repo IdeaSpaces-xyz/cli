@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +31,7 @@ try {
   )[0];
 
   const paths = packed.files.map((file) => file.path).sort();
-  const expected = ["LICENSE", "README.md", "bundle/ideaspaces.js", "package.json"];
+  const expected = ["LICENSE", "README.md", "bundle/agent-tools.json", "bundle/agent-tools.schema.json", "bundle/ideaspaces.js", "package.json"];
   if (JSON.stringify(paths) !== JSON.stringify(expected)) {
     throw new Error(
       `Unexpected package contents.\nExpected: ${expected.join(", ")}\nActual:   ${paths.join(", ")}`,
@@ -74,6 +74,36 @@ try {
   if (version.error) throw version.error;
   if (version.status !== 0 || version.stdout.trim() !== pkg.version) {
     throw new Error(`Installed CLI reported "${version.stdout.trim()}" for --version, expected ${pkg.version}.`);
+  }
+
+  // Progressive discovery works without auth, from an unrelated cwd, through the installed executable.
+  const artifact = JSON.parse(readFileSync(new URL("../bundle/agent-tools.json", import.meta.url), "utf8"));
+  for (const selector of [undefined, "threads", "threads.post"]) {
+    const result = spawnSync(executablePath, ["capabilities", ...(selector ? [selector] : []), "--json"], {
+      cwd: temp, encoding: "utf8", shell: process.platform === "win32",
+      env: { ...process.env, IDEASPACES_AUTH: "host", IDEASPACES_NO_UPDATE_CHECK: "1" },
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0 || result.stderr) throw new Error(`Installed capabilities failed: ${result.stderr}`);
+    const data = JSON.parse(result.stdout);
+    if (data.digest !== artifact.digest || data.cli.version !== pkg.version || data.protocol.commit !== artifact.protocol.commit) throw new Error("Installed catalog provenance differs from the shipped artifact");
+    if (!selector && (data.groups.length !== 14 || data.entries !== undefined)) throw new Error("Discovery root leaked entry details");
+    if (selector === "threads" && (!data.entries.some(e => e.id === "threads.post") || data.entries.some(e => e.parameters || e.check))) throw new Error("Group discovery must contain brief entries only");
+    if (selector === "threads.post" && (!data.entry.parameters.properties.reply_to || !data.entry.text.check || !data.entry.text.bound)) throw new Error("Full entry contract is incomplete");
+  }
+
+  const standalone = join(temp, "standalone.mjs");
+  copyFileSync(new URL("../bundle/ideaspaces.js", import.meta.url), standalone);
+  const alone = spawnSync(process.execPath, [standalone, "capabilities", "threads.post", "--json"], { cwd: temp, encoding: "utf8" });
+  if (alone.error) throw alone.error;
+  if (alone.status !== 0 || JSON.parse(alone.stdout).digest !== artifact.digest) throw new Error("Single-file CLI needs an adjacent catalog");
+  // A typo must fail before an account write, network call, or version result.
+  for (const args of [["pi-login", "--provider=fixture", "--api-key=not-a-real-key"], ["clone"], ["--version"]]) {
+    const refused = spawnSync(process.execPath, [standalone, ...args, "--catalog-typo", "--json"], {
+      cwd: temp, encoding: "utf8", env: { ...process.env, HOME: temp, USERPROFILE: temp, IDEASPACES_AUTH: "host" },
+    });
+    if (refused.error) throw refused.error;
+    if (refused.status !== 1 || !refused.stderr.includes("--catalog-typo")) throw new Error(`Undeclared flag reached ${args[0]}`);
   }
 
   // `status <section>` is the canonical spelling; its --help must reach the section.
