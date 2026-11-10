@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.10.0",
-    "commit": "965ba481aba3edee779b4ab624ae4a463aa3385c"
+    "commit": "e91a861af32206d3b45cb75682cd222e00250b3b"
   },
   "protocol": {
     "version": "0.32.0",
     "commit": "5d5db8ab1a30154930b407afe16bd8d905286975"
   },
-  "digest": "sha256:d452d85a6a96ab571c928e5729473b3ff1c8da4859558ffb5fec4f4131df0a3d",
+  "digest": "sha256:7475f2dd3f02e1de78e5a8301729c920c4ce224db41f5aa318c4fc437092a46f",
   "groups": [
     {
       "id": "read",
@@ -3012,6 +3012,10 @@
           "checkout": {
             "type": "string",
             "description": "Absolute checkout root for an explicitly selected Map member."
+          },
+          "if_match": {
+            "type": "string",
+            "description": "Expected revision: local hash, or hosted version_id for spaces edits."
           }
         },
         "required": [
@@ -3052,6 +3056,9 @@
           },
           "checkout": {
             "flag": "--checkout"
+          },
+          "if_match": {
+            "flag": "--if-match"
           }
         }
       },
