@@ -13,7 +13,19 @@ import { assembleLaunchText, LaunchSizeError, loadLaunchMap, MAX_ORIENTATION_BYT
 import { NoMapBlockError } from "../local/map-note.js";
 import { prepareThreadLaunch } from "../local/thread-launch.js";
 import { loadMapOrientation, MapBudgetError } from "../local/map-orientation.js";
-import { appendPost, createThread, loadThread } from "../local/threads.js";
+import { appendPost as appendPostNow, createThread, loadThread } from "../local/threads.js";
+
+/**
+ * A post's file name carries the millisecond it was written, and two posts of one millisecond are
+ * ordered by their random ids. These tests write posts in a row and read "newest" and "since", so each
+ * waits for a fresh millisecond; without it the order, and so the test, varies from run to run.
+ */
+let lastStamp = 0;
+const appendPost: typeof appendPostNow = (dir, options) => {
+  while (Date.now() <= lastStamp) { /* wait out the millisecond */ }
+  lastStamp = Date.now();
+  return appendPostNow(dir, options);
+};
 import type { GlobalFlags } from "../types.js";
 
 // Each test builds a Git repo and reads a Map through Git; a Windows runner is several times slower.

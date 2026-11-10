@@ -26,9 +26,13 @@ export interface LaunchMapSource {
 export function findLaunchMap(holder: LocalThread, directory: string): LaunchMapSource {
   const carries = (post: ThreadPost) => post.mapResult?.status === "valid";
   const opening = holder.allPosts.find((post) => post.id === holder.thread_id);
-  const newestFirst = holder.posts.filter((post) => post.id !== opening?.id).sort((a, b) => (a.path < b.path ? 1 : a.path > b.path ? -1 : 0));
+  // Newest by the filename's stamp, as the protocol orders them. Two posts written in the same
+  // millisecond share a stamp, so the timeline decides between them rather than their random ids.
+  const stamp = (post: ThreadPost) => post.path.slice(0, Math.max(0, post.path.indexOf("msg_")));
+  const newestFirst = holder.posts.map((post, index) => ({ post, index }))
+    .sort((a, b) => (stamp(a.post) < stamp(b.post) ? 1 : stamp(a.post) > stamp(b.post) ? -1 : b.index - a.index)).map(({ post }) => post);
   for (const post of newestFirst) {
-    if (carries(post)) return { post, file: join(directory, post.path), origin: "post" };
+    if (carries(post)) return { post, file: join(directory, post.path), origin: post.id === opening?.id ? "opening" : "post" };
   }
   if (opening && opening.mapResult !== undefined && opening.mapResult.status !== "absent") return { post: opening, file: join(directory, opening.path), origin: "opening" };
   throw new NoMapBlockError(
