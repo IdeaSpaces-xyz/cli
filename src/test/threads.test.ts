@@ -22,6 +22,25 @@ function git(dir: string, ...args: string[]) { return execFileSync("git", args, 
 afterEach(() => { process.env.HOME = originalHome; for (const dir of temp.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe("local Threads", () => {
+  it("refuses new Map-less snapshots without a file and reads legacy ones with a named warning", () => {
+    const root = fixture();
+    const thread = createThread("snapshots", "Snapshots", root);
+    const opening = appendPost(thread.path, { body: "Opening" });
+    const before = readdirSync(thread.path);
+    expect(() => appendPost(thread.path, { body: "State", kind: "snapshot" })).toThrow(/snapshot requires a Map.*--map <note>/);
+    expect(() => appendPost(thread.path, { body: "State", kind: "snapshot", map: null })).toThrow(/valid protocol Map/);
+    expect(readdirSync(thread.path)).toEqual(before);
+    const empty = appendPost(thread.path, { body: "Cleared", kind: "snapshot", map: { roots: [], members: [] } });
+    expect(empty.post.warnings).toBeUndefined();
+    // Authored legacy history, not a new write through the writer being tested.
+    const legacy = join(thread.path, "2099-01-01T00-00-00-000Z-legacy.md");
+    writeFileSync(legacy, `---\nid: msg_legacy_snapshot\nkind: snapshot\nin_reply_to: ${opening.post.id}\n---\nLegacy state\n`);
+    const read = loadThread(thread.path);
+    expect(read.allPosts.some((p) => p.id === "msg_legacy_snapshot")).toBe(true);
+    expect(read.warnings).toContain(`_threads/snapshots/${basename(legacy)}: map: snapshot_requires_map`);
+    expect(() => appendPost(thread.path, { body: "Reply after legacy" })).not.toThrow();
+  });
+
   it("opens cold, writes immutable posts, reconstructs two-parent joins and closes", () => {
     const root = fixture();
     process.env.HOME = root;
@@ -681,7 +700,8 @@ describe("local Threads", () => {
         `---\nname: Agreement — Child\nsummary: Child summary\nattached_to: _threads/parent-thread/${basename(pDecision.path)}\n---\n# Child\n`);
 
       const cOpeningId = childThread.opening_post_id;
-      const cSnapshot = await run(["post", "child-thread"], { message: "Snapshot state", name: "Snapshot 1", summary: "Snapshot summary", kind: "snapshot", "reply-to": cOpeningId });
+      writeFileSync(join(root, "empty.map.md"), "---\nmap:\n  roots: []\n  members: []\n---\nCleared frame\n");
+      const cSnapshot = await run(["post", "child-thread"], { message: "Snapshot state", name: "Snapshot 1", summary: "Snapshot summary", kind: "snapshot", map: "empty.map.md", "reply-to": cOpeningId });
       const cLater = await run(["post", "child-thread"], { message: "Subsequent work", name: "Later 1", "reply-to": cSnapshot.id });
 
       // 1. depth: name
@@ -742,7 +762,7 @@ describe("local Threads", () => {
     const root = fixture(); process.env.HOME = root;
     const thread = createThread("large", "Large", root);
     const opening = appendPost(thread.path, { body: "Opening" });
-    const snapshot = appendPost(thread.path, { body: "Head", kind: "snapshot", replyTo: [opening.post.id] });
+    const snapshot = appendPost(thread.path, { body: "Head", kind: "snapshot", map: { roots: [], members: [] }, replyTo: [opening.post.id] });
     const large = appendPost(thread.path, { body: "Z".repeat(1200), replyTo: [snapshot.post.id] });
     const last = appendPost(thread.path, { body: "Last", replyTo: [large.post.id] });
     const old = process.cwd(); process.chdir(root);

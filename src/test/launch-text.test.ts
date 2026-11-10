@@ -216,7 +216,7 @@ describe("threads launch-text", () => {
   it("reads the opening post's Map when no snapshot carries one, and lists every post since it", async () => {
     const f = fixture();
     // A snapshot without a Map, and a plain post, do not replace the opening post's Map.
-    appendPost(f.launch.dir, { body: "No Map here.", summary: "Snapshot without a Map", kind: "snapshot" });
+    writeFileSync(join(f.launch.dir, "2090-01-01T00-00-00-000Z-legacy.md"), `---\nid: msg_legacy_snapshot\nkind: snapshot\nin_reply_to: ${f.launch.id}\nsummary: Snapshot without a Map\n---\nNo Map here.\n`);
     const plain = appendPost(f.launch.dir, { body: "Just talk.", summary: "Plain" });
     const result = await assembleLaunchText({ thread: f.launch.dir, post: plain.post.id, cwd: f.root });
     expect(result.map_post).toMatchObject({ id: f.launch.id, origin: "opening" });

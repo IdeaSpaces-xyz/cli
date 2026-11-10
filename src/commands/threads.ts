@@ -332,7 +332,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
-    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags`,
+    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot --map <note>] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags; snapshot requires --map <note>`,
     "ideaspaces threads close <slug|path> --message 'Rationale'",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
     "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # the text a session launched from that post starts with; see --help",

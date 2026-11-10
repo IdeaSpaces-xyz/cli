@@ -63,6 +63,23 @@ describe("parseQuery", () => {
     expect(() => parseQuery('tag:"open')).toThrow(/quote/);
   });
 
+  it("separates Map presence and system kinds from file kinds and labels", () => {
+    const q = parseQuery("has:map post-kind:snapshot,reframe -post-kind:closure kind:post tag:decision");
+    expect(q.hasMap).toBe(true);
+    expect(q.postKinds).toEqual(["snapshot", "reframe"]);
+    expect(q.excludePostKinds).toEqual(["closure"]);
+    expect(q.kinds).toEqual(["thread_post"]);
+    expect(q.tags).toEqual([["decision"]]);
+    for (const raw of ["has:map", "-has:map", "post-kind:snapshot", "-post-kind:closure"]) {
+      expect(hasFilters(parseQuery(raw))).toBe(true);
+      expect(wantsThreads(parseQuery(raw))).toBe(true);
+      expect(frontmatterTextDecision(parseQuery(raw), null)).toBe("parse");
+    }
+    expect(() => parseQuery("post-kind:decision")).toThrow(/Labels belong in tag:/);
+    expect(() => parseQuery("has:label")).toThrow(/has:map/);
+    expect(() => parseQuery("post-kind:")).toThrow(/post-kind:snapshot/);
+  });
+
   it("a word in both the query and its exclusions stays a query word", () => {
     const q = parseQuery("alpha -alpha -beta");
     expect(q.terms).toEqual(["alpha"]);
