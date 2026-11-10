@@ -3004,6 +3004,10 @@ export const entries: Entry[] = [
         "checkout": {
           "type": "string",
           "description": "Absolute checkout root for an explicitly selected Map member."
+        },
+        "if_match": {
+          "type": "string",
+          "description": "Expected revision: local hash, or hosted version_id for spaces edits."
         }
       },
       "required": [
@@ -3044,6 +3048,9 @@ export const entries: Entry[] = [
         },
         "checkout": {
           "flag": "--checkout"
+        },
+        "if_match": {
+          "flag": "--if-match"
         }
       }
     },
