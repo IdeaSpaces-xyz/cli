@@ -240,8 +240,8 @@ Both stream the same transcript; they differ in whose agent runs and how it is p
 | Where sessions live | `<context>/.pi/sessions/`, inside the space | `~/.claude/projects/`, outside the space |
 | Reasoning in the transcript | shown | not shown — Claude Code redacts it when run headless |
 | Needs a Claude account | no | yes |
-| Is it ready? | `pi-status` | `claude-status` — asks the binary (`claude --version`, `claude auth status`); never reads `~/.claude` |
-| Models | `pi-models` — any provider pi supports | `claude-models` — Anthropic (on Claude Code ≥ 2.1.305: Opus/Sonnet/Haiku 5.5 and Fable 5.1, 1M context; older binaries retain their versioned roster) |
+| Is it ready? | `pi-status` | `claude-status` — asks the binary (`claude --version`, `claude auth status`, and the model each alias resolves to); never reads `~/.claude` |
+| Models | `pi-models` — any provider pi supports | `claude-models` — what your Claude Code reports for each alias (`opus`, `sonnet`, `haiku`, `fable`, `opusplan`, and the default), read from its `system/init` with the run stopped there: no model call, no saved session. A new Claude model appears the day Claude Code resolves an alias to it. Context windows are defaults until a turn reports its own |
 | Compaction | context skills (`context_cleanup`) | `conversation compact --local` and `--autocompact` (100k–1M tokens) |
 
 On Windows, npm-generated `.cmd` launchers for Node entrypoints and native executables are resolved without evaluating batch command text. Discovery, auth probes, model listing and local turns share that resolution; argument arrays stay literal, including paths with spaces and multiline prompts. Custom batch programs are not interpreted as npm shims; use the standard npm launcher or a native executable. A successful readiness probe does not prove an authenticated model turn.

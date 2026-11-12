@@ -7,10 +7,14 @@
 export { claudeStatusCommand } from "./claude-status.js";
 export {
   claudeModelsCommand,
-  getClaudeRoster,
+  getClaudeDefaults,
+  claudeModelList,
+  probeClaudeModels,
+  modelName,
   type ClaudeModel,
   type ClaudeCapabilities,
-  type ClaudeRoster,
+  type ClaudeDefaults,
+  type ClaudeModelList,
   type ClaudeModelsResult,
 } from "./claude-models.js";
 export { claudeConversationOps } from "./local-conversation-ops.js";

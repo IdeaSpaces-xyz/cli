@@ -17,22 +17,27 @@
  * The probe runs under the same environment a turn would (`--claude-auth`,
  * default `login`, scrubs the direct API-key variables), so an ambient
  * `ANTHROPIC_API_KEY` cannot report a login that the turn would then refuse.
- * Neither probe makes a model call, so a plan limit — which Claude Code
- * reports as ordinary assistant text, not an error — cannot masquerade as
- * readiness, and no usage is spent on detection.
+ * No probe makes a model call, so a plan limit — which Claude Code reports as
+ * ordinary assistant text, not an error — cannot masquerade as readiness, and
+ * no usage is spent on detection.
+ *
+ *   - **models** — each Claude Code alias, with the model the binary reports
+ *                  for it in `system/init` (`claude-aliases.ts`), the process
+ *                  stopped there. Asked beside the login check, at every call.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { runtimeCommand } from "../local/runtime-command.js";
 import { probeBinary, type ProbedBinary } from "../local/probe-binary.js";
 import { createOutput } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { CLAUDE_AUTH_MODES, buildClaudeEnv, isValidClaudeAuthMode, type ClaudeAuthMode } from "./local-agent.js";
 import {
-  formatTokens,
-  getClaudeRoster,
+  getClaudeDefaults,
+  probeClaudeModels,
   type ClaudeCapabilities,
   type ClaudeModel,
+  type ClaudeModelList,
 } from "./claude-models.js";
 
 export type ClaudeBinary = ProbedBinary;
@@ -55,11 +60,13 @@ export interface ClaudeStatus {
   auth: ClaudeAuthMode;
   /** The "Connect Claude Code" bar: a usable binary that reports itself signed in. */
   ready: boolean;
-  /** The model roster the installed binary accepts. */
+  /** Each Claude Code alias the binary resolved, with the model it reported for it. */
   models: ClaudeModel[];
+  /** Why the list is empty or short, as the binary answered; null when every alias resolved. */
+  modelsDetail: string | null;
   /** Compaction and auto-compact bounds. */
   capabilities: ClaudeCapabilities;
-  /** The binary version the roster and capabilities were verified against. */
+  /** The binary version the window defaults and capabilities were verified against. */
   verifiedVersion: string;
 }
 
@@ -91,6 +98,8 @@ export function deriveClaudeStatus(input: {
   /** stdout of `claude auth status --json`, whatever its exit code; null when it could not be run. */
   authStdout: string | null;
   auth: ClaudeAuthMode;
+  /** What the binary reported for its aliases; absent means it was not asked (no models). */
+  models?: ClaudeModelList;
 }): ClaudeStatus {
   const { binary, auth } = input;
   let login: ClaudeLogin;
@@ -117,28 +126,39 @@ export function deriveClaudeStatus(input: {
       login = { loggedIn: null, method: null, subscription: null, detail };
     }
   }
-  const roster = getClaudeRoster(binary.version);
+  const defaults = getClaudeDefaults(binary.version);
+  const models = input.models ?? { models: [], modelsDetail: binary.present ? "Claude Code was not asked for its models" : login.detail };
   return {
     binary,
     login,
     auth,
     ready: binary.present && login.loggedIn === true,
-    models: roster.models,
-    capabilities: roster.capabilities,
-    verifiedVersion: roster.verifiedVersion,
+    models: binary.present ? models.models : [],
+    modelsDetail: binary.present ? models.modelsDetail : login.detail,
+    capabilities: defaults.capabilities,
+    verifiedVersion: defaults.verifiedVersion,
   };
 }
 
-/** Ask the binary for its sign-in state. Returns stdout whatever the exit code. */
-function probeLogin(claudeBin: string, env: NodeJS.ProcessEnv): string | null {
-  try {
-    const command = runtimeCommand(claudeBin, ["auth", "status", "--json"], env);
-    const res = spawnSync(command.command, command.args, { encoding: "utf8", timeout: 5000, env });
-    if (res.error) return null;
-    return res.stdout ?? "";
-  } catch {
-    return null;
-  }
+/** Ask the binary for its sign-in state. Resolves stdout whatever the exit code; null when it could not run. */
+function probeLogin(claudeBin: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let settled = false;
+    const finish = (value: string | null) => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
+    let child: ReturnType<typeof spawn>;
+    try {
+      const command = runtimeCommand(claudeBin, ["auth", "status", "--json"], env);
+      child = spawn(command.command, command.args, { env, stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      resolve(null);
+      return;
+    }
+    const timer = setTimeout(() => { child.kill("SIGTERM"); finish(null); }, 5000);
+    child.stdout?.on("data", (d) => { stdout += String(d); });
+    child.on("error", () => finish(null));
+    child.on("close", () => finish(stdout));
+  });
 }
 
 function formatHuman(s: ClaudeStatus): string {
@@ -160,9 +180,11 @@ function formatHuman(s: ClaudeStatus): string {
   if (s.models && s.models.length) {
     const named = s.models.filter((m) => m.ref);
     const summary = named
-      .map((m) => `${m.name} ${formatTokens(m.contextWindow)}`)
+      .map((m) => `${m.ref} → ${m.id}`)
       .join(", ");
-    out.push(`Models: ${named.length} available (${summary})`);
+    out.push(`Models, as Claude Code reports them: ${summary}`);
+  } else if (s.binary.present) {
+    out.push(`Models: none named by Claude Code${s.modelsDetail ? ` — ${s.modelsDetail}` : ""}`);
   }
   return out.join("\n");
 }
@@ -191,9 +213,11 @@ export const claudeStatusCommand: CommandDef = {
     const env = buildClaudeEnv(auth);
 
     const binary = probeBinary(claudeBin, env);
-    const authStdout = binary.present ? probeLogin(claudeBin, env) : null;
+    const [authStdout, models] = binary.present
+      ? await Promise.all([probeLogin(claudeBin, env), probeClaudeModels(binary, env)])
+      : [null, undefined];
 
-    const status = deriveClaudeStatus({ binary, authStdout, auth });
+    const status = deriveClaudeStatus({ binary, authStdout, auth, ...(models ? { models } : {}) });
     output.result(status, formatHuman(status));
     return 0;
   },

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { deriveClaudeStatus, parseClaudeAuthReport } from "../claude/claude-status.js";
 import type { ClaudeBinary } from "../claude/claude-status.js";
+import { claudeModelList, getClaudeDefaults } from "../claude/claude-models.js";
 
 const present: ClaudeBinary = { present: true, path: "claude", version: "2.1.273" };
 const absent: ClaudeBinary = { present: false, path: "/nope/claude", version: null };
@@ -92,17 +93,36 @@ describe("deriveClaudeStatus — the three states the connector card distinguish
     expect(s.login.detail).toContain("newer Claude Code");
   });
 
-  it("reports model roster and compaction capabilities derived from binary version", () => {
-    const s = deriveClaudeStatus({ binary: present, authStdout: SIGNED_IN, auth: "login" });
-    expect(s.models.length).toBeGreaterThanOrEqual(5);
-    const opus = s.models.find((m) => m.ref === "opus");
-    const haiku = s.models.find((m) => m.ref === "haiku");
-    expect(opus?.contextWindow).toBe(1_000_000);
-    expect(haiku?.contextWindow).toBe(200_000);
+  it("lists the models the binary reported, and compaction capabilities from its version", () => {
+    const models = claudeModelList([{ ref: "opus", model: "claude-opus-9-9" }, { ref: "haiku", model: "claude-haiku-9-9" }],
+      getClaudeDefaults(present.version));
+    const s = deriveClaudeStatus({ binary: present, authStdout: SIGNED_IN, auth: "login", models });
+    expect(s.models.map((m) => [m.ref, m.id])).toEqual([["opus", "claude-opus-9-9"], ["haiku", "claude-haiku-9-9"]]);
+    expect(s.models.find((m) => m.ref === "haiku")?.contextWindow).toBe(200_000);
+    expect(s.modelsDetail).toBeNull();
     expect(s.capabilities.compact.supported).toBe(true);
     expect(s.capabilities.compact.autocompact.supported).toBe(true);
     expect(s.capabilities.compact.autocompact.minTokens).toBe(100_000);
     expect(s.capabilities.compact.autocompact.maxTokens).toBe(1_000_000);
+  });
+});
+
+describe("deriveClaudeStatus — models are only what the binary reported", () => {
+  it("not asked, or absent: no models, and the reason", () => {
+    const notAsked = deriveClaudeStatus({ binary: present, authStdout: SIGNED_IN, auth: "login" });
+    expect(notAsked.models).toEqual([]);
+    expect(notAsked.modelsDetail).toBe("Claude Code was not asked for its models");
+    const gone = deriveClaudeStatus({ binary: absent, authStdout: null, auth: "login",
+      models: claudeModelList([{ ref: "opus", model: "claude-opus-9-9" }], getClaudeDefaults(null)) });
+    expect(gone.models).toEqual([]);
+    expect(gone.modelsDetail).toContain("/nope/claude");
+  });
+
+  it("signed out still lists what the binary resolved, so a client keeps a saved model's route", () => {
+    const s = deriveClaudeStatus({ binary: present, authStdout: SIGNED_OUT, auth: "login",
+      models: claudeModelList([{ ref: "fable", model: "claude-fable-9-9" }], getClaudeDefaults(present.version)) });
+    expect(s.ready).toBe(false);
+    expect(s.models.map((m) => m.id)).toEqual(["claude-fable-9-9"]);
   });
 });
 
