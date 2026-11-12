@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.10.1",
-    "commit": "52e9967acc281783a3c6080bfa299a9bb465fbe6"
+    "commit": "c413a1dbbc43a4b9cc23eea1d47c394408bfff42"
   },
   "protocol": {
     "version": "0.32.0",
-    "commit": "916ae9ffb2733295b04b192abc29cf3fe1b736c6"
+    "commit": "a7c966991f3ee97b0fd1bb529c38113e606c1e4d"
   },
-  "digest": "sha256:00eb3df229670b242349420f3776066054c1606bc17b4ab49c2b684525d2184b",
+  "digest": "sha256:1c72b377c62d68698ca244b5414b8f694eff54fd890a494817b04f111532923d",
   "groups": [
     {
       "id": "read",
@@ -495,7 +495,7 @@
       "text": {
         "does": "Read a curated Map, derive a Content Map, or render orientation.",
         "use_when": "Inspect references before editing a Map or launching from it.",
-        "check": "References do not grant access. Check file_sha before guarded removal.",
+        "check": "References do not grant access. Check file_sha before guarded removal. Each root with a checkout carries image (or null, with image_problem when one is declared but can't be shown).",
         "bound": "Depth defaults to 1, max 4 or full; orientation uses a character budget."
       },
       "bound": "n/a",
