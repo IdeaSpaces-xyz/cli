@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.10.1",
-    "commit": "a6080201ffcbf63da29c0b127e07e6f2df21bc5e"
+    "commit": "c27407f07130982f43da3556defcd6dbe0b545d7"
   },
   "protocol": {
     "version": "0.32.0",
     "commit": "916ae9ffb2733295b04b192abc29cf3fe1b736c6"
   },
-  "digest": "sha256:8febbc1420cdbf7792a86314bdd47f50c3ec4c4cf815a2d3d00b6062209fcda0",
+  "digest": "sha256:670f8d9c3aea0dd3b81fb0afa57477f829c45e3d7e9ec62e4c9c09002329e87a",
   "groups": [
     {
       "id": "read",
@@ -111,7 +111,7 @@
       "text": {
         "does": "Read one local Note, Content directory, Thread or pinned Map address.",
         "use_when": "Deepen one identified target; use navigate for orientation.",
-        "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Thread summaries show folded marks; open the post for body evidence.",
+        "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Open the post for body evidence; a summary alone is not proof.",
         "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since."
       },
       "bound": {

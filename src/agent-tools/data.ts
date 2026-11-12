@@ -103,7 +103,7 @@ export const entries: Entry[] = [
     "text": {
       "does": "Read one local Note, Content directory, Thread or pinned Map address.",
       "use_when": "Deepen one identified target; use navigate for orientation.",
-      "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Thread summaries show folded marks; open the post for body evidence.",
+      "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Open the post for body evidence; a summary alone is not proof.",
       "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since."
     },
     "bound": {
