@@ -468,6 +468,22 @@ export function validateTags(tags: readonly string[]): void {
   }
 }
 
+const REPLY_ID_FORMS = "Give a post's full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in this Thread starts with it; never pad or complete an id. Reading the Thread with look, or ideaspaces threads open, shows each post's id.";
+
+/**
+ * A reply id as a reader shows it: the full id, or the protocol's eight-hex shorthand (`msg_1b7f2056`),
+ * which names a post only when exactly one in this Thread starts with it at the hyphen. Several matches
+ * refuse and name them; none is left for the existing-id check to refuse.
+ */
+function resolveReplyId(id: string, posts: readonly { id: string }[]): string {
+  if (posts.some((post) => post.id === id) || !/^msg_[0-9a-f]{8}$/.test(id)) return id;
+  const matches = posts.filter((post) => post.id.startsWith(`${id}-`));
+  if (matches.length > 1) {
+    throw new Error(`--reply-to ${id} matches ${matches.length} posts in this Thread: ${matches.map((post) => post.id).join(", ")}. Give the full id of the one you answer; nothing was written.`);
+  }
+  return matches[0]?.id ?? id;
+}
+
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
@@ -505,6 +521,7 @@ export function appendPost(dir: string, options: {
     } else {
       parentIds = options.replyTo;
     }
+    parentIds = parentIds.map((id) => resolveReplyId(id, thread.allPosts));
   } else if (options.kind === "closure") {
     parentIds = tips;
   } else if (thread.posts.length === 0) {
@@ -515,7 +532,7 @@ export function appendPost(dir: string, options: {
     defaultParentId = openingPostId;
   }
 
-  if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error("--reply-to must name distinct existing post ids in this Thread.");
+  if (new Set(parentIds).size !== parentIds.length || parentIds.some((id) => !byId.has(id))) throw new Error(`--reply-to must name distinct existing post ids in this Thread. ${REPLY_ID_FORMS}`);
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
   if (options.supersedes && options.kind !== "correction") throw new Error("--supersedes requires --kind correction.");

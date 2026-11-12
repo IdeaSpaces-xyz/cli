@@ -103,7 +103,7 @@ export const entries: Entry[] = [
     "text": {
       "does": "Read one local Note, Content directory, Thread or pinned Map address.",
       "use_when": "Deepen one identified target; use navigate for orientation.",
-      "check": "Check target.page.nextCursor and continue with since. Thread summaries show folded marks; open the post for body evidence.",
+      "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Thread summaries show folded marks; open the post for body evidence.",
       "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since."
     },
     "bound": {
@@ -120,7 +120,7 @@ export const entries: Entry[] = [
         },
         "depth": {
           "type": "string",
-          "description": "Progressive-disclosure rung or numeric tree depth as documented.",
+          "description": "Progressive-disclosure rung or numeric tree depth as documented. Default summary; children when limit, since or order pages a folder; full when post selects one post.",
           "enum": [
             "name",
             "summary",
@@ -165,7 +165,7 @@ export const entries: Entry[] = [
         },
         "post": {
           "type": "string",
-          "description": "Exact post id to select."
+          "description": "Post id to select and read in full: the full msg_ id, or its unique eight-hex short form."
         },
         "pin": {
           "type": "string",
@@ -1549,7 +1549,7 @@ export const entries: Entry[] = [
         },
         "reply_to": {
           "type": "array",
-          "description": "Parent post id(s); latest is explicit, never implicit.",
+          "description": "Parent post id(s); latest is explicit, never implicit. Locally a full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in the Thread starts with it; an ambiguous one is refused with the matches.",
           "items": {
             "type": "string"
           }
@@ -1725,7 +1725,7 @@ export const entries: Entry[] = [
         },
         "reply_to": {
           "type": "array",
-          "description": "Parent post id(s); latest is explicit, never implicit.",
+          "description": "Parent post id(s); latest is explicit, never implicit. Locally a full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in the Thread starts with it; an ambiguous one is refused with the matches.",
           "items": {
             "type": "string"
           }

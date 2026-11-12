@@ -9,7 +9,7 @@
     "version": "0.32.0",
     "commit": "5d5db8ab1a30154930b407afe16bd8d905286975"
   },
-  "digest": "sha256:7475f2dd3f02e1de78e5a8301729c920c4ce224db41f5aa318c4fc437092a46f",
+  "digest": "sha256:8febbc1420cdbf7792a86314bdd47f50c3ec4c4cf815a2d3d00b6062209fcda0",
   "groups": [
     {
       "id": "read",
@@ -111,7 +111,7 @@
       "text": {
         "does": "Read one local Note, Content directory, Thread or pinned Map address.",
         "use_when": "Deepen one identified target; use navigate for orientation.",
-        "check": "Check target.page.nextCursor and continue with since. Thread summaries show folded marks; open the post for body evidence.",
+        "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Thread summaries show folded marks; open the post for body evidence.",
         "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since."
       },
       "bound": {
@@ -128,7 +128,7 @@
           },
           "depth": {
             "type": "string",
-            "description": "Progressive-disclosure rung or numeric tree depth as documented.",
+            "description": "Progressive-disclosure rung or numeric tree depth as documented. Default summary; children when limit, since or order pages a folder; full when post selects one post.",
             "enum": [
               "name",
               "summary",
@@ -173,7 +173,7 @@
           },
           "post": {
             "type": "string",
-            "description": "Exact post id to select."
+            "description": "Post id to select and read in full: the full msg_ id, or its unique eight-hex short form."
           },
           "pin": {
             "type": "string",
@@ -1557,7 +1557,7 @@
           },
           "reply_to": {
             "type": "array",
-            "description": "Parent post id(s); latest is explicit, never implicit.",
+            "description": "Parent post id(s); latest is explicit, never implicit. Locally a full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in the Thread starts with it; an ambiguous one is refused with the matches.",
             "items": {
               "type": "string"
             }
@@ -1733,7 +1733,7 @@
           },
           "reply_to": {
             "type": "array",
-            "description": "Parent post id(s); latest is explicit, never implicit.",
+            "description": "Parent post id(s); latest is explicit, never implicit. Locally a full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in the Thread starts with it; an ambiguous one is refused with the matches.",
             "items": {
               "type": "string"
             }
