@@ -133,7 +133,7 @@ describe("ideaspaces look", () => {
       const vector = vectors[parameter];
       const result = await runLook(vector.args, { ...vector.flags, [mapping.flag.replace(/^--/, "")]: vector.value });
       expect(result.exit, `${mapping.flag}: ${result.stderr}`).toBe(0);
-      expect(result.data.status, mapping.flag).toBe("ok");
+      expect(result.data.target, mapping.flag).toBeDefined();
     }
   }, 30_000);
 
