@@ -99,6 +99,10 @@ describe("a repo's identity image", () => {
     const json = await run(lookCommand, [repo]);
     expect(json.exit).toBe(0);
     expect(json.data.target.image).toMatchObject({ status: "problem", code: "invalid_reference" });
+    const svg = await child("vector", "n_333333333333333333333333", "image: _assets/mark.svg\n", {
+      "_assets/mark.svg": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/></svg>\n',
+    });
+    expect((await run(lookCommand, [svg])).data.target.image).toMatchObject({ status: "problem", code: "unsupported_type", declared: "_assets/mark.svg" });
     const none = await child("plain", "n_222222222222222222222222", "");
     expect((await run(lookCommand, [none])).data.target.image).toBeUndefined();
   });
