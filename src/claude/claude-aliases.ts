@@ -72,7 +72,13 @@ function resolveOne(bin: string, ref: string, env: NodeJS.ProcessEnv, cwd: strin
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGTERM");
+        // Claude Code takes a while to shut down; the answer is in, so don't wait on it.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref();
+      }
       done(result);
     };
     let child: ReturnType<typeof spawn> | undefined;
