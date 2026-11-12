@@ -287,7 +287,7 @@ describe("ideaspaces look", () => {
     const summary = await runLook(["_threads/paging"], { post: ids[1], depth: "summary" });
     expect(summary.exit, summary.stderr).toBe(0);
     expect(summary.data.target).not.toHaveProperty("surface");
-  });
+  }, 30_000); // Several looks with Git startup exceed 5s on Windows.
 
   it("shows each post's id, kind and author, though named posts' filenames carry no id", async () => {
     // AX's probe children could not cite a slug-named post's id (v20 msg_5a4b1d05, fix 3).
@@ -311,7 +311,7 @@ describe("ideaspaces look", () => {
     const read = await runLook(["_threads/named"], { post: "msg_12eee1b5" }, { ...JSON_FLAGS, json: false });
     expect(read.exit, read.stderr).toBe(0);
     expect(read.stdout).toContain(`  post: ${fix} · snapshot`);
-  });
+  }, 30_000); // Several looks with Git startup exceed 5s on Windows.
 
   it("reads the Agreement by path as reference content", async () => {
     const read = await runLook(["_agent/agreement.md"], { depth: "full" });
