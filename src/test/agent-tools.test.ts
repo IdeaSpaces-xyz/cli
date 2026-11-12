@@ -89,6 +89,17 @@ describe("agent tool contract data", () => {
     expect(() => discover(data, "__proto__")).toThrow("Unknown capabilities");
   });
 
+  it("keeps look paging and local post kinds in the downstream catalog cut", () => {
+    const look = entries.find(e => e.id === "look")!;
+    expect(Object.keys(look.parameters.properties!)).toEqual(expect.arrayContaining(["limit", "order", "since", "post", "agreement"]));
+    expect(look.text.check).not.toContain("Thread summaries show folded marks");
+    expect(look.text.check).toContain("Open the post for body evidence");
+    const post = entries.find(e => e.id === "threads.post")!;
+    expect(post.parameters.properties!.kind.enum).toEqual(expect.arrayContaining(["snapshot", "correction", "mark"]));
+    expect(post.cli!.flags.kind.flag).toBe("--kind");
+    expect(post.parameters.properties!.supersedes).toBeDefined();
+  });
+
   it("retains the existing transport and run schema documents unchanged", () => {
     expect(catalog().capabilities.threads).toEqual({ schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false });
     expect(catalog().capabilities.agent).toEqual(agentRunCapabilities());
