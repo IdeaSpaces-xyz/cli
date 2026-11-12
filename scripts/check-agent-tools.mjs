@@ -23,7 +23,7 @@ export function checkSourceFlags(readSource = path => readFileSync(path, "utf8")
   };
   const routing = { "map-edit": "map", "map-selection": "map", "hosted-threads": "threads", "space-new": "spaces", "space-add": "spaces", "space-remove": "spaces", "local-runtime": "conversation", "pi-conversation": "conversation", "claude-conversation": "conversation" };
   // These reads exist only to print explicit compatibility refusals, not accepted options.
-  const refused = { fork: ["location", "slug"], publish: ["force"], conversation: ["topic"] };
+  const refused = { look: ["new"], fork: ["location", "slug"], publish: ["force"], conversation: ["topic"] };
   const errors = [];
   for (const [key, file] of Object.entries(files)) {
     const command = routing[key] ?? key;

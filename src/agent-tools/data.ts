@@ -182,10 +182,6 @@ export const entries: Entry[] = [
             "pin",
             "head"
           ]
-        },
-        "new": {
-          "type": "string",
-          "description": "Select activity after a local reader position; hosted list uses service unread counts."
         }
       },
       "required": [],
@@ -228,9 +224,6 @@ export const entries: Entry[] = [
         },
         "at": {
           "flag": "--at"
-        },
-        "new": {
-          "flag": "--new"
         }
       }
     },

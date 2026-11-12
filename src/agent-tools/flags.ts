@@ -24,6 +24,8 @@ export function resolveEntry(command: string, args: string[]): Entry | undefined
 export function catalogFlagError(command: string, args: string[], flags: Record<string, unknown>): string | undefined {
   const entry = resolveEntry(command, args);
   if (!entry || entry.status !== "active") return undefined;
+  // A recognized compatibility refusal is not an advertised capability.
+  if (entry.id === "look" && flags.new !== undefined) return "--new is a cursor action, not a look rung; use ideaspaces threads open --new.";
   const allowed = new Set([...allowedFlags(entry.id), ...(entry.cli?.alias_flags?.[`${command} ${args[0]}`] ?? [])]);
   const unknown = Object.keys(flags).find(flag => !allowed.has(flag));
   return unknown ? `Unknown flag for ${entry.cli!.argv.join(" ")}: --${unknown}. Run ideaspaces ${command} --help for supported flags.` : undefined;

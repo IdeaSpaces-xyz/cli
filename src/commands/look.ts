@@ -98,14 +98,14 @@ export const lookCommand: CommandDef = {
     }
 
     const raw = args[0]?.trim() ?? ".";
+    if (flags.new !== undefined) {
+      output.error("--new is a cursor action, not a look rung; use ideaspaces threads open --new.");
+      return 1;
+    }
     const allowed = allowedFlags("look");
     const unknown = Object.keys(flags).find((flag) => !allowed.has(flag));
     if (unknown) {
       output.error(`Unknown flag for look: --${unknown}`);
-      return 1;
-    }
-    if (flags.new !== undefined) {
-      output.error("--new is a cursor action, not a look rung; use ideaspaces threads open --new.");
       return 1;
     }
     const since = typeof flags.since === "string" && flags.since.trim() ? flags.since.trim() : undefined;

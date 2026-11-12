@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAP_DEPTHS, assembleContentLook, gitState, parseMap } from "@ideaspaces/protocol";
 import { loadConfig } from "../auth/credentials.js";
+import { entries } from "../agent-tools/catalog.js";
 import { lookCommand, projectPortableMap } from "../commands/look.js";
 import { appendPost, createThread } from "../local/threads.js";
 import type { GlobalFlags } from "../types.js";
@@ -105,6 +106,37 @@ afterEach(async () => {
 });
 
 describe("ideaspaces look", () => {
+  it("executes every catalogued look read flag against a valid fixture, not just its allowlist", async () => {
+    const thread = createThread("catalog-proof", "Catalog proof", root);
+    const first = appendPost(thread.path, { body: "Executable evidence", author: "Reader", name: "First" });
+    git(["add", "."]); git(["commit", "-qm", "read fixtures"]);
+    const pin = git(["rev-parse", "HEAD"]);
+    const map = join(root, "read.map.md");
+    await fs.writeFile(map, `---\nname: Read proof\nmap:\n  roots:\n    - root_node_id: ${ROOT_NODE_ID}\n      sha: ${pin}\n  members:\n    - root: 0\n      position: notes/decision.md\n      depth: full\n---\n`);
+    const vectors: Record<string, {args: string[]; value: string; flags?: Record<string,string>}> = {
+      depth: { args: ["notes/decision.md"], value: "full" },
+      contract: { args: ["notes/decision.md"], value: "agreement" },
+      agreement: { args: ["notes/decision.md"], value: "full" },
+      limit: { args: ["docs"], value: "1" },
+      since: { args: ["docs"], value: "alpha.md" },
+      order: { args: ["docs"], value: "newer" },
+      post: { args: ["_threads/catalog-proof"], value: first.post.id },
+      pin: { args: ["notes/decision.md"], value: pin },
+      map: { args: ["//notes/decision.md"], value: map },
+      at: { args: ["//notes/decision.md"], value: "pin", flags: { map } },
+    };
+    const entry = entries.find(entry => entry.id === "look")!;
+    expect(Object.keys(entry.cli!.flags).sort()).toEqual(Object.keys(vectors).sort());
+    expect(entry.parameters.properties).not.toHaveProperty("new");
+    expect(entries.find(entry => entry.id === "threads.open")!.cli!.flags.new.flag).toBe("--new");
+    for (const [parameter, mapping] of Object.entries(entry.cli!.flags)) {
+      const vector = vectors[parameter];
+      const result = await runLook(vector.args, { ...vector.flags, [mapping.flag.replace(/^--/, "")]: vector.value });
+      expect(result.exit, `${mapping.flag}: ${result.stderr}`).toBe(0);
+      expect(result.data.status, mapping.flag).toBe("ok");
+    }
+  }, 30_000);
+
   it("reads a Thread folder through five canonical look rungs", async () => {
     const thread = createThread("decision", "Current decision", root);
     const first = appendPost(thread.path, { body: "Private body", author: "Integrator", name: "First", summary: "One finding" });
