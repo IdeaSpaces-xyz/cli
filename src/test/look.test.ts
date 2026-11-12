@@ -148,9 +148,13 @@ describe("ideaspaces look", () => {
     const unknown = await runLook(["_threads/decision"], { typo: "value" });
     expect(unknown.exit).toBe(1);
     expect(unknown.stderr).toContain("Unknown flag for look: --typo");
-    const cursorMisuse = await runLook(["_threads/decision"], { since: second.post.id });
+    const cursorMisuse = await runLook(["_threads/decision"], { since: second.post.id, depth: "summary" });
     expect(cursorMisuse.exit).toBe(1);
     expect(cursorMisuse.stderr).toContain("children or full depth");
+    // Without --depth, --since pages children; a post id is still not a page cursor.
+    const idAsCursor = await runLook(["_threads/decision"], { since: second.post.id });
+    expect(idAsCursor.exit).toBe(1);
+    expect(idAsCursor.stderr).not.toContain("children or full depth");
     const unread = await runLook(["_threads/decision"], { new: true });
     expect(unread.exit).toBe(1);
     expect(unread.stderr).toContain("threads open --new");
@@ -250,6 +254,64 @@ describe("ideaspaces look", () => {
     expect(sharedPrefix.exit).toBe(1);
     expect(sharedPrefix.data.status).toBe("ambiguous");
   }, 30_000);
+
+  it("pages at children when a paging flag comes without --depth, and reads a --post whole", async () => {
+    const dir = join(root, "_threads", "paging");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, "README.md"), "# Paging\n");
+    const ids = ["msg_1b7f2056-1111-4111-8111-111111111111", "msg_2c8e3167-2222-4222-8222-222222222222", "msg_3d9f4278-3333-4333-8333-333333333333"];
+    for (const [i, id] of ids.entries()) {
+      await fs.writeFile(join(dir, `0${i}-named-post.md`), `---\nid: ${id}\nname: Post ${i}\nsummary: Summary ${i}.\n---\nBody ${i} in full.\n`);
+    }
+    git(["add", "."]); git(["commit", "-q", "-m", "Paging posts"]);
+    // Each paging flag alone says "a page of this folder".
+    for (const flags of [{ limit: "2" }, { order: "newer" }, { since: "00-named-post.md" }] as Record<string, string>[]) {
+      const paged = await runLook(["_threads/paging"], flags);
+      expect(paged.exit, `${JSON.stringify(flags)}: ${paged.stderr}`).toBe(0);
+      expect(paged.data.depth).toBe("children");
+      expect(paged.data.target.children.length).toBeGreaterThan(0);
+    }
+    const pinned = await runLook(["_threads/paging"], { limit: "1", order: "newer", pin: git(["rev-parse", "HEAD"]) });
+    expect(pinned.exit, pinned.stderr).toBe(0);
+    expect(pinned.data.target.page).toMatchObject({ shown: 1, order: "newer" });
+    // An explicit rung still wins, and still refuses paging below children.
+    const refused = await runLook(["_threads/paging"], { depth: "summary", limit: "2" });
+    expect(refused.exit).toBe(1);
+    // One post asked for by id is read whole, by full id or short id.
+    for (const post of [ids[1], "msg_2c8e3167"]) {
+      const read = await runLook(["_threads/paging"], { post });
+      expect(read.exit, read.stderr).toBe(0);
+      expect(read.data.depth).toBe("full");
+      expect(read.data.target.surface).toContain("Body 1 in full.");
+    }
+    const summary = await runLook(["_threads/paging"], { post: ids[1], depth: "summary" });
+    expect(summary.exit, summary.stderr).toBe(0);
+    expect(summary.data.target).not.toHaveProperty("surface");
+  }, 30_000); // Several looks with Git startup exceed 5s on Windows.
+
+  it("shows each post's id, kind and author, though named posts' filenames carry no id", async () => {
+    // AX's probe children could not cite a slug-named post's id (v20 msg_5a4b1d05, fix 3).
+    const dir = join(root, "_threads", "named");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, "README.md"), "# Named\n");
+    const opening = "msg_4e6477d8-975e-463a-84ec-918c13238764";
+    const fix = "msg_12eee1b5-e422-4873-9f55-d04fa26b9abc";
+    await fs.writeFile(join(dir, "2026-11-12T06-56-30-471Z-friction-look-never-shows.md"),
+      `---\nid: ${opening}\nauthor: AX\nname: Friction\nsummary: Look hides ids.\n---\nBody.\n`);
+    await fs.writeFile(join(dir, "2026-11-12T07-07-37-672Z-evidence.md"),
+      `---\nid: ${fix}\nkind: snapshot\nin_reply_to: ${opening}\nname: Evidence\nsummary: Eighty refusals.\n---\nBody.\n`);
+    git(["add", "."]); git(["commit", "-q", "-m", "Named posts"]);
+    const listed = await runLook(["_threads/named"], { limit: "10" }, { ...JSON_FLAGS, json: false });
+    expect(listed.exit, listed.stderr).toBe(0);
+    expect(listed.stdout).toContain(`2026-11-12T06-56-30-471Z-friction-look-never-shows.md [${opening} · post · AX] — Look hides ids.`);
+    expect(listed.stdout).toContain(`2026-11-12T07-07-37-672Z-evidence.md [${fix} · snapshot] — Eighty refusals.`);
+    const json = await runLook(["_threads/named"], { limit: "10" });
+    expect(json.data.target.children.map((child: { post?: unknown }) => child.post)).toEqual([
+      { id: opening, kind: "post", author: "AX" }, { id: fix, kind: "snapshot" }]);
+    const read = await runLook(["_threads/named"], { post: "msg_12eee1b5" }, { ...JSON_FLAGS, json: false });
+    expect(read.exit, read.stderr).toBe(0);
+    expect(read.stdout).toContain(`  post: ${fix} · snapshot`);
+  }, 30_000); // Several looks with Git startup exceed 5s on Windows.
 
   it("reads the Agreement by path as reference content", async () => {
     const read = await runLook(["_agent/agreement.md"], { depth: "full" });

@@ -83,8 +83,8 @@ export const lookCommand: CommandDef = {
     "ideaspaces look notes/decision.md --pin 0123456789abcdef0123456789abcdef01234567",
     "ideaspaces look notes/decision.md --depth children",
     "ideaspaces look research --depth full --json",
-    "ideaspaces look _threads/decision --depth children --limit 50 --order older  # continue with --since <nextCursor>",
-    "ideaspaces look _threads/decision --post msg_75cc2f37 --depth full  # unique id, not guessed",
+    "ideaspaces look _threads/decision --limit 50 --order newer  # paging implies --depth children; each post shows its id; continue with --since <nextCursor>",
+    "ideaspaces look _threads/decision --post msg_75cc2f37  # reads that post at --depth full; unique id, not guessed",
     "ideaspaces look --post msg_75cc2f37 --depth summary  # searches only the current Space root (cwd)",
     "ideaspaces look @home//_threads/decision/msg_75cc2f37 --map thread.map.md --at pin --depth full",
     "ideaspaces look . --contract foundation --depth summary",
@@ -131,7 +131,10 @@ export const lookCommand: CommandDef = {
       output.error("Remote look is not available yet; use a local path.");
       return 1;
     }
-    const depth = parseDepth(flags.depth);
+    // Without --depth, a paging flag asks for a page of children and --post for that post whole.
+    const depth = flags.depth === undefined && postId ? "full"
+      : flags.depth === undefined && (flags.limit !== undefined || since || order) ? "children"
+      : parseDepth(flags.depth);
     if (!depth) {
       output.error(`--depth must be one of: ${MAP_DEPTHS.join(", ")}`);
       return 1;
