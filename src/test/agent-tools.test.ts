@@ -95,7 +95,8 @@ describe("agent tool contract data", () => {
     expect(look.text.check).not.toContain("Thread summaries show folded marks");
     expect(look.text.check).toContain("Open the post for body evidence");
     const post = entries.find(e => e.id === "threads.post")!;
-    expect(post.parameters.properties!.kind.enum).toEqual(expect.arrayContaining(["snapshot", "correction", "mark"]));
+    // Kinds are open strings: readers retain unknown kinds as well as standard ones.
+    expect(post.parameters.properties!.kind.type).toBe("string");
     expect(post.cli!.flags.kind.flag).toBe("--kind");
     expect(post.parameters.properties!.supersedes).toBeDefined();
   });
