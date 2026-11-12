@@ -14,6 +14,7 @@ import {
   buildMap,
   gitState,
   projectContentTreeMembers,
+  readRepositoryImage,
   resolveRepoRoot,
   type ContentAwarenessTree,
   type ContentTreeDepth,
@@ -171,6 +172,8 @@ export const mapCommand: CommandDef = {
     }
 
     if (spaceMap) {
+      // Each root with a checkout: its README's `image:`, checked by the protocol. Never fatal.
+      const images = await Promise.all(spaceMap.roots.map((r) => rootImage(r.checkoutPath)));
       const data = {
         kind: "space-map",
         source: "curated-map-note",
@@ -180,7 +183,7 @@ export const mapCommand: CommandDef = {
         file_sha: spaceMap.note.fileSha,
         name: spaceMap.note.name ?? null,
         summary: spaceMap.note.summary ?? null,
-        roots: spaceMap.roots.map((r) => ({
+        roots: spaceMap.roots.map((r, i) => ({
           root_index: r.rootIndex,
           root_node_id: r.rootNodeId,
           repo: r.repo,
@@ -189,6 +192,7 @@ export const mapCommand: CommandDef = {
           drift: r.drift,
           head_sha: r.headSha,
           checkout_path: r.checkoutPath,
+          ...images[i],
         })),
         members: spaceMap.members,
         map: spaceMap.note.map,
@@ -213,6 +217,9 @@ export const mapCommand: CommandDef = {
           const pin = r.pinnedSha ? ` @ ${r.pinnedSha}` : "";
           const detail = r.status === "moved" && r.headSha ? ` (head: ${r.headSha})` : "";
           lines.push(`  [${r.rootIndex}] ${mark}${label}${pin}${detail}`);
+          const image = images[r.rootIndex];
+          if (image.image) lines.push(`      image: ${image.image.path} (${image.image.media_type})`);
+          else if (image.image_problem) lines.push(`      image: not shown (${image.image_problem.code}): ${image.image_problem.message}`);
         }
       }
 
@@ -330,3 +337,36 @@ export const mapCommand: CommandDef = {
     return 0;
   },
 };
+
+export interface RootImageFields {
+  /** `null` when the checkout's README declares none, or the image can't be shown. */
+  image: { path: string; absolute_path: string; media_type: string } | null;
+  /** Present only when an image was declared and a check failed. The reader shows its default. */
+  image_problem?: { code: string; declared?: string; message: string };
+}
+
+/**
+ * The identity image of one Map root's checkout (protocol `readRepositoryImage`). A root with no
+ * checkout has none; a read that throws is reported as `missing`, never as a failed Map read.
+ */
+export async function rootImage(checkoutPath: string | null | undefined): Promise<RootImageFields> {
+  if (!checkoutPath) return { image: null };
+  try {
+    const read = await readRepositoryImage(checkoutPath);
+    if (read.status === "ok") {
+      return { image: { path: read.image.path, absolute_path: read.image.absolutePath, media_type: read.image.mediaType } };
+    }
+    if (read.status === "problem") {
+      return {
+        image: null,
+        image_problem: { code: read.code, ...(read.declared !== undefined ? { declared: read.declared } : {}), message: read.message },
+      };
+    }
+    return { image: null };
+  } catch (error) {
+    return {
+      image: null,
+      image_problem: { code: "missing", message: `README.md's image couldn't be read: ${error instanceof Error ? error.message : String(error)}` },
+    };
+  }
+}

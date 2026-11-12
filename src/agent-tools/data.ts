@@ -487,7 +487,7 @@ export const entries: Entry[] = [
     "text": {
       "does": "Read a curated Map, derive a Content Map, or render orientation.",
       "use_when": "Inspect references before editing a Map or launching from it.",
-      "check": "References do not grant access. Check file_sha before guarded removal.",
+      "check": "References do not grant access. Check file_sha before guarded removal. Each root with a checkout carries image (or null, with image_problem when one is declared but can't be shown).",
       "bound": "Depth defaults to 1, max 4 or full; orientation uses a character budget."
     },
     "bound": "n/a",
