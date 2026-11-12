@@ -61,8 +61,16 @@ function firstLine(text: string): string {
   return line.length > 160 ? `${line.slice(0, 157)}...` : line;
 }
 
-function resolveOne(bin: string, ref: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number): Promise<ResolvedAlias> {
-  return new Promise((done) => {
+interface Probe {
+  result: Promise<ResolvedAlias>;
+  /** Settles when the process has exited, or at once when none started. */
+  closed: Promise<void>;
+}
+
+function resolveOne(bin: string, ref: string, env: NodeJS.ProcessEnv, cwd: string, timeoutMs: number): Probe {
+  let markClosed: () => void = () => {};
+  const closed = new Promise<void>((resolve) => { markClosed = resolve; });
+  const result = new Promise<ResolvedAlias>((done) => {
     let settled = false;
     let stdout = "";
     let stderr = "";
@@ -86,11 +94,13 @@ function resolveOne(bin: string, ref: string, env: NodeJS.ProcessEnv, cwd: strin
       const command = runtimeCommand(bin, aliasProbeArgs(ref), env, cwd);
       child = spawn(command.command, command.args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
     } catch (error) {
+      markClosed();
       finish({ ref, model: null, detail: `could not start Claude Code for ${label}: ${String((error as Error)?.message ?? error)}` });
       return;
     }
+    child.on("exit", () => markClosed());
     timer = setTimeout(() => finish({ ref, model: null, detail: `Claude Code did not name a model for ${label} within ${Math.round(timeoutMs / 1000)} s` }), timeoutMs);
-    child.on("error", (error) => finish({ ref, model: null, detail: `could not start Claude Code for ${label}: ${error.message}` }));
+    child.on("error", (error) => { markClosed(); finish({ ref, model: null, detail: `could not start Claude Code for ${label}: ${error.message}` }); });
     child.stderr?.on("data", (d) => { if (stderr.length < 4096) stderr += String(d); });
     child.stdout?.on("data", (d) => {
       stdout += String(d);
@@ -118,6 +128,17 @@ function resolveOne(bin: string, ref: string, env: NodeJS.ProcessEnv, cwd: strin
     child.stdin?.on("error", () => { /* the process may stop before reading its prompt */ });
     child.stdin?.end("/cost\n");
   });
+  return { result, closed };
+}
+
+/** Remove the probes' folder; false when a process still holds it (Windows locks a working folder). */
+function removeFolder(path: string): boolean {
+  try {
+    rmSync(path, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -130,10 +151,11 @@ export async function resolveClaudeAliases(
   options: { refs?: readonly string[]; timeoutMs?: number } = {},
 ): Promise<ResolvedAlias[]> {
   const cwd = mkdtempSync(join(tmpdir(), "ideaspaces-claude-aliases-"));
-  try {
-    return await Promise.all((options.refs ?? CLAUDE_ALIASES).map((ref) =>
-      resolveOne(bin, ref, env, cwd, options.timeoutMs ?? ALIAS_PROBE_TIMEOUT_MS)));
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
+  const probes = (options.refs ?? CLAUDE_ALIASES).map((ref) =>
+    resolveOne(bin, ref, env, cwd, options.timeoutMs ?? ALIAS_PROBE_TIMEOUT_MS));
+  const results = await Promise.all(probes.map((probe) => probe.result));
+  // A stopped Claude Code takes a while to exit, and until then Windows won't remove its working
+  // folder. The answer doesn't wait for that: the folder goes once the last probe has exited.
+  if (!removeFolder(cwd)) void Promise.all(probes.map((probe) => probe.closed)).then(() => { removeFolder(cwd); });
+  return results;
 }
