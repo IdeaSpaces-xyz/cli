@@ -140,9 +140,9 @@ map:
     expect(text.out).toContain("      image: not shown (too_large): ");
   });
 
-  it("a root with no checkout has no image, and a read that throws is a problem, not a failure", async () => {
+  it("a root with no checkout has no image, and an unreadable root is a problem, not a failure", async () => {
     expect(await rootImage(null)).toEqual({ image: null });
     const result = await rootImage(join(root, "does-not-exist"));
-    expect(result).toMatchObject({ image: null, image_problem: { code: "missing" } });
+    expect(result).toMatchObject({ image: null, image_problem: { code: "unreadable" } });
   });
 });

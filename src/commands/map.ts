@@ -347,7 +347,7 @@ export interface RootImageFields {
 
 /**
  * The identity image of one Map root's checkout (protocol `readRepositoryImage`). A root with no
- * checkout has none; a read that throws is reported as `missing`, never as a failed Map read.
+ * checkout has none; the protocol answers every I/O error as `unreadable`, never a failed Map read.
  */
 export async function rootImage(checkoutPath: string | null | undefined): Promise<RootImageFields> {
   if (!checkoutPath) return { image: null };
@@ -366,7 +366,7 @@ export async function rootImage(checkoutPath: string | null | undefined): Promis
   } catch (error) {
     return {
       image: null,
-      image_problem: { code: "missing", message: `README.md's image couldn't be read: ${error instanceof Error ? error.message : String(error)}` },
+      image_problem: { code: "unreadable", message: `README.md's image couldn't be read: ${error instanceof Error ? error.message : String(error)}` },
     };
   }
 }
