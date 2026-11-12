@@ -577,6 +577,7 @@ export function appendPost(dir: string, options: {
 
 /** What happened to the commit a written post asks for: its sha, or why it was not made. The post is on disk either way. */
 export type PostCommit = { committed: true; commit: string } | { committed: false; reason: string };
+export const NOT_IN_GIT_REPOSITORY = "this folder is not in a Git repository";
 
 /**
  * Commit the one post file the CLI just wrote, and nothing else: `git add` of that path, then a pathspec
@@ -605,7 +606,7 @@ export function commitPost(postPath: string, message: string): PostCommit {
     return result;
   };
   const inside = run(["rev-parse", "--is-inside-work-tree"]);
-  if (inside.status !== 0 || inside.stdout.trim() !== "true") return { committed: false, reason: "this folder is not in a Git repository" };
+  if (inside.status !== 0 || inside.stdout.trim() !== "true") return { committed: false, reason: NOT_IN_GIT_REPOSITORY };
   const added = retrying(["add", "--", file]);
   if (added.status !== 0) return { committed: false, reason: failure(added) };
   const committed = retrying(["commit", "-q", "-m", message, "--", file]);

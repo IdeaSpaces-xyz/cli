@@ -15,7 +15,7 @@ import {
   acknowledge, appendPost, attachThread, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, threadsDirectory, NoAgreementError,
   resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, earliestLocalActivity, attachmentText, validateMarkOptions, validateThreadMomentMap,
-  isHostedThreadTarget, commitPost, type PostCommit, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
+  isHostedThreadTarget, commitPost, NOT_IN_GIT_REPOSITORY, type PostCommit, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { claimedBy, markText, singleLine } from "../local/claims.js";
 import { deepLine, displayPost, displayThread } from "../local/display.js";
@@ -886,8 +886,9 @@ export const threadsCommand: CommandDef = {
         const postShare = readThreadShare(dirname(path), [basename(path)]);
         const posted = postShare.states.get(basename(path));
         const commitLine = outcome.committed ? `\nCommitted ${outcome.commit.slice(0, 12)}: only this post's file. Not pushed; push it for anyone else to read it.`
-          : flags["no-commit"] === true ? "\nWritten, not committed (--no-commit)."
-          : `\nWritten, not committed: ${outcome.reason}. The post is on this disk; commit that file when you can.`;
+          : flags["no-commit"] === true ? "\nState: local only. Written, not committed (--no-commit); commit and push it for anyone else to read it."
+          : outcome.reason === NOT_IN_GIT_REPOSITORY ? "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only."
+          : `\nState: local only. Written, not committed: ${outcome.reason}. The post is on this disk; commit that file when you can.`;
         output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(posted ? { state: posted } : {}),
           committed: outcome.committed, ...(outcome.committed ? { commit: outcome.commit } : { reason: outcome.reason }), ...(warnings.length ? { warnings } : {}) },
           `Appended ${post.kind}: ${path}${commitLine}`); return 0;

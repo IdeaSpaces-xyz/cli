@@ -288,8 +288,8 @@ describe("where a local post is", () => {
     const flags = { json: true, quiet: true, yes: false, help: false };
     const run = async (args: string[], options: Record<string, string | boolean> = {}) => { text = ""; expect(await threadsCommand.run(args, options, flags)).toBe(0); return JSON.parse(text); };
     try {
-      const posted = await run(["post", "decision"], { message: "Not yet committed", author: "Scout" });
-      expect(posted.state).toBe("local");
+      const posted = await run(["post", "decision"], { message: "Not yet committed", author: "Scout", "no-commit": true });
+      expect(posted).toMatchObject({ state: "local", committed: false, reason: "--no-commit" });
       const full = await run(["open", "decision"], { depth: "full" });
       expect(full.posts.map((p: { state: string }) => p.state)).toEqual(["pushed", "local"]);
       expect(full.thread.share).toMatchObject({ checked: true, upstream: "origin/main", counts: { local: 1, committed: 0, pushed: 1 } });
@@ -298,10 +298,10 @@ describe("where a local post is", () => {
       process.stdout.write = old;
       const human: string[] = [];
       process.stdout.write = ((s: string) => { human.push(s); return true; }) as typeof process.stdout.write;
-      expect(await threadsCommand.run(["post", "decision"], { message: "Another", author: "Scout" }, { json: false, quiet: false, yes: false, help: false })).toBe(0);
+      expect(await threadsCommand.run(["post", "decision"], { message: "Another", author: "Scout", "no-commit": true }, { json: false, quiet: false, yes: false, help: false })).toBe(0);
       expect(await threadsCommand.run(["open", "decision"], { depth: "full" }, { json: false, quiet: false, yes: false, help: false })).toBe(0);
       const shown = human.join("");
-      expect(shown).toContain("State: local only. The file is on this disk and not committed");
+      expect(shown).toContain("State: local only. Written, not committed (--no-commit)");
       expect(shown).toMatch(/Posts: 2 local only \(on this disk, not committed\), 1 pushed\./);
       expect(shown).toMatch(/· post · local only/);
       expect(shown).toMatch(/· post · pushed/);
