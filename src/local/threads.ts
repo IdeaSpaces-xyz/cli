@@ -575,6 +575,48 @@ export function appendPost(dir: string, options: {
   return { post: parsed.post, path, warnings };
 }
 
+/** What happened to the commit a written post asks for: its sha, or why it was not made. The post is on disk either way. */
+export type PostCommit = { committed: true; commit: string } | { committed: false; reason: string };
+
+/**
+ * Commit the one post file the CLI just wrote, and nothing else: `git add` of that path, then a pathspec
+ * commit, so whatever else is staged (another session's files, this Thread's other posts) stays staged and
+ * uncommitted. Uses the repository's own Git identity, never pushes, and never throws: a failed commit
+ * returns the reason and leaves the written post in place, unstaged, for the caller to say so.
+ */
+export function commitPost(postPath: string, message: string): PostCommit {
+  const cwd = dirname(postPath);
+  const file = basename(postPath);
+  const availability = gitAvailability();
+  if (availability.state !== "usable") return { committed: false, reason: availability.hint };
+  const run = (args: string[]) => spawnSync(gitBinary(), args, { cwd, encoding: "utf8", env: sanitizedGitEnvironment(), timeout: 120_000 });
+  const failure = (result: ReturnType<typeof run>) => {
+    const text = (result.stderr || result.stdout || result.error?.message || "").trim();
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    return (lines.slice(0, 3).join(" ") || `git exited ${result.status}`).slice(0, 400);
+  };
+  // Another session's Git call holds .git/index.lock for a moment; wait it out a few times before giving up.
+  const retrying = (args: string[]) => {
+    let result = run(args);
+    for (let attempt = 0; attempt < 4 && result.status !== 0 && /index\.lock/.test(result.stderr ?? ""); attempt++) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+      result = run(args);
+    }
+    return result;
+  };
+  const inside = run(["rev-parse", "--is-inside-work-tree"]);
+  if (inside.status !== 0 || inside.stdout.trim() !== "true") return { committed: false, reason: "this folder is not in a Git repository" };
+  const added = retrying(["add", "--", file]);
+  if (added.status !== 0) return { committed: false, reason: failure(added) };
+  const committed = retrying(["commit", "-q", "-m", message, "--", file]);
+  if (committed.status !== 0) {
+    run(["rm", "--cached", "-q", "--", file]); // back to untracked, as the post was written
+    return { committed: false, reason: failure(committed) };
+  }
+  const head = run(["rev-parse", "HEAD"]);
+  return { committed: true, commit: head.status === 0 ? head.stdout.trim() : "" };
+}
+
 function cursorPath(thread: LocalThread, reader = PERSON_READER): string {
   const key = createHash("sha256").update(thread.path).digest("hex");
   return join(readerCursorDirectory(reader) ?? join(homedir(), ".ideaspaces", "cursors"), `${key}.json`);

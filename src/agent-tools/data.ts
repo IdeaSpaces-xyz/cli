@@ -1514,9 +1514,9 @@ export const entries: Entry[] = [
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Append an immutable local or hosted Thread post.",
+      "does": "Append an immutable local or hosted Thread post. A local post is committed on its own (only its file, never pushed) unless no_commit; a hosted post is sent.",
       "use_when": "Reply to a specific post or branch from the post your topic serves.",
-      "check": "Supply name, summary and reply_to; verify returned id/path. Local author is a claim. Keep post_id for exact hosted retries.",
+      "check": "Supply name, summary and reply_to; verify returned id/path and, for a local post, committed (false carries a reason: the post is written, not committed). Local author is a claim. Keep post_id for exact hosted retries.",
       "bound": "One post; local kind/mark and host metadata have distinct validation."
     },
     "bound": "n/a",
@@ -1586,6 +1586,10 @@ export const entries: Entry[] = [
           "type": "boolean",
           "description": "Skip local post link validation only when deliberately required."
         },
+        "no_commit": {
+          "type": "boolean",
+          "description": "Local only: write the post without committing it, for tests and dry runs."
+        },
         "post_id": {
           "type": "string",
           "description": "Stable id for exact hosted resend after uncertain delivery."
@@ -1647,6 +1651,10 @@ export const entries: Entry[] = [
           "flag": "--no-check-links",
           "boolean": "bare"
         },
+        "no_commit": {
+          "flag": "--no-commit",
+          "boolean": "bare"
+        },
         "post_id": {
           "flag": "--post-id"
         }
@@ -1664,7 +1672,8 @@ export const entries: Entry[] = [
         "supersedes",
         "message",
         "tags",
-        "no-check-links"
+        "no-check-links",
+        "no-commit"
       ],
       "hosted_flags": [
         "reply-to",
@@ -1683,6 +1692,9 @@ export const entries: Entry[] = [
         "kind",
         "in_reply_to",
         "state",
+        "committed",
+        "commit",
+        "reason",
         "warnings"
       ]
     }
@@ -1699,7 +1711,7 @@ export const entries: Entry[] = [
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Append a closure post to a local or hosted Thread.",
+      "does": "Append a closure post to a local or hosted Thread. A local closure is committed on its own (only its file, never pushed) unless no_commit.",
       "use_when": "Done-when holds and closure has been agreed.",
       "check": "Verify target and rationale; hosted close requires yes.",
       "bound": "One closure post; no content or history is removed."
@@ -1751,6 +1763,10 @@ export const entries: Entry[] = [
           "type": "string",
           "description": "Stable id for exact hosted resend after uncertain delivery."
         },
+        "no_commit": {
+          "type": "boolean",
+          "description": "Local only: write the closure without committing it, for tests and dry runs."
+        },
         "yes": {
           "type": "boolean",
           "description": "Explicit application of the previously read plan."
@@ -1798,6 +1814,10 @@ export const entries: Entry[] = [
         "post_id": {
           "flag": "--post-id"
         },
+        "no_commit": {
+          "flag": "--no-commit",
+          "boolean": "bare"
+        },
         "yes": {
           "flag": "--yes",
           "boolean": "bare"
@@ -1811,7 +1831,8 @@ export const entries: Entry[] = [
         "name",
         "summary",
         "supersedes",
-        "message"
+        "message",
+        "no-commit"
       ],
       "hosted_flags": [
         "message",
@@ -1823,7 +1844,10 @@ export const entries: Entry[] = [
         "id",
         "path",
         "kind",
-        "in_reply_to"
+        "in_reply_to",
+        "committed",
+        "commit",
+        "reason"
       ]
     }
   },

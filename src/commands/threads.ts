@@ -15,7 +15,7 @@ import {
   acknowledge, appendPost, attachThread, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, threadsDirectory, NoAgreementError,
   resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, earliestLocalActivity, attachmentText, validateMarkOptions, validateThreadMomentMap,
-  isHostedThreadTarget, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
+  isHostedThreadTarget, commitPost, type PostCommit, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { claimedBy, markText, singleLine } from "../local/claims.js";
 import { deepLine, displayPost, displayThread } from "../local/display.js";
@@ -321,11 +321,11 @@ export const threadsCommand: CommandDef = {
     ...Object.fromEntries(["open", "read"].map((verb) => [verb,
       `ideaspaces threads ${verb} <slug|path> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|activity-id>] [--limit <n>] [--order older|newer] [--new] [--ack] [--reader <name>] [--agreement summary|full] [--map <file> --member <n> [--checkout <root>]] [--pin <sha> --position <path>]\n       ideaspaces threads ${verb} x_<id> [--limit <n>] [--cursor <cursor>]`])),
     new: "ideaspaces threads new <slug> --about <title> [--attached-to <post>] [--map <file>]\n       ideaspaces threads new --hosted --name <title> --summary <text> --message <text> [--home map:<id>] [--recipients <handles-or-emails>] [--map <file>] [--tags <labels>] [--post-id <id>]",
-    post: "ideaspaces threads post <slug|path> --message <text> [--reply-to <id>] [--kind <kind>] [--mark <value>] [--supersedes <id>] [--author <name>] [--name <title>] [--summary <text>] [--tags <labels>] [--map <file> [--member <n> --checkout <root>]] [--no-check-links]\n       ideaspaces threads post x_<id> --message <text> [--reply-to <id>] [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    post: "ideaspaces threads post <slug|path> --message <text> [--reply-to <id>] [--kind <kind>] [--mark <value>] [--supersedes <id>] [--author <name>] [--name <title>] [--summary <text>] [--tags <labels>] [--map <file> [--member <n> --checkout <root>]] [--no-check-links] [--no-commit]\n       ideaspaces threads post x_<id> --message <text> [--reply-to <id>] [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     send: "ideaspaces threads send <@handle|email> --name <title> --summary <text> --message <text> [--home map:<id>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     reply: "ideaspaces threads reply x_<id> --reply-to <id> --message <text> [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     ack: "ideaspaces threads ack <slug|path> --through <id|latest> [--reader <name>]\n       ideaspaces threads ack --recent <cursor> [--reader <name>]\n       ideaspaces threads ack x_<id> (--cursor <cursor>|--seq <n>)",
-    close: "ideaspaces threads close <slug|path> --message <text> [--reply-to <id>] [--author <name>] [--name <title>] [--summary <text>] [--map <file>]\n       ideaspaces threads close x_<id> --message <text> [--post-id <id>] [--yes]",
+    close: "ideaspaces threads close <slug|path> --message <text> [--reply-to <id>] [--author <name>] [--name <title>] [--summary <text>] [--map <file>] [--no-commit]\n       ideaspaces threads close x_<id> --message <text> [--post-id <id>] [--yes]",
     rename: "ideaspaces threads rename x_<id> --name <title> --summary <text> --message <text> [--post-id <id>]",
     locate: "ideaspaces threads locate <opening-id> <space-root> [<space-root> ...]",
     "launch-text": "ideaspaces threads launch-text <slug|path> --post <id> [--member <n>] [--pov <agent-folder>] [--budget <chars>] [--json]",
@@ -353,8 +353,8 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads list --json  # each local row: attached_to, owner (+ owner_source), first_post_at, newest_post_at; owner = README `owner:`/`holder:`, `Held by X` in its summary or a `Holder:` line, else the opening post's author",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
-    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot --map <note>] [--author Name] [--tags ux] [--no-check-links]  # --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags; snapshot requires --map <note>`,
-    "ideaspaces threads close <slug|path> --message 'Rationale'",
+    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot --map <note>] [--author Name] [--tags ux] [--no-check-links] [--no-commit]  # a local post is committed (that one file, never pushed) unless --no-commit; --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags; snapshot requires --map <note>`,
+    "ideaspaces threads close <slug|path> --message 'Rationale' [--no-commit]  # the closure post is committed like any local post",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
     "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # the text a session launched from that post starts with; see --help",
     "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'",
@@ -878,10 +878,19 @@ export const threadsCommand: CommandDef = {
           rejectEscapedNewlines: typeof flags.message === "string", verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
         for (const warning of warnings) output.log(`Link warning: ${warning}`);
+        // The tool that writes a post commits it (the human, 2026-11-12): that one path, never pushed.
+        // A commit that fails leaves the written post and says why; it is not a failed post.
+        const outcome: PostCommit = flags["no-commit"] === true
+          ? { committed: false, reason: "--no-commit" }
+          : commitPost(path, `Thread ${basename(dirname(path))}: ${post.kind} ${post.id}${post.frontmatter.name ? `\n\n${post.frontmatter.name}` : ""}`);
         const postShare = readThreadShare(dirname(path), [basename(path)]);
         const posted = postShare.states.get(basename(path));
-        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(posted ? { state: posted } : {}), ...(warnings.length ? { warnings } : {}) },
-          `Appended ${post.kind}: ${path}${posted === "local" ? (postShare.inRepository ? "\nState: local only. The file is on this disk and not committed; commit and push it for anyone else to read it." : "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only.") : ""}`); return 0;
+        const commitLine = outcome.committed ? `\nCommitted ${outcome.commit.slice(0, 12)}: only this post's file. Not pushed; push it for anyone else to read it.`
+          : flags["no-commit"] === true ? "\nWritten, not committed (--no-commit)."
+          : `\nWritten, not committed: ${outcome.reason}. The post is on this disk; commit that file when you can.`;
+        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(posted ? { state: posted } : {}),
+          committed: outcome.committed, ...(outcome.committed ? { commit: outcome.commit } : { reason: outcome.reason }), ...(warnings.length ? { warnings } : {}) },
+          `Appended ${post.kind}: ${path}${commitLine}`); return 0;
       }
       if (sub === "check") {
         if (rest.length > 1) throw new Error("Usage: threads check [<slug|path>] [--strict]");
