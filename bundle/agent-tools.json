@@ -3,11 +3,11 @@
   "version": 1,
   "cli": {
     "version": "0.10.1",
-    "commit": "52995a5886a5b1dc87439bca22c6f51318895e3a"
+    "commit": "5b0d39a2d1b8ad3edc788490df96aa4d402023a4"
   },
   "protocol": {
     "version": "0.32.0",
-    "commit": "a7c966991f3ee97b0fd1bb529c38113e606c1e4d"
+    "commit": "e570f8a90fee5bb6f7237530856caedcb8ebdb35"
   },
   "digest": "sha256:1c72b377c62d68698ca244b5414b8f694eff54fd890a494817b04f111532923d",
   "groups": [
