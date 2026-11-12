@@ -289,6 +289,30 @@ describe("ideaspaces look", () => {
     expect(summary.data.target).not.toHaveProperty("surface");
   });
 
+  it("shows each post's id, kind and author, though named posts' filenames carry no id", async () => {
+    // AX's probe children could not cite a slug-named post's id (v20 msg_5a4b1d05, fix 3).
+    const dir = join(root, "_threads", "named");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(join(dir, "README.md"), "# Named\n");
+    const opening = "msg_4e6477d8-975e-463a-84ec-918c13238764";
+    const fix = "msg_12eee1b5-e422-4873-9f55-d04fa26b9abc";
+    await fs.writeFile(join(dir, "2026-11-12T06-56-30-471Z-friction-look-never-shows.md"),
+      `---\nid: ${opening}\nauthor: AX\nname: Friction\nsummary: Look hides ids.\n---\nBody.\n`);
+    await fs.writeFile(join(dir, "2026-11-12T07-07-37-672Z-evidence.md"),
+      `---\nid: ${fix}\nkind: snapshot\nin_reply_to: ${opening}\nname: Evidence\nsummary: Eighty refusals.\n---\nBody.\n`);
+    git(["add", "."]); git(["commit", "-q", "-m", "Named posts"]);
+    const listed = await runLook(["_threads/named"], { limit: "10" }, { ...JSON_FLAGS, json: false });
+    expect(listed.exit, listed.stderr).toBe(0);
+    expect(listed.stdout).toContain(`2026-11-12T06-56-30-471Z-friction-look-never-shows.md [${opening} · post · AX] — Look hides ids.`);
+    expect(listed.stdout).toContain(`2026-11-12T07-07-37-672Z-evidence.md [${fix} · snapshot] — Eighty refusals.`);
+    const json = await runLook(["_threads/named"], { limit: "10" });
+    expect(json.data.target.children.map((child: { post?: unknown }) => child.post)).toEqual([
+      { id: opening, kind: "post", author: "AX" }, { id: fix, kind: "snapshot" }]);
+    const read = await runLook(["_threads/named"], { post: "msg_12eee1b5" }, { ...JSON_FLAGS, json: false });
+    expect(read.exit, read.stderr).toBe(0);
+    expect(read.stdout).toContain(`  post: ${fix} · snapshot`);
+  });
+
   it("reads the Agreement by path as reference content", async () => {
     const read = await runLook(["_agent/agreement.md"], { depth: "full" });
     expect(read.exit, read.stderr).toBe(0);
