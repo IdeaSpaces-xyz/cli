@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.10.1",
-    "commit": "c27407f07130982f43da3556defcd6dbe0b545d7"
+    "commit": "52e9967acc281783a3c6080bfa299a9bb465fbe6"
   },
   "protocol": {
     "version": "0.32.0",
     "commit": "916ae9ffb2733295b04b192abc29cf3fe1b736c6"
   },
-  "digest": "sha256:670f8d9c3aea0dd3b81fb0afa57477f829c45e3d7e9ec62e4c9c09002329e87a",
+  "digest": "sha256:00eb3df229670b242349420f3776066054c1606bc17b4ab49c2b684525d2184b",
   "groups": [
     {
       "id": "read",
@@ -190,10 +190,6 @@
               "pin",
               "head"
             ]
-          },
-          "new": {
-            "type": "string",
-            "description": "Select activity after a local reader position; hosted list uses service unread counts."
           }
         },
         "required": [],
@@ -236,9 +232,6 @@
           },
           "at": {
             "flag": "--at"
-          },
-          "new": {
-            "flag": "--new"
           }
         }
       },
