@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.10.1",
-    "commit": "5b0d39a2d1b8ad3edc788490df96aa4d402023a4"
+    "commit": "9c92c324381eae8ba7110fcdc3bc4747e1e88ed9"
   },
   "protocol": {
     "version": "0.32.0",
     "commit": "e570f8a90fee5bb6f7237530856caedcb8ebdb35"
   },
-  "digest": "sha256:1c72b377c62d68698ca244b5414b8f694eff54fd890a494817b04f111532923d",
+  "digest": "sha256:8d02392aa8119871d3b9d9e0890bb0bc3067136f82f15badba968d1a60d0be6b",
   "groups": [
     {
       "id": "read",
@@ -1522,9 +1522,9 @@
         "cli": ">=0.9.0"
       },
       "text": {
-        "does": "Append an immutable local or hosted Thread post.",
+        "does": "Append an immutable local or hosted Thread post. A local post is committed on its own (only its file, never pushed) unless no_commit; a hosted post is sent.",
         "use_when": "Reply to a specific post or branch from the post your topic serves.",
-        "check": "Supply name, summary and reply_to; verify returned id/path. Local author is a claim. Keep post_id for exact hosted retries.",
+        "check": "Supply name, summary and reply_to; verify returned id/path and, for a local post, committed (false carries a reason: the post is written, not committed). Local author is a claim. Keep post_id for exact hosted retries.",
         "bound": "One post; local kind/mark and host metadata have distinct validation."
       },
       "bound": "n/a",
@@ -1594,6 +1594,10 @@
             "type": "boolean",
             "description": "Skip local post link validation only when deliberately required."
           },
+          "no_commit": {
+            "type": "boolean",
+            "description": "Local only: write the post without committing it, for tests and dry runs."
+          },
           "post_id": {
             "type": "string",
             "description": "Stable id for exact hosted resend after uncertain delivery."
@@ -1655,6 +1659,10 @@
             "flag": "--no-check-links",
             "boolean": "bare"
           },
+          "no_commit": {
+            "flag": "--no-commit",
+            "boolean": "bare"
+          },
           "post_id": {
             "flag": "--post-id"
           }
@@ -1672,7 +1680,8 @@
           "supersedes",
           "message",
           "tags",
-          "no-check-links"
+          "no-check-links",
+          "no-commit"
         ],
         "hosted_flags": [
           "reply-to",
@@ -1691,6 +1700,9 @@
           "kind",
           "in_reply_to",
           "state",
+          "committed",
+          "commit",
+          "reason",
           "warnings"
         ]
       }
@@ -1707,7 +1719,7 @@
         "cli": ">=0.9.0"
       },
       "text": {
-        "does": "Append a closure post to a local or hosted Thread.",
+        "does": "Append a closure post to a local or hosted Thread. A local closure is committed on its own (only its file, never pushed) unless no_commit.",
         "use_when": "Done-when holds and closure has been agreed.",
         "check": "Verify target and rationale; hosted close requires yes.",
         "bound": "One closure post; no content or history is removed."
@@ -1759,6 +1771,10 @@
             "type": "string",
             "description": "Stable id for exact hosted resend after uncertain delivery."
           },
+          "no_commit": {
+            "type": "boolean",
+            "description": "Local only: write the closure without committing it, for tests and dry runs."
+          },
           "yes": {
             "type": "boolean",
             "description": "Explicit application of the previously read plan."
@@ -1806,6 +1822,10 @@
           "post_id": {
             "flag": "--post-id"
           },
+          "no_commit": {
+            "flag": "--no-commit",
+            "boolean": "bare"
+          },
           "yes": {
             "flag": "--yes",
             "boolean": "bare"
@@ -1819,7 +1839,8 @@
           "name",
           "summary",
           "supersedes",
-          "message"
+          "message",
+          "no-commit"
         ],
         "hosted_flags": [
           "message",
@@ -1831,7 +1852,10 @@
           "id",
           "path",
           "kind",
-          "in_reply_to"
+          "in_reply_to",
+          "committed",
+          "commit",
+          "reason"
         ]
       }
     },
