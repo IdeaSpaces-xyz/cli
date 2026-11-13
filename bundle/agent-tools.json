@@ -2,8 +2,8 @@
   "schema": "ideaspaces.agent-tools",
   "version": 1,
   "cli": {
-    "version": "0.10.1",
-    "commit": "5cdf349467435bdb55d059d5dd16df1d8a9bb0a4"
+    "version": "0.11.0",
+    "commit": "ba6b2ee873550060eeb147bed76db61d84da96aa"
   },
   "protocol": {
     "version": "0.32.0",
