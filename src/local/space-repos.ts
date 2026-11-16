@@ -47,7 +47,9 @@ export interface SpaceRepos {
   repos: SpaceRepo[];
   by_kind: Record<string, number>;
   map: MapBlock | null;
-  map_status: "available" | "projection_pending";
+  map_status: "available" | "partial" | "projection_pending";
+  /** Repositories the Map cannot carry (no identity or no HEAD), by label. */
+  unidentified: string[];
   warnings: string[];
   complete: boolean;
 }
@@ -143,17 +145,44 @@ export function assembleSpaceRepos(start: string): SpaceRepos {
   } : null;
   const byKind: Record<string, number> = {};
   for (const repo of repos) byKind[repo.kind ?? "untyped"] = (byKind[repo.kind ?? "untyped"] ?? 0) + 1;
-  const portable = repos.every((repo) => repo.root_node_id && repo.sha);
-  const built = portable ? buildMap({
-    roots: repos.map((repo) => ({ root_node_id: repo.root_node_id!, sha: repo.sha!, name: repo.label === "." ? basename(canonical) : repo.label.split("/").pop()! })),
-    members: repos.map((repo) => ({ root: repo.root, position: ".", depth: "summary", ...(repo.name || repo.summary ? { disclosure: { ...(repo.name ? { name: repo.name } : {}), ...(repo.summary ? { summary: repo.summary } : {}) } } : {}) })),
+  const { map, map_status, unidentified, mapIndex } = mapOfRoots(repos, canonical, warnings);
+  const built = map ? buildMap({
+    roots: map.roots,
+    members: repos.filter((repo) => mapIndex.has(repo.root)).map((repo) => ({ root: mapIndex.get(repo.root)!, position: ".", depth: "summary" as const, ...(repo.name || repo.summary ? { disclosure: { ...(repo.name ? { name: repo.name } : {}), ...(repo.summary ? { summary: repo.summary } : {}) } } : {}) })),
   }) : null;
-  const map = built?.status === "valid" ? built.map : null;
   if (built && built.status !== "valid") warnings.push(`the derived Map did not validate: ${built.issues.map((issue) => `${issue.path} (${issue.code})`).join(", ")}`);
   return {
     schema: "ideaspaces.map.repos.v1", kind: "repos", start: canonical, curated: curatedSummary, repos, by_kind: byKind,
-    map, map_status: map ? "available" : "projection_pending", warnings, complete: warnings.length === 0,
+    map: built?.status === "valid" ? built.map : null, map_status, unidentified, warnings, complete: warnings.length === 0,
   };
+}
+
+export interface RootsMap {
+  /** The Map's roots: the repositories with an identity and a HEAD, in start order; null when none has both. */
+  map: { roots: Array<{ root_node_id: string; sha: string; name: string }> } | null;
+  /** available: every repository is in the Map; partial: some are listed by name beside it; projection_pending: none could be. */
+  map_status: "available" | "partial" | "projection_pending";
+  /** The repositories the Map cannot carry (no identity, or no HEAD), by label, as such. */
+  unidentified: string[];
+  /** Repository ordinal → Map root ordinal, for members. */
+  mapIndex: Map<number, number>;
+}
+
+/**
+ * The Map a set of repositories makes. The protocol's Map carries only roots with an identity
+ * (buildMap: missing_root_identity), so the answer carries the identified ones and lists the rest by
+ * name beside it: the hits, Threads or repositories of an unidentified root stand on their own.
+ */
+export function mapOfRoots(repos: Array<{ root: number; label: string; root_node_id: string | null; sha: string | null }>, start: string, warnings: string[]): RootsMap {
+  const carried = repos.filter((repo) => repo.root_node_id && repo.sha);
+  const unidentified = repos.filter((repo) => !(repo.root_node_id && repo.sha)).map((repo) => repo.label);
+  const mapIndex = new Map(carried.map((repo, index) => [repo.root, index]));
+  const roots = carried.map((repo) => ({ root_node_id: repo.root_node_id!, sha: repo.sha!, name: repo.label === "." ? basename(start) : repo.label.split("/").pop()! }));
+  // Two roots may share a folder name (agents/x and clients/x): names are local to the Map and must be unique.
+  const seen = new Map<string, number>();
+  for (const root of roots) { const n = (seen.get(root.name) ?? 0) + 1; seen.set(root.name, n); if (n > 1) root.name = `${root.name}-${n}`; }
+  if (unidentified.length && carried.length) warnings.push(`${unidentified.length} repositor${unidentified.length === 1 ? "y has" : "ies have"} no identity or no HEAD and stand${unidentified.length === 1 ? "s" : ""} outside the portable Map: ${unidentified.join(", ")}.`);
+  return { map: carried.length ? { roots } : null, map_status: !carried.length ? "projection_pending" : unidentified.length ? "partial" : "available", unidentified, mapIndex };
 }
 
 export function renderSpaceRepos(space: SpaceRepos): string {
@@ -177,6 +206,13 @@ export function renderSpaceRepos(space: SpaceRepos): string {
     lines.push("", `Curated Map ${space.curated.file}: ${space.curated.roots} roots${space.curated.missing_here.length ? `; listed but not here: ${space.curated.missing_here.join(", ")}` : ""}${space.curated.not_listed.length ? `; here but not listed: ${space.curated.not_listed.join(", ")}` : ""}${!space.curated.missing_here.length && !space.curated.not_listed.length ? "; the same repositories" : ""}`);
   }
   if (space.warnings.length) lines.push("", `Warnings (${space.warnings.length}):`, ...space.warnings.map((warning) => `  ${warning}`));
-  lines.push("", `Map: ${space.map_status === "available" ? "portable (every repository identified and pinned at HEAD)" : "projection pending (a repository has no identity or no HEAD)"}`);
+  lines.push("", `Map: ${mapStatusLine(space.map_status, space.unidentified, "repositories")}`);
   return lines.join("\n");
+}
+
+/** One line a reader can act on: what the Map carries and what stands outside it, by name. */
+export function mapStatusLine(status: RootsMap["map_status"], unidentified: string[], what: string): string {
+  if (status === "available") return `portable (every ${what.replace(/ies$/, "y").replace(/s$/, "")} identified and pinned at HEAD)`;
+  if (status === "partial") return `partial: the identified ${what} are pinned at HEAD; without identity or HEAD, standing outside it: ${unidentified.join(", ")}`;
+  return `projection pending (no ${what.replace(/ies$/, "y").replace(/s$/, "")} has an identity and a HEAD); everything stands on its own`;
 }

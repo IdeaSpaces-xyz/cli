@@ -75,15 +75,19 @@ describe("ideaspaces map --kind repos", () => {
     expect(byLabel["knowledge/thoughts"]).toMatchObject({ threads: 1, in_map: false });
     expect(byLabel["clients/loose"]).toMatchObject({ kind: null, root_node_id: null, sha: null, in_map: false });
     expect(space.curated).toMatchObject({ file: "home.map.md", roots: 3, missing_here: [ID("gone")], not_listed: ["clients/loose", "knowledge/thoughts"] });
-    // One repository has no identity and no HEAD, so the Map is pending; the repositories stand.
-    expect(space.map_status).toBe("projection_pending");
-    expect(space.map).toBeNull();
+    // One repository has no identity and no HEAD: the Map carries the other three and names it beside them.
+    expect(space.map_status).toBe("partial");
+    expect(space.unidentified).toEqual(["clients/loose"]);
+    expect(space.map.roots).toHaveLength(3);
+    expect(space.map.members.map((m: { root: number }) => m.root)).toEqual([0, 1, 2]);
+    expect(space.warnings.some((w: string) => w.includes("clients/loose"))).toBe(true);
     const text = await run(["."], { kind: "repos" }, root, false);
     expect(text.out).toContain("Space — ");
     expect(text.out).toContain("knowledge:");
     expect(text.out).toContain("[1] agents/scout  Scout · " + ID("scout"));
     expect(text.out).toContain("not in the curated Map");
     expect(text.out).toContain(`listed but not here: ${ID("gone")}; here but not listed: clients/loose, knowledge/thoughts`);
+    expect(text.out).toContain("Map: partial: the identified repositories are pinned at HEAD; without identity or HEAD, standing outside it: clients/loose");
     // Without the loose repository every root is identified and pinned: a portable Map, one member per root at its root.
     rmSync(join(root, "clients"), { recursive: true, force: true });
     const portable = (await run(["."], { kind: "repos" }, root)).json;
@@ -94,7 +98,17 @@ describe("ideaspaces map --kind repos", () => {
     expect((await run(["."], { kind: "repos", levels: "1" }, root)).err).toContain("belongs to --kind threads");
   }, 60_000);
 
-  it("answers a search over the Space as a Map of the hits", async () => {
+  it("answers a search over the Space as a Map of the hits, with the hits it has when a repository lacks identity", async () => {
+    // With the unidentified repository present, the answer still comes: its hits stay in results, it is named beside the Map.
+    writeFileSync(join(root, "clients", "loose", "note.md"), "# Loose\n\nProgressive closure here too.\n");
+    const partial = await run(["."], { query: "progressive closure" }, root);
+    expect(partial.code, partial.err).toBe(0);
+    expect(partial.json.map_status).toBe("partial");
+    expect(partial.json.unidentified).toEqual(["clients/loose"]);
+    expect(partial.json.results.map((hit: { root: string }) => hit.root)).toContain("clients/loose");
+    expect(partial.json.members).toHaveLength(3);
+    expect(partial.json.hits_outside_map).toBe(1);
+    expect(partial.json.map.roots).toHaveLength(3);
     rmSync(join(root, "clients"), { recursive: true, force: true });
     const result = await run(["."], { query: "progressive closure" }, root);
     expect(result.code, result.err).toBe(0);
@@ -107,6 +121,8 @@ describe("ideaspaces map --kind repos", () => {
     expect(found.members).toHaveLength(3);
     expect(found.members.every((m: { depth: string }) => m.depth === "summary")).toBe(true);
     expect(found.map_status).toBe("available");
+    expect(found.unidentified).toEqual([]);
+    expect(found.hits_outside_map).toBe(0);
     expect(found.map.roots).toHaveLength(3);
     expect(found.roots.map((r: { label: string; listed: number }) => r.label)).toEqual([".", "agents/scout", "knowledge/thoughts"]);
     const limited = (await run(["."], { query: "progressive closure", limit: "1" }, root)).json;

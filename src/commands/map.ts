@@ -28,7 +28,7 @@ import { inspectPortableLocalRoot } from "../local-map-root.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
 import { inspectSpaceMap } from "../local/space-map.js";
 import { assembleThreadTree, parseWhere, PROBLEM_CODES, PROBLEM_DEFINITIONS, renderThreadTree, type WhereFilter } from "../local/thread-tree.js";
-import { assembleSpaceRepos, renderSpaceRepos, type SpaceRepos } from "../local/space-repos.js";
+import { assembleSpaceRepos, mapOfRoots, mapStatusLine, renderSpaceRepos, type SpaceRepos } from "../local/space-repos.js";
 import { searchCorpus } from "./search.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
@@ -115,19 +115,22 @@ async function runQuery(start: string, flags: Record<string, string | boolean>, 
       const repo = hit.root ? byPath.get(realpathSync.native(hit.root)) : undefined;
       return { ...hit, root: repo?.label ?? hit.root ?? null, root_index: repo?.root ?? null };
     });
-    const members = results.flatMap((hit) => hit.root_index === null ? [] : [{
-      root: hit.root_index, position: hit.path, depth: "summary" as const,
+    // The Map carries the hits of identified repositories; a hit in an unidentified one stays in results and
+    // its repository is named beside the Map, as such (buildMap takes no root without identity).
+    const { map: rootsMap, map_status, unidentified, mapIndex } = mapOfRoots(space.repos, space.start, []);
+    const members = results.flatMap((hit) => hit.root_index === null || !mapIndex.has(hit.root_index) ? [] : [{
+      root: mapIndex.get(hit.root_index)!, position: hit.path, depth: "summary" as const,
       disclosure: { ...(hit.title ? { name: hit.title } : {}), ...(hit.summary ? { summary: hit.summary } : {}) },
     }]);
-    const portable = space.map !== null;
-    const built = portable ? buildMap({ roots: space.map!.roots, members }) : null;
+    const built = rootsMap ? buildMap({ roots: rootsMap.roots, members }) : null;
     const map = built?.status === "valid" ? built.map : null;
+    const outside = results.filter((hit) => hit.root_index === null || !mapIndex.has(hit.root_index)).length;
     const warnings = [...space.warnings, ...searched.roots.flatMap((row) => [...(row.error ? [`${row.root}: ${row.error}`] : []), ...(row.warnings ?? []).map((warning) => `${row.root}: ${warning}`)])];
     const data = {
       schema: "ideaspaces.map.query.v1", kind: "query", start: space.start, query: raw, limit,
       scanned: searched.scanned, matched: searched.matched, total: results.length,
       roots: space.repos.map((repo) => { const row = searched.roots.find((candidate) => realpathSync.native(candidate.root) === realpathSync.native(repo.path)); return { root: repo.root, label: repo.label, root_node_id: repo.root_node_id, sha: repo.sha, listed: row?.listed ?? 0, scanned: row?.scanned ?? 0, ...(row?.error ? { error: row.error } : {}) }; }),
-      results, members, map, map_status: map ? "available" : "projection_pending", warnings, complete: searched.complete && space.complete,
+      results, members, map, map_status, unidentified, hits_outside_map: outside, warnings, complete: searched.complete && space.complete,
     };
     const lines = [`Search — "${raw}" under ${space.start}: ${results.length} hit${results.length === 1 ? "" : "s"} (${searched.matched} matched, ${searched.scanned} files read in ${space.repos.length} repositor${space.repos.length === 1 ? "y" : "ies"})`];
     for (const hit of results) {
@@ -135,7 +138,7 @@ async function runQuery(start: string, flags: Record<string, string | boolean>, 
       if (hit.snippet) lines.push(`      ${hit.snippet.replace(/\s+/g, " ").slice(0, 200)}`);
     }
     if (warnings.length) lines.push("", `Warnings (${warnings.length}):`, ...warnings.map((warning) => `  ${warning}`));
-    lines.push("", `Map: ${map ? "portable (every repository identified and pinned at HEAD; members in rank order)" : "projection pending (a repository has no identity or no HEAD); hits stand on their own"}`);
+    lines.push("", `Map: ${mapStatusLine(map_status, unidentified, "repositories")}${outside ? `; ${outside} hit${outside === 1 ? "" : "s"} outside the Map, listed above` : ""}`);
     output.result(data, lines.join("\n"));
     return 0;
   } catch (error) {
@@ -200,7 +203,7 @@ export const mapCommand: CommandDef = {
     `--problems names what is wrong, each defined in one line, over the whole tree before any filter:\n${PROBLEM_CODES.map((code) => `  ${code}: ${PROBLEM_DEFINITIONS[code]}`).join("\n")}\n\n` +
     "--kind repos maps the Space by type: every repository in the start and within two levels of it, each with its identity, HEAD, remote, uncommitted files, its kind from the Agreement's `agreement: <kind>:repo:<id>` line (agent, knowledge, code, …), its name and summary, and its Threads; a curated *.map.md at the start is compared, naming what it lists that is not here and what is here that it does not list. This is the Space's own Map, derived from what is here, which the hand-kept Map file stands in for until it is retired.\n\n" +
     "--query <words> searches the Space: every repository under the start as one corpus, with ideaspaces search's syntax (words, tag:, in:, kind:, author:, has:map, post-kind:), Threads included, --limit hits (default 20), answered as a Map whose members are the hits in rank order.\n\n" +
-    "Every answer is a Map: roots pinned at HEAD with their uncommitted files counted, members at a rung, and `map` portable only when every root is identified and pinned. Nothing is written.",
+    "Every answer is a Map: roots pinned at HEAD with their uncommitted files counted, members at a rung. `map` carries the roots with an identity and a HEAD; a root without either stands outside it, named in `unidentified` (map_status partial), its Threads or hits still in the answer. Nothing is written.",
   subcommands: {
     ...Object.fromEntries(["create", "add", "remove"].map((verb) => [verb,
       MAP_EDIT_USAGE.split("\n").map((line) => line.trim()).filter((line) => line.startsWith(`ideaspaces map ${verb} `)).join("\n       ")])),

@@ -16,6 +16,7 @@ import {
 } from "@ideaspaces/protocol";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import { checkoutRootNodeId } from "./space-map.js";
+import { mapOfRoots, mapStatusLine } from "./space-repos.js";
 import { attachmentText, latestLocalActivity, listLocal, NoAgreementError, parseTimeCursor, threadOwner, type LocalThread } from "./threads.js";
 
 /** Folders never entered while looking for repositories that hold Threads. */
@@ -116,9 +117,11 @@ export interface ThreadTree {
   definitions: Record<ProblemCode, string>;
   uncommitted: Array<{ root: number; slug: string; path: string; status: string }>;
   counts: { roots: number; threads: number; open: number; closed: number; listed: number; open_roots: number };
-  /** The portable Map, when every root is identified and pinned; otherwise null with the reason. */
+  /** The portable Map of the identified roots; null when none is identified and pinned. */
   map: MapBlock | null;
-  map_status: "available" | "projection_pending";
+  /** available: every root is in the Map; partial: some stand outside it, named in `unidentified`; projection_pending: none could be. */
+  map_status: "available" | "partial" | "projection_pending";
+  unidentified: string[];
   warnings: string[];
   trimmed?: string;
   complete: boolean;
@@ -387,10 +390,12 @@ export function assembleThreadTree(start: string, options: ThreadTreeOptions): T
     members.push(member);
   }
 
-  const portable = loaded.every(({ root }) => root.root_node_id && root.sha);
-  const built = portable ? buildMap({
-    roots: loaded.map(({ root }) => ({ root_node_id: root.root_node_id!, sha: root.sha! })),
-    members: members.map((member) => ({ root: member.root, position: member.position, depth: member.depth, ...(member.summary ? { summary: member.summary } : {}) })),
+  // The Map carries the identified roots; the Threads of an unidentified root stay members of the answer and
+  // their root is named beside the Map, as such (buildMap takes no root without identity).
+  const { map: rootsMap, map_status, unidentified, mapIndex } = mapOfRoots(loaded.map(({ root }) => root), canonicalStart, []);
+  const built = rootsMap ? buildMap({
+    roots: rootsMap.roots,
+    members: members.filter((member) => mapIndex.has(member.root)).map((member) => ({ root: mapIndex.get(member.root)!, position: member.position, depth: member.depth, ...(member.summary ? { summary: member.summary } : {}) })),
   }) : null;
   const map = built?.status === "valid" ? built.map : null;
   const total = nodes.length;
@@ -402,7 +407,7 @@ export function assembleThreadTree(start: string, options: ThreadTreeOptions): T
     ...(asOf ? { as_of: options.asOf } : {}), ...(since ? { since: options.since } : {}), ...(options.where ? { where: whereText(options.where) } : {}),
     roots: loaded.map(({ root }) => root), members, problems: options.problems ? problems : [], definitions: PROBLEM_DEFINITIONS, uncommitted,
     counts: { roots: loaded.length, threads: total, open: nodes.filter((node) => node.thread.closed !== true).length, closed: nodes.filter((node) => node.thread.closed === true).length, listed: members.length, open_roots: openRoots.length },
-    map, map_status: map ? "available" : "projection_pending", warnings, ...(trimmed ? { trimmed } : {}),
+    map, map_status, unidentified, warnings, ...(trimmed ? { trimmed } : {}),
     complete: loaded.every(({ root }) => !root.error) && warnings.length === 0 && searchWarnings.length === 0,
   };
 }
@@ -453,6 +458,6 @@ export function renderThreadTree(tree: ThreadTree): string {
   }
   if (tree.warnings.length) lines.push("", `Warnings (${tree.warnings.length}):`, ...tree.warnings.map((warning) => `  ${warning}`));
   if (tree.trimmed) lines.push("", `Trimmed: ${tree.trimmed}`);
-  lines.push("", `Map: ${tree.map_status === "available" ? "portable (every root identified and pinned at HEAD)" : "projection pending (a root has no identity or no HEAD); members stand on their own"}`);
+  lines.push("", `Map: ${mapStatusLine(tree.map_status, tree.unidentified, "roots")}`);
   return lines.join("\n");
 }
