@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "70ec69efa5f9ef58f2cbab81a4357e926095ed34"
+    "commit": "13dbde686a2989a2e881d62aeeafe76051508475"
   },
   "protocol": {
     "version": "0.33.0",
     "commit": "6e1aadd33e566a56b929d3698e245f8ea7084c58"
   },
-  "digest": "sha256:8f6b738175d14a33af7dd8b3c56c19108a8a54833aa7b9d3f5e2bdd729026ec4",
+  "digest": "sha256:148c90dbf62bf85059fc95f58325e3c47ff0e715a572d63b2ac6228c438c662c",
   "groups": [
     {
       "id": "read",
@@ -109,10 +109,10 @@
         "cli": ">=0.9.0"
       },
       "text": {
-        "does": "Read one local Note, Content directory, Thread or pinned Map address.",
+        "does": "Read one local Note, Content directory, Thread or pinned Map address. A folder that keeps time (a Thread, or keeps_time: true) starts with its state from its entries: name, parent, about, closed, current Map; as_of reads it as it stood at a moment.",
         "use_when": "Deepen one identified target; use navigate for orientation.",
-        "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Open the post for body evidence; a summary alone is not proof.",
-        "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since."
+        "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Open the post for body evidence; a summary alone is not proof. Read state before the children: it is the folder's current truth.",
+        "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since. With as_of, the page shows the entries at or before the cursor and state.as_of says how many were left out."
       },
       "bound": {
         "unit": "entries",
@@ -161,7 +161,7 @@
           },
           "since": {
             "type": "string",
-            "description": "Continuation position from the prior page or ISO filter where supported."
+            "description": "Continuation position from the prior page (a child filename); in a folder that keeps time, also an entry id or an ISO date, resolved to the newest entry at or before it."
           },
           "order": {
             "type": "string",
@@ -174,6 +174,10 @@
           "post": {
             "type": "string",
             "description": "Post id to select and read in full: the full msg_ id, or its unique eight-hex short form."
+          },
+          "as_of": {
+            "type": "string",
+            "description": "Read a folder that keeps time as it stood at this cursor: an ISO date or instant (a day is its end), an entry id, or an entry's filename. Entries after it set nothing and are not listed."
           },
           "pin": {
             "type": "string",
@@ -224,6 +228,9 @@
           "post": {
             "flag": "--post"
           },
+          "as_of": {
+            "flag": "--as-of"
+          },
           "pin": {
             "flag": "--pin"
           },
@@ -240,6 +247,8 @@
           "text",
           "kind",
           "depth",
+          "state",
+          "as_of",
           "reference",
           "target",
           "target.page.shown",
