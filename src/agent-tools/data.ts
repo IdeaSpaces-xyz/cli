@@ -1550,7 +1550,7 @@ export const entries: Entry[] = [
         },
         "kind": {
           "type": "string",
-          "description": "Local immutable post kind; hosted kind is chosen by its verb."
+          "description": "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb."
         },
         "mark": {
           "type": "string",
@@ -1712,7 +1712,7 @@ export const entries: Entry[] = [
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Append a closure post to a local or hosted Thread. A local closure is committed on its own (only its file, never pushed) unless no_commit.",
+      "does": "Close a local or hosted Thread. A local close writes a post with closed: true (beside the legacy kind closure, for older readers), committed on its own (only its file, never pushed) unless no_commit.",
       "use_when": "Done-when holds and closure has been agreed.",
       "check": "Verify target and rationale; hosted close requires yes.",
       "bound": "One closure post; no content or history is removed."
@@ -1738,7 +1738,7 @@ export const entries: Entry[] = [
         },
         "kind": {
           "type": "string",
-          "description": "Local immutable post kind; hosted kind is chosen by its verb."
+          "description": "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb."
         },
         "author": {
           "type": "string",
@@ -2016,9 +2016,9 @@ export const entries: Entry[] = [
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Append a local Thread attachment change.",
+      "does": "Move a local Thread under another post: one reframe carrying parent and no name or summary (the Thread keeps its own); the Agreement's attached_to is written too, for older readers.",
       "use_when": "Move a Thread direction to another parent post explicitly.",
-      "check": "Check the parent post and rationale; prior attachment stays in history.",
+      "check": "Check the parent post and rationale; the previous parent stays in history and the Thread's name is unchanged.",
       "bound": "One local Thread attachment event."
     },
     "bound": "n/a",
@@ -2647,7 +2647,7 @@ export const entries: Entry[] = [
         },
         "kind": {
           "type": "string",
-          "description": "Local immutable post kind; hosted kind is chosen by its verb."
+          "description": "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb."
         },
         "since": {
           "type": "string",

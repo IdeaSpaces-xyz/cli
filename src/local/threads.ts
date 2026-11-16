@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { HOSTED_THREAD_ID, currentThreadMap, isPinnedMomentMap, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, currentThreadMap, isPinnedMomentMap, isPostReference, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -87,10 +87,18 @@ export interface LocalThread {
   closed: boolean | "unknown";
   /** Only an unreadable opening post refuses writes. */
   writeRefusal?: string;
-  /** Current parent: the Thread Agreement's attachment, else the opening post's. */
+  /** Current parent, by the state rule: the newest later post that carries `parent`, else the Agreement's, else the opening's. */
   attachment: ThreadAttachment | "unknown" | null;
+  /** Where the current parent came from; `null` when the Thread has none. */
+  parentSource: "post" | "agreement" | "origin" | null;
   /** Where the Thread started: the opening post's attachment, immutable. */
   origin: ThreadAttachment | "unknown" | null;
+  /** What the Thread is about: the `about` of the newest post that carries it; empty when none does. */
+  about: ThreadAttachment[];
+  /** Where `name` came from: the newest reframe that set it, else the opening post, else the README when no post names the Thread. */
+  nameSource: "reframe" | "opening" | "readme";
+  /** Where `summary` came from: a reframe that set it, else the README's curated line, else the opening post's. */
+  summarySource: "reframe" | "readme" | "opening";
   /** The newest valid Map carried by any post, by the protocol's filename-order rule. */
   currentMap: CurrentThreadMap;
   readme: string;
@@ -225,14 +233,24 @@ export function loadThread(dir: string): LocalThread {
     ...(agreementContent === null ? [NO_THREAD_AGREEMENT] : []),
     ...inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`),
   ];
+  // The Thread's name is the state rule's (protocol 0.33.0, time.md): the newest reframe that carries one,
+  // else the opening post's. The README is a view of that state and only speaks when no post does.
+  // The summary keeps the README's curated line unless a reframe set one: an opening post's summary is
+  // its title, written by `threads new`, and a reader is better served by the line the holder maintains.
+  const readmeName = typeof fm.name === "string" ? fm.name : undefined;
+  const readmeSummary = typeof fm.summary === "string" ? fm.summary : undefined;
+  const setByReframe = (handle: { id: string } | undefined) => handle !== undefined && handle.id !== opening?.id;
+  const nameSource: LocalThread["nameSource"] = setByReframe(inspection.namePost) ? "reframe" : inspection.name !== null ? "opening" : "readme";
+  const summarySource: LocalThread["summarySource"] = setByReframe(inspection.summaryPost) ? "reframe" : readmeSummary !== undefined ? "readme" : "opening";
   return {
     path, slug, thread_id: opening?.id ?? null,
-    name: typeof fm.name === "string" ? fm.name : slug,
-    summary: typeof fm.summary === "string" ? fm.summary : "",
+    name: inspection.name ?? readmeName ?? slug,
+    summary: summarySource === "readme" ? readmeSummary! : inspection.summary ?? "",
+    nameSource, summarySource,
     posts: timeline.posts, allPosts, warnings, unreadablePosts: inspection.unreadable.map((post) => post.path),
     closed: inspection.closed,
     ...(inspection.writeRefusal ? { writeRefusal: inspection.writeRefusal } : {}),
-    attachment: inspection.parent, origin: inspection.origin, currentMap, readme,
+    attachment: inspection.parent, parentSource: inspection.source, origin: inspection.origin, about: inspection.about, currentMap, readme,
   };
 }
 
@@ -397,15 +415,6 @@ export function findChildThreads(targetThreadDir: string, postId?: string, onErr
   return children;
 }
 
-export function findNewestSnapshot(posts: ThreadPost[]): ThreadPost | null {
-  for (let i = posts.length - 1; i >= 0; i--) {
-    if (posts[i].kind === "snapshot" || posts[i].kind === "reframe") {
-      return posts[i];
-    }
-  }
-  return null;
-}
-
 export function computeBranches(posts: ThreadPost[]): BranchInfo[] {
   if (!posts.length) return [];
   const timeline = reconstructThreadTimeline(posts);
@@ -492,9 +501,29 @@ function resolveReplyId(id: string, posts: readonly { id: string }[]): string {
   return matches[0]?.id ?? id;
 }
 
+/** The kinds a writer writes (protocol 0.33.0, time.md). The legacy two are accepted and written as what they stand for. */
+export const WRITER_KINDS = ["post", "reframe", "correction", "mark"] as const;
+export const LEGACY_WRITER_KINDS = ["snapshot", "closure"] as const;
+export const KIND_HELP = `${WRITER_KINDS.join(", ")} (snapshot and closure are legacy: a snapshot is a post carrying --map, and threads close writes closed: true)`;
+
+/** A post reference for `parent`: `post:msg_…`, bare `msg_…` or a `_threads/<thread>/<post>.md` path; anything else is an `about` link. */
+export function parentReference(value: string): ThreadAttachment {
+  const attachment = parseThreadAttachment(value);
+  if (!attachment || !isPostReference(attachment)) {
+    throw new Error(`--parent must name a post (post:msg_…, msg_… or _threads/<thread>/<post>.md), not ${value}. A link that is not a post goes in --about. Nothing written.`);
+  }
+  return attachment;
+}
+
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
+  /** The Thread's new parent, a post reference; a reframe that carries it moves the Thread. */
+  parent?: string;
+  /** What the Thread is about: typed links; `[]` clears. */
+  about?: string[];
+  /** Sets the Thread's closed state; `threads close` writes `true` beside the legacy `kind: closure`. */
+  closed?: boolean;
   rejectEscapedNewlines?: boolean;
   /** Check the body's file-relative Markdown links before the write (the `threads post` command sets it). */
   checkLinks?: boolean;
@@ -515,6 +544,16 @@ export function appendPost(dir: string, options: {
   if (options.tags !== undefined) validateTags(options.tags);
   validateMarkOptions(options.kind, options.mark, options.replyTo);
   if (options.attachedTo !== undefined && thread.allPosts.length) throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
+  if (options.parent !== undefined) parentReference(options.parent);
+  for (const link of options.about ?? []) {
+    if (!link.includes(":") || !parseThreadAttachment(link)) throw new Error(`--about links are <type>:<id>, not ${link}. Nothing written.`);
+  }
+  // A writer writes the four kinds. The legacy two are still accepted at the command line and written as
+  // what they stand for: a snapshot is a post that carries a Map (any kind's Map is the current Map), and a
+  // closure keeps its kind for readers before 0.33.0 and carries `closed: true`, the field they both read.
+  const requestedKind: ThreadKind = options.kind ?? "post";
+  const kind: ThreadKind = requestedKind === "snapshot" ? "post" : requestedKind;
+  const closed = options.closed ?? (requestedKind === "closure" ? true : undefined);
   const byId = new Map(thread.allPosts.map((post) => [post.id, post]));
   const referenced = new Set(thread.posts.flatMap((post) => post.inReplyTo));
   const tips = thread.posts.filter((post) => !referenced.has(post.id)).map((post) => post.id);
@@ -530,7 +569,7 @@ export function appendPost(dir: string, options: {
       parentIds = options.replyTo;
     }
     parentIds = parentIds.map((id) => resolveReplyId(id, thread.allPosts));
-  } else if (options.kind === "closure") {
+  } else if (closed === true) {
     parentIds = tips;
   } else if (thread.posts.length === 0) {
     parentIds = [];
@@ -544,7 +583,7 @@ export function appendPost(dir: string, options: {
   const parents = parentIds.map((id) => byId.get(id)!);
   if (options.kind === "correction" && (!options.supersedes || !byId.has(options.supersedes))) throw new Error("A correction requires --supersedes <existing post id>.");
   if (options.supersedes && options.kind !== "correction") throw new Error("--supersedes requires --kind correction.");
-  if (options.kind === "snapshot" && options.map === undefined) {
+  if (requestedKind === "snapshot" && options.map === undefined) {
     throw new Error("A snapshot requires a Map. Add --map <note> naming a pinned Map note; no post written.");
   }
   if (options.map !== undefined) validateThreadMomentMap(options.map);
@@ -565,7 +604,10 @@ export function appendPost(dir: string, options: {
   const stamp = date.replace(/[:.]/g, "-");
   const path = join(thread.path, `${stamp}-${id}.md`);
   const fields = {
-    id, date, kind: options.kind ?? "post", ...(options.mark ? { mark: options.mark } : {}),
+    id, date, kind, ...(options.mark ? { mark: options.mark } : {}),
+    ...(closed !== undefined ? { closed } : {}),
+    ...(options.parent !== undefined ? { parent: options.parent } : {}),
+    ...(options.about !== undefined ? { about: options.about } : {}),
     ...(options.attachedTo ? { attached_to: options.attachedTo } : {}),
     ...(parentIds.length ? { in_reply_to: parentIds.length === 1 ? parentIds[0] : parentIds } : {}),
     ...(parents.length ? { references: references(parents) } : {}),
@@ -772,10 +814,12 @@ function withAttachedTo(content: string, value: string): string {
 }
 
 /**
- * Move a local Thread under another post: write the Thread Agreement's `attached_to`
- * (its current parent) and append one `reframe` post naming the old and new parent.
- * The opening post, its origin, is never touched. If the reframe cannot be written,
- * the Agreement is restored, so no post claims a move that did not happen.
+ * Move a local Thread under another post: append one `reframe` post carrying `parent`, which is
+ * the current parent under protocol 0.33.0, and write the same value into the Thread Agreement's
+ * `attached_to` for readers before it (the compatibility window). The reframe carries no name or
+ * summary, because a reframe's are the Thread's own. The opening post, its origin, is never
+ * touched. If the reframe cannot be written, the Agreement is restored, so no post claims a move
+ * that did not happen.
  */
 export function attachThread(
   dir: string,
@@ -863,13 +907,15 @@ export function attachThread(
   const previousText = previous ? `${previous.id ?? previous.attached_to}${previous.slug ? ` (${previous.slug})` : ""}` : "none";
   const originText = thread.origin === null ? "none" : attachmentText(thread.origin);
   try {
+    // A reframe is the one kind whose name and summary are the Thread's own (protocol 0.33.0), so a move
+    // that does not rename carries neither: the body says why. `parent` is what readers on 0.33.0 read;
+    // the Agreement's attached_to, written above, is what readers before it read, for the window.
     const { post, path } = writes.appendPost(thread.path, {
       kind: "reframe",
       replyTo: ["latest"],
       author: options.author,
-      name: `Moved under ${parentSlug}`,
-      summary: `Current parent ${previousText} → ${resolved.parent.id} (${parentSlug}). ${options.message.trim().split("\n")[0]}`.slice(0, 1000),
-      body: `Reattached this Thread.\n\n- Previous parent: ${previousText}\n- New parent: ${resolved.parent.id} · ${parentName} (${resolved.parent.path})\n- Origin, unchanged: ${originText}\n\nWhy: ${options.message.trim()}\n`,
+      parent: `post:${value}`,
+      body: `Moved this Thread; its name and summary are unchanged.\n\n- Previous parent: ${previousText}\n- New parent: ${resolved.parent.id} · ${parentName} (${resolved.parent.path})\n- Origin, unchanged: ${originText}\n\nWhy: ${options.message.trim()}\n`,
     });
     return {
       thread: loadThread(thread.path), previous,

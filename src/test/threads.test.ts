@@ -60,6 +60,9 @@ describe("local Threads", () => {
     expect(readCursor(cold).size).toBe(4);
     const end = appendPost(t.path, { body: "Closed", kind: "closure" });
     expect(loadThread(t.path).closed).toBe(true);
+    // The window: the field readers on 0.33.0 read, beside the kind readers before it read.
+    expect(readFileSync(end.path, "utf8")).toMatch(/^kind: closure$/m);
+    expect(readFileSync(end.path, "utf8")).toMatch(/^closed: true$/m);
     expect(() => appendPost(t.path, { body: "Too late" })).toThrow(/closed/);
     expect(() => appendPost(t.path, { body: "Late mark", kind: "mark", mark: "claimed", replyTo: [first.post.id] })).toThrow(/closed/);
     expect(readFileSync(first.path, "utf8")).toContain("Starting");
@@ -715,8 +718,11 @@ describe("local Threads", () => {
       const summaryRead = await run(["open", "child-thread"], { depth: "summary" });
       expect(summaryRead.thread.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread", name: "Milestone 1" });
       expect(summaryRead.thread.current_map).toMatchObject({ status: "post", post: { id: cMapPost.id, kind: "post" }, members: 0, skipped: [] });
-      // The marker remains a separate compatibility field; the current frame follows the Map-carrying post.
-      expect(summaryRead.thread.snapshot).toMatchObject({ id: cSnapshot.id, kind: "snapshot", name: "Snapshot 1" });
+      // The compatibility field `snapshot` names the post the current Map came from, whatever its kind; no kind check decides it.
+      expect(summaryRead.thread.snapshot).toMatchObject({ id: cMapPost.id, kind: "post", name: "Current frame" });
+      // `--kind snapshot` is written as a post carrying the Map (protocol 0.33.0: a writer no longer writes the legacy kind).
+      expect(cSnapshot.kind).toBe("post");
+      expect(readFileSync(cSnapshot.path, "utf8")).toContain("kind: post");
       out = "";
       expect(await threadsCommand.run(["open", "child-thread"], { depth: "summary" }, { ...flags, json: false })).toBe(0);
       expect(out).toContain(`Current Map: post ${cMapPost.id}`);
@@ -863,10 +869,15 @@ describe("local Threads", () => {
       expect(linked.attached_to).toBe("note:@home//notes/topic.md");
       writeFileSync(join(root, "_threads", "linked", "zz-bad.md"), "---\nid: msg_bad_map\nmap: [broken]\n---\nReadable sibling");
       const linkedOpen = await run(["open", "linked"], { depth: "name" });
-      expect(linkedOpen.thread.parent.status).toBe("none");
+      // Protocol 0.33.0: a link that is not a post is what the Thread is `about`, never its parent.
+      expect(linkedOpen.thread.parent).toBeNull();
+      expect(linkedOpen.thread.about).toEqual(["note:@home//notes/topic.md"]);
+      expect(linkedOpen.thread.parent_source).toBeNull();
       const rows = await run(["list"], { depth: "summary" });
       expect(rows.local_complete).toBe(true); // Field warning, but the post remains readable.
-      expect(rows.threads.find((row: { slug: string }) => row.slug === "linked").parent.status).toBe("none");
+      const linkedRow = rows.threads.find((row: { slug: string }) => row.slug === "linked");
+      expect(linkedRow.parent).toBeNull();
+      expect(linkedRow.about).toEqual(["note:@home//notes/topic.md"]);
       expect(linkedOpen.thread.warnings).toContain("_threads/linked/zz-bad.md: map: invalid_map_type");
       const parentPost = await run(["open", "parent"], { post: parent.opening_post_id });
       expect(parentPost.child_threads.map((row: { slug: string }) => row.slug)).toEqual(["child"]);

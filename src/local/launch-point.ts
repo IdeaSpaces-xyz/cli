@@ -53,7 +53,8 @@ export type NoteChoice = "asked" | "started-from" | "map-post" | "attached" | "f
 
 /** The candidates for the Note, best first: the post the launch starts from, the Map's post, then what each is attached to. */
 export function noteCandidates(holder: LocalThread, started: ThreadPost, map: ThreadPost): Array<{ id: string; by: NoteChoice }> {
-  const attached = (post?: ThreadPost) => (post?.attachedTo?.kind === "post" ? post.attachedTo.value : undefined);
+  // A post's parent, as the protocol reads it: its `parent` field, else a legacy post `attached_to` (0.33.0).
+  const attached = (post?: ThreadPost) => (post?.parent && (post.parent.kind === "post" || post.parent.kind === "id") ? post.parent.value : undefined);
   const opening = holder.allPosts.find((post) => post.id === holder.thread_id);
   const thread = holder.attachment && holder.attachment !== "unknown" && holder.attachment.kind === "post" ? holder.attachment.value : undefined;
   const all: Array<{ id: string | undefined; by: NoteChoice }> = [

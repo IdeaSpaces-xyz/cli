@@ -807,8 +807,10 @@ process.stdin.on("data", (chunk) => {
       const completed = stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete");
       expect(completed.result.thread_snapshot.path).toContain("_threads/decision/");
       const posts = loadThread(thread.path).posts;
-      const snapshot = posts.find((post) => post.kind === "snapshot");
-      expect(snapshot).toMatchObject({ frontmatter: { author: "Scout", name: "Snapshot — Scout" }, inReplyTo: [first.post.id] });
+      // The closing post carries the Map and is the Thread's current Map; it is a `post`, not the legacy `snapshot` kind.
+      const snapshot = posts.find((post) => post.frontmatter.name === "Snapshot — Scout");
+      expect(snapshot).toMatchObject({ kind: "post", frontmatter: { author: "Scout", name: "Snapshot — Scout" }, inReplyTo: [first.post.id] });
+      expect(loadThread(thread.path).currentMap.post?.id).toBe(snapshot?.id);
       expect(snapshot?.body.trim()).toBe("pi:Pinned question|pinned-frame");
       expect(snapshot?.frontmatter.map).toMatchObject({ roots: [{ sha: pin }], members: [{ position: member }] });
       const claudeBin = join(pov, "fake-claude");
@@ -819,7 +821,7 @@ process.stdin.on("data", (chunk) => {
       expect(await agentCmd.run(["run", pov], { runtime: "claude", message: "Second runtime", thread: thread.path,
         "thread-map": map, "thread-member": "0", "claude-bin": claudeBin }, JSON_GLOBAL)).toBe(0);
       expect(stdout().trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "turn_complete")?.result.thread_snapshot.path).toContain("_threads/decision/");
-      expect(loadThread(thread.path).posts.filter((post) => post.kind === "snapshot")).toHaveLength(2);
+      expect(loadThread(thread.path).posts.filter((post) => post.frontmatter.map !== undefined && post.frontmatter.name?.startsWith("Snapshot — "))).toHaveLength(2);
       // No cursor state or same-process buffer: a fresh CLI read sees the durable snapshot.
       stdoutChunks = [];
       expect(await threadsCommand.run(["open", thread.path], { depth: "full" }, JSON_GLOBAL)).toBe(0);

@@ -225,7 +225,7 @@ describe("threads launch-text", () => {
     const later = appendPost(f.launch.dir, { body: "Built.", name: "Slice built", author: "Integrator", kind: "delivery" });
     // From the post after the snapshot, which carries no Map of its own.
     const result = await assembleLaunchText({ thread: f.launch.dir, post: decided.post.id, member: "0", cwd: f.root });
-    expect(result.map_post).toMatchObject({ id: snap.post.id, kind: "snapshot", origin: "post" });
+    expect(result.map_post).toMatchObject({ id: snap.post.id, kind: "post", origin: "post" });
     expect(result.text).toContain("SNAPSHOT-ONLY-SUMMARY");
     expect(result.text).not.toContain("Summary of note 1");
     expect(result.post.id).toBe(decided.post.id);
@@ -236,7 +236,8 @@ describe("threads launch-text", () => {
     expect(lines[0]).toContain(`${decided.post.id} (claimed by UI/UX, post) — "Tick before Backend" — "The human agreed"  ← launched from here`);
     expect(lines[1]).toContain(`${later.post.id} (claimed by Integrator, delivery) — "Slice built"`);
     expect(result.text).not.toContain(middle.post.id);
-    expect(result.text).toContain(`the newest post that carries one, ${snap.post.id} (snapshot,`);
+    // A post carrying a Map (the legacy `--kind snapshot` writes one) is named without a kind, as any post.
+    expect(result.text).toContain(`the newest post that carries one, ${snap.post.id} (2`);
   });
 
   it("reads the opening post's Map when no snapshot carries one, and lists every post since it", async () => {
@@ -261,6 +262,9 @@ describe("threads launch-text", () => {
 
   it("leaves the oldest lines of posts since out when there are too many, and says how many", async () => {
     const f = fixture();
+    // The opening is the earliest filename. A post written in the opening's millisecond ties on the stamp and
+    // orders by id, and under the state rule (0.33.0) the Thread would then be named by whichever sorts first.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     for (let i = 0; i < 70; i++) appendPost(f.launch.dir, { body: `Post ${i}`, name: `Update number ${i}`, summary: "An authored line for the update. ".repeat(4), author: "Scout" });
     const result = await assembleLaunchText({ thread: f.launch.dir, post: f.launch.id, cwd: f.root });
     expect(result.since.total).toBe(70);
