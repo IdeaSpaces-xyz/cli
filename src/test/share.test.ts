@@ -826,6 +826,110 @@ describe("share person — one person at a time", () => {
   });
 });
 
+describe("share grade compatibility", () => {
+  it.each([
+    ["Explore", ["read"], "explore"],
+    ["Explore with history", ["read", "history"], "explore + history"],
+    ["Fork", ["read", "space_copy"], "fork"],
+    ["Fork with history", ["read", "history", "space_copy"], "fork + history"],
+    ["legacy Collaborate", ["read", "git_fetch", "git_push"], "collaborate"],
+    ["backfilled Collaborate", ["read", "write", "history", "git_fetch", "git_push"], "collaborate + history"],
+    ["new Collaborate", ["read", "write", "space_copy"], "collaborate"],
+    ["new Collaborate with history", ["read", "write", "history", "space_copy", "git_fetch", "git_push"], "collaborate + history"],
+    ["write implies content", ["write", "space_copy"], "collaborate"],
+    ["write-only legacy Explore", ["write"], "explore"],
+    ["write-only legacy Collaborate", ["write", "git_fetch", "git_push"], "collaborate"],
+    ["copy and Git without edit", ["read", "space_copy", "git_fetch", "git_push"], "view, fork, clone, push"],
+    ["fetch-only custom access", ["read", "write", "space_copy", "git_fetch"], "view, edit, fork, clone"],
+    ["push-only custom access", ["read", "write", "space_copy", "git_push"], "view, edit, fork, push"],
+    ["no direct access", [], "no exact direct grade"],
+  ])("lists %s without guessing from effective access", async (_name, direct, label) => {
+    listPersonSharesMock.mockResolvedValue({ standings: [{
+      user_id: 7, username: "bob", account_status: "active",
+      direct_capabilities: direct,
+      effective_capabilities: direct,
+    }], actions: {} });
+    expect(await shareCommand.run(["list"], {}, TEXT_G)).toBe(0);
+    const line = stdout.split("\n").find((line) => line.trimStart().startsWith("bob "));
+    expect(line?.trim()).toBe(`bob${" ".repeat(22)}${label}`);
+  });
+
+  it("does not turn an inherited edit right into a direct Collaborate label", async () => {
+    listPersonSharesMock.mockResolvedValue({ standings: [{
+      user_id: 7, username: "bob", account_status: "active",
+      direct_capabilities: ["read", "space_copy"],
+      effective_capabilities: ["read", "write", "space_copy"],
+    }], actions: {} });
+    expect(await shareCommand.run(["list"], {}, TEXT_G)).toBe(0);
+    expect(stdout).toContain("fork; also edit through another path");
+  });
+});
+
+describe("Collaborate history disclosure", () => {
+  const warning = "Including version history gives them a Git clone with the full history. A downloaded clone cannot be withdrawn.";
+
+  it.each(["added", "invited"])("warns before a %s Collaborate with history, keeping JSON intact", async (status) => {
+    const result = addResult({ grade: "collaborate", share_history: true, status });
+    addPersonShareMock.mockImplementation(async () => {
+      expect(stderr).toContain(warning); // disclosure precedes the outward write
+      return result;
+    });
+    expect(await shareCommand.run(["person", "bob@example.com"], { grade: "collaborate", history: true }, JSON_G)).toBe(0);
+    expect(JSON.parse(stdout)).toEqual(result);
+  });
+
+  it.each([
+    ["new", ["read", "write", "space_copy"]],
+    ["legacy", ["read", "git_fetch", "git_push"]],
+    ["independent direct edit", ["write"]],
+  ])("warns before enabling history for a %s Collaborator", async (_name, direct) => {
+    listPersonSharesMock.mockResolvedValue({ standings: [{
+      user_id: 7, username: "bob", direct_capabilities: direct,
+      effective_capabilities: [...direct, "write"],
+    }] });
+    setPersonShareHistoryMock.mockImplementation(async () => {
+      expect(stderr).toContain(warning);
+      return { status: "granted", share_history: true };
+    });
+    expect(await shareCommand.run(["history", "@bob", "on"], {}, TEXT_G)).toBe(0);
+    expect(stdout).not.toContain("Other access is unchanged");
+  });
+
+  it.each([
+    ["explore", true], ["fork", true], ["collaborate", false],
+  ])("does not claim a clone for %s with history=%s", async (grade, history) => {
+    expect(await shareCommand.run(["person", "bob@example.com"], { grade, history }, TEXT_G)).toBe(0);
+    expect(stderr).not.toContain(warning);
+  });
+
+  it.each([
+    ["Explore", ["read"]],
+    ["inherited edit", ["read", "write"]],
+  ])("does not claim Git for a history switch with only %s", async (_name, effective) => {
+    listPersonSharesMock.mockResolvedValue({ standings: [{
+      user_id: 7, username: "bob", direct_capabilities: ["read"], effective_capabilities: effective,
+    }] });
+    expect(await shareCommand.run(["history", "@bob", "on"], {}, TEXT_G)).toBe(0);
+    expect(stderr).not.toContain(warning);
+  });
+
+  it("does not promise other access is unchanged when history is removed", async () => {
+    listPersonSharesMock.mockResolvedValue({ standings: [{
+      user_id: 7, username: "bob",
+      direct_capabilities: ["read", "write", "space_copy", "history", "git_fetch", "git_push"],
+      effective_capabilities: ["read", "write", "space_copy", "history", "git_fetch", "git_push"],
+    }] });
+    setPersonShareHistoryMock.mockResolvedValue({ status: "revoked", share_history: false });
+    expect(await shareCommand.run(["history", "@bob", "off"], {}, TEXT_G)).toBe(0);
+    expect(stdout).not.toContain("Other access is unchanged");
+    expect(stdout).toContain("Copies already downloaded can't be taken back.");
+  });
+
+  it("discloses the consequence next to the help example offering Collaborate history", () => {
+    expect(shareCommand.examples.join("\n")).toContain(warning);
+  });
+});
+
 describe("share invitation and history lifecycle", () => {
   const pending = {
     invite_id: "inv_1",

@@ -57,9 +57,12 @@ const USAGE =
  *
  *   explore      read it
  *   fork         read it and take an independent copy
- *   collaborate  read it and push back
+ *   collaborate  read and edit it; including history also enables Git
  */
 const GRADES: ShareGrade[] = ["explore", "fork", "collaborate"];
+
+const COLLABORATE_HISTORY_WARNING =
+  "Including version history gives them a Git clone with the full history. A downloaded clone cannot be withdrawn.";
 
 /** The session, or null after saying so. Recipient-shaped verbs have no repo id. */
 function requireConfig(output: Output) {
@@ -141,6 +144,10 @@ function personStandingGrade(standing: PersonShareStanding): ShareGrade | null {
   const hasCopy = direct.has("space_copy");
   const hasFetch = direct.has("git_fetch");
   const hasPush = direct.has("git_push");
+  // Current Collaborate stores edit + snapshot copy, with either both Git
+  // rights or neither. Keep reading older content + Git bundles below; a
+  // partial Git bundle remains custom access, not an inferred grade.
+  if (direct.has("write") && hasCopy && hasFetch === hasPush) return "collaborate";
   if (hasContent && hasCopy && !hasFetch && !hasPush) return "fork";
   if (hasContent && !hasCopy && hasFetch && hasPush) return "collaborate";
   if (hasContent && !hasCopy && !hasFetch && !hasPush) return "explore";
@@ -320,6 +327,11 @@ async function shareWithPerson(
   if (!config) return 1;
   const target = await resolveTarget(repoFlag(flags), config, output);
   if (!target) return 1;
+  if (grade === "collaborate" && flags.history) {
+    // Always disclose before the write, including --quiet/--json. JSON stdout
+    // stays the server response, and today's server needs no new request field.
+    output.error(COLLABORATE_HISTORY_WARNING);
+  }
   const result = await addPersonShare(config, target, {
     ...selector,
     grade,
@@ -768,6 +780,11 @@ async function setHistory(
     return 1;
   }
   const enabled = requested === "on";
+  // The root history writer composes Git from direct edit, not inherited edit.
+  // Legacy content + Git bundles already carry the same irreversible history.
+  if (enabled && (personStandingGrade(standing) === "collaborate" || standing.direct_capabilities.includes("write"))) {
+    output.error(COLLABORATE_HISTORY_WARNING);
+  }
   const result = await setPersonShareHistory(config, target, standing.user_id, enabled);
   if (result.status === "not_direct") {
     output.result(
@@ -782,7 +799,8 @@ async function setHistory(
     result,
     result.status === "already_granted"
       ? `Hosted history was already on for ${recipientName(standing)}.`
-      : `Hosted history is now ${enabled ? "on" : "off"} for ${recipientName(standing)}. Other access is unchanged.`,
+      : `Hosted history is now ${enabled ? "on" : "off"} for ${recipientName(standing)}.` +
+          (enabled ? "" : " This may also remove Git access. Copies already downloaded can't be taken back."),
   );
   return 0;
 }
@@ -915,12 +933,13 @@ export const shareCommand: CommandDef = {
   examples: [
     "ideaspaces share person someone@example.com --grade explore",
     "ideaspaces share person @someone --grade fork",
-    "ideaspaces share person someone@example.com --grade collaborate --history",
+    `ideaspaces share person someone@example.com --grade collaborate --history  # ${COLLABORATE_HISTORY_WARNING}`,
     "ideaspaces share team acme.com --grade collaborate",
     "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567  # crawls the whole Space; may take a while, exits nonzero on failure",
     "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events; scope identifies this partial log",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",
+    `ideaspaces share history @someone on  # For a Collaborator: ${COLLABORATE_HISTORY_WARNING}`,
     "ideaspaces share history @someone off",
     "ideaspaces share remove someone@example.com",
     "ideaspaces share remove team:acme.com",
