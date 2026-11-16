@@ -101,10 +101,10 @@ export const entries: Entry[] = [
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Read one local Note, Content directory, Thread or pinned Map address.",
+      "does": "Read one local Note, Content directory, Thread or pinned Map address. A folder that keeps time (a Thread, or keeps_time: true) starts with its state from its entries: name, parent, about, closed, current Map; as_of reads it as it stood at a moment.",
       "use_when": "Deepen one identified target; use navigate for orientation.",
-      "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Open the post for body evidence; a summary alone is not proof.",
-      "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since."
+      "check": "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Open the post for body evidence; a summary alone is not proof. Read state before the children: it is the folder's current truth.",
+      "bound": "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since. With as_of, the page shows the entries at or before the cursor and state.as_of says how many were left out."
     },
     "bound": {
       "unit": "entries",
@@ -153,7 +153,7 @@ export const entries: Entry[] = [
         },
         "since": {
           "type": "string",
-          "description": "Continuation position from the prior page or ISO filter where supported."
+          "description": "Continuation position from the prior page (a child filename); in a folder that keeps time, also an entry id or an ISO date, resolved to the newest entry at or before it."
         },
         "order": {
           "type": "string",
@@ -166,6 +166,10 @@ export const entries: Entry[] = [
         "post": {
           "type": "string",
           "description": "Post id to select and read in full: the full msg_ id, or its unique eight-hex short form."
+        },
+        "as_of": {
+          "type": "string",
+          "description": "Read a folder that keeps time as it stood at this cursor: an ISO date or instant (a day is its end), an entry id, or an entry's filename. Entries after it set nothing and are not listed."
         },
         "pin": {
           "type": "string",
@@ -216,6 +220,9 @@ export const entries: Entry[] = [
         "post": {
           "flag": "--post"
         },
+        "as_of": {
+          "flag": "--as-of"
+        },
         "pin": {
           "flag": "--pin"
         },
@@ -232,6 +239,8 @@ export const entries: Entry[] = [
         "text",
         "kind",
         "depth",
+        "state",
+        "as_of",
         "reference",
         "target",
         "target.page.shown",

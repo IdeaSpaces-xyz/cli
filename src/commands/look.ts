@@ -36,12 +36,14 @@ import { repoRoot } from "../git.js";
 import { lookAtAddress, looksLikeMapAddress, parseReadAt, selectReadMap, threadPostIdAddress } from "../local/address-read.js";
 import { lookAtCommit } from "../local/map-look.js";
 import { readCheckoutAt } from "../local/map-resolve.js";
+import { entriesAsOf, folderKeeping, folderState, renderFolderState, sinceCursorFile, type FolderState } from "../local/folder-state.js";
+import { parseTimeCursor } from "../local/threads.js";
 import type { CommandDef } from "../types.js";
 import { allowedFlags } from "../agent-tools/flags.js";
 
 const DEPTHS = "<name|summary|surface|children|full>";
 const USAGE =
-  `ideaspaces look [<path>] [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--agreement <summary|full>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_…] [--pin <sha>] [--json]\n` +
+  `ideaspaces look [<path>] [--depth ${DEPTHS}] [--contract <foundation|agreement>] [--agreement <summary|full>] [--limit <n>] [--since <child|id|date>] [--order older|newer] [--post msg_…] [--as-of <date|id|file>] [--pin <sha>] [--json]\n` +
   `       ideaspaces look <@root//position | //position> [--map <note.md>] [--at <pin|head>] [--depth ${DEPTHS}] [--agreement <summary|full>] [--limit <n>] [--since <child>] [--order older|newer] [--post msg_…] [--json]`;
 
 interface PortableProjection {
@@ -85,6 +87,10 @@ export const lookCommand: CommandDef = {
     "ideaspaces look research --depth full --json",
     "ideaspaces look _threads/decision --limit 50 --order newer  # paging implies --depth children; each post shows its id; continue with --since <nextCursor>",
     "ideaspaces look _threads/decision --post msg_75cc2f37  # reads that post at --depth full; unique id, not guessed",
+    "ideaspaces look _threads/decision  # a folder that keeps time starts with its state: name, parent, about, closed, current Map, from its entries",
+    "ideaspaces look _threads/decision --as-of 2026-11-01  # the state and the entries as they stood at the end of that day",
+    "ideaspaces look _threads/decision --since msg_75cc2f37  # the entries after that one; a date works too",
+    "ideaspaces look memory --depth children  # any folder whose Agreement says keeps_time: true reads the same way; files without an id are Notes",
     "ideaspaces look --post msg_75cc2f37 --depth summary  # searches only the current Space root (cwd)",
     "ideaspaces look @home//_threads/decision/msg_75cc2f37 --map thread.map.md --at pin --depth full",
     "ideaspaces look . --contract foundation --depth summary",
@@ -108,10 +114,19 @@ export const lookCommand: CommandDef = {
       output.error(`Unknown flag for look: --${unknown}`);
       return 1;
     }
-    const since = typeof flags.since === "string" && flags.since.trim() ? flags.since.trim() : undefined;
+    let since = typeof flags.since === "string" && flags.since.trim() ? flags.since.trim() : undefined;
     const postId = typeof flags.post === "string" && flags.post.trim() ? flags.post.trim() : undefined;
     if (flags.since !== undefined && !since) {
-      output.error("--since needs the nextCursor value from the previous directory page.");
+      output.error("--since needs the nextCursor value from the previous directory page, or in a folder that keeps time an entry id or an ISO date.");
+      return 1;
+    }
+    const asOfRaw = typeof flags["as-of"] === "string" && flags["as-of"].trim() ? flags["as-of"].trim() : undefined;
+    if (flags["as-of"] !== undefined && !asOfRaw) {
+      output.error("--as-of needs a moment (an ISO date or instant), an entry id, or an entry's filename.");
+      return 1;
+    }
+    if (asOfRaw && (flags.pin !== undefined || flags.map !== undefined || flags.at !== undefined || postId)) {
+      output.error("--as-of reads a local folder that keeps time as it stood at a moment; it does not combine with --pin, --map, --at or --post (a commit is --pin; one entry is --post).");
       return 1;
     }
     if (flags.post !== undefined && !postId) {
@@ -199,6 +214,23 @@ export const lookCommand: CommandDef = {
       return 1;
     }
     const path = resolve(raw);
+    // A folder that keeps time (a Thread, or keeps_time: true) carries a state and reads in time: --since may
+    // be an entry id or a moment, resolved to the filename the protocol pages from; --as-of selects the
+    // entries at or before a cursor before the state and the page are derived.
+    const keeping = existsSync(path) && statSync(path).isDirectory() ? folderKeeping(path) : null;
+    if (asOfRaw && !keeping) {
+      output.error(`--as-of reads a folder that keeps time (a Thread, or one whose Agreement says keeps_time: true); ${raw} is not one. For a commit, use --pin <sha>.`);
+      return 1;
+    }
+    const asOf = asOfRaw ? parseTimeCursor(asOfRaw) : undefined;
+    if (since && keeping && !since.endsWith(".md")) {
+      try {
+        since = sinceCursorFile(path, since);
+      } catch (error) {
+        output.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
     if (flags.pin !== undefined) {
       return lookAtPin(output, global.json, raw, flags.pin, {
         depth,
@@ -255,6 +287,31 @@ export const lookCommand: CommandDef = {
       return 1;
     }
 
+    let state: FolderState | null = null;
+    let stateProblem: string | undefined;
+    if (keeping && looked.target.kind === "directory" && !postId) {
+      try {
+        state = folderState(path, asOf);
+      } catch (error) {
+        // The protocol's read of the folder stands on its own; a state that cannot be derived (a README
+        // with no frontmatter, a stray file) is named, never a refusal of the read. --as-of needs it, though.
+        stateProblem = error instanceof Error ? error.message : String(error);
+        if (asOf) { output.error(`Cannot read ${raw} as of ${asOfRaw}: ${stateProblem}`); return 1; }
+      }
+      try {
+        if (asOf && looked.target.children) {
+          // The page as of the cursor: entries after it are left out; folders and Notes (no entry handle) stay.
+          const kept = entriesAsOf(path, asOf);
+          const children = looked.target.children.filter((child) => child.kind !== "markdown" || !("post" in child && child.post) || kept.has(child.position.split("/").pop() ?? child.position));
+          const left = looked.target.children.length - children.length;
+          looked = { ...looked, target: { ...looked.target, children, ...(looked.target.page ? { page: { ...looked.target.page, shown: children.length, total: Math.max(0, looked.target.page.total - left) } } : {}) } };
+        }
+      } catch (error) {
+        output.error(error instanceof Error ? error.message : String(error));
+        return 1;
+      }
+    }
+
     let projection: PortableProjection;
     try {
       projection = await projectPortableMap(looked, { page: { ...(since ? { since } : {}), ...(order ? { order } : {}) } });
@@ -272,12 +329,16 @@ export const lookCommand: CommandDef = {
         issue: `Could not verify a portable Map root: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    const text = renderContentLook(looked);
+    const text = state ? `${renderFolderState(state)}\n\n${renderContentLook(looked)}`
+      : stateProblem ? `State of ${raw}: not derived (${stateProblem})\n\n${renderContentLook(looked)}` : renderContentLook(looked);
     const data = {
       text,
       kind: looked.kind,
       source: "local-working-tree",
       depth,
+      ...(state ? { state } : {}),
+      ...(stateProblem ? { state_problem: stateProblem } : {}),
+      ...(asOfRaw ? { as_of: asOfRaw } : {}),
       portable: projection.portable,
       dirty: projection.dirty,
       local_only_paths: projection.localOnlyPaths,

@@ -121,6 +121,7 @@ describe("ideaspaces look", () => {
       since: { args: ["docs"], value: "alpha.md" },
       order: { args: ["docs"], value: "newer" },
       post: { args: ["_threads/catalog-proof"], value: first.post.id },
+      as_of: { args: ["_threads/catalog-proof"], value: "2030-01-01" },
       pin: { args: ["notes/decision.md"], value: pin },
       map: { args: ["//notes/decision.md"], value: map },
       at: { args: ["//notes/decision.md"], value: "pin", flags: { map } },
@@ -183,10 +184,12 @@ describe("ideaspaces look", () => {
     const cursorMisuse = await runLook(["_threads/decision"], { since: second.post.id, depth: "summary" });
     expect(cursorMisuse.exit).toBe(1);
     expect(cursorMisuse.stderr).toContain("children or full depth");
-    // Without --depth, --since pages children; a post id is still not a page cursor.
+    // Without --depth, --since pages children; in a folder that keeps time a post id is a cursor too (0.33.0):
+    // the page continues after that post, here with nothing left after the second.
     const idAsCursor = await runLook(["_threads/decision"], { since: second.post.id });
-    expect(idAsCursor.exit).toBe(1);
-    expect(idAsCursor.stderr).not.toContain("children or full depth");
+    expect(idAsCursor.exit, idAsCursor.stderr).toBe(0);
+    expect(idAsCursor.data.target.children).toHaveLength(0);
+    expect(idAsCursor.data.state).toMatchObject({ keeping: "placement", entries: 2 });
     const unread = await runLook(["_threads/decision"], { new: true });
     expect(unread.exit).toBe(1);
     expect(unread.stderr).toContain("threads open --new");
