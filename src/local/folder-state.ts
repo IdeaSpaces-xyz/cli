@@ -7,7 +7,7 @@
  * `parent`, `about`, `closed`, and the current Map. `--as-of` reads the state as it stood at a
  * cursor: entries after it set nothing. Read-only; the protocol does the deriving.
  */
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
 import {
   currentMap, inspectEntries, parseEntry, parseFrontmatter, readsTime, selectEntries,
@@ -52,13 +52,21 @@ export function folderKeeping(dir: string): TimeKeeping | null {
   }
 }
 
-function portablePosition(dir: string): string {
+/**
+ * The folder's position in its repository, with forward slashes on every platform. Git names the
+ * top level its own way (forward slashes, its drive-letter case on Windows), so both ends are
+ * taken through the native real path before the relative path is formed.
+ */
+export function folderPosition(dir: string): string {
   try {
-    return relative(repoRoot(dir), dir).split("\\").join("/") || ".";
+    const top = realpathSync.native(repoRoot(dir));
+    const here = realpathSync.native(dir);
+    return relative(top, here).split("\\").join("/") || ".";
   } catch {
     return basename(dir);
   }
 }
+const portablePosition = folderPosition;
 
 /** A declared folder's direct Markdown files (not README.md, not dotfiles), as entry sources. */
 function declaredSources(dir: string, position: string): EntrySource[] {
