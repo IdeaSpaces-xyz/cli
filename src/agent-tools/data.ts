@@ -860,6 +860,7 @@ export const entries: Entry[] = [
         "matching",
         "has_more",
         "posts",
+        "thread.current_map",
         "thread.snapshot",
         "child_threads",
         "cursor",

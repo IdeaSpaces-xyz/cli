@@ -702,17 +702,25 @@ describe("local Threads", () => {
       const cOpeningId = childThread.opening_post_id;
       writeFileSync(join(root, "empty.map.md"), "---\nmap:\n  roots: []\n  members: []\n---\nCleared frame\n");
       const cSnapshot = await run(["post", "child-thread"], { message: "Snapshot state", name: "Snapshot 1", summary: "Snapshot summary", kind: "snapshot", map: "empty.map.md", "reply-to": cOpeningId });
-      const cLater = await run(["post", "child-thread"], { message: "Subsequent work", name: "Later 1", "reply-to": cSnapshot.id });
+      const cMapPost = await run(["post", "child-thread"], { message: "A plain post moves the frame", name: "Current frame", summary: "The newest Map", map: "empty.map.md", "reply-to": cSnapshot.id });
+      const cLater = await run(["post", "child-thread"], { message: "Subsequent work", name: "Later 1", "reply-to": cMapPost.id });
 
       // 1. depth: name
       const nameRead = await run(["open", "child-thread"], { depth: "name" });
       expect(nameRead.posts).toEqual([]);
+      expect(nameRead.thread.current_map).toBeUndefined();
       expect(nameRead.thread.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread" });
 
       // 2. depth: summary
       const summaryRead = await run(["open", "child-thread"], { depth: "summary" });
       expect(summaryRead.thread.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread", name: "Milestone 1" });
+      expect(summaryRead.thread.current_map).toMatchObject({ status: "post", post: { id: cMapPost.id, kind: "post" }, members: 0, skipped: [] });
+      // The marker remains a separate compatibility field; the current frame follows the Map-carrying post.
       expect(summaryRead.thread.snapshot).toMatchObject({ id: cSnapshot.id, kind: "snapshot", name: "Snapshot 1" });
+      out = "";
+      expect(await threadsCommand.run(["open", "child-thread"], { depth: "summary" }, { ...flags, json: false })).toBe(0);
+      expect(out).toContain(`Current Map: post ${cMapPost.id}`);
+      expect(out).toContain(`Current Map post: ${cMapPost.id} · post`);
 
       // 3. depth: children (shows branches + child threads)
       const parentChildren = await run(["open", "parent-thread"], { depth: "children" });
@@ -727,10 +735,10 @@ describe("local Threads", () => {
       expect(boundedChildren.child_threads_total).toBe(2);
       expect(boundedChildren.branches_total).toBeGreaterThanOrEqual(1);
 
-      // 4. depth: surface (shows snapshot and posts after it)
+      // 4. depth: surface starts at the current Map, while its first snapshot/reframe remains the page marker.
       const surfaceRead = await run(["open", "child-thread"], { depth: "surface" });
       expect(surfaceRead.posts).toHaveLength(2);
-      expect(surfaceRead.posts[0].id).toBe(cSnapshot.id);
+      expect(surfaceRead.posts[0].id).toBe(cMapPost.id);
       expect(surfaceRead.posts[1].id).toBe(cLater.id);
 
       // 5. depth: full with --limit and --order

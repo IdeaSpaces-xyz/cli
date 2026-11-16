@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "ba6b2ee873550060eeb147bed76db61d84da96aa"
+    "commit": "4b01a6db3e1b9b10aae65d7112b29d608ab403d9"
   },
   "protocol": {
     "version": "0.32.0",
     "commit": "e570f8a90fee5bb6f7237530856caedcb8ebdb35"
   },
-  "digest": "sha256:8d02392aa8119871d3b9d9e0890bb0bc3067136f82f15badba968d1a60d0be6b",
+  "digest": "sha256:9e960fd429828f0fd8fe8ca979f3a2051940c0f4c9c3539a55df857bb0c4e2cb",
   "groups": [
     {
       "id": "read",
@@ -868,6 +868,7 @@
           "matching",
           "has_more",
           "posts",
+          "thread.current_map",
           "thread.snapshot",
           "child_threads",
           "cursor",
