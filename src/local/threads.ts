@@ -559,7 +559,8 @@ export function appendPost(dir: string, options: {
 }): { post: ThreadPost; path: string; warnings: string[] } {
   const thread = loadThread(dir);
   if (thread.writeRefusal) throw new Error(thread.writeRefusal);
-  if (thread.closed === true) throw new Error("Thread is closed; append to a new Thread rather than editing its history.");
+  // A closed Thread takes one kind of post: the one that reopens it (closed: false), protocol 0.33.0.
+  if (thread.closed === true && options.closed !== false) throw new Error("Thread is closed; append to a new Thread rather than editing its history, or reopen it with ideaspaces post <thread> --closed false.");
   if (!options.body.trim()) throw new Error("Post body is required through --message or stdin.");
   if (options.rejectEscapedNewlines && !options.body.includes("\n") && (options.body.match(/\\n/g) ?? []).length >= 2) {
     throw new Error("--message contains repeated literal \\n sequences. Pass real newlines (for example Bash $'first\\nsecond'); to post literal escapes intentionally, pipe the body on stdin instead.");

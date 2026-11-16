@@ -10,7 +10,7 @@ export function checkSourceFlags(readSource = path => readFileSync(path, "utf8")
   const files = {
     look: "commands/look.ts", navigate: "commands/navigate.ts", inspect: "commands/inspect.ts",
     ls: "commands/ls.ts", times: "commands/times.ts", write: "commands/write.ts", commit: "commands/commit.ts",
-    map: "commands/map.ts", "map-edit": "commands/map-edit.ts", "map-selection": "commands/map-selection.ts",
+    map: "commands/map.ts", "map-edit": "commands/map-edit.ts", "map-selection": "commands/map-selection.ts", post: "commands/post.ts",
     threads: "commands/threads.ts", "hosted-threads": "commands/hosted-threads.ts", skills: "commands/skills.ts", node: "commands/node.ts",
     spaces: "commands/spaces.ts", "space-new": "commands/hosted-space-new.ts", "space-add": "commands/hosted-space-writes.ts", "space-remove": "commands/hosted-space-remove.ts",
     vaults: "commands/vaults.ts", get: "commands/get.ts", clone: "commands/clone.ts", fork: "commands/fork.ts", link: "commands/link.ts", forget: "commands/forget.ts",

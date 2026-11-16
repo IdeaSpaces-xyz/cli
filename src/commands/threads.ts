@@ -325,7 +325,7 @@ function selectedWriterName(): string {
   }
   throw new Error("Selected Thread posts require the caller's own _agent/agreement.md with a name; no git-author fallback.");
 }
-function writerName(explicit?: string): string {
+export function writerName(explicit?: string): string {
   if (explicit) return explicit;
   let at = resolve(process.cwd());
   while (true) {
