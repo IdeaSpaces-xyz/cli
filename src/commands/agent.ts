@@ -492,7 +492,8 @@ async function cmdRun(
           const { post, path } = appendPost(thread.directory, {
             body: response, author: thread.agentName, name: `Snapshot — ${thread.agentName}`,
             summary: response.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 200),
-            kind: "snapshot", replyTo: [thread.parentId], map: thread.citation,
+            // A post carrying a Map is the Thread's current Map (protocol 0.33.0); `snapshot` is a legacy kind no writer writes.
+            kind: "post", replyTo: [thread.parentId], map: thread.citation,
           });
           snapshotWritten = true;
           output.progress(`Thread snapshot: ${path}`);

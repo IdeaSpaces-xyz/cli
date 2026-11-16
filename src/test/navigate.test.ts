@@ -419,13 +419,14 @@ describe("ideaspaces navigate", () => {
     await fs.writeFile(join(tmp, "research", "deep", "more.md"), "# More\n");
 
     // Default stays the depth-1 ambient orientation — no outline.
+    // Protocol 0.33.0 (#105) takes file counts out of the stable head: a folder line is its name and summary.
     const ambient = await runNavigate(["."]);
-    expect(ambient.data.text).toContain("research/ (3) — EU landscape sweep.");
-    expect(ambient.data.text).not.toContain("deep/ (1)");
+    expect(ambient.data.text).toContain("research/ — EU landscape sweep.");
+    expect(ambient.data.text).not.toContain("deep/");
 
     const probed = await runNavigate(["."], { depth: "2" });
-    expect(probed.data.text).toContain("research/ (3) — EU landscape sweep.");
-    expect(probed.data.text).toContain("    deep/ (1)");
+    expect(probed.data.text).toContain("research/ — EU landscape sweep.");
+    expect(probed.data.text).toContain("    deep/");
     expect(probed.data.text).toContain("    notes.md");
     // The manifest carries the probe structurally too.
     expect(probed.data.manifest.tree.entries[0].children).toMatchObject([

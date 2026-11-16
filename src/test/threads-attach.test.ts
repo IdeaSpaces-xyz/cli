@@ -134,6 +134,16 @@ describe("threads attach", () => {
     const reframe = loaded.allPosts.find((p) => p.id === json.reframe.id)!;
     expect(reframe.kind).toBe("reframe");
     expect(reframe.inReplyTo).toEqual([CHILD_REPLY]);
+    // The reframe carries the parent (what 0.33.0 readers read) and no name or summary: a reframe's are the Thread's own,
+    // so a move must not retitle the Thread (the old "Moved under …" titles did).
+    expect(reframe.frontmatter.parent).toBe(`post:${B}`);
+    expect(reframe.parent).toMatchObject({ kind: "post", value: B });
+    expect(reframe.frontmatter.name).toBeUndefined();
+    expect(reframe.frontmatter.summary).toBeUndefined();
+    expect(loaded.name).toBe(CHILD); // the opening post's name, by the state rule; unchanged by the move
+    expect(loaded.nameSource).toBe("opening");
+    expect(loaded.attachment).toMatchObject({ kind: "post", value: B });
+    expect(loaded.parentSource).toBe("post");
     expect(reframe.body).toContain(`Previous parent: ${A} (parent-a)`);
     expect(reframe.body).toContain(`New parent: ${B}`);
     expect(reframe.body).toContain(`Origin, unchanged: post:${A}`);

@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { assembleContentReference, HOSTED_THREAD_ID, parseFrontmatter, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
+import { assembleContentReference, HOSTED_THREAD_ID, isPostReference, parseFrontmatter, parseThreadAttachment, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
 import { agreementFlag, preferredContractSource } from "../contract-source.js";
 import { loadLocalThreadMap, selectPinnedThreadMember } from "../local/thread-map-member.js";
 import { assembleLaunchText } from "../local/launch-text.js";
@@ -14,7 +14,7 @@ import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import {
   acknowledge, appendPost, attachThread, createThread, initWorktree, listLocal, loadThread,
   pushWorktree, readCursor, readPinnedThreadMember, resolveLocalThread, threadBase, threadsDirectory, NoAgreementError,
-  resolveThreadParent, findChildThreads, findNewestSnapshot, computeBranches, latestLocalActivity, earliestLocalActivity, attachmentText, validateMarkOptions, validateThreadMomentMap,
+  resolveThreadParent, findChildThreads, computeBranches, latestLocalActivity, earliestLocalActivity, attachmentText, validateMarkOptions, validateThreadMomentMap, KIND_HELP,
   isHostedThreadTarget, commitPost, NOT_IN_GIT_REPOSITORY, type PostCommit, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { claimedBy, markText, singleLine } from "../local/claims.js";
@@ -99,6 +99,7 @@ function localRows(threads: LocalThread[], newOnly: boolean, onError: (message: 
       warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
       latest_activity_at: latestLocalActivity(thread.posts), parent,
       attached_to: thread.attachment ? attachmentText(thread.attachment) : null,
+      parent_source: thread.parentSource, about: thread.about.map(attachmentText), name_source: thread.nameSource,
       ...threadOwner(thread), first_post_at: earliestLocalActivity(thread.posts), newest_post_at: latestLocalActivity(thread.posts), ...(parent_warning ? { parent_warning } : {}) };
   });
 }
@@ -243,6 +244,7 @@ function localText(
       const origin = originLine(p);
       if (origin) parts.push(origin);
     }
+    if (thread.about.length) parts.push(`About: ${clip(thread.about.map(attachmentText).join(", "), 600)}`);
     if (options?.currentMapPost) {
       const p = options.currentMapPost;
       parts.push(`Current Map post: ${singleLine(p.id, 120)} · ${singleLine(p.kind, 60)} · ${singleLine(p.date ?? "undated", 60)} · ${clip(singleLine(p.frontmatter.name ?? p.id, 200), 200)} · ${claimedBy(p.frontmatter.author)}\n  ${clip(singleLine(p.frontmatter.summary ?? "(no summary)", 400), 400)}`);
@@ -388,11 +390,11 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads list --json  # each local row: attached_to, owner (+ owner_source), first_post_at, newest_post_at; owner = README `owner:`/`holder:`, `Held by X` in its summary or a `Holder:` line, else the opening post's author",
     "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
-    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--kind snapshot --map <note>] [--author Name] [--tags ux] [--no-check-links] [--no-commit]  # a local post is committed (that one file, never pushed) unless --no-commit; --kind is one of ${THREAD_KINDS.join(", ")}; a label goes in --tags; snapshot requires --map <note>`,
-    "ideaspaces threads close <slug|path> --message 'Rationale' [--no-commit]  # the closure post is committed like any local post",
+    `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--map <note>] [--author Name] [--tags ux] [--no-check-links] [--no-commit]  # a local post is committed (that one file, never pushed) unless --no-commit; --kind is one of ${KIND_HELP}; a label goes in --tags; a post carrying --map <note> is the Thread's current Map`,
+    "ideaspaces threads close <slug|path> --message 'Rationale' [--no-commit]  # writes closed: true (beside the legacy kind closure, for older readers); committed like any local post",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
     "ideaspaces threads launch-text <slug|path> --post msg_id [--member <ordinal>] [--pov <agent-folder>] [--budget <chars>] [--json]  # the text a session launched from that post starts with; see --help",
-    "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'",
+    "ideaspaces threads attach <slug|path> post:msg_parent --message 'Why it moves'  # one reframe carrying parent, no name or summary (the Thread keeps its own); the Agreement's attached_to is written too, for older readers",
     "ideaspaces threads open <slug|path> --map context.map.md --member 0 [--checkout /path/to/root]  # pinned selection",
     "ideaspaces threads open <slug|path> --pin <sha> --position _threads/<slug>/<post>.md",
     "ideaspaces threads render <slug|path>",
@@ -576,7 +578,7 @@ export const threadsCommand: CommandDef = {
         }
         const rows = [...local, ...hosted].filter((row) => !yes(flags, "open") || row.closed !== true).sort((a, b) => activityOf(b) - activityOf(a)).map((row) => {
           if (rung === "name") return { source: row.source, id: row.id, name: row.name,
-            ...(row.source === "local" ? { closed: row.closed, slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent, attached_to: row.attached_to, owner: row.owner, owner_source: row.owner_source, first_post_at: row.first_post_at, newest_post_at: row.newest_post_at } : { unread_count: row.unread_count, ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
+            ...(row.source === "local" ? { closed: row.closed, slug: row.slug, thread_id: row.thread_id, latest_activity_at: row.latest_activity_at, parent: row.parent, attached_to: row.attached_to, parent_source: row.parent_source, about: row.about, name_source: row.name_source, owner: row.owner, owner_source: row.owner_source, first_post_at: row.first_post_at, newest_post_at: row.newest_post_at } : { unread_count: row.unread_count, ...(row.closed !== undefined ? { closed: row.closed } : {}) }) };
           if (rung === "full" && row.source === "local") {
             return { ...row, posts: localThreads.find((thread) => thread.path === row.id)?.posts ?? [] };
           }
@@ -605,14 +607,19 @@ export const threadsCommand: CommandDef = {
         const openingMap = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         if (openingMap !== undefined) validateThreadMomentMap(openingMap); // Before createThread mutates the folder.
         const thread = createThread(rest[0], str(flags, "about")!, process.cwd(), attachedTo);
+        // During the compatibility window the opening post carries both fields: `parent` (a post) or `about`
+        // (any other link), which readers on protocol 0.33.0 read, and `attached_to`, which readers before it read.
+        const link = attachedTo ? parseThreadAttachment(attachedTo) : null;
+        const opensUnder = link !== null && isPostReference(link);
+        const relation = attachedTo ? opensUnder ? { parent: attachedTo } : { about: [attachedTo] } : {};
         let opening: ReturnType<typeof appendPost>;
         try {
-          opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary, attachedTo, map: openingMap });
+          opening = appendPost(thread.path, { body: str(flags, "about")!, name: thread.name, summary: thread.summary, attachedTo, ...relation, map: openingMap });
         } catch (err) {
           throw new Error(`Thread created at ${thread.path}, but opening post was not written: ${err instanceof Error ? err.message : String(err)}. Use threads post ${thread.slug} --message <opening-text> to complete it; do not rerun threads new.`);
         }
         output.result({ path: thread.path, slug: thread.slug, thread_id: opening.post.id, opening_post_id: opening.post.id, date: opening.post.date,
-          ...(attachedTo ? { attached_to: attachedTo } : {}) },
+          ...(attachedTo ? { attached_to: attachedTo, ...relation } : {}) },
           `Created local Thread: ${thread.path}`); return 0;
       }
       if (sub === "open") {
@@ -733,7 +740,8 @@ export const threadsCommand: CommandDef = {
         if (rung === "summary" && !filtered && !postId) posts = [];
         else if (!postId && rung !== "name" && rung !== "children") {
           if (rung === "surface") {
-            const head = posts.find((p) => p.kind === "snapshot" || p.kind === "reframe");
+            // The head is the post the current Map came from, whatever its kind (protocol 0.33.0), never a kind check.
+            const head = stored.currentMap.post ? posts.find((p) => p.id === stored.currentMap.post?.id) : undefined;
             const tailLimit = (limit ?? 5) - (head ? 1 : 0);
             const tail = tailLimit > 0 ? posts.slice(-tailLimit) : [];
             posts = head ? [head, ...tail.filter((p) => p.id !== head.id)] : tail;
@@ -785,7 +793,8 @@ export const threadsCommand: CommandDef = {
         const currentMapPost = thread.currentMap.post
           ? thread.allPosts.find((post) => post.id === thread.currentMap.post?.id) ?? null
           : null;
-        const snapshot = findNewestSnapshot(thread.posts);
+        // `thread.snapshot` is a compatibility field: it now names the post the current Map came from, whatever its kind.
+        const snapshot = currentMapPost;
 
         // Surface keeps a bounded preview; full and --post retain exact bodies.
         // Where the posts are ("posted" is not "delivered"): at most six Git calls and eight seconds in all, never the network. A name read shows no posts.
@@ -836,8 +845,8 @@ export const threadsCommand: CommandDef = {
         }
         const nextActivity = effectiveRung === "summary" && posts.length ? lastActivity(posts.at(-1)!) : undefined;
         if (nextActivity && posts.at(-1)?.id !== nextActivity) humanText += `\nLast activity: ${nextActivity} (folded mark; use this id with --since).`;
-        output.result({ schema: "ideaspaces.local-thread.open.v4", ...(focus?.status === "ok" ? { reference: focus } : {}), ...(referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {}), thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, summary: effectiveRung === "name" ? undefined : thread.summary,
-          closed: thread.closed, parent, warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
+        output.result({ schema: "ideaspaces.local-thread.open.v4", ...(focus?.status === "ok" ? { reference: focus } : {}), ...(referenceDiagnostic ? { reference_diagnostic: referenceDiagnostic } : {}), thread: { path: thread.path, thread_id: thread.thread_id, name: thread.name, name_source: thread.nameSource, summary: effectiveRung === "name" ? undefined : thread.summary,
+          closed: thread.closed, parent, parent_source: thread.parentSource, about: thread.about.map(attachmentText), warnings: thread.warnings, unreadable_posts: thread.unreadablePosts,
           ...(effectiveRung === "name" ? {} : { current_map: currentMapJson(thread) }),
           ...(share ? { share: shareJson(share) } : {}), author_trust: "claimed", author_note: AUTHOR_CLAIM_NOTE,
           ...(parentWarning ? { parent_warning: parentWarning } : {}),
@@ -891,8 +900,9 @@ export const threadsCommand: CommandDef = {
         selectionFlags(flags);
         const kind = sub === "close" ? "closure" : str(flags, "kind") ?? "post";
         if (!KNOWN_POST_KINDS.has(kind)) {
-          throw new Error(`--kind ${JSON.stringify(kind)} is not a kind: use ${THREAD_KINDS.join(", ")}. A label for a post goes in --tags.`);
+          throw new Error(`--kind ${JSON.stringify(kind)} is not a kind: use ${KIND_HELP}. A label for a post goes in --tags.`);
         }
+        if (kind === "snapshot") output.log("snapshot is a legacy kind: written as a post carrying the Map, which readers take as the Thread's current Map.");
         if (sub === "close" && (flags.member !== undefined || flags.checkout !== undefined)) throw new Error("Selected cross-Space close is not supported; use the local Space's close verb.");
         const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         const selected = flags.member !== undefined
