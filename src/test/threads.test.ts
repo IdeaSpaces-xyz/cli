@@ -644,7 +644,7 @@ describe("local Threads", () => {
       expect(err).toBe("");
       expect(await threadsCommand.run(["post", "tree-test"], { message: "invalid", "reply-to": "latest,missing" }, flags)).toBe(1);
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
-  });
+  }, 30_000); // Several CLI runs with Git in one test exceed 5 s on Windows (seen at 5,109 ms on the runner).
 
   it("writes and reads --tags on posts and preserves them across open rungs", async () => {
     const root = fixture(); process.env.HOME = root;
