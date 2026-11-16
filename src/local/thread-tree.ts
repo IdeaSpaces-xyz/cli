@@ -222,7 +222,8 @@ export function assembleThreadTree(start: string, options: ThreadTreeOptions): T
 
   // Read every root's Threads first, so an id or filename cursor can be found before any as-of read.
   const loadAll = (asOf?: TimeCursor): Loaded[] => rootPaths.map((path, index) => {
-    const label = path === canonicalStart ? "." : relative(canonicalStart, path);
+    // The label is a Map-address name and a portable position: forward slashes on every platform.
+    const label = path === canonicalStart ? "." : relative(canonicalStart, path).split("\\").join("/");
     const uncommitted = uncommittedUnder(path);
     const root: ThreadTreeRoot = { root: index, path, label, root_node_id: checkoutRootNodeId(path), sha: git(path, ["rev-parse", "--verify", "--quiet", "HEAD"])?.trim() ?? null, threads: 0, uncommitted: uncommitted.size };
     let threads: LocalThread[] = [];

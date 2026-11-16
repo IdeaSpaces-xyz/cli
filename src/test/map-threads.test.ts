@@ -138,7 +138,7 @@ describe("ideaspaces map --kind threads", () => {
     expect(text.out).toContain("    2026-10-10-grandchild ← 2026-10-05-closed-track");
     expect(text.out).toContain("    2026-09-30-spine (1), 2026-11-15-fresh (3)");
     expect(text.out).toContain("2026-10-22-far  Far · open · 2026-10-22 [1]");
-  });
+  }, 60_000); // Several tree reads, each with Git status per root, exceed 5 s on Windows.
 
   it("bounds the tree with --levels and lists at the summary and children rungs", async () => {
     const { root } = space();
@@ -156,7 +156,7 @@ describe("ideaspaces map --kind threads", () => {
     const surface = (await run(["."], { kind: "threads", levels: "1", depth: "surface" }, root)).json;
     expect(surface.members[0].newest.map((p: { id: string }) => p.id)).toEqual(["msg_spine_new", "msg_spine_direction", "msg_spine_open"]);
     expect(surface.trimmed).toContain("five newest posts");
-  });
+  }, 60_000);
 
   it("filters with --where, flat with each Thread's parent", async () => {
     const { root } = space();
@@ -173,7 +173,7 @@ describe("ideaspaces map --kind threads", () => {
     const text = await run(["."], { kind: "threads", where: "closed" }, root, false);
     expect(text.out).toContain("2026-10-05-closed-track  Closed track · closed · 1 children · 2026-10-20 ← 2026-09-30-spine");
     expect((await run(["."], { kind: "threads", where: "sideways" }, root)).code).toBe(1);
-  });
+  }, 60_000);
 
   it("reads since and as of a moment through the time rule", async () => {
     const { root } = space();
@@ -195,7 +195,7 @@ describe("ideaspaces map --kind threads", () => {
     expect(Object.fromEntries(asOfLater.members.map((m: { slug: string; name: string }) => [m.slug, m.name]))["2026-10-20-moved"]).toBe("Moved under 2026-09-30-spine");
     expect((await run(["."], { kind: "threads", since: "msg_nobody" }, root)).code).toBe(1);
     expect((await run(["."], { kind: "threads", "as-of": "yesterday" }, root)).code).toBe(1);
-  });
+  }, 60_000);
 
   it("refuses the tree flags without --kind, a kind it does not map, and a numeric depth with threads", async () => {
     const { root } = space();
@@ -210,5 +210,5 @@ describe("ideaspaces map --kind threads", () => {
     expect((await run(["nowhere"], { kind: "threads" }, root)).code).toBe(1);
     // The content Map keeps its numeric depth untouched.
     expect((await run(["."], { depth: "2" }, root)).code).toBe(0);
-  });
+  }, 60_000);
 });
