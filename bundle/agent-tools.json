@@ -3,7 +3,7 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "735f2feed222e002df473895a2a5028640d2bd13"
+    "commit": "85c37b3d6d5dde507c5c3a03acb136d1e8225042"
   },
   "protocol": {
     "version": "0.33.0",
