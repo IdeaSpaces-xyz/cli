@@ -438,6 +438,42 @@ export const searchCommand: CommandDef = {
   },
 };
 
+/**
+ * A search over several roots as one corpus, for another command to answer with (the Map's
+ * `--query`): the parsed query, the described hits with their root, each root's count or error, and
+ * whether every root was read whole. No output, no saving.
+ */
+export async function searchCorpus(roots: string[], raw: string, options: { limit: number; threads: boolean }): Promise<{
+  query: ParsedQuery; results: SearchHit[]; scanned: number; matched: number; complete: boolean;
+  roots: Array<{ root: string; listed: number; scanned: number; error?: string; truncated?: true; warnings?: string[] }>;
+}> {
+  const query = parseQuery(raw);
+  if (query.terms.length === 0 && !hasFilters(query)) throw new QueryError(`Nothing to search for in "${raw}". Give a word or a filter such as tag:onboarding.`);
+  const requests = resolveRoots(roots);
+  const usable = requests.filter((r): r is { input: string; root: string } => r.root !== null).map((r) => r.root);
+  const threads = options.threads || wantsThreads(query);
+  const listings = await listRoots(usable, threads);
+  const base = commonBase(usable);
+  const files = selectFiles(listings.filter((l) => !l.error), base, query);
+  const readCounts = new Map<string, number>();
+  const outsideLinks = new Map<string, number>();
+  const outcome = rank(files, query, options.limit, true, readCounts, outsideLinks);
+  noteOutsideLinks(listings, outsideLinks);
+  const results = finish(outcome.hits, null, query.terms.length === 0, options.limit);
+  const listed = new Map<string, number>();
+  for (const file of files) listed.set(file.root, (listed.get(file.root) ?? 0) + 1);
+  const listingByRoot = new Map(listings.map((l) => [l.root, l]));
+  const rootRows = requests.map((request) => {
+    if (request.root === null) return { root: request.input, listed: 0, scanned: 0, error: request.error };
+    const listing = listingByRoot.get(request.root)!;
+    return {
+      root: request.root, listed: listed.get(request.root) ?? 0, scanned: readCounts.get(request.root) ?? 0,
+      ...(listing.error ? { error: listing.error } : {}), ...(listing.truncated ? { truncated: true as const } : {}), ...(listing.warnings ? { warnings: listing.warnings } : {}),
+    };
+  });
+  return { query, results, scanned: outcome.scanned, matched: outcome.matched, roots: rootRows, complete: rootRows.every((row) => !row.error && !row.truncated) };
+}
+
 async function searchRoots(
   inputs: string[],
   query: ParsedQuery,

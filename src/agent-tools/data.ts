@@ -494,10 +494,10 @@ export const entries: Entry[] = [
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Read a curated Map, derive a Content Map, render orientation, or map the Thread tree (kind threads): every _threads/ in the start and its repositories, each Thread by the protocol's state rule, parents resolved across them, at a rung, to a level, as of or since a moment, problems named.",
-      "use_when": "Inspect references before editing a Map or launching from it; or see where every Thread sits and what is wrong in one call (kind threads with problems).",
-      "check": "References grant no access. Check file_sha before guarded removal; roots carry image or image_problem. With kind threads: read counts and problems with their one-line definitions; map is null (projection_pending) when a root has no identity or HEAD; uncommitted names the files Git does not have.",
-      "bound": "Depth defaults to 1, max 4 or full; orientation uses a character budget. kind threads: about 70 bytes per Thread at the name rung; levels and where bound the members; surface and full show five newest posts as lines, never bodies."
+      "does": "Read a curated Map, derive a Content Map, render orientation, map the Thread tree (kind threads: every _threads/ under the start, by the state rule, parents across roots, a rung, a level, as of or since, problems named), map the Space by type (kind repos), or search the Space as a Map (query).",
+      "use_when": "Inspect references before editing a Map or launching from it; see where every Thread sits and what is wrong (kind threads with problems); see every repository here by type against the curated Map (kind repos); find something across the Space (query).",
+      "check": "References grant no access. Check file_sha before guarded removal. kind threads: read counts and problems with their definitions; uncommitted names what Git lacks. kind repos: curated names where the Map file and the disk disagree. map is null (projection_pending) when a root lacks identity or HEAD.",
+      "bound": "Depth defaults to 1, max 4 or full; orientation uses a character budget. kind threads: about 80 bytes per Thread at the name rung; levels and where bound the members; surface and full show five newest posts as lines, never bodies. query: limit hits, default 20."
     },
     "bound": "n/a",
     "parameters": {
@@ -533,10 +533,20 @@ export const entries: Entry[] = [
         },
         "kind": {
           "type": "string",
-          "description": "What to map by kind: threads, the Thread tree under the start.",
+          "description": "What to map by kind: threads, the Thread tree under the start; repos, the Space's repositories by type (agent, knowledge, code, …) with identity, HEAD, remote, uncommitted files and Threads, against the curated Map file.",
           "enum": [
-            "threads"
+            "threads",
+            "repos"
           ]
+        },
+        "query": {
+          "type": "string",
+          "description": "Search the Space under the start (every repository as one corpus, Threads included, search's syntax) and answer as a Map of the hits in rank order."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "query: hits to return (default 20).",
+          "minimum": 1
         },
         "levels": {
           "type": "string",
@@ -583,6 +593,12 @@ export const entries: Entry[] = [
         "kind": {
           "flag": "--kind"
         },
+        "query": {
+          "flag": "--query"
+        },
+        "limit": {
+          "flag": "--limit"
+        },
         "levels": {
           "flag": "--levels"
         },
@@ -623,7 +639,12 @@ export const entries: Entry[] = [
         "map_status",
         "warnings",
         "trimmed",
-        "complete"
+        "complete",
+        "repos",
+        "by_kind",
+        "curated",
+        "query",
+        "results"
       ]
     }
   },

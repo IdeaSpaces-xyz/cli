@@ -204,7 +204,8 @@ describe("ideaspaces map --kind threads", () => {
       expect(result.code).toBe(1);
       expect(result.err).toContain("--kind threads");
     }
-    expect((await run(["."], { kind: "repos" }, root)).err).toContain("the one kind is threads");
+    expect((await run(["."], { kind: "tools" }, root)).err).toContain("is not a kind this map reads");
+    expect((await run(["."], { kind: true }, root)).err).toContain("--kind needs a value");
     expect((await run(["."], { kind: "threads", depth: "2" }, root)).err).toContain("is a rung");
     expect((await run(["."], { kind: "threads", levels: "0" }, root)).code).toBe(1);
     expect((await run(["nowhere"], { kind: "threads" }, root)).code).toBe(1);
