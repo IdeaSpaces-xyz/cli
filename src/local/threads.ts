@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { HOSTED_THREAD_ID, currentThreadMap, isPinnedMomentMap, isPostReference, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, currentThreadMap, isPinnedMomentMap, isPostReference, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, selectEntries, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind, type TimeCursor } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -196,7 +196,24 @@ function lexists(path: string): boolean {
 
 export const NO_THREAD_AGREEMENT = "no _agent/agreement.md; read and posted without one";
 
-export function loadThread(dir: string): LocalThread {
+export interface LoadThreadOptions {
+  /**
+   * Read the Thread as of this cursor (protocol 0.33.0, time.md): entries after it are left out
+   * before the state, the timeline and the current Map are derived, so they set nothing. A cursor
+   * that resolves to nothing is an error, never a silent full read.
+   */
+  asOf?: TimeCursor;
+}
+
+/** `--as-of` and `--since` take a moment (an ISO instant or a day), an entry id, or an entry's filename. */
+export function parseTimeCursor(value: string): TimeCursor {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?)?$/.test(trimmed)) return { at: trimmed };
+  if (/^msg_/.test(trimmed) || !trimmed.endsWith(".md")) return { id: trimmed };
+  return { path: trimmed };
+}
+
+export function loadThread(dir: string, options: LoadThreadOptions = {}): LocalThread {
   const path = safeDirectory(dir);
   const readmePath = join(path, "README.md");
   if (!existsSync(readmePath)) throw new Error(`Thread ${path} needs README.md.`);
@@ -205,11 +222,21 @@ export function loadThread(dir: string): LocalThread {
   const fm = parseFrontmatter(readme);
   if (!fm) throw new Error(`Malformed README frontmatter: ${readmePath}`);
   const slug = basename(path);
-  const sources: Array<{ path: string; content: string }> = [];
+  let sources: Array<{ path: string; content: string }> = [];
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent") continue;
     if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join(path, entry.name)) });
+  }
+  if (options.asOf) {
+    // The selection is the protocol's: by entry, filename order; by moment, each entry's own time. An
+    // entry the cursor cannot place (undated) is left out and named by the protocol, never guessed in.
+    const parsed = sources.flatMap((source) => { const result = parseThreadPost(source.content, source.path); return result.status === "valid" ? [result.post] : []; });
+    const cursor = options.asOf;
+    const selection = selectEntries(parsed, { asOf: "path" in cursor ? { path: cursor.path.includes("/") ? cursor.path : `_threads/${slug}/${cursor.path}` } : cursor });
+    if (selection.status !== "ok") throw new Error(`--as-of ${JSON.stringify(Object.values(cursor)[0])} is ${selection.status} in Thread ${slug}: ${selection.reason}`);
+    const kept = new Set(selection.entries.map((entry) => entry.path));
+    sources = sources.filter((source) => kept.has(source.path));
   }
   const agreementAttachment = agreementContent === null ? { status: "absent" as const }
     : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
@@ -254,14 +281,14 @@ export function loadThread(dir: string): LocalThread {
   };
 }
 
-export function listLocal(cwd = process.cwd(), onError?: (message: string) => void): LocalThread[] {
+export function listLocal(cwd = process.cwd(), onError?: (message: string) => void, options: LoadThreadOptions = {}): LocalThread[] {
   const base = threadsDirectory(cwd);
   if (!existsSync(base)) return [];
   safeDirectory(base);
   const rows: LocalThread[] = [];
   for (const entry of readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
     try {
-      rows.push(loadThread(join(base, entry.name)));
+      rows.push(loadThread(join(base, entry.name), options));
     } catch (error) {
       if (!onError) throw error;
       onError(`Thread ${entry.name} cannot be read: ${error instanceof Error ? error.message : String(error)}`);

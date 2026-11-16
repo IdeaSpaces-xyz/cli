@@ -20,13 +20,15 @@ import {
   type ContentTreeDepth,
   type ProjectedContentTreeMember,
 } from "@ideaspaces/protocol";
-import { realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import { MAP_DEPTHS, type MapDepth } from "@ideaspaces/protocol";
 import { parseBool } from "../argv.js";
 import { inspectPortableLocalRoot } from "../local-map-root.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
 import { inspectSpaceMap } from "../local/space-map.js";
-import { createOutput } from "../output.js";
+import { assembleThreadTree, parseWhere, PROBLEM_CODES, PROBLEM_DEFINITIONS, renderThreadTree, type WhereFilter } from "../local/thread-tree.js";
+import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
 import { MAP_EDIT_USAGE, runMapEdit } from "./map-edit.js";
@@ -50,10 +52,76 @@ function emptyTree(): ContentAwarenessTree {
   return { placement: "head", totalMarkdownFiles: 0, entries: [] };
 }
 
+/** The flags that belong to `--kind threads`; without it they are refused, never ignored. */
+const TREE_FLAGS = ["levels", "where", "problems", "since", "as-of"] as const;
+
+/**
+ * `ideaspaces map <start> --kind threads`: the Thread tree of the Space under the start, as a Map.
+ * Every `_threads/` in the start and in the repositories within two levels of it; each Thread by
+ * the protocol's state rule; parents resolved across all of them; a rung per member; `--levels`
+ * down the tree; `--problems` named and defined; `--since` and `--as-of` through the time rule.
+ */
+async function runThreadTree(args: string[], flags: Record<string, string | boolean>, output: Output): Promise<number> {
+  if (flags.kind !== "threads") {
+    output.error(`--kind ${typeof flags.kind === "string" ? flags.kind : ""} is not a kind this map reads; the one kind is threads (the Thread tree). Repositories by type and search come with a later version.`);
+    return 1;
+  }
+  if (flags.orientation !== undefined || flags.budget !== undefined) {
+    output.error("--orientation and --budget read a curated Map note; omit them with --kind threads.");
+    return 1;
+  }
+  const start = resolve((args[0] ?? ".").trim() || ".");
+  if (!existsSync(start) || !statSync(start).isDirectory()) {
+    output.error(`Not a directory: ${start}. Give the Space root (or any folder whose repositories hold _threads/).`);
+    return 1;
+  }
+  let depth: MapDepth = "name";
+  if (flags.depth !== undefined) {
+    if (typeof flags.depth !== "string" || !MAP_DEPTHS.includes(flags.depth as MapDepth)) {
+      output.error("--depth with --kind threads is a rung: name, summary, children, surface or full.");
+      return 1;
+    }
+    depth = flags.depth as MapDepth;
+  }
+  let levels: number | "all" = "all";
+  if (flags.levels !== undefined) {
+    const parsed = typeof flags.levels === "string" ? Number(flags.levels) : NaN;
+    if (flags.levels === "all") levels = "all";
+    else if (typeof flags.levels === "string" && /^[1-9][0-9]*$/.test(flags.levels) && Number.isSafeInteger(parsed)) levels = parsed;
+    else { output.error("--levels must be a positive whole number of tree levels below the roots, or all."); return 1; }
+  }
+  let where: WhereFilter | undefined;
+  if (flags.where !== undefined) {
+    if (typeof flags.where !== "string") { output.error("--where requires a value: open, closed, holder:<name>, no-holder or stale:<date>."); return 1; }
+    try { where = parseWhere(flags.where); } catch (error) { output.error(error instanceof Error ? error.message : String(error)); return 1; }
+  }
+  for (const flag of ["since", "as-of"] as const) {
+    if (flags[flag] !== undefined && (typeof flags[flag] !== "string" || !flags[flag].trim())) {
+      output.error(`--${flag} requires a value: an ISO date or instant, an entry id, or an entry's filename.`);
+      return 1;
+    }
+  }
+  const problems = flags.problems !== undefined && parseBool(flags.problems);
+  try {
+    const tree = assembleThreadTree(start, {
+      levels, depth, where, problems,
+      ...(typeof flags.since === "string" ? { since: flags.since.trim() } : {}),
+      ...(typeof flags["as-of"] === "string" ? { asOf: flags["as-of"].trim() } : {}),
+    });
+    output.result(tree, renderThreadTree(tree));
+    return 0;
+  } catch (error) {
+    output.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
 export const mapCommand: CommandDef = {
   name: "map",
-  description: "Display a curated Space Map (*.map.md) or derive a local Content Map",
-  usage: `ideaspaces map [<folder|map-note>] [--depth <1..4|full>] [--json]\n       ideaspaces map <map-note> --orientation [--budget <chars>] [--json]\n       ${MAP_EDIT_USAGE}\n       ${MAP_SELECT_USAGE}`,
+  description: "Display a curated Space Map (*.map.md), derive a local Content Map, or map the Thread tree",
+  usage: `ideaspaces map [<folder|map-note>] [--depth <1..4|full>] [--json]\n       ideaspaces map [<start>] --kind threads [--levels <n|all>] [--depth name|summary|children|surface|full] [--where open|closed|holder:<name>|no-holder|stale:<date>] [--problems] [--since <date|id|file>] [--as-of <date|id|file>] [--json]\n       ideaspaces map <map-note> --orientation [--budget <chars>] [--json]\n       ${MAP_EDIT_USAGE}\n       ${MAP_SELECT_USAGE}`,
+  help: "--kind threads maps the Thread tree: every _threads/ in the start and in the repositories within two levels of it (Home keeps its repos in agents/, knowledge/, clients/), each Thread by the protocol's state rule (its name from the newest reframe, else the opening post; its parent from the newest post that set one, else the Agreement, else the opening), parents resolved across all of those roots. --levels bounds how far down the tree (default all); --depth is the rung per member (default name; summary adds the summary, holder, about and current Map; children adds the child slugs; surface and full add the five newest posts as lines). --where lists only matching Threads, flat, with each one's parent; stale:<date> is an open Thread with no post since that date. --since lists the Threads with a post after the cursor, with the count; --as-of reads every Thread as it stood at the cursor. A cursor is an ISO date or instant, an entry id, or an entry's filename.\n\n" +
+    `--problems names what is wrong, each defined in one line, over the whole tree before any filter:\n${PROBLEM_CODES.map((code) => `  ${code}: ${PROBLEM_DEFINITIONS[code]}`).join("\n")}\n\nThe answer is a Map: roots pinned at HEAD with their uncommitted files counted, members at the rung, and \`map\` portable only when every root is identified and pinned. Nothing is written.`,
   subcommands: {
     ...Object.fromEntries(["create", "add", "remove"].map((verb) => [verb,
       MAP_EDIT_USAGE.split("\n").map((line) => line.trim()).filter((line) => line.startsWith(`ideaspaces map ${verb} `)).join("\n       ")])),
@@ -62,6 +130,10 @@ export const mapCommand: CommandDef = {
   helpArgument: () => true, // A folder/Map name is also valid here.
   examples: [
     "ideaspaces map . --json",
+    "ideaspaces map . --kind threads --levels all --depth name --problems  # the Thread tree of the Space, one call, with what is wrong named",
+    "ideaspaces map . --kind threads --where stale:2026-11-01 --depth summary  # open Threads with no post since that date, flat, with their parents",
+    "ideaspaces map . --kind threads --since 2026-11-14 --json  # the Threads that moved since, with how many posts",
+    "ideaspaces map . --kind threads --as-of 2026-11-01  # the tree as it stood then: names, parents and closed state as of that day",
     "ideaspaces map home.map.md --orientation",
     "ideaspaces map home.map.md --orientation --budget 8000 --json",
     "ideaspaces map create team.map.md --name Team --summary 'Team space'",
@@ -78,6 +150,13 @@ export const mapCommand: CommandDef = {
     }
     if (["create", "add", "remove"].includes(args[0])) {
       return runMapEdit(args, flags, global);
+    }
+    if (flags.kind !== undefined) return runThreadTree(args, flags, output);
+    for (const flag of TREE_FLAGS) {
+      if (flags[flag] !== undefined) {
+        output.error(`--${flag} belongs to --kind threads (the Thread tree); add --kind threads, or omit it for a content Map.`);
+        return 1;
+      }
     }
     const depth = parseDepth(flags.depth);
     if (depth === null) {
