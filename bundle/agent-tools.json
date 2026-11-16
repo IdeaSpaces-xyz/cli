@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "ddfd8a944b834f53b750cabd2d1d12bf60f63e2e"
+    "commit": "1b6484d0871d7f6e0fe0b43ecb60d370599c7b2f"
   },
   "protocol": {
-    "version": "0.32.0",
-    "commit": "e570f8a90fee5bb6f7237530856caedcb8ebdb35"
+    "version": "0.33.0",
+    "commit": "6e1aadd33e566a56b929d3698e245f8ea7084c58"
   },
-  "digest": "sha256:9e960fd429828f0fd8fe8ca979f3a2051940c0f4c9c3539a55df857bb0c4e2cb",
+  "digest": "sha256:6a4440cd3bdf8a16c58d551fb74aed757af3029ef612a2b1372299dd1b5c04fa",
   "groups": [
     {
       "id": "read",
@@ -1558,7 +1558,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Local immutable post kind; hosted kind is chosen by its verb."
+            "description": "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb."
           },
           "mark": {
             "type": "string",
@@ -1720,7 +1720,7 @@
         "cli": ">=0.9.0"
       },
       "text": {
-        "does": "Append a closure post to a local or hosted Thread. A local closure is committed on its own (only its file, never pushed) unless no_commit.",
+        "does": "Close a local or hosted Thread. A local close writes a post with closed: true (beside the legacy kind closure, for older readers), committed on its own (only its file, never pushed) unless no_commit.",
         "use_when": "Done-when holds and closure has been agreed.",
         "check": "Verify target and rationale; hosted close requires yes.",
         "bound": "One closure post; no content or history is removed."
@@ -1746,7 +1746,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Local immutable post kind; hosted kind is chosen by its verb."
+            "description": "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb."
           },
           "author": {
             "type": "string",
@@ -2024,9 +2024,9 @@
         "cli": ">=0.9.0"
       },
       "text": {
-        "does": "Append a local Thread attachment change.",
+        "does": "Move a local Thread under another post: one reframe carrying parent and no name or summary (the Thread keeps its own); the Agreement's attached_to is written too, for older readers.",
         "use_when": "Move a Thread direction to another parent post explicitly.",
-        "check": "Check the parent post and rationale; prior attachment stays in history.",
+        "check": "Check the parent post and rationale; the previous parent stays in history and the Thread's name is unchanged.",
         "bound": "One local Thread attachment event."
       },
       "bound": "n/a",
@@ -2655,7 +2655,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Local immutable post kind; hosted kind is chosen by its verb."
+            "description": "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb."
           },
           "since": {
             "type": "string",
