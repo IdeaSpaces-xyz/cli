@@ -75,6 +75,8 @@ Anything that leaves your machine prints its plan and runs only with `--yes`.
 
 Neither inspection command changes access.
 
+Including version history for Collaborate (`share person … --grade collaborate --history` or `share history … on` for a Collaborator): **Including version history gives them a Git clone with the full history. A downloaded clone cannot be withdrawn.** Turning history off may also remove Git access; it cannot recall copies already downloaded. For a person without edit or Git access, history enables hosted browsing only.
+
 ## Sign in to this CLI install
 
 `ideaspaces login` opens `/auth/desktop/authorize` on the API with `client=cli`, a
