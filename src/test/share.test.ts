@@ -881,7 +881,7 @@ describe("Collaborate history disclosure", () => {
   it.each([
     ["new", ["read", "write", "space_copy"]],
     ["legacy", ["read", "git_fetch", "git_push"]],
-    ["inherited edit", ["read"]],
+    ["independent direct edit", ["write"]],
   ])("warns before enabling history for a %s Collaborator", async (_name, direct) => {
     listPersonSharesMock.mockResolvedValue({ standings: [{
       user_id: 7, username: "bob", direct_capabilities: direct,
@@ -902,9 +902,12 @@ describe("Collaborate history disclosure", () => {
     expect(stderr).not.toContain(warning);
   });
 
-  it("does not claim Git for an Explore history switch", async () => {
+  it.each([
+    ["Explore", ["read"]],
+    ["inherited edit", ["read", "write"]],
+  ])("does not claim Git for a history switch with only %s", async (_name, effective) => {
     listPersonSharesMock.mockResolvedValue({ standings: [{
-      user_id: 7, username: "bob", direct_capabilities: ["read"], effective_capabilities: ["read"],
+      user_id: 7, username: "bob", direct_capabilities: ["read"], effective_capabilities: effective,
     }] });
     expect(await shareCommand.run(["history", "@bob", "on"], {}, TEXT_G)).toBe(0);
     expect(stderr).not.toContain(warning);

@@ -780,7 +780,9 @@ async function setHistory(
     return 1;
   }
   const enabled = requested === "on";
-  if (enabled && (personStandingGrade(standing) === "collaborate" || standing.effective_capabilities.includes("write"))) {
+  // The root history writer composes Git from direct edit, not inherited edit.
+  // Legacy content + Git bundles already carry the same irreversible history.
+  if (enabled && (personStandingGrade(standing) === "collaborate" || standing.direct_capabilities.includes("write"))) {
     output.error(COLLABORATE_HISTORY_WARNING);
   }
   const result = await setPersonShareHistory(config, target, standing.user_id, enabled);
@@ -937,6 +939,7 @@ export const shareCommand: CommandDef = {
     "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events; scope identifies this partial log",
     "ideaspaces share list",
     "ideaspaces share resend someone@example.com",
+    `ideaspaces share history @someone on  # For a Collaborator: ${COLLABORATE_HISTORY_WARNING}`,
     "ideaspaces share history @someone off",
     "ideaspaces share remove someone@example.com",
     "ideaspaces share remove team:acme.com",
