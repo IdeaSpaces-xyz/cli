@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "1b6484d0871d7f6e0fe0b43ecb60d370599c7b2f"
+    "commit": "70ec69efa5f9ef58f2cbab81a4357e926095ed34"
   },
   "protocol": {
     "version": "0.33.0",
     "commit": "6e1aadd33e566a56b929d3698e245f8ea7084c58"
   },
-  "digest": "sha256:6a4440cd3bdf8a16c58d551fb74aed757af3029ef612a2b1372299dd1b5c04fa",
+  "digest": "sha256:8f6b738175d14a33af7dd8b3c56c19108a8a54833aa7b9d3f5e2bdd729026ec4",
   "groups": [
     {
       "id": "read",
@@ -493,10 +493,10 @@
         "cli": ">=0.9.0"
       },
       "text": {
-        "does": "Read a curated Map, derive a Content Map, or render orientation.",
-        "use_when": "Inspect references before editing a Map or launching from it.",
-        "check": "References do not grant access. Check file_sha before guarded removal. Each root with a checkout carries image (or null, with image_problem when one is declared but can't be shown).",
-        "bound": "Depth defaults to 1, max 4 or full; orientation uses a character budget."
+        "does": "Read a curated Map, derive a Content Map, render orientation, or map the Thread tree (kind threads): every _threads/ in the start and its repositories, each Thread by the protocol's state rule, parents resolved across them, at a rung, to a level, as of or since a moment, problems named.",
+        "use_when": "Inspect references before editing a Map or launching from it; or see where every Thread sits and what is wrong in one call (kind threads with problems).",
+        "check": "References grant no access. Check file_sha before guarded removal; roots carry image or image_problem. With kind threads: read counts and problems with their one-line definitions; map is null (projection_pending) when a root has no identity or HEAD; uncommitted names the files Git does not have.",
+        "bound": "Depth defaults to 1, max 4 or full; orientation uses a character budget. kind threads: about 70 bytes per Thread at the name rung; levels and where bound the members; surface and full show five newest posts as lines, never bodies."
       },
       "bound": "n/a",
       "parameters": {
@@ -504,19 +504,22 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Local path to the target."
+            "description": "Local path to the target; with kind threads, the start (the Space root)."
           },
           "depth": {
             "type": "string",
-            "description": "Progressive-disclosure rung or numeric tree depth as documented.",
+            "description": "Numeric tree depth for a content Map (default 1), or with kind threads the rung per member (default name).",
             "enum": [
               "1",
               "2",
               "3",
               "4",
-              "full"
-            ],
-            "default": "1"
+              "full",
+              "name",
+              "summary",
+              "children",
+              "surface"
+            ]
           },
           "orientation": {
             "type": "boolean",
@@ -526,6 +529,33 @@
             "type": "integer",
             "description": "Character budget for bounded Map/orientation rendering.",
             "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "What to map by kind: threads, the Thread tree under the start.",
+            "enum": [
+              "threads"
+            ]
+          },
+          "levels": {
+            "type": "string",
+            "description": "kind threads: how many tree levels below the roots, a positive whole number or all (default all)."
+          },
+          "where": {
+            "type": "string",
+            "description": "kind threads: list only matching Threads, flat with their parents: open, closed, holder:<name>, no-holder, or stale:<date> (open with no post since)."
+          },
+          "problems": {
+            "type": "boolean",
+            "description": "kind threads: name what is wrong over the whole tree, each code defined in one line: open-under-closed, extra-root, parent-unresolved, no-holder, moved-title, uncommitted."
+          },
+          "since": {
+            "type": "string",
+            "description": "kind threads: only the Threads with a post after this cursor (ISO date or instant, entry id, or entry filename), with the count."
+          },
+          "as_of": {
+            "type": "string",
+            "description": "kind threads: read every Thread as it stood at this cursor (ISO date or instant, entry id, or entry filename)."
           }
         },
         "required": [],
@@ -548,6 +578,25 @@
           },
           "budget": {
             "flag": "--budget"
+          },
+          "kind": {
+            "flag": "--kind"
+          },
+          "levels": {
+            "flag": "--levels"
+          },
+          "where": {
+            "flag": "--where"
+          },
+          "problems": {
+            "flag": "--problems",
+            "boolean": "bare"
+          },
+          "since": {
+            "flag": "--since"
+          },
+          "as_of": {
+            "flag": "--as-of"
           }
         }
       },
@@ -564,7 +613,16 @@
           "omitted_entries",
           "lowered",
           "dropped",
-          "text"
+          "text",
+          "problems",
+          "definitions",
+          "uncommitted",
+          "counts",
+          "map",
+          "map_status",
+          "warnings",
+          "trimmed",
+          "complete"
         ]
       }
     },
@@ -2628,8 +2686,8 @@
         "cli": ">=0.9.0"
       },
       "text": {
-        "does": "List local or hosted Threads.",
-        "use_when": "Discover Threads before reading one.",
+        "does": "List local or hosted Threads. A local list is one level of the Thread tree at the summary rung; map with kind threads gives the tree, the problems and the time filters.",
+        "use_when": "Discover Threads before reading one; for where every Thread sits, use map kind threads.",
         "check": "Local rows may include unreadable posts. new is reader state; hosted unread counts come from the service.",
         "bound": "Hosted pages default 50, max 200; continue cursor. Local list has no paging and returns all discovered Threads."
       },
