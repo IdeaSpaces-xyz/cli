@@ -675,7 +675,7 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["post", "tag-test"], { message: "Bad", tags: "a,,b" }, flags)).toBe(1);
       expect(err).toContain("--tags must contain non-empty");
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
-  });
+  }, 30_000); // Many CLI runs with Git in one test exceed 5 s on Windows.
 
   it("reads local Threads as a tree across five depths with limit and order", async () => {
     const root = fixture(); process.env.HOME = root;
@@ -770,7 +770,7 @@ describe("local Threads", () => {
       const childRow = listRead.threads.find((t: { slug: string }) => t.slug === "child-thread");
       expect(childRow.parent).toMatchObject({ id: pDecision.id, slug: "parent-thread" });
     } finally { process.stdout.write = stdoutWrite; process.stderr.write = stderrWrite; process.chdir(previous); }
-  });
+  }, 30_000); // Five rungs, each a CLI run with Git, exceed 5 s on Windows.
 
   it("surface previews a head and tail, full preserves exact bodies, and incomplete reads cannot ack", async () => {
     const root = fixture(); process.env.HOME = root;
@@ -810,7 +810,7 @@ describe("local Threads", () => {
       expect(await threadsCommand.run(["open", "large"], { depth: "surface", new: true, ack: true, order: "older", limit: "10" }, flags)).toBe(1);
       expect(readCursor(loadThread(thread.path)).size).toBe(0);
     } finally { process.stdout.write = writer; process.chdir(old); }
-  });
+  }, 30_000); // Several surface and full reads with Git exceed 5 s on Windows.
 
   it("keeps bad-Map and unknown-kind posts when the opening needs repair", () => {
     const root = fixture(); const t = createThread("fixture", "Fixture", root);
