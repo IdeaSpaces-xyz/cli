@@ -1571,6 +1571,224 @@ export const entries: Entry[] = [
     }
   },
   {
+    "id": "post",
+    "owner": "cli",
+    "status": "active",
+    "job": "J4",
+    "effect": "write-local",
+    "reach": "local+hosted",
+    "confirm": "none",
+    "requires": {
+      "cli": ">=0.12.0"
+    },
+    "text": {
+      "does": "Append one entry to anything that keeps time: a local Thread, a folder whose Agreement says keeps_time: true, or a hosted Thread. The entry may set state: parent moves, about links, closed closes or reopens, map is the current Map. new opens a Thread.",
+      "use_when": "Say something in a Thread, move or rename or close it, record a lesson in a time-keeping folder, or open a Thread; the one writer over threads post, new, close and attach.",
+      "check": "Verify the returned id and path, and committed (false carries a reason: the entry is written, not committed). A reframe with name or summary renames; with only parent it moves and the name stays. Author is a claim. Keep post_id for exact hosted retries.",
+      "bound": "One entry; a local one is committed on its own, never pushed. Hosted takes the hosted subset of flags; its kind and state are the service's."
+    },
+    "bound": "n/a",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "Local Thread slug or path, a folder that keeps time, or a hosted x_ id. Omitted with new."
+        },
+        "new": {
+          "type": "string",
+          "description": "Open a Thread with this slug; name is its title and the opening post carries parent, about and the Map."
+        },
+        "message": {
+          "type": "string",
+          "description": "The entry's body; stdin is accepted."
+        },
+        "reply_to": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Parent entry id(s); in a Thread, latest is explicit, and the opening is the default. A full msg_ id or its unique eight-hex short form. In a declared folder there is no default."
+        },
+        "kind": {
+          "type": "string",
+          "description": "post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true."
+        },
+        "parent": {
+          "type": "string",
+          "description": "The Thread's new parent, a post reference (post:msg_…, msg_…, or _threads/<thread>/<post>.md); on a reframe it moves the Thread."
+        },
+        "about": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What the folder is about: typed links (<type>:<id>); an empty value clears."
+        },
+        "closed": {
+          "type": "boolean",
+          "description": "true closes the folder (beside kind closure for older readers, when the kind is post), false reopens it."
+        },
+        "name": {
+          "type": "string",
+          "description": "The entry's title; on a reframe, the Thread's own name. With new, the Thread's name."
+        },
+        "summary": {
+          "type": "string",
+          "description": "The entry's summary; on a reframe, the Thread's own summary."
+        },
+        "map": {
+          "type": "string",
+          "description": "Authored Map note or inline Map; a pinned moment. The entry's Map becomes the current Map."
+        },
+        "mark": {
+          "type": "string",
+          "description": "Value of a mark replying to exactly one entry."
+        },
+        "supersedes": {
+          "type": "string",
+          "description": "Entry id a correction supersedes."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Retrieval labels on the entry."
+        },
+        "author": {
+          "type": "string",
+          "description": "Local author claim, not verified identity; defaults to the nearest agent Agreement's name."
+        },
+        "no_check_links": {
+          "type": "boolean",
+          "description": "Thread only: write the body without checking its file-relative links."
+        },
+        "no_commit": {
+          "type": "boolean",
+          "description": "Local only: write the entry without committing it, for tests and dry runs."
+        },
+        "post_id": {
+          "type": "string",
+          "description": "Hosted only: stable msg_ id for an exact resend after an uncertain outcome."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "cli": {
+      "argv": [
+        "post"
+      ],
+      "positional": [
+        "target"
+      ],
+      "flags": {
+        "new": {
+          "flag": "--new"
+        },
+        "message": {
+          "flag": "--message"
+        },
+        "reply_to": {
+          "flag": "--reply-to",
+          "list": "csv"
+        },
+        "kind": {
+          "flag": "--kind"
+        },
+        "parent": {
+          "flag": "--parent"
+        },
+        "about": {
+          "flag": "--about",
+          "list": "csv"
+        },
+        "closed": {
+          "flag": "--closed"
+        },
+        "name": {
+          "flag": "--name"
+        },
+        "summary": {
+          "flag": "--summary"
+        },
+        "map": {
+          "flag": "--map"
+        },
+        "mark": {
+          "flag": "--mark"
+        },
+        "supersedes": {
+          "flag": "--supersedes"
+        },
+        "tags": {
+          "flag": "--tags",
+          "list": "csv"
+        },
+        "author": {
+          "flag": "--author"
+        },
+        "no_check_links": {
+          "flag": "--no-check-links",
+          "boolean": "bare"
+        },
+        "no_commit": {
+          "flag": "--no-commit",
+          "boolean": "bare"
+        },
+        "post_id": {
+          "flag": "--post-id"
+        }
+      },
+      "local_flags": [
+        "new",
+        "message",
+        "reply-to",
+        "kind",
+        "parent",
+        "about",
+        "closed",
+        "name",
+        "summary",
+        "map",
+        "mark",
+        "supersedes",
+        "tags",
+        "author",
+        "no-check-links",
+        "no-commit"
+      ],
+      "hosted_flags": [
+        "reply-to",
+        "message",
+        "name",
+        "summary",
+        "map",
+        "tags",
+        "post-id"
+      ]
+    },
+    "output": {
+      "json": [
+        "id",
+        "path",
+        "kind",
+        "in_reply_to",
+        "folder",
+        "parent",
+        "about",
+        "closed",
+        "committed",
+        "commit",
+        "reason",
+        "slug",
+        "thread_id",
+        "opening_post_id"
+      ]
+    }
+  },
+  {
     "id": "threads.post",
     "owner": "cli",
     "status": "active",
