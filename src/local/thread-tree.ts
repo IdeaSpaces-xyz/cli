@@ -16,8 +16,8 @@ import {
 } from "@ideaspaces/protocol";
 import { gitBinary, sanitizedGitEnvironment } from "../git.js";
 import { checkoutRootNodeId } from "./space-map.js";
-import { threadOwner } from "../commands/threads.js";
-import { attachmentText, latestLocalActivity, listLocal, NoAgreementError, parseTimeCursor, type LocalThread } from "./threads.js";
+import { mapOfRoots, mapStatusLine } from "./space-repos.js";
+import { attachmentText, latestLocalActivity, listLocal, NoAgreementError, parseTimeCursor, threadOwner, type LocalThread } from "./threads.js";
 
 /** Folders never entered while looking for repositories that hold Threads. */
 const SKIPPED = new Set(["node_modules", ".git", "_threads", "_agent", "_assets", "_scratch", "dist", "bundle"]);
@@ -34,7 +34,7 @@ export const PROBLEM_DEFINITIONS: Record<ProblemCode, string> = {
   "extra-root": "an open Thread with no parent other than the first such Thread in slug order, which is the root",
   "parent-unresolved": "a Thread whose parent names a post that is not found, is ambiguous, or cannot be read (an unreadable opening)",
   "no-holder": "an open Thread whose README names nobody (owner:, holder:, \"Held by X\", a Holder: line) and whose opening post has no author",
-  "moved-title": "a Thread named by a reframe that only moved it: the title starts with \"Moved under\" or \"Reattached under\", or the body says it reattached the Thread",
+  "moved-title": "a Thread named by a reframe that only moved it: the title starts with \"Moved under\" or \"Reattached under\", or the body says it reattached the Thread (the titles the CLI's attach wrote before 0.33.0; a CLI reading, not the protocol's)",
   "uncommitted": "a Thread with files under _threads/<slug>/ that Git does not have committed (untracked, staged or modified)",
 };
 
@@ -117,9 +117,11 @@ export interface ThreadTree {
   definitions: Record<ProblemCode, string>;
   uncommitted: Array<{ root: number; slug: string; path: string; status: string }>;
   counts: { roots: number; threads: number; open: number; closed: number; listed: number; open_roots: number };
-  /** The portable Map, when every root is identified and pinned; otherwise null with the reason. */
+  /** The portable Map of the identified roots; null when none is identified and pinned. */
   map: MapBlock | null;
-  map_status: "available" | "projection_pending";
+  /** available: every root is in the Map; partial: some stand outside it, named in `unidentified`; projection_pending: none could be. */
+  map_status: "available" | "partial" | "projection_pending";
+  unidentified: string[];
   warnings: string[];
   trimmed?: string;
   complete: boolean;
@@ -127,20 +129,21 @@ export interface ThreadTree {
 
 interface Loaded { root: ThreadTreeRoot; threads: LocalThread[]; byPath: Map<string, LocalThread> }
 
-/** The start and every repository within THREAD_ROOT_SEARCH_DEPTH below it that holds a `_threads/`. */
-export function findThreadRoots(start: string): string[] {
+/** The start and every repository within THREAD_ROOT_SEARCH_DEPTH below it that holds a `_threads/`. A search that hits its cap says so. */
+export function findThreadRoots(start: string, warnings: string[] = []): string[] {
   const found: string[] = [];
   const canonical = realpathSync(start);
   if (existsSync(join(canonical, "_threads"))) found.push(canonical);
   let visited = 0;
+  let capped = false;
   const walk = (dir: string, level: number) => {
-    if (level > THREAD_ROOT_SEARCH_DEPTH || visited > THREAD_ROOT_SEARCH_LIMIT) return;
+    if (level > THREAD_ROOT_SEARCH_DEPTH) return;
     let entries: string[];
     try { entries = readdirSync(dir); } catch { return; }
     for (const name of entries.sort()) {
       if (name.startsWith(".") || SKIPPED.has(name)) continue;
+      if (visited++ > THREAD_ROOT_SEARCH_LIMIT) { capped = true; return; }
       const child = join(dir, name);
-      visited++;
       let isDirectory = false;
       try { isDirectory = lstatSync(child).isDirectory(); } catch { continue; }
       if (!isDirectory) continue;
@@ -151,6 +154,7 @@ export function findThreadRoots(start: string): string[] {
     }
   };
   walk(canonical, 1);
+  if (capped) warnings.push(`the search for repositories holding _threads/ stopped at ${THREAD_ROOT_SEARCH_LIMIT} folders; some roots may be missing.`);
   return found;
 }
 
@@ -159,17 +163,24 @@ function git(cwd: string, args: string[]): string | null {
   return result.status === 0 ? result.stdout : null;
 }
 
-/** `git status --porcelain -z -- _threads` of one root: file → status, keyed by the path under the root. */
+/**
+ * `git status --porcelain -z -- _threads` of one root: file → status, keyed by the path under the
+ * root. Git names paths from the repository's top level, so a root that is a folder inside a larger
+ * repository has its prefix stripped first.
+ */
 function uncommittedUnder(root: string): Map<string, string> {
   const out = git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "_threads"]);
   const map = new Map<string, string>();
   if (out === null) return map;
+  const prefix = git(root, ["rev-parse", "--show-prefix"])?.trim() ?? "";
   const entries = out.split("\0").filter(Boolean);
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     const code = entry.slice(0, 2);
-    const path = entry.slice(3);
+    let path = entry.slice(3);
     if (code[0] === "R" || code[0] === "C") i++;
+    if (prefix && path.startsWith(prefix)) path = path.slice(prefix.length);
+    if (!path.startsWith("_threads/")) continue;
     map.set(path, code.trim() || code);
   }
   return map;
@@ -217,15 +228,12 @@ function movedTitle(thread: LocalThread): boolean {
 export function assembleThreadTree(start: string, options: ThreadTreeOptions): ThreadTree {
   const canonicalStart = realpathSync(start);
   const warnings: string[] = [];
-  const rootPaths = findThreadRoots(canonicalStart);
+  const searchWarnings: string[] = [];
+  const rootPaths = findThreadRoots(canonicalStart, searchWarnings);
   if (!rootPaths.length) throw new Error(`No _threads/ under ${start}, in it or in a repository within ${THREAD_ROOT_SEARCH_DEPTH} levels of it.`);
 
-  // Read every root's Threads first, so an id or filename cursor can be found before any as-of read.
-  const loadAll = (asOf?: TimeCursor): Loaded[] => rootPaths.map((path, index) => {
-    // The label is a Map-address name and a portable position: forward slashes on every platform.
-    const label = path === canonicalStart ? "." : relative(canonicalStart, path).split("\\").join("/");
-    const uncommitted = uncommittedUnder(path);
-    const root: ThreadTreeRoot = { root: index, path, label, root_node_id: checkoutRootNodeId(path), sha: git(path, ["rev-parse", "--verify", "--quiet", "HEAD"])?.trim() ?? null, threads: 0, uncommitted: uncommitted.size };
+  // Git is asked once per root; only the Thread reads repeat when --as-of names an entry that has to be found first.
+  const readThreads = (path: string, label: string, root: ThreadTreeRoot, asOf?: TimeCursor): LocalThread[] => {
     let threads: LocalThread[] = [];
     try {
       threads = listLocal(path, (message) => warnings.push(`${label}: ${message}`), asOf ? { asOf } : {});
@@ -235,16 +243,30 @@ export function assembleThreadTree(start: string, options: ThreadTreeOptions): T
       root.error = error instanceof NoAgreementError ? "no Space Agreement above its _threads/; its Threads were not read" : error instanceof Error ? error.message : String(error);
     }
     root.threads = threads.length;
-    return { root, threads, byPath: new Map(threads.map((thread) => [`_threads/${thread.slug}`, thread])), uncommitted } as Loaded & { uncommitted: Map<string, string> };
+    return threads;
+  };
+  const loadAll = (asOf?: TimeCursor): Array<Loaded & { uncommitted: Map<string, string> }> => rootPaths.map((path, index) => {
+    // The label is a Map-address name and a portable position: forward slashes on every platform.
+    const label = path === canonicalStart ? "." : relative(canonicalStart, path).split("\\").join("/");
+    const uncommitted = uncommittedUnder(path);
+    const root: ThreadTreeRoot = { root: index, path, label, root_node_id: checkoutRootNodeId(path), sha: git(path, ["rev-parse", "--verify", "--quiet", "HEAD"])?.trim() ?? null, threads: 0, uncommitted: uncommitted.size };
+    const threads = readThreads(path, label, root, asOf);
+    return { root, threads, byPath: new Map(threads.map((thread) => [`_threads/${thread.slug}`, thread])), uncommitted };
   });
-  let loaded = loadAll() as Array<Loaded & { uncommitted: Map<string, string> }>;
+  let loaded = loadAll();
 
   let asOf: { cursor: TimeCursor; instant: number } | undefined;
   if (options.asOf) {
     asOf = cursorInstant(options.asOf, loaded);
     warnings.length = 0;
-    loaded = loadAll({ at: new Date(asOf.instant).toISOString() }) as typeof loaded;
+    const at: TimeCursor = { at: new Date(asOf.instant).toISOString() };
+    loaded = loaded.map(({ root, uncommitted }) => {
+      root.error = undefined;
+      const threads = readThreads(root.path, root.label, root, at);
+      return { root, threads, byPath: new Map(threads.map((thread) => [`_threads/${thread.slug}`, thread])), uncommitted };
+    });
   }
+  warnings.push(...searchWarnings);
   const since = options.since ? cursorInstant(options.since, loaded) : undefined;
 
   // Every post of every root, for the protocol's resolver; the root's label is its Map-address name.
@@ -285,16 +307,18 @@ export function assembleThreadTree(start: string, options: ThreadTreeOptions): T
   const bySlug = (a: Node, b: Node) => a.thread.slug < b.thread.slug ? -1 : a.thread.slug > b.thread.slug ? 1 : 0;
   // Depth-first, siblings by slug; a cycle (a parent below its own child) is cut where it closes.
   const ordered: Node[] = [];
+  const placed = new Set<Node>();
   const visit = (node: Node, level: number, trail: Set<Node>) => {
-    if (trail.has(node)) { warnings.push(`${node.thread.slug}: its parent chain closes a cycle; listed once.`); return; }
+    if (trail.has(node) || placed.has(node)) { if (trail.has(node)) warnings.push(`${node.thread.slug}: its parent chain closes a cycle; listed once.`); return; }
     node.level = level;
     ordered.push(node);
+    placed.add(node);
     const next = new Set(trail); next.add(node);
     for (const child of [...node.children].sort(bySlug)) visit(child, level + 1, next);
   };
   for (const node of [...roots].sort(bySlug)) visit(node, 1, new Set());
   // A Thread reachable only through a cycle never reached a root: list it at level 1 so nothing is hidden.
-  for (const node of nodes.sort(bySlug)) if (!ordered.includes(node)) { warnings.push(`${node.thread.slug}: reachable only through a cycle; listed at level 1.`); visit(node, 1, new Set()); }
+  for (const node of nodes.sort(bySlug)) if (!placed.has(node)) { warnings.push(`${node.thread.slug}: reachable only through a cycle; listed at level 1.`); visit(node, 1, new Set()); }
 
   // Problems, over the whole tree before any filter: a filter changes what is listed, not what is wrong.
   const problems: ThreadProblem[] = [];
@@ -366,10 +390,12 @@ export function assembleThreadTree(start: string, options: ThreadTreeOptions): T
     members.push(member);
   }
 
-  const portable = loaded.every(({ root }) => root.root_node_id && root.sha);
-  const built = portable ? buildMap({
-    roots: loaded.map(({ root }) => ({ root_node_id: root.root_node_id!, sha: root.sha! })),
-    members: members.map((member) => ({ root: member.root, position: member.position, depth: member.depth, ...(member.summary ? { summary: member.summary } : {}) })),
+  // The Map carries the identified roots; the Threads of an unidentified root stay members of the answer and
+  // their root is named beside the Map, as such (buildMap takes no root without identity).
+  const { map: rootsMap, map_status, unidentified, mapIndex } = mapOfRoots(loaded.map(({ root }) => root), canonicalStart, []);
+  const built = rootsMap ? buildMap({
+    roots: rootsMap.roots,
+    members: members.filter((member) => mapIndex.has(member.root)).map((member) => ({ root: mapIndex.get(member.root)!, position: member.position, depth: member.depth, ...(member.summary ? { summary: member.summary } : {}) })),
   }) : null;
   const map = built?.status === "valid" ? built.map : null;
   const total = nodes.length;
@@ -381,8 +407,8 @@ export function assembleThreadTree(start: string, options: ThreadTreeOptions): T
     ...(asOf ? { as_of: options.asOf } : {}), ...(since ? { since: options.since } : {}), ...(options.where ? { where: whereText(options.where) } : {}),
     roots: loaded.map(({ root }) => root), members, problems: options.problems ? problems : [], definitions: PROBLEM_DEFINITIONS, uncommitted,
     counts: { roots: loaded.length, threads: total, open: nodes.filter((node) => node.thread.closed !== true).length, closed: nodes.filter((node) => node.thread.closed === true).length, listed: members.length, open_roots: openRoots.length },
-    map, map_status: map ? "available" : "projection_pending", warnings, ...(trimmed ? { trimmed } : {}),
-    complete: loaded.every(({ root }) => !root.error) && warnings.length === 0,
+    map, map_status, unidentified, warnings, ...(trimmed ? { trimmed } : {}),
+    complete: loaded.every(({ root }) => !root.error) && warnings.length === 0 && searchWarnings.length === 0,
   };
 }
 
@@ -432,6 +458,6 @@ export function renderThreadTree(tree: ThreadTree): string {
   }
   if (tree.warnings.length) lines.push("", `Warnings (${tree.warnings.length}):`, ...tree.warnings.map((warning) => `  ${warning}`));
   if (tree.trimmed) lines.push("", `Trimmed: ${tree.trimmed}`);
-  lines.push("", `Map: ${tree.map_status === "available" ? "portable (every root identified and pinned at HEAD)" : "projection pending (a root has no identity or no HEAD); members stand on their own"}`);
+  lines.push("", `Map: ${mapStatusLine(tree.map_status, tree.unidentified, "roots")}`);
   return lines.join("\n");
 }

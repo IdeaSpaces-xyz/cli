@@ -281,6 +281,27 @@ export function loadThread(dir: string, options: LoadThreadOptions = {}): LocalT
   };
 }
 
+/**
+ * Who a Thread belongs to: the README names someone (`owner:`/`holder:`, "Held by X" in the summary,
+ * or a `Holder:` line), else whoever opened it. A README reading, not the Agreement's "Who is in it".
+ */
+export function threadOwner(thread: LocalThread): { owner: string | null; owner_source: "readme" | "opening_post" | null } {
+  const fm = parseFrontmatter(thread.readme) ?? {};
+  const clean = (value: string) => value.replace(/[*_`]/g, "").trim();
+  for (const key of ["owner", "holder"]) {
+    const value = fm[key];
+    if (typeof value === "string" && clean(value)) return { owner: clean(value), owner_source: "readme" };
+  }
+  const summary = typeof fm.summary === "string" ? fm.summary : "";
+  const held = /\bHeld by ([\w/-]+)/.exec(summary);
+  if (held) return { owner: held[1], owner_source: "readme" };
+  const line = /^(?:Holder|Owner):\s*\**([^*\n(,.;]+)/m.exec(thread.readme.replace(/^---\n[\s\S]*?\n---\n/, ""));
+  if (line && clean(line[1])) return { owner: clean(line[1]), owner_source: "readme" };
+  const opening = thread.allPosts.find((post) => post.id === thread.thread_id);
+  const author = opening?.frontmatter.author;
+  return typeof author === "string" && author.trim() ? { owner: author.trim(), owner_source: "opening_post" } : { owner: null, owner_source: null };
+}
+
 export function listLocal(cwd = process.cwd(), onError?: (message: string) => void, options: LoadThreadOptions = {}): LocalThread[] {
   const base = threadsDirectory(cwd);
   if (!existsSync(base)) return [];

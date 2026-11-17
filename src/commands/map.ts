@@ -28,6 +28,8 @@ import { inspectPortableLocalRoot } from "../local-map-root.js";
 import { loadMapOrientation } from "../local/map-orientation.js";
 import { inspectSpaceMap } from "../local/space-map.js";
 import { assembleThreadTree, parseWhere, PROBLEM_CODES, PROBLEM_DEFINITIONS, renderThreadTree, type WhereFilter } from "../local/thread-tree.js";
+import { assembleSpaceRepos, mapOfRoots, mapStatusLine, renderSpaceRepos, type SpaceRepos } from "../local/space-repos.js";
+import { searchCorpus } from "./search.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef } from "../types.js";
 import { MAP_SELECT_USAGE, runMapSelection } from "./map-selection.js";
@@ -54,6 +56,96 @@ function emptyTree(): ContentAwarenessTree {
 
 /** The flags that belong to `--kind threads`; without it they are refused, never ignored. */
 const TREE_FLAGS = ["levels", "where", "problems", "since", "as-of"] as const;
+const KINDS = "threads (the Thread tree) or repos (the Space's repositories by type)";
+
+/** `--kind <k>` or `--query <q>`: the Space read by kind, or searched; each answers as a Map. */
+async function runByKind(args: string[], flags: Record<string, string | boolean>, output: Output): Promise<number> {
+  if (flags.kind === true) { output.error(`--kind needs a value: ${KINDS}.`); return 1; }
+  if (flags.orientation !== undefined || flags.budget !== undefined) {
+    output.error("--orientation and --budget read a curated Map note; omit them with --kind or --query.");
+    return 1;
+  }
+  const start = resolve((args[0] ?? ".").trim() || ".");
+  if (!existsSync(start) || !statSync(start).isDirectory()) {
+    output.error(`Not a directory: ${start}. Give the Space root (or any folder whose repositories are within two levels of it).`);
+    return 1;
+  }
+  if (flags.query !== undefined) {
+    if (flags.kind !== undefined) { output.error("--query searches the whole Space under the start; omit --kind."); return 1; }
+    for (const flag of TREE_FLAGS) if (flags[flag] !== undefined) { output.error(`--${flag} belongs to --kind threads; a search takes --limit.`); return 1; }
+    return runQuery(start, flags, output);
+  }
+  if (flags.limit !== undefined) { output.error("--limit bounds a search (--query); the tree is bounded by --levels and --where."); return 1; }
+  if (flags.kind === "repos") {
+    for (const flag of TREE_FLAGS) if (flags[flag] !== undefined) { output.error(`--${flag} belongs to --kind threads; the Space by type takes no filter.`); return 1; }
+    if (flags.depth !== undefined) { output.error("--kind repos reads each repository at the summary rung; omit --depth."); return 1; }
+    try {
+      const space = assembleSpaceRepos(start);
+      output.result(space, renderSpaceRepos(space));
+      return 0;
+    } catch (error) {
+      output.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+  if (flags.kind !== "threads") {
+    output.error(`--kind ${String(flags.kind)} is not a kind this map reads; it is ${KINDS}. Search is --query <words>.`);
+    return 1;
+  }
+  return runThreadTree(start, flags, output);
+}
+
+/**
+ * `ideaspaces map <start> --query <words>`: a search over the Space, answered as a Map. The roots are
+ * the repositories under the start, the members the hits at their positions, in rank order.
+ */
+async function runQuery(start: string, flags: Record<string, string | boolean>, output: Output): Promise<number> {
+  const raw = typeof flags.query === "string" ? flags.query.trim() : "";
+  if (!raw) { output.error("--query needs words or a filter, for example --query 'onboarding tag:desktop'. Run ideaspaces search --help for the query syntax."); return 1; }
+  let limit = 20;
+  if (flags.limit !== undefined) {
+    if (typeof flags.limit !== "string" || !/^[1-9][0-9]*$/.test(flags.limit)) { output.error("--limit takes a whole number of hits, 1 or more."); return 1; }
+    limit = Number(flags.limit);
+  }
+  try {
+    const space: SpaceRepos = assembleSpaceRepos(start);
+    const searched = await searchCorpus(space.repos.map((repo) => repo.path), raw, { limit, threads: true });
+    const byPath = new Map(space.repos.map((repo) => [realpathSync.native(repo.path), repo]));
+    const results = searched.results.map((hit) => {
+      const repo = hit.root ? byPath.get(realpathSync.native(hit.root)) : undefined;
+      return { ...hit, root: repo?.label ?? hit.root ?? null, root_index: repo?.root ?? null };
+    });
+    // The Map carries the hits of identified repositories; a hit in an unidentified one stays in results and
+    // its repository is named beside the Map, as such (buildMap takes no root without identity).
+    const { map: rootsMap, map_status, unidentified, mapIndex } = mapOfRoots(space.repos, space.start, []);
+    const members = results.flatMap((hit) => hit.root_index === null || !mapIndex.has(hit.root_index) ? [] : [{
+      root: mapIndex.get(hit.root_index)!, position: hit.path, depth: "summary" as const,
+      disclosure: { ...(hit.title ? { name: hit.title } : {}), ...(hit.summary ? { summary: hit.summary } : {}) },
+    }]);
+    const built = rootsMap ? buildMap({ roots: rootsMap.roots, members }) : null;
+    const map = built?.status === "valid" ? built.map : null;
+    const outside = results.filter((hit) => hit.root_index === null || !mapIndex.has(hit.root_index)).length;
+    const warnings = [...space.warnings, ...searched.roots.flatMap((row) => [...(row.error ? [`${row.root}: ${row.error}`] : []), ...(row.warnings ?? []).map((warning) => `${row.root}: ${warning}`)])];
+    const data = {
+      schema: "ideaspaces.map.query.v1", kind: "query", start: space.start, query: raw, limit,
+      scanned: searched.scanned, matched: searched.matched, total: results.length,
+      roots: space.repos.map((repo) => { const row = searched.roots.find((candidate) => realpathSync.native(candidate.root) === realpathSync.native(repo.path)); return { root: repo.root, label: repo.label, root_node_id: repo.root_node_id, sha: repo.sha, listed: row?.listed ?? 0, scanned: row?.scanned ?? 0, ...(row?.error ? { error: row.error } : {}) }; }),
+      results, members, map, map_status, unidentified, hits_outside_map: outside, warnings, complete: searched.complete && space.complete,
+    };
+    const lines = [`Search — "${raw}" under ${space.start}: ${results.length} hit${results.length === 1 ? "" : "s"} (${searched.matched} matched, ${searched.scanned} files read in ${space.repos.length} repositor${space.repos.length === 1 ? "y" : "ies"})`];
+    for (const hit of results) {
+      lines.push(`  [${hit.root_index ?? "?"}] ${hit.path}${hit.line ? `:${hit.line}` : ""} — ${hit.title}${hit.summary ? ` — ${hit.summary.replace(/\s+/g, " ").slice(0, 160)}` : ""}`);
+      if (hit.snippet) lines.push(`      ${hit.snippet.replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+    if (warnings.length) lines.push("", `Warnings (${warnings.length}):`, ...warnings.map((warning) => `  ${warning}`));
+    lines.push("", `Map: ${mapStatusLine(map_status, unidentified, "repositories")}${outside ? `; ${outside} hit${outside === 1 ? "" : "s"} outside the Map, listed above` : ""}`);
+    output.result(data, lines.join("\n"));
+    return 0;
+  } catch (error) {
+    output.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
 
 /**
  * `ideaspaces map <start> --kind threads`: the Thread tree of the Space under the start, as a Map.
@@ -61,20 +153,7 @@ const TREE_FLAGS = ["levels", "where", "problems", "since", "as-of"] as const;
  * the protocol's state rule; parents resolved across all of them; a rung per member; `--levels`
  * down the tree; `--problems` named and defined; `--since` and `--as-of` through the time rule.
  */
-async function runThreadTree(args: string[], flags: Record<string, string | boolean>, output: Output): Promise<number> {
-  if (flags.kind !== "threads") {
-    output.error(`--kind ${typeof flags.kind === "string" ? flags.kind : ""} is not a kind this map reads; the one kind is threads (the Thread tree). Repositories by type and search come with a later version.`);
-    return 1;
-  }
-  if (flags.orientation !== undefined || flags.budget !== undefined) {
-    output.error("--orientation and --budget read a curated Map note; omit them with --kind threads.");
-    return 1;
-  }
-  const start = resolve((args[0] ?? ".").trim() || ".");
-  if (!existsSync(start) || !statSync(start).isDirectory()) {
-    output.error(`Not a directory: ${start}. Give the Space root (or any folder whose repositories hold _threads/).`);
-    return 1;
-  }
+async function runThreadTree(start: string, flags: Record<string, string | boolean>, output: Output): Promise<number> {
   let depth: MapDepth = "name";
   if (flags.depth !== undefined) {
     if (typeof flags.depth !== "string" || !MAP_DEPTHS.includes(flags.depth as MapDepth)) {
@@ -118,10 +197,13 @@ async function runThreadTree(args: string[], flags: Record<string, string | bool
 
 export const mapCommand: CommandDef = {
   name: "map",
-  description: "Display a curated Space Map (*.map.md), derive a local Content Map, or map the Thread tree",
-  usage: `ideaspaces map [<folder|map-note>] [--depth <1..4|full>] [--json]\n       ideaspaces map [<start>] --kind threads [--levels <n|all>] [--depth name|summary|children|surface|full] [--where open|closed|holder:<name>|no-holder|stale:<date>] [--problems] [--since <date|id|file>] [--as-of <date|id|file>] [--json]\n       ideaspaces map <map-note> --orientation [--budget <chars>] [--json]\n       ${MAP_EDIT_USAGE}\n       ${MAP_SELECT_USAGE}`,
-  help: "--kind threads maps the Thread tree: every _threads/ in the start and in the repositories within two levels of it (Home keeps its repos in agents/, knowledge/, clients/), each Thread by the protocol's state rule (its name from the newest reframe, else the opening post; its parent from the newest post that set one, else the Agreement, else the opening), parents resolved across all of those roots. --levels bounds how far down the tree (default all); --depth is the rung per member (default name; summary adds the summary, holder, about and current Map; children adds the child slugs; surface and full add the five newest posts as lines). --where lists only matching Threads, flat, with each one's parent; stale:<date> is an open Thread with no post since that date. --since lists the Threads with a post after the cursor, with the count; --as-of reads every Thread as it stood at the cursor. A cursor is an ISO date or instant, an entry id, or an entry's filename.\n\n" +
-    `--problems names what is wrong, each defined in one line, over the whole tree before any filter:\n${PROBLEM_CODES.map((code) => `  ${code}: ${PROBLEM_DEFINITIONS[code]}`).join("\n")}\n\nThe answer is a Map: roots pinned at HEAD with their uncommitted files counted, members at the rung, and \`map\` portable only when every root is identified and pinned. Nothing is written.`,
+  description: "Display a curated Space Map (*.map.md), derive a local Content Map, map the Thread tree or the Space's repositories by type, or search the Space as a Map",
+  usage: `ideaspaces map [<folder|map-note>] [--depth <1..4|full>] [--json]\n       ideaspaces map [<start>] --kind threads [--levels <n|all>] [--depth name|summary|children|surface|full] [--where open|closed|holder:<name>|no-holder|stale:<date>] [--problems] [--since <date|id|file>] [--as-of <date|id|file>] [--json]\n       ideaspaces map [<start>] --kind repos [--json]\n       ideaspaces map [<start>] --query <words> [--limit <n>] [--json]\n       ideaspaces map <map-note> --orientation [--budget <chars>] [--json]\n       ${MAP_EDIT_USAGE}\n       ${MAP_SELECT_USAGE}`,
+  help: "--kind threads maps the Thread tree: every _threads/ in the start and in the repositories within two levels of it (Home keeps its repos in agents/, knowledge/, clients/), each Thread by the protocol's state rule (its name from the newest reframe, else the opening post; its parent from the newest post that set one, else the Agreement, else the opening), parents resolved across all of those roots. --levels bounds how far down the tree (default all); --depth is the rung per member (default name; summary adds the summary, holder, about and current Map; children adds the child slugs; surface and full add the five newest posts as lines). --where lists only matching Threads, flat, with each one's parent; stale:<date> is an open Thread with no post since that date. --since lists the Threads with a post after the cursor, with the count; --as-of reads every Thread as it stood at the cursor, while the roots' sha, their uncommitted files and the portable map still describe the working tree now. A cursor is an ISO date or instant, an entry id, or an entry's filename.\n\n" +
+    `--problems names what is wrong, each defined in one line, over the whole tree before any filter:\n${PROBLEM_CODES.map((code) => `  ${code}: ${PROBLEM_DEFINITIONS[code]}`).join("\n")}\n\n` +
+    "--kind repos maps the Space by type: every repository in the start and within two levels of it, each with its identity, HEAD, remote, uncommitted files, its kind from the Agreement's `agreement: <kind>:repo:<id>` line (agent, knowledge, code, …), its name and summary, and its Threads; a curated *.map.md at the start is compared, naming what it lists that is not here and what is here that it does not list. This is the Space's own Map, derived from what is here, which the hand-kept Map file stands in for until it is retired.\n\n" +
+    "--query <words> searches the Space: every repository under the start as one corpus, with ideaspaces search's syntax (words, tag:, in:, kind:, author:, has:map, post-kind:), Threads included, --limit hits (default 20), answered as a Map whose members are the hits in rank order.\n\n" +
+    "Every answer is a Map: roots pinned at HEAD with their uncommitted files counted, members at a rung. `map` carries the roots with an identity and a HEAD; a root without either stands outside it, named in `unidentified` (map_status partial), its Threads or hits still in the answer. Nothing is written.",
   subcommands: {
     ...Object.fromEntries(["create", "add", "remove"].map((verb) => [verb,
       MAP_EDIT_USAGE.split("\n").map((line) => line.trim()).filter((line) => line.startsWith(`ideaspaces map ${verb} `)).join("\n       ")])),
@@ -134,6 +216,8 @@ export const mapCommand: CommandDef = {
     "ideaspaces map . --kind threads --where stale:2026-11-01 --depth summary  # open Threads with no post since that date, flat, with their parents",
     "ideaspaces map . --kind threads --since 2026-11-14 --json  # the Threads that moved since, with how many posts",
     "ideaspaces map . --kind threads --as-of 2026-11-01  # the tree as it stood then: names, parents and closed state as of that day",
+    "ideaspaces map . --kind repos  # the Space by type: every repository here, its kind, identity, HEAD, remote, uncommitted files and Threads, against the curated Map",
+    "ideaspaces map . --query 'progressive closure' --limit 10  # a search over the whole Space, answered as a Map of the hits",
     "ideaspaces map home.map.md --orientation",
     "ideaspaces map home.map.md --orientation --budget 8000 --json",
     "ideaspaces map create team.map.md --name Team --summary 'Team space'",
@@ -151,10 +235,10 @@ export const mapCommand: CommandDef = {
     if (["create", "add", "remove"].includes(args[0])) {
       return runMapEdit(args, flags, global);
     }
-    if (flags.kind !== undefined) return runThreadTree(args, flags, output);
-    for (const flag of TREE_FLAGS) {
+    if (flags.kind !== undefined || flags.query !== undefined) return runByKind(args, flags, output);
+    for (const flag of [...TREE_FLAGS, "limit"] as const) {
       if (flags[flag] !== undefined) {
-        output.error(`--${flag} belongs to --kind threads (the Thread tree); add --kind threads, or omit it for a content Map.`);
+        output.error(`--${flag} belongs to --kind threads (the Thread tree) or --query (a search); add one, or omit it for a content Map.`);
         return 1;
       }
     }
