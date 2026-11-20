@@ -99,12 +99,30 @@ describe("get plans a Space URL", () => {
     loadOptionalAuthConfigMock.mockReturnValue({ apiUrl: API, apiKey: "k" });
     fetchAuthMeMock.mockResolvedValue({
       user_id: 1, username: "me", email: null, name: null, onboarding_complete: true,
-      repos: [{ repo_id: "r1", root_node_id: ROOT, name: "Field Notes", actions: ["open", "clone"] }],
+      repos: [{ repo_id: "r1", root_node_id: ROOT, name: "Field Notes", actions: ["open", "clone", "collaborate"] }],
     });
     getSpaceMock.mockRejectedValue(new Error("GET /x → 404: private"));
     const { json } = await captureJson(() => getCommand.run([URL], {}, J));
-    expect(json.modes.clone).toEqual({ available: true, fetch: "allowed", push: "not allowed", history: "full" });
+    expect(json.modes.clone).toEqual({ available: true, fetch: "allowed", push: "allowed", history: "full" });
     expect(json.modes.fork).toEqual({ available: false, copy: "not allowed", history: "none" });
+  });
+
+  it("does not report Git access for hosted Collaborate without history", async () => {
+    loadConfigMock.mockReturnValue({ apiUrl: API, apiKey: "k" });
+    loadOptionalAuthConfigMock.mockReturnValue({ apiUrl: API, apiKey: "k" });
+    fetchAuthMeMock.mockResolvedValue({
+      user_id: 1, username: "me", email: null, name: null, onboarding_complete: true,
+      repos: [{ repo_id: "r1", root_node_id: ROOT, name: "Field Notes", actions: ["open", "copy", "collaborate"] }],
+    });
+    getSpaceMock.mockRejectedValue(new Error("GET /x → 404: private"));
+    const { json } = await captureJson(() => getCommand.run([URL], {}, J));
+    expect(json.modes.clone).toEqual({ available: false, fetch: "not allowed", push: "not allowed", history: "full" });
+
+    const { out } = await captureStdout(() => getCommand.run([URL], {}, T));
+    expect(out).toContain("fetch: not allowed");
+    expect(out).toContain("push:  not allowed");
+    expect(cloneRunMock).not.toHaveBeenCalled();
+    expect(forkRunMock).not.toHaveBeenCalled();
   });
 
   it("does not offer clone when the account holds no catalog row, and names Editor", async () => {
