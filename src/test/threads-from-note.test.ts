@@ -156,6 +156,7 @@ describe("threads new --from-note", () => {
       note(dir, "Ideas/unpinned.md", `name: Unpinned\nmap:\n  roots:\n    - root_node_id: ${OTHER_ID}\n  members: []`);
       note(dir, "Ideas/fine.md", "name: Fine");
       note(dir, "Ideas/nameless.md", "summary: No name");
+      note(dir, "Ideas/long.md", `name: ${"x".repeat(201)}`);
       const cases: Array<[string[], Record<string, string | boolean>, RegExp]> = [
         [["new", "a"], { "from-note": "_agent/idea.md" }, /_agent\/ folder/],
         [["new", "b"], { "from-note": "Ideas/bad-map.md" }, /Note's Map can't be read/],
@@ -166,6 +167,7 @@ describe("threads new --from-note", () => {
         [["new", "f"], { "from-note": "Ideas/nameless.md" }, /--about/],
         [["new", "Bad_Slug"], { "from-note": "Ideas/fine.md" }, /slug/],
         [["new", "g"], { "from-note": true }, /requires the path/],
+        [["new", "h"], { "from-note": "Ideas/long.md" }, /one line of 200 characters/],
       ];
       for (const [args, options, message] of cases) {
         const result = await run(args, options);

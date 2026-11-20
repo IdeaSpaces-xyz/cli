@@ -7,7 +7,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { inspectFrontmatterSyntax, parseFrontmatter, parseMap, parseThreadAttachment } from "@ideaspaces/protocol";
+import { inspectFrontmatterSyntax, MAP_DEPTHS, parseCanonicalRepoUrl, parseFrontmatter, parseMap, parseThreadAttachment } from "@ideaspaces/protocol";
 import { gitAvailability, gitBinary, sanitizedGitEnvironment } from "../git.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadMapCheckouts } from "./map-checkouts.js";
@@ -15,7 +15,9 @@ import { validateThreadMomentMap } from "./threads.js";
 
 const MAX_NOTE = 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
-const DEPTHS = new Set(["name", "summary", "surface", "children", "full"]);
+const DEPTHS: ReadonlySet<string> = new Set(MAP_DEPTHS);
+/** Stands in for the Note's commit while the opening Map is checked, before the commit is made. */
+const PIN_TO_BE = "0".repeat(40);
 /** The depth a member of the Note's Map gets when the Note names none. */
 export const DEFAULT_MEMBER_DEPTH = "summary";
 
@@ -90,7 +92,8 @@ function commitNote(top: string, position: string, message: string): { commit: s
   if (added.status !== 0) throw new Error(`The Note couldn't be added to Git: ${failure(added)}. Nothing created.`);
   const made = retrying(["commit", "-q", "-m", message, "--", position]);
   if (made.status !== 0) {
-    // Back to what the index held: untracked stays untracked, a tracked Note keeps its last committed entry.
+    // Back to what the index held: untracked stays untracked, a tracked Note keeps its last committed entry. A part
+    // of the Note the person had staged by hand goes back to HEAD's; the file on disk is never touched.
     git(top, tracked ? ["reset", "-q", "--", position] : ["rm", "--cached", "-q", "--", position]);
     throw new Error(`The Note couldn't be committed, so the Thread's Map can't point at it as it is now: ${failure(made)}. The Note is on disk as you wrote it. Nothing created.`);
   }
@@ -101,8 +104,9 @@ function commitNote(top: string, position: string, message: string): { commit: s
 
 function rootId(root: Record<string, unknown>): string | undefined {
   if (typeof root.root_node_id === "string") return root.root_node_id;
-  const repo = typeof root.repo === "string" ? /\/repos\/(n_[0-9a-f]+)(?:\/|$)/.exec(root.repo)?.[1] : undefined;
-  return repo;
+  if (typeof root.repo !== "string") return undefined;
+  const parsed = parseCanonicalRepoUrl(root.repo);
+  return parsed.status === "valid" ? parsed.rootNodeId : undefined;
 }
 
 /** A root the Note's Map names without a pin is pinned at its registered checkout's HEAD. */
@@ -145,7 +149,11 @@ export function prepareNoteForThread(input: string, cwd = process.cwd(), title?:
   const frontmatter = parseFrontmatter(content) ?? {};
   const name = typeof frontmatter.name === "string" && frontmatter.name.trim() ? frontmatter.name.trim() : (title ?? "").trim();
   if (!name) throw new Error("The Note has no name in its frontmatter; give the Thread one with --about. Nothing created.");
-  const summary = typeof frontmatter.summary === "string" ? frontmatter.summary.trim() : "";
+  // The Thread's name is checked here, before the commit, when it is the Note's.
+  if (title === undefined && (/[\r\n]/.test(name) || name.length > 200)) throw new Error("The Note's name is longer than one line of 200 characters, so it can't name the Thread; give the Thread one with --about. Nothing created.");
+  // The summary heads the opening post, whose header values are one line of up to 1,000 characters; any other is left out.
+  const rawSummary = typeof frontmatter.summary === "string" ? frontmatter.summary.trim() : "";
+  const summary = /[\r\n]/.test(rawSummary) || rawSummary.length > 1000 ? "" : rawSummary;
 
   const identity = inspectLocalRootIdentity(top);
   const rootNodeId = identity.root_node_id;
@@ -177,10 +185,7 @@ export function prepareNoteForThread(input: string, cwd = process.cwd(), title?:
     pins.set(index, sha);
   }
 
-  const { commit, committed } = commitNote(top, position, `Note for a Thread: ${name}`.slice(0, 200));
-
   if (own < 0) { roots.push({ root_node_id: rootNodeId }); own = roots.length - 1; }
-  roots[own] = { ...roots[own], sha: commit };
   for (const [index, sha] of pins) roots[index] = { ...roots[index], sha };
 
   const ownName = typeof roots[own]!.name === "string" ? roots[own]!.name : undefined;
@@ -199,9 +204,14 @@ export function prepareNoteForThread(input: string, cwd = process.cwd(), title?:
     members.unshift(...members.splice(self, 1));
   }
 
-  const map = { roots, members };
-  validateThreadMomentMap(map);
+  // Every check on what will be written runs before the commit: the Map with a stand-in for the Note's pin, and the link.
   const about = `note:@${rootNodeId}//${position}`;
   if (!parseThreadAttachment(about)) throw new Error(`The Note's address (${about}) isn't a link a Thread can be about. Nothing created.`);
+  roots[own] = { ...roots[own], sha: PIN_TO_BE };
+  validateThreadMomentMap({ roots, members });
+
+  const { commit, committed } = commitNote(top, position, `Note for a Thread: ${name}`.slice(0, 200));
+  roots[own] = { ...roots[own], sha: commit };
+  const map = { roots, members };
   return { path, position, rootNodeId, commit, committed, name, summary, about, map, defaultedDepths };
 }
