@@ -3,7 +3,7 @@
  *
  * Given a Space URL, a person has two honest ways to bring it home, and they
  * are not the same thing: **clone** keeps the Space's identity and needs
- * transport authority (fetch, maybe push, full history); **fork** mints a new
+ * transport authority (fetch and push, full history); **fork** mints a new
  * identity and carries no source history. A local folder that is already a
  * clone can be **linked** to its Space. `get` never chooses among these — the
  * distribution contract keeps that decision explicit. It shows the truth for
@@ -113,13 +113,13 @@ async function planSpace(address: string, output: Output): Promise<GetPlan | nul
     if (!/→ (?:401|403|404):/.test(err instanceof Error ? err.message : String(err))) throw err;
   }
 
-  // Clone truth comes from the account catalog. The catalog lists every root
-  // the account reaches as owner, direct person or organization, the same
-  // relationships that grant git fetch; public reach never includes clone.
-  // So with no catalog row the reach stays "unknown" and clone is not offered:
-  // running it would end in git's own "repository not found".
+  // Clone truth comes from the account catalog: clone admits both Git fetch
+  // and push; collaborate means hosted editing only, not Git access. Public
+  // reach never includes clone. With no catalog row the reach stays "unknown"
+  // and clone is not offered: running it would end in git's own
+  // "repository not found".
   const fetch: Truth = catalog ? (hasRootAction(catalog, "clone") ? "allowed" : "not allowed") : loggedIn ? "unknown" : "login required";
-  const push: Truth = catalog ? (hasRootAction(catalog, "collaborate") ? "allowed" : "not allowed") : loggedIn ? "unknown" : "login required";
+  const push: Truth = catalog ? (hasRootAction(catalog, "clone") ? "allowed" : "not allowed") : loggedIn ? "unknown" : "login required";
   const copy: Truth = source
     ? source.copy_enabled
       ? source.login_required_to_copy && !loggedIn
