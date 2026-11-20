@@ -1,0 +1,21 @@
+{
+  "about": "Tests set aside after failing and then passing on a retry (How we ship: a flaky test is retried once in the merge queue, then set aside the same day with an owner, and fixed within a day). At most five. Each entry: file (repo-relative), name as the FAIL line shows it after the file ('describe > it'), owner, issue (this repo's GitHub issue), since (YYYY-MM-DD), and optionally platform (darwin, linux or win32). Remove the entry in the PR that fixes the test.",
+  "tests": [
+    {
+      "file": "src/test/local-effects-adapter.test.ts",
+      "name": "CLI adapter over PF0 local-effects fixtures > refuses PF0 malformed frontmatter cases without changing their bytes",
+      "platform": "win32",
+      "owner": "Integrator",
+      "issue": "https://github.com/IdeaSpaces-xyz/cli/issues/349",
+      "since": "2026-11-20"
+    },
+    {
+      "file": "src/test/local-effects-adapter.test.ts",
+      "name": "CLI adapter over PF0 local-effects fixtures > refuses an untracked ignored write but permits a later-ignored tracked path",
+      "platform": "win32",
+      "owner": "Integrator",
+      "issue": "https://github.com/IdeaSpaces-xyz/cli/issues/349",
+      "since": "2026-11-20"
+    }
+  ]
+}

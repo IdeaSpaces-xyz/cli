@@ -42,7 +42,10 @@ async function run(dir: string, verb: "post" | "close", flags: Record<string, st
   } finally { process.stdout.write = write; process.stderr.write = errWrite; process.chdir(old); }
 }
 
-describe("threads post commits the post it writes", () => {
+// Every case makes a real repository and commits through Git, a dozen Git processes each. On a slow
+// Windows runner the file took 18.7 s and then timed out at 5 s per case; it usually takes about 10 s
+// (cli #348's CI, 2026-11-20). Twice the slowest case seen.
+describe("threads post commits the post it writes", { timeout: 20_000 }, () => {
   it("commits that one file as its own commit, names the Thread and post, and does not push", async () => {
     const { dir, thread } = repo();
     const before = git(dir, "rev-list", "--count", "HEAD");
