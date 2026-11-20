@@ -16,7 +16,7 @@ function git(dir: string, ...args: string[]) { return execFileSync("git", args, 
 
 /** A Space in its own repository, with a root identity and one commit. */
 function space(): string {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "is-from-note-"))); temp.push(dir);
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "is-from-note-"))); temp.push(dir);
   process.env.HOME = dir;
   mkdirSync(join(dir, "_agent"));
   writeFileSync(join(dir, "_agent", "agreement.md"), `---\nname: Fixture\nsummary: Test\nroot_node_id: ${ROOT_ID}\n---\n`);
@@ -83,7 +83,7 @@ describe("threads new --from-note", () => {
 
   it("pins the Note's own Map: its own root with the Note, others from their checkout, and summary where it named no depth", async () => {
     const dir = space();
-    const other = realpathSync(mkdtempSync(join(tmpdir(), "is-from-note-other-"))); temp.push(other);
+    const other = realpathSync.native(mkdtempSync(join(tmpdir(), "is-from-note-other-"))); temp.push(other);
     mkdirSync(join(other, "_agent"));
     writeFileSync(join(other, "_agent", "agreement.md"), `---\nname: Other\nsummary: Other\nroot_node_id: ${OTHER_ID}\n---\n`);
     git(other, "init", "-q", "-b", "main"); git(other, "config", "user.name", "T"); git(other, "config", "user.email", "t@example.test");
