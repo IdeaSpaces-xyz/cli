@@ -13,6 +13,8 @@ import { checkPostLinks } from "./post-links.js";
 const MAX_POST = 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
+/** The folder inside a Thread for Notes about it (`threads new --from-note`); a reader of posts skips it. */
+export const THREAD_NOTES_FOLDER = "notes";
 
 export class NoAgreementError extends Error {}
 
@@ -225,6 +227,8 @@ export function loadThread(dir: string, options: LoadThreadOptions = {}): LocalT
   let sources: Array<{ path: string; content: string }> = [];
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent") continue;
+    // A Thread's notes/ folder holds the person's Notes about it, never posts: only direct files are posts.
+    if (entry.name === THREAD_NOTES_FOLDER && entry.isDirectory()) continue;
     if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join(path, entry.name)) });
   }
@@ -304,12 +308,24 @@ function minimalAgreement(about: string, attachedTo?: string): string {
     `---\n# ${about}\n\nPosts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.\n`;
 }
 
-export function createThread(slug: string, about: string, cwd = process.cwd(), attachedTo?: string): LocalThread {
+/**
+ * What `createThread` refuses, checked without writing: the slug, the title when there is one yet, the
+ * attachment, and a folder already at that slug. `threads new --from-note` runs it before the Note's commit.
+ */
+export function preflightThread(slug: string, about: string | undefined, attachedTo?: string, cwd = process.cwd(), folder = true): void {
   if (!SLUG.test(slug)) throw new Error("Thread slug must be lowercase letters, numbers and hyphens (1–101 characters).");
-  if (!about.trim() || /[\r\n]/.test(about) || about.length > 200) throw new Error("--about must be a single-line title of at most 200 characters.");
+  if (about !== undefined && (!about.trim() || /[\r\n]/.test(about) || about.length > 200)) throw new Error("--about must be a single-line title of at most 200 characters.");
   if (attachedTo !== undefined && (!attachedTo.includes(":") || !parseThreadAttachment(attachedTo))) {
     throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
   }
+  const base = threadsDirectory(cwd);
+  if (existsSync(base)) safeDirectory(base);
+  // createThread leaves this to its exclusive mkdir, whose EEXIST a caller may retry on with another slug.
+  if (folder && existsSync(join(base, slug))) throw new Error(`A Thread named ${slug} is already here (EEXIST). Choose another slug. No Thread created.`);
+}
+
+export function createThread(slug: string, about: string, cwd = process.cwd(), attachedTo?: string): LocalThread {
+  preflightThread(slug, about, attachedTo, cwd, false);
   const base = threadsDirectory(cwd);
   if (existsSync(base)) safeDirectory(base);
   else mkdirSync(base);

@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "3b5019d9d1243c0085fac0babed8d5971b7140d9"
+    "commit": "c72baad9b2771bf9db8c737d2f40a1f693d48d95"
   },
   "protocol": {
     "version": "0.33.0",
     "commit": "6e1aadd33e566a56b929d3698e245f8ea7084c58"
   },
-  "digest": "sha256:fbc9091d8c999220a0387eddd1f52e638830c863c4b4557f0cd969ed8c3b3d93",
+  "digest": "sha256:69145d86de60e93b29d4ad76c2f312c96e4387475d4e67b6ad9b86bf5336c61c",
   "groups": [
     {
       "id": "read",
@@ -2182,6 +2182,10 @@
             "type": "string",
             "description": "Authored Map input/path; references grant no access."
           },
+          "from_note": {
+            "type": "string",
+            "description": "Local: open the Thread about this Note. Commits the Note, pins its Map with the Note first in full; replaces --map; --about defaults to its name."
+          },
           "hosted": {
             "type": "boolean",
             "description": "Use hosted routing rather than the local/legacy path."
@@ -2242,6 +2246,9 @@
           "map": {
             "flag": "--map"
           },
+          "from_note": {
+            "flag": "--from-note"
+          },
           "hosted": {
             "flag": "--hosted",
             "boolean": "bare"
@@ -2273,7 +2280,8 @@
         "local_flags": [
           "about",
           "attached-to",
-          "map"
+          "map",
+          "from-note"
         ],
         "hosted_flags": [
           "hosted",
@@ -2293,7 +2301,8 @@
           "slug",
           "thread_id",
           "opening_post_id",
-          "date"
+          "date",
+          "note"
         ]
       }
     },
