@@ -2174,6 +2174,10 @@ export const entries: Entry[] = [
           "type": "string",
           "description": "Authored Map input/path; references grant no access."
         },
+        "from_note": {
+          "type": "string",
+          "description": "Local: open the Thread about this Note. Commits the Note, pins its Map with the Note first in full; replaces --map; --about defaults to its name."
+        },
         "hosted": {
           "type": "boolean",
           "description": "Use hosted routing rather than the local/legacy path."
@@ -2234,6 +2238,9 @@ export const entries: Entry[] = [
         "map": {
           "flag": "--map"
         },
+        "from_note": {
+          "flag": "--from-note"
+        },
         "hosted": {
           "flag": "--hosted",
           "boolean": "bare"
@@ -2265,7 +2272,8 @@ export const entries: Entry[] = [
       "local_flags": [
         "about",
         "attached-to",
-        "map"
+        "map",
+        "from-note"
       ],
       "hosted_flags": [
         "hosted",
@@ -2285,7 +2293,8 @@ export const entries: Entry[] = [
         "slug",
         "thread_id",
         "opening_post_id",
-        "date"
+        "date",
+        "note"
       ]
     }
   },
