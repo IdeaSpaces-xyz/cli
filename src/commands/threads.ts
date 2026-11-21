@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { assembleContentReference, HOSTED_THREAD_ID, isPostReference, parseFrontmatter, parseThreadAttachment, parseThreadPost, renderContentFocus, THREAD_KINDS, type ContentFocusResult, type ContentRepresentation, type ThreadKind } from "@ideaspaces/protocol";
@@ -18,6 +18,7 @@ import {
   resolveThreadParent, findChildThreads, computeBranches, latestLocalActivity, earliestLocalActivity, attachmentText, validateMarkOptions, validateThreadMomentMap, KIND_HELP,
   isHostedThreadTarget, commitPost, NOT_IN_GIT_REPOSITORY, type PostCommit, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
+import { LINE_LIMIT, commitBlocker, placeLine } from "../local/first-thread.js";
 import { claimedBy, markText, singleLine } from "../local/claims.js";
 import { deepLine, displayPost, displayThread } from "../local/display.js";
 import { checkText, checkThreads } from "../local/thread-check.js";
@@ -358,7 +359,7 @@ export const threadsCommand: CommandDef = {
     recent: "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit <n>]",
     ...Object.fromEntries(["open", "read"].map((verb) => [verb,
       `ideaspaces threads ${verb} <slug|path> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|activity-id>] [--limit <n>] [--order older|newer] [--new] [--ack] [--reader <name>] [--agreement summary|full] [--map <file> --member <n> [--checkout <root>]] [--pin <sha> --position <path>]\n       ideaspaces threads ${verb} x_<id> [--limit <n>] [--cursor <cursor>]`])),
-    new: "ideaspaces threads new <slug> --about <title> [--attached-to <post>] [--map <file>]\n       ideaspaces threads new <slug> --from-note <note.md> [--about <title>] [--attached-to <post>]\n       ideaspaces threads new --hosted --name <title> --summary <text> --message <text> [--home map:<id>] [--recipients <handles-or-emails>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    new: "ideaspaces threads new <slug> --about <title> [--summary <line>] [--attached-to <post>] [--map <file>]\n       ideaspaces threads new <slug> --from-note <note.md> [--about <title>] [--attached-to <post>]\n       ideaspaces threads new --hosted --name <title> --summary <text> --message <text> [--home map:<id>] [--recipients <handles-or-emails>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     post: "ideaspaces threads post <slug|path> --message <text> [--reply-to <id>] [--kind <kind>] [--mark <value>] [--supersedes <id>] [--author <name>] [--name <title>] [--summary <text>] [--tags <labels>] [--map <file> [--member <n> --checkout <root>]] [--no-check-links] [--no-commit]\n       ideaspaces threads post x_<id> --message <text> [--reply-to <id>] [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     send: "ideaspaces threads send <@handle|email> --name <title> --summary <text> --message <text> [--home map:<id>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     reply: "ideaspaces threads reply x_<id> --reply-to <id> --message <text> [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
@@ -389,7 +390,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads rename x_<id> --name 'Title' --summary 'One line' --message 'Why' [--post-id msg_id]  # appends a reframe Note",
     "ideaspaces threads list <directory>  # local only, no network",
     "ideaspaces threads list --json  # each local row: attached_to, owner (+ owner_source), first_post_at, newest_post_at; owner = README `owner:`/`holder:`, `Held by X` in its summary or a `Holder:` line, else the opening post's author",
-    "ideaspaces threads new <slug> --about 'Title' [--attached-to post:msg_parent] [--map context.map.md]",
+    "ideaspaces threads new <slug> --about 'Title' [--summary 'What it is for'] [--attached-to post:msg_parent] [--map context.map.md]  # opens with that line; a place's first Thread without --summary opens with the line its Agreement's summary (or else its first firefly's) gives; says when Git can't commit posts here",
     "ideaspaces threads new <slug> --from-note Ideas/garden.md [--attached-to post:msg_parent]  # commits the Note (that one file), opens the Thread about it, with the Note's Map pinned and the Note first, in full; a member with no depth gets summary; a Note inside a Thread goes in its notes/ folder",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--map <note>] [--author Name] [--tags ux] [--no-check-links] [--no-commit]  # a local post is committed (that one file, never pushed) unless --no-commit; --kind is one of ${KIND_HELP}; a label goes in --tags; a post carrying --map <note> is the Thread's current Map`,
@@ -605,20 +606,31 @@ export const threadsCommand: CommandDef = {
         const fromNoteFlag = flags["from-note"];
         if (fromNoteFlag !== undefined && (typeof fromNoteFlag !== "string" || !fromNoteFlag.trim())) throw new Error("--from-note requires the path of a Markdown Note. No Thread created.");
         const fromNote = typeof fromNoteFlag === "string" ? fromNoteFlag.trim() : undefined;
-        if (rest.length !== 1 || (!str(flags, "about") && !fromNote)) throw new Error("Usage: threads new <slug> --about <title> [--attached-to <type>:<id>] [--map <pinned-note>], or threads new <slug> --from-note <note.md> [--about <title>] [--attached-to <post>]");
+        if (rest.length !== 1 || (!str(flags, "about") && !fromNote)) throw new Error("Usage: threads new <slug> --about <title> [--summary <line>] [--attached-to <type>:<id>] [--map <pinned-note>], or threads new <slug> --from-note <note.md> [--about <title>] [--attached-to <post>]");
         if (fromNote && flags.map !== undefined) throw new Error("--from-note opens the Thread with the Note's own Map; omit --map, or put the members in the Note's map block. No Thread created.");
+        if (fromNote && flags.summary !== undefined) throw new Error("--from-note opens the Thread with the Note's own summary; omit --summary, or change the Note's. No Thread created.");
         const attachedTo = str(flags, "attached-to");
         if (flags["attached-to"] === true) throw new Error("--attached-to requires a <type>:<id> value. No Thread created.");
         if (flags.map !== undefined && !str(flags, "map")?.trim()) throw new Error("--map requires a pinned moment Map note; no Thread created.");
+        const summaryFlag = flags.summary === undefined ? undefined : str(flags, "summary")?.trim();
+        if (flags.summary !== undefined && (!summaryFlag || /[\r\n]/.test(summaryFlag) || [...summaryFlag].length > LINE_LIMIT)) {
+          throw new Error(`--summary must be one line of at most ${LINE_LIMIT} characters: what the Thread is for. No Thread created.`);
+        }
         if (fromNote) preflightThread(rest[0]!, str(flags, "about"), attachedTo); // Before the Note's commit, so a bad slug or link writes nothing.
         // The Note is committed before the folder is made: the opening Map pins it at that commit.
         const note = fromNote ? prepareNoteForThread(fromNote, process.cwd(), str(flags, "about")) : undefined;
         const title = str(flags, "about") ?? note!.name;
         const openingMap = note ? note.map : str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
+        // A place's first Thread opens with what the place is for, unless the person said: never the title alone.
+        // A Thread is a folder in _threads/; loose files there (a README, a .DS_Store) are no Thread yet.
+        const threadsHere = threadsDirectory();
+        const first = !existsSync(threadsHere) || !readdirSync(threadsHere, { withFileTypes: true }).some((entry) => entry.isDirectory());
+        const derived = summaryFlag || note || !first ? undefined : placeLine(threadBase());
+        const line = summaryFlag ?? derived?.line;
         if (openingMap !== undefined) validateThreadMomentMap(openingMap); // Before createThread mutates the folder.
         let thread: ReturnType<typeof createThread>;
         try {
-          thread = createThread(rest[0]!, title, process.cwd(), attachedTo);
+          thread = createThread(rest[0]!, title, process.cwd(), attachedTo, note ? undefined : line);
         } catch (err) {
           if (!note) throw err;
           throw new Error(`${err instanceof Error ? err.message : String(err)} The Note stays as written${note.committed ? `, committed at ${note.commit.slice(0, 12)}` : ""}: ${note.path}`);
@@ -630,18 +642,23 @@ export const threadsCommand: CommandDef = {
         const opensUnder = link !== null && isPostReference(link);
         const about = [...(attachedTo && !opensUnder ? [attachedTo] : []), ...(note ? [note.about] : [])];
         const relation = { ...(opensUnder ? { parent: attachedTo } : {}), ...(about.length ? { about } : {}) };
-        const body = note ? `${title}\n\nFrom the Note [${note.name.replace(/[[\]]/g, "")}](${relative(thread.path, note.path).split(sep).join("/")}).` : title;
+        const body = note ? `${title}\n\nFrom the Note [${note.name.replace(/[[\]]/g, "")}](${relative(thread.path, note.path).split(sep).join("/")}).` : line ?? title;
         let opening: ReturnType<typeof appendPost>;
         try {
-          opening = appendPost(thread.path, { body, name: thread.name, summary: note?.summary || thread.summary, attachedTo, ...relation, map: openingMap });
+          opening = appendPost(thread.path, { body, name: thread.name, summary: note?.summary || (note ? undefined : line) || thread.summary, attachedTo, ...relation, map: openingMap });
         } catch (err) {
           throw new Error(`Thread created at ${thread.path}, but opening post was not written: ${err instanceof Error ? err.message : String(err)}. Use threads post ${thread.slug} --message <opening-text> to complete it; do not rerun threads new.`);
         }
+        // `threads new` commits nothing, but the posts after it are committed: say now when Git can't, where the person reads it.
+        const blocker = commitBlocker(thread.path);
+        if (blocker) output.log(blocker);
+        const opensWith = !note && line ? { summary: line, summary_source: summaryFlag ? "flag" : derived!.source, ...(derived ? { summary_from: derived.from } : {}) } : {};
         const noteResult = note ? { note: { path: note.path, position: note.position, commit: note.commit, committed: note.committed, about: note.about },
           map: { roots: note.map.roots.length, members: note.map.members.length, defaulted_depths: note.defaultedDepths } } : {};
         output.result({ path: thread.path, slug: thread.slug, thread_id: opening.post.id, opening_post_id: opening.post.id, date: opening.post.date,
-          ...(attachedTo || about.length ? { ...(attachedTo ? { attached_to: attachedTo } : {}), ...relation } : {}), ...noteResult },
-          `Created local Thread: ${thread.path}` + (note ? `\nAbout the Note ${note.position}${note.committed ? `, committed at ${note.commit.slice(0, 12)}` : ""}; its Map has ${note.map.members.length} thing${note.map.members.length === 1 ? "" : "s"}${note.defaultedDepths ? `, ${note.defaultedDepths} read at summary because the Note named no depth` : ""}.` : "")); return 0;
+          ...(attachedTo || about.length ? { ...(attachedTo ? { attached_to: attachedTo } : {}), ...relation } : {}), ...noteResult, ...opensWith,
+          ...(blocker ? { warnings: [blocker] } : {}) },
+          `Created local Thread: ${thread.path}` + (derived ? `\nOpens with what this place is for, from ${derived.source === "agreement" ? "its Agreement" : "its firefly's Agreement"} (${derived.from}): ${line}` : "") + (note ? `\nAbout the Note ${note.position}${note.committed ? `, committed at ${note.commit.slice(0, 12)}` : ""}; its Map has ${note.map.members.length} thing${note.map.members.length === 1 ? "" : "s"}${note.defaultedDepths ? `, ${note.defaultedDepths} read at summary because the Note named no depth` : ""}.` : "")); return 0;
       }
       if (sub === "open") {
         if (rest.length !== 1) throw new Error("Usage: threads open <path|x_id> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|id>] [--limit <n>] [--order newer|older] [--new] [--ack]");

@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "b654b49dd7970ed9b42dec5c896a2bb70ddcc8b0"
+    "commit": "9a8d19ac20dbb4fb43d378d08c3a8dfda30c3fd7"
   },
   "protocol": {
     "version": "0.33.0",
     "commit": "6e1aadd33e566a56b929d3698e245f8ea7084c58"
   },
-  "digest": "sha256:69145d86de60e93b29d4ad76c2f312c96e4387475d4e67b6ad9b86bf5336c61c",
+  "digest": "sha256:ead2d917edbf07e1fc0f693381cd0d27d637678501be1094721cca2257a6cc9a",
   "groups": [
     {
       "id": "read",
@@ -2196,7 +2196,7 @@
           },
           "summary": {
             "type": "string",
-            "description": "Dense summary for progressive discovery."
+            "description": "Hosted: the Thread's summary. Local: one line about what the Thread is for; the opening post, the README and the Thread's Agreement say it. A place's first Thread without it opens with its Agreement's line, or else its first firefly's."
           },
           "message": {
             "type": "string",
@@ -2279,6 +2279,7 @@
         },
         "local_flags": [
           "about",
+          "summary",
           "attached-to",
           "map",
           "from-note"
