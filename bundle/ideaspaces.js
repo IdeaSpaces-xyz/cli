@@ -40,7 +40,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var define_IDEASPACES_AGENT_CATALOG_default;
 var init_define_IDEASPACES_AGENT_CATALOG = __esm({
   "<define:__IDEASPACES_AGENT_CATALOG__>"() {
-    define_IDEASPACES_AGENT_CATALOG_default = { schema: "ideaspaces.agent-tools", version: 1, cli: { version: "0.11.0", commit: "9a8d19ac20dbb4fb43d378d08c3a8dfda30c3fd7" }, protocol: { version: "0.33.0", commit: "6e1aadd33e566a56b929d3698e245f8ea7084c58" }, digest: "sha256:ead2d917edbf07e1fc0f693381cd0d27d637678501be1094721cca2257a6cc9a", groups: [{ id: "read", job: "J1", name: "Read content", use_when: "Read one target progressively, inspect Markdown, or locate content." }, { id: "notes", job: "J2", name: "Write Notes", use_when: "Create or update a Note, locally or by hosted identity." }, { id: "commits", job: "J3", name: "Save captures", use_when: "Save explicitly selected staged files to Git." }, { id: "threads", job: "J4", name: "Local Threads", use_when: "Create, post to, close, attach or maintain a local Thread." }, { id: "hosted-threads", job: "J5", name: "Hosted Threads", use_when: "Send or reply remotely, acknowledge, rename, or check transport support." }, { id: "thread-status", job: "J6", name: "Thread activity", use_when: "List Threads, see what moved, or check immutable posts." }, { id: "maps", job: "J7", name: "Local Maps", use_when: "Create or edit references in a local Map; list Spaces." }, { id: "spaces", job: "J8", name: "Hosted Spaces", use_when: "Read, create, edit or copy a hosted Map, or choose a Vault." }, { id: "repositories", job: "J9", name: "Repositories", use_when: "Bring repos home, inspect sync state, integrate, push or publish." }, { id: "share", job: "J10", name: "Access", use_when: "Inspect access or explicitly grant, revoke or request it." }, { id: "agent-tools", job: "J11", name: "Agents and runtimes", use_when: "Discover and run agents, inspect conversations, or configure a runtime provider." }, { id: "changes", job: "J12", name: "Changes", use_when: "Mint or manage a session Change spanning commits and repos." }, { id: "account", job: "J13", name: "Account and setup", use_when: "Sign in or out, diagnose installation, upgrade the CLI or scaffold a repo." }, { id: "searching", job: "J14", name: "Search", use_when: "Find Markdown by query or open a saved result Map." }], entries: [{ id: "look", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read one local Note, Content directory, Thread or pinned Map address. A folder that keeps time (a Thread, or keeps_time: true) starts with its state from its entries: name, parent, about, closed, current Map; as_of reads it as it stood at a moment.", use_when: "Deepen one identified target; use navigate for orientation.", check: "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Open the post for body evidence; a summary alone is not proof. Read state before the children: it is the folder's current truth.", bound: "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since. With as_of, the page shows the entries at or before the cursor and state.as_of says how many were left out." }, bound: { unit: "entries", says: true, continue: "since" }, parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented. Default summary; children when limit, since or order pages a folder; full when post selects one post.", enum: ["name", "summary", "surface", "children", "full"], default: "summary" }, contract: { type: "string", description: "Reference frame: foundation or agreement, never caller authority.", enum: ["foundation", "agreement"] }, agreement: { type: "string", description: "Reference Agreement representation, never caller authority.", enum: ["summary", "full"] }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 0 }, since: { type: "string", description: "Continuation position from the prior page (a child filename); in a folder that keeps time, also an entry id or an ISO date, resolved to the newest entry at or before it." }, order: { type: "string", description: "Page direction: older or newer; since advances forward with older.", enum: ["older", "newer"] }, post: { type: "string", description: "Post id to select and read in full: the full msg_ id, or its unique eight-hex short form." }, as_of: { type: "string", description: "Read a folder that keeps time as it stood at this cursor: an ISO date or instant (a day is its end), an entry id, or an entry's filename. Entries after it set nothing and are not listed." }, pin: { type: "string", description: "Exact authored Git commit for reading a local path." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, at: { type: "string", description: "Read a Map address at its authored pin or checkout head.", enum: ["pin", "head"] } }, required: [], additionalProperties: false }, cli: { argv: ["look"], positional: ["path"], flags: { depth: { flag: "--depth" }, contract: { flag: "--contract" }, agreement: { flag: "--agreement" }, limit: { flag: "--limit" }, since: { flag: "--since" }, order: { flag: "--order" }, post: { flag: "--post" }, as_of: { flag: "--as-of" }, pin: { flag: "--pin" }, map: { flag: "--map" }, at: { flag: "--at" } } }, output: { json: ["text", "kind", "depth", "state", "as_of", "reference", "target", "target.page.shown", "target.page.total", "target.page.nextCursor", "map", "portable", "dirty"] } }, { id: "navigate", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Orient here or read another position as reference without changing authority.", use_when: "Change reference focus, not your working directory or operating contract.", check: "A target Agreement is reference only. Check selected contract and tree depth.", bound: "Depth 1 by default, up to 4; focus is a bounded depth-one reference view." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, focus: { type: "boolean", description: "Read the target as bounded reference focus without changing caller authority." }, agreement: { type: "string", description: "Reference Agreement representation, never caller authority." }, contract: { type: "string", description: "Reference frame: foundation or agreement, never caller authority." }, depth: { type: "integer", description: "Progressive-disclosure rung or numeric tree depth as documented.", minimum: 1, maximum: 4, default: 1 }, mark_seen: { type: "boolean", description: "Record the orientation checkpoint explicitly." }, workspace: { type: "string", description: "Workspace directory used for orientation/state." }, mount: { type: "array", description: "Additional content roots for workspace orientation.", items: { type: "string" } }, pullable: { type: "string", description: "Additional pullable source declarations for workspace state." }, no_git: { type: "boolean", description: "Omit Git-derived orientation state." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, at: { type: "string", description: "Read a Map address at its authored pin or checkout head." } }, required: [], additionalProperties: false }, cli: { argv: ["navigate"], positional: ["path"], flags: { focus: { flag: "--focus", boolean: "bare" }, agreement: { flag: "--agreement" }, contract: { flag: "--contract" }, depth: { flag: "--depth" }, mark_seen: { flag: "--mark-seen", boolean: "bare" }, workspace: { flag: "--workspace" }, mount: { flag: "--mount", list: "csv" }, pullable: { flag: "--pullable" }, no_git: { flag: "--no-git", boolean: "bare" }, map: { flag: "--map" }, at: { flag: "--at" } } }, output: { json: ["text", "position", "root", "repoRoot", "manifest", "space"] } }, { id: "inspect", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Inspect one Markdown file by summary, outline or exact section.", use_when: "Start at summary, then outline, then one heading; no full-document mode.", check: "Check truncation and section status; disambiguate duplicate headings with occurrence.", bound: "Defaults to 51200 inspection bytes, max 1048576; raise max_bytes or read the exact file if truncated." }, bound: { unit: "bytes", default: 51200, max: 1048576, says: true }, parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, mode: { type: "string", description: "Markdown inspection mode: summary, outline or section.", enum: ["summary", "outline", "section"], default: "summary" }, heading: { type: "string", description: "Exact case-sensitive Markdown heading for section mode." }, occurrence: { type: "integer", description: "One-based duplicate heading occurrence in section mode.", minimum: 1 }, max_bytes: { type: "integer", description: "Maximum UTF-8 inspection payload bytes, 128..1048576.", minimum: 128, maximum: 1048576, default: 51200 } }, required: ["path"], additionalProperties: false }, cli: { argv: ["inspect"], positional: ["path"], flags: { mode: { flag: "--mode" }, heading: { flag: "--heading" }, occurrence: { flag: "--occurrence" }, max_bytes: { flag: "--max-bytes" } } }, output: { json: ["path", "mode", "status", "truncation"] } }, { id: "map.read", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read a curated Map, derive a Content Map, render orientation, or map the Thread tree (kind threads): every _threads/ in the start and its repositories, each Thread by the protocol's state rule, parents resolved across them, at a rung, to a level, as of or since a moment, problems named.", use_when: "Inspect references before editing a Map or launching from it; or see where every Thread sits and what is wrong in one call (kind threads with problems).", check: "References grant no access. Check file_sha before guarded removal; roots carry image or image_problem. With kind threads: read counts and problems with their one-line definitions; map is null (projection_pending) when a root has no identity or HEAD; uncommitted names the files Git does not have.", bound: "Depth defaults to 1, max 4 or full; orientation uses a character budget. kind threads: about 70 bytes per Thread at the name rung; levels and where bound the members; surface and full show five newest posts as lines, never bodies." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target; with kind threads, the start (the Space root)." }, depth: { type: "string", description: "Numeric tree depth for a content Map (default 1), or with kind threads the rung per member (default name).", enum: ["1", "2", "3", "4", "full", "name", "summary", "children", "surface"] }, orientation: { type: "boolean", description: "Render a bounded orientation from the Map instead of a derived Content tree." }, budget: { type: "integer", description: "Character budget for bounded Map/orientation rendering.", minimum: 0 }, kind: { type: "string", description: "What to map by kind: threads, the Thread tree under the start.", enum: ["threads"] }, levels: { type: "string", description: "kind threads: how many tree levels below the roots, a positive whole number or all (default all)." }, where: { type: "string", description: "kind threads: list only matching Threads, flat with their parents: open, closed, holder:<name>, no-holder, or stale:<date> (open with no post since)." }, problems: { type: "boolean", description: "kind threads: name what is wrong over the whole tree, each code defined in one line: open-under-closed, extra-root, parent-unresolved, no-holder, moved-title, uncommitted." }, since: { type: "string", description: "kind threads: only the Threads with a post after this cursor (ISO date or instant, entry id, or entry filename), with the count." }, as_of: { type: "string", description: "kind threads: read every Thread as it stood at this cursor (ISO date or instant, entry id, or entry filename)." } }, required: [], additionalProperties: false }, cli: { argv: ["map"], positional: ["path"], flags: { depth: { flag: "--depth" }, orientation: { flag: "--orientation", boolean: "bare" }, budget: { flag: "--budget" }, kind: { flag: "--kind" }, levels: { flag: "--levels" }, where: { flag: "--where" }, problems: { flag: "--problems", boolean: "bare" }, since: { flag: "--since" }, as_of: { flag: "--as-of" } } }, aliases: ["map"], output: { json: ["kind", "path", "file_sha", "roots", "members", "omitted_entries", "lowered", "dropped", "text", "problems", "definitions", "uncommitted", "counts", "map", "map_status", "warnings", "trimmed", "complete"] } }, { id: "ls", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List typed files and folders for a path and optional query.", use_when: "Find a filename rather than search Markdown bodies.", check: "Check truncation before treating the list as complete.", bound: "Default limit 25; scan caps at 5000 entries and depth 10. Check truncated and narrow the path/query." }, bound: { unit: "entries", default: 25, max: 5e3, says: true }, parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, query: { type: "string", description: "Filename filtering text for ls." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1, default: 25 } }, required: [], additionalProperties: false }, cli: { argv: ["ls"], positional: ["path"], flags: { query: { flag: "--query" }, limit: { flag: "--limit" } } }, output: { json: ["root", "query", "scanned", "truncated", "total", "entries"] } }, { id: "times", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read first and last Git commit times per Note in this checkout.", use_when: "Need clone-local Git timestamps, not authored dates.", check: "Uncommitted Notes have no committed timestamp; shallow history may be incomplete.", bound: "Unbounded per-note output for this checkout; no continuation." }, bound: "unbounded", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["times"], positional: [], flags: {} }, output: { json: ["files"] } }, { id: "threads.open", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read one local or hosted Thread at a selected rung.", use_when: "Read a Thread or one exact post; use list for discovery.", check: "Compare shown with matching. A snapshot plus tail can omit intervening posts; page since the snapshot. For folded marks, continue since last_activity_id.", bound: "Local surface defaults to 5 including the head; other pages default to 10. Hosted defaults to 50, max 200. Continue since locally or cursor remotely." }, bound: { unit: "posts", default: 5, says: true, continue: "since" }, parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, new: { type: "boolean", description: "Select activity after a local reader position; hosted list uses service unread counts." }, ack: { type: "boolean", description: "Explicitly acknowledge the selected local read; reading alone never acknowledges." }, since: { type: "string", description: "Continuation position from the prior page or ISO filter where supported." }, post: { type: "string", description: "Exact post id to select." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, member: { type: "integer", description: "Zero-based authored Map member ordinal.", minimum: 0 }, checkout: { type: "string", description: "Absolute checkout root for an explicitly selected Map member." }, pin: { type: "string", description: "Exact authored Git commit for reading a local path." }, position: { type: "string", description: "Repository-relative position of a Map member." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 }, order: { type: "string", description: "Page direction: older or newer; since advances forward with older." }, agreement: { type: "string", description: "Reference Agreement representation, never caller authority." }, reader: { type: "string", description: "Local reader identity; defaults to IDEASPACES_READER or person." }, cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." }, kind: { type: "string", description: "Compatibility filter accepted only by the read alias." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "open"], positional: ["thread"], flags: { depth: { flag: "--depth" }, new: { flag: "--new", boolean: "bare" }, ack: { flag: "--ack", boolean: "bare" }, since: { flag: "--since" }, post: { flag: "--post" }, map: { flag: "--map" }, member: { flag: "--member" }, checkout: { flag: "--checkout" }, pin: { flag: "--pin" }, position: { flag: "--position" }, limit: { flag: "--limit" }, order: { flag: "--order" }, agreement: { flag: "--agreement" }, reader: { flag: "--reader" }, cursor: { flag: "--cursor" } }, local_flags: ["depth", "new", "ack", "since", "post", "map", "member", "checkout", "pin", "position", "limit", "order", "agreement", "reader"], hosted_flags: ["limit", "cursor"], alias_flags: { "threads read": ["kind"] } }, aliases: ["threads read"], output: { json: ["shown", "matching", "has_more", "posts", "thread.current_map", "thread.snapshot", "child_threads", "cursor", "older_cursor", "last_activity_id"] } }, { id: "threads.render", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Render one local Thread as Markdown.", use_when: "Need a full local export rather than bounded discovery.", check: "Full output can be large; local authors are unverified claims.", bound: "Unbounded complete local Thread rendering; prefer open for bounded reads." }, bound: "unbounded", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." } }, required: ["thread"], additionalProperties: false }, cli: { argv: ["threads", "render"], positional: ["thread"], flags: {}, local_flags: [] }, output: { json: ["path", "readme", "timeline"] } }, { id: "threads.locate", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Locate an opening post id in explicit local Space roots.", use_when: "Know the Thread identity but not its folder.", check: "Check found, ambiguous or not_found; never pick an ambiguous location silently.", bound: "Only supplied Space roots are searched; returns every matching Thread." }, bound: "n/a", parameters: { type: "object", properties: { opening_id: { type: "string", description: "Positional opening id for threads.locate." }, roots: { type: "array", description: "Positional roots for threads.locate.", items: { type: "string" }, minItems: 1 } }, required: ["opening_id", "roots"], additionalProperties: false }, cli: { argv: ["threads", "locate"], positional: ["opening_id", "roots"], flags: {}, local_flags: [] }, output: { json: ["status", "thread_id", "matches"] } }, { id: "skills.read", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List the skill catalog or read one skill.", use_when: "Find instructions before executing a workflow.", check: "Read the selected skill in full before relying on it.", bound: "One skill body or the complete local skill catalog; no paging." }, bound: "n/a", parameters: { type: "object", properties: { name: { type: "string", description: "Human-readable name/title." } }, required: [], additionalProperties: false }, cli: { argv: ["skills"], positional: ["name"], flags: {} }, aliases: ["skills"], output: { json: ["name", "description", "content"] } }, { id: "skills.sync", owner: "cli", status: "active", job: "J1", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Sync Space skills into the Claude skills directory.", use_when: "Need local harness skill files, or check generated drift.", check: "Use check to inspect drift without writing; inspect the selected Space root.", bound: "All discovered skills; check reports drift without copying." }, bound: "n/a", parameters: { type: "object", properties: { check: { type: "boolean", description: "Report drift/update state without applying changes." } }, required: [], additionalProperties: false }, cli: { argv: ["skills", "sync"], positional: [], flags: { check: { flag: "--check", boolean: "bare" } } }, output: { json: ["created", "updated", "removed", "unchanged", "skipped", "privateAgentLevels"] } }, { id: "node.get", owner: "cli", status: "active", job: "J1", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Resolve one hosted Note by repo and node identity.", use_when: "Know the exact hosted identity to read.", check: "Check returned identity and content; access remains independently checked.", bound: "One Note per call; no continuation." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, node_id: { type: "string", description: "Hosted node identity." } }, required: ["repo_id", "node_id"], additionalProperties: false }, cli: { argv: ["node", "get"], positional: ["repo_id", "node_id"], flags: {} }, output: { json: ["node_id", "content"] } }, { id: "node.history", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read local path or hosted Note version history.", use_when: "Need committed versions, not filesystem modification times.", check: "Check whether the path is local or hosted; shallow Git history may be incomplete.", bound: "Local limit defaults to 20; hosted returns its service result without client paging." }, bound: { unit: "entries", default: 20, says: true }, parameters: { type: "object", properties: { path_or_repo_id: { type: "string", description: "Positional path or repo id for node.history." }, node_id: { type: "string", description: "Hosted node identity." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1, default: 20 }, cwd: { type: "string", description: "Directory in which local path history is resolved." } }, required: [], additionalProperties: false }, cli: { argv: ["node", "history"], positional: ["path_or_repo_id", "node_id"], flags: { limit: { flag: "--limit" }, cwd: { flag: "--cwd" } } }, output: { json: ["path", "created", "total", "history"] } }, { id: "write", owner: "cli", status: "active", job: "J2", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create or update a local Note with frontmatter and optional staging.", use_when: "Capture durable knowledge; use if_match when updating a prior revision.", check: "Check frontmatter validation and returned sha; force bypasses revision checking.", bound: "One Note per call; content is supplied explicitly or on stdin." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } }, attached_to: { type: "string", description: "Parent entity/post reference for the Note or local Thread." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, content: { type: "string", description: "Exact Note content; otherwise reads stdin." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." }, force: { type: "boolean", description: "Bypass existing revision/overwrite protection explicitly." }, stage: { type: "boolean", description: "Stage the written Note in Git (default true).", default: true } }, required: ["path"], additionalProperties: false }, cli: { argv: ["write"], positional: ["path"], flags: { name: { flag: "--name" }, summary: { flag: "--summary" }, tags: { flag: "--tags", list: "csv" }, attached_to: { flag: "--attached-to" }, map: { flag: "--map" }, content: { flag: "--content" }, if_match: { flag: "--if-match" }, force: { flag: "--force", boolean: "bare" }, stage: { flag: "--stage", boolean: "bare" } } }, output: { json: ["path", "sha", "staged"] } }, { id: "node.put", owner: "cli", status: "active", job: "J2", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Write hosted Note content by repo identity and path.", use_when: "Update a hosted Note, not a local capture.", check: "Check returned save report; do not equate an HTTP response with a local Git commit.", bound: "One Note per call; content argument or stdin." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, path: { type: "string", description: "Local path to the target." }, content: { type: "string", description: "Exact Note content; otherwise reads stdin." } }, required: ["repo_id", "path"], additionalProperties: false }, cli: { argv: ["node", "put"], positional: ["repo_id", "path"], flags: { content: { flag: "--content" } } }, output: { json: ["path", "commit_sha", "node_id"] } }, { id: "commit", owner: "cli", status: "active", job: "J3", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Commit only named staged paths, or all staged files when all is explicit.", use_when: "Save agreed captures to Git; this CLI has no session-owned capture set.", check: "Inspect selected paths. all means every staged file, not this session; check returned commit SHA.", bound: "One commit; explicit paths or all, never both." }, bound: "n/a", parameters: { type: "object", properties: { paths: { type: "array", description: "Positional paths for commit.", items: { type: "string" }, minItems: 1 }, all: { type: "boolean", description: "Commit all staged files, NOT this session captures." }, author_name: { type: "string", description: "Explicit Git commit author name." }, author_email: { type: "string", description: "Explicit Git commit author email." }, op: { type: "string", description: "Commit operation trailer." }, change_id: { type: "string", description: "Change-Id trailer for the commit." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, co_author: { type: "string", description: "Agent identity for a co-author commit trailer." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." } }, required: ["message"], additionalProperties: false }, cli: { argv: ["commit"], positional: ["paths"], flags: { all: { flag: "--all", boolean: "bare" }, author_name: { flag: "--author-name" }, author_email: { flag: "--author-email" }, op: { flag: "--op" }, change_id: { flag: "--change-id" }, conversation: { flag: "--conversation" }, co_author: { flag: "--co-author" }, message: { flag: "--message", aliases: ["-m"] } } }, output: { json: ["commit_sha", "committed_paths"] } }, { id: "post", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.12.0" }, text: { does: "Append one entry to anything that keeps time: a local Thread, a folder whose Agreement says keeps_time: true, or a hosted Thread. The entry may set state: parent moves, about links, closed closes or reopens, map is the current Map. new opens a Thread.", use_when: "Say something in a Thread, move or rename or close it, record a lesson in a time-keeping folder, or open a Thread; the one writer over threads post, new, close and attach.", check: "Verify the returned id and path, and committed (false carries a reason: the entry is written, not committed). A reframe with name or summary renames; with only parent it moves and the name stays. Author is a claim. Keep post_id for exact hosted retries.", bound: "One entry; a local one is committed on its own, never pushed. Hosted takes the hosted subset of flags; its kind and state are the service's." }, bound: "n/a", parameters: { type: "object", properties: { target: { type: "string", description: "Local Thread slug or path, a folder that keeps time, or a hosted x_ id. Omitted with new." }, new: { type: "string", description: "Open a Thread with this slug; name is its title and the opening post carries parent, about and the Map." }, message: { type: "string", description: "The entry's body; stdin is accepted." }, reply_to: { type: "array", items: { type: "string" }, description: "Parent entry id(s); in a Thread, latest is explicit, and the opening is the default. A full msg_ id or its unique eight-hex short form. In a declared folder there is no default." }, kind: { type: "string", description: "post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true." }, parent: { type: "string", description: "The Thread's new parent, a post reference (post:msg_\u2026, msg_\u2026, or _threads/<thread>/<post>.md); on a reframe it moves the Thread." }, about: { type: "array", items: { type: "string" }, description: "What the folder is about: typed links (<type>:<id>); an empty value clears." }, closed: { type: "boolean", description: "true closes the folder (beside kind closure for older readers, when the kind is post), false reopens it." }, name: { type: "string", description: "The entry's title; on a reframe, the Thread's own name. With new, the Thread's name." }, summary: { type: "string", description: "The entry's summary; on a reframe, the Thread's own summary." }, map: { type: "string", description: "Authored Map note or inline Map; a pinned moment. The entry's Map becomes the current Map." }, mark: { type: "string", description: "Value of a mark replying to exactly one entry." }, supersedes: { type: "string", description: "Entry id a correction supersedes." }, tags: { type: "array", items: { type: "string" }, description: "Retrieval labels on the entry." }, author: { type: "string", description: "Local author claim, not verified identity; defaults to the nearest agent Agreement's name." }, no_check_links: { type: "boolean", description: "Thread only: write the body without checking its file-relative links." }, no_commit: { type: "boolean", description: "Local only: write the entry without committing it, for tests and dry runs." }, post_id: { type: "string", description: "Hosted only: stable msg_ id for an exact resend after an uncertain outcome." } }, required: [], additionalProperties: false }, cli: { argv: ["post"], positional: ["target"], flags: { new: { flag: "--new" }, message: { flag: "--message" }, reply_to: { flag: "--reply-to", list: "csv" }, kind: { flag: "--kind" }, parent: { flag: "--parent" }, about: { flag: "--about", list: "csv" }, closed: { flag: "--closed" }, name: { flag: "--name" }, summary: { flag: "--summary" }, map: { flag: "--map" }, mark: { flag: "--mark" }, supersedes: { flag: "--supersedes" }, tags: { flag: "--tags", list: "csv" }, author: { flag: "--author" }, no_check_links: { flag: "--no-check-links", boolean: "bare" }, no_commit: { flag: "--no-commit", boolean: "bare" }, post_id: { flag: "--post-id" } }, local_flags: ["new", "message", "reply-to", "kind", "parent", "about", "closed", "name", "summary", "map", "mark", "supersedes", "tags", "author", "no-check-links", "no-commit"], hosted_flags: ["reply-to", "message", "name", "summary", "map", "tags", "post-id"] }, output: { json: ["id", "path", "kind", "in_reply_to", "folder", "parent", "about", "closed", "committed", "commit", "reason", "slug", "thread_id", "opening_post_id"] } }, { id: "threads.post", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Append an immutable local or hosted Thread post. A local post is committed on its own (only its file, never pushed) unless no_commit; a hosted post is sent.", use_when: "Reply to a specific post or branch from the post your topic serves.", check: "Supply name, summary and reply_to; verify returned id/path and, for a local post, committed (false carries a reason: the post is written, not committed). Local author is a claim. Keep post_id for exact hosted retries.", bound: "One post; local kind/mark and host metadata have distinct validation." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, member: { type: "integer", description: "Zero-based authored Map member ordinal.", minimum: 0 }, checkout: { type: "string", description: "Absolute checkout root for an explicitly selected Map member." }, reply_to: { type: "array", description: "Parent post id(s); latest is explicit, never implicit. Locally a full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in the Thread starts with it; an ambiguous one is refused with the matches.", items: { type: "string" } }, kind: { type: "string", description: "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb." }, mark: { type: "string", description: "Value of a local mark replying to exactly one post." }, author: { type: "string", description: "Local author claim, not verified identity." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, supersedes: { type: "string", description: "Prior post id superseded by a correction." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } }, no_check_links: { type: "boolean", description: "Skip local post link validation only when deliberately required." }, no_commit: { type: "boolean", description: "Local only: write the post without committing it, for tests and dry runs." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." } }, required: ["thread"], additionalProperties: false }, cli: { argv: ["threads", "post"], positional: ["thread"], flags: { map: { flag: "--map" }, member: { flag: "--member" }, checkout: { flag: "--checkout" }, reply_to: { flag: "--reply-to", list: "csv" }, kind: { flag: "--kind" }, mark: { flag: "--mark" }, author: { flag: "--author" }, name: { flag: "--name" }, summary: { flag: "--summary" }, supersedes: { flag: "--supersedes" }, message: { flag: "--message" }, tags: { flag: "--tags", list: "csv" }, no_check_links: { flag: "--no-check-links", boolean: "bare" }, no_commit: { flag: "--no-commit", boolean: "bare" }, post_id: { flag: "--post-id" } }, local_flags: ["map", "member", "checkout", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags", "no-check-links", "no-commit"], hosted_flags: ["reply-to", "message", "name", "summary", "post-id", "map", "tags"] }, output: { json: ["id", "path", "kind", "in_reply_to", "state", "committed", "commit", "reason", "warnings"] } }, { id: "threads.close", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Close a local or hosted Thread. A local close writes a post with closed: true (beside the legacy kind closure, for older readers), committed on its own (only its file, never pushed) unless no_commit.", use_when: "Done-when holds and closure has been agreed.", check: "Verify target and rationale; hosted close requires yes.", bound: "One closure post; no content or history is removed." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, reply_to: { type: "array", description: "Parent post id(s); latest is explicit, never implicit. Locally a full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in the Thread starts with it; an ambiguous one is refused with the matches.", items: { type: "string" } }, kind: { type: "string", description: "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb." }, author: { type: "string", description: "Local author claim, not verified identity." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, supersedes: { type: "string", description: "Prior post id superseded by a correction." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." }, no_commit: { type: "boolean", description: "Local only: write the closure without committing it, for tests and dry runs." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: ["thread"], additionalProperties: false }, cli: { argv: ["threads", "close"], positional: ["thread"], flags: { map: { flag: "--map" }, reply_to: { flag: "--reply-to", list: "csv" }, kind: { flag: "--kind" }, author: { flag: "--author" }, name: { flag: "--name" }, summary: { flag: "--summary" }, supersedes: { flag: "--supersedes" }, message: { flag: "--message" }, post_id: { flag: "--post-id" }, no_commit: { flag: "--no-commit", boolean: "bare" }, yes: { flag: "--yes", boolean: "bare" } }, local_flags: ["map", "reply-to", "kind", "author", "name", "summary", "supersedes", "message", "no-commit"], hosted_flags: ["message", "post-id"] }, output: { json: ["id", "path", "kind", "in_reply_to", "committed", "commit", "reason"] } }, { id: "threads.new", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Start a local or hosted Thread.", use_when: "New direction needs a Thread, not another reply.", check: "Local needs about; hosted needs name, summary and message. Check attachment, recipients and returned id.", bound: "One Thread; local/hosted creation are independent." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, about: { type: "string", description: "Local Thread title, or a portable contextual entity where supported." }, attached_to: { type: "string", description: "Parent entity/post reference for the Note or local Thread." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, from_note: { type: "string", description: "Local: open the Thread about this Note. Commits the Note, pins its Map with the Note first in full; replaces --map; --about defaults to its name." }, hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Hosted: the Thread's summary. Local: one line about what the Thread is for; the opening post, the README and the Thread's Agreement say it. A place's first Thread without it opens with its Agreement's line, or else its first firefly's." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." }, recipients: { type: "array", description: "Explicit hosted recipients, handles or emails.", items: { type: "string" } }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } }, home: { type: "string", description: "Hosted map:<id> placement, or Home scaffold destination for create." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "new"], positional: ["thread"], flags: { about: { flag: "--about" }, attached_to: { flag: "--attached-to" }, map: { flag: "--map" }, from_note: { flag: "--from-note" }, hosted: { flag: "--hosted", boolean: "bare" }, name: { flag: "--name" }, summary: { flag: "--summary" }, message: { flag: "--message" }, post_id: { flag: "--post-id" }, recipients: { flag: "--recipients", list: "csv" }, tags: { flag: "--tags", list: "csv" }, home: { flag: "--home" } }, local_flags: ["about", "summary", "attached-to", "map", "from-note"], hosted_flags: ["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags", "home"] }, output: { json: ["path", "slug", "thread_id", "opening_post_id", "date", "note"] } }, { id: "threads.attach", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Move a local Thread under another post: one reframe carrying parent and no name or summary (the Thread keeps its own); the Agreement's attached_to is written too, for older readers.", use_when: "Move a Thread direction to another parent post explicitly.", check: "Check the parent post and rationale; the previous parent stays in history and the Thread's name is unchanged.", bound: "One local Thread attachment event." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, parent: { type: "string", description: "Parent run id for local records; explicit value overrides environment discovery." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, author: { type: "string", description: "Local author claim, not verified identity." } }, required: ["thread", "parent", "message"], additionalProperties: false }, cli: { argv: ["threads", "attach"], positional: ["thread", "parent"], flags: { message: { flag: "--message" }, author: { flag: "--author" } }, local_flags: ["message", "author"] }, output: { json: ["path", "previous_parent", "parent", "reframe", "cycle_check_skipped"] } }, { id: "threads.init", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Initialize the local Threads worktree.", use_when: "Set up a repository Threads branch.", check: "Check repository and worktree location before initialization.", bound: "One repository worktree." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["threads", "init"], positional: [], flags: {}, local_flags: [] }, output: { json: ["path"] } }, { id: "threads.push", owner: "cli", status: "active", job: "J4", effect: "share", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Push the local Threads branch to an explicit team remote.", use_when: "Sharing the committed Thread branch has been agreed.", check: "Verify remote; this explicitly shares committed posts, never a private conversation log.", bound: "One Threads branch to the named remote." }, bound: "n/a", parameters: { type: "object", properties: { remote: { type: "string", description: "Explicit Git remote for the Threads branch." } }, required: ["remote"], additionalProperties: false }, cli: { argv: ["threads", "push"], positional: [], flags: { remote: { flag: "--remote" } }, local_flags: ["remote"] }, output: { json: ["remote"] } }, { id: "threads.send", owner: "cli", status: "active", job: "J5", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Start a hosted Thread with an explicit recipient.", use_when: "Send a new topic remotely; use reply/post for an existing Thread.", check: "Verify recipient and content. Preserve post_id and all arguments for an exact retry after uncertain delivery.", bound: "One opening post; no automatic retry of an uncertain send." }, bound: "n/a", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for threads.send." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } }, home: { type: "string", description: "Hosted map:<id> placement, or Home scaffold destination for create." } }, required: ["recipient", "name", "summary", "message"], additionalProperties: false }, cli: { argv: ["threads", "send"], positional: ["recipient"], flags: { name: { flag: "--name" }, summary: { flag: "--summary" }, message: { flag: "--message" }, post_id: { flag: "--post-id" }, map: { flag: "--map" }, tags: { flag: "--tags", list: "csv" }, home: { flag: "--home" } }, hosted_flags: ["name", "summary", "message", "post-id", "map", "tags", "home"] }, output: { json: [] } }, { id: "threads.reply", owner: "cli", status: "active", job: "J5", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Reply to an exact hosted Thread post.", use_when: "Continue an existing hosted discussion.", check: "Supply reply_to; preserve post_id for exact retry. Do not resend as a new topic.", bound: "One hosted post." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, reply_to: { type: "array", description: "Parent post id(s); latest is explicit, never implicit.", items: { type: "string" } }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } } }, required: ["thread", "reply_to"], additionalProperties: false }, cli: { argv: ["threads", "reply"], positional: ["thread"], flags: { reply_to: { flag: "--reply-to", list: "csv" }, message: { flag: "--message" }, name: { flag: "--name" }, summary: { flag: "--summary" }, post_id: { flag: "--post-id" }, map: { flag: "--map" }, tags: { flag: "--tags", list: "csv" } }, hosted_flags: ["reply-to", "message", "name", "summary", "post-id", "map", "tags"] }, output: { json: [] } }, { id: "threads.ack", owner: "cli", status: "active", job: "J5", effect: "write-hosted", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Explicitly acknowledge local or hosted Thread activity.", use_when: "A person or reader explicitly chooses how far to mark read.", check: "Reading does not acknowledge. Supply through, recent, seq or cursor for the selected location.", bound: "One explicit read position; unseen posts remain unread." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, through: { type: "string", description: "Exact local post id or latest to acknowledge through." }, recent: { type: "string", description: "Returned local activity cursor to acknowledge explicitly." }, reader: { type: "string", description: "Local reader identity; defaults to IDEASPACES_READER or person." }, seq: { type: "integer", description: "Hosted sequence number to acknowledge explicitly.", minimum: 0 }, cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "ack"], positional: ["thread"], flags: { through: { flag: "--through" }, recent: { flag: "--recent" }, reader: { flag: "--reader" }, seq: { flag: "--seq" }, cursor: { flag: "--cursor" } }, local_flags: ["through", "recent", "reader"], hosted_flags: ["seq", "cursor"] }, output: { json: [] } }, { id: "threads.rename", owner: "cli", status: "active", job: "J5", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Append a hosted Thread reframe with title and summary.", use_when: "Rename a hosted Thread with a stated reason.", check: "Supply name, summary and message; preserve post_id for retries.", bound: "One hosted reframe post." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." } }, required: ["thread", "name", "summary", "message"], additionalProperties: false }, cli: { argv: ["threads", "rename"], positional: ["thread"], flags: { message: { flag: "--message" }, name: { flag: "--name" }, summary: { flag: "--summary" }, post_id: { flag: "--post-id" } }, hosted_flags: ["message", "name", "summary", "post-id"] }, output: { json: [] } }, { id: "threads.capabilities", owner: "cli", status: "active", job: "J5", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read the existing hosted Threads transport capability schema.", use_when: "Before a remote Thread operation.", check: "Schema must be ideaspaces.threads.capabilities.v1; no legacy exchange fallback.", bound: "One unchanged capability document." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["threads", "capabilities"], positional: [], flags: {} }, output: { json: ["schema", "transport", "legacy_exchange_fallback"] } }, { id: "threads.list", owner: "cli", status: "active", job: "J6", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List local or hosted Threads. A local list is one level of the Thread tree at the summary rung; map with kind threads gives the tree, the problems and the time filters.", use_when: "Discover Threads before reading one; for where every Thread sits, use map kind threads.", check: "Local rows may include unreadable posts. new is reader state; hosted unread counts come from the service.", bound: "Hosted pages default 50, max 200; continue cursor. Local list has no paging and returns all discovered Threads." }, bound: "n/a", parameters: { type: "object", properties: { new: { type: "boolean", description: "Select activity after a local reader position; hosted list uses service unread counts." }, unread: { type: "boolean", description: "Only hosted service-unread Threads or local reader-unread Threads." }, space: { type: "string", description: "Compatibility repository URL selector for share." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, kind: { type: "string", description: "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb." }, since: { type: "string", description: "Continuation position from the prior page or ISO filter where supported." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 }, cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." }, open: { type: "boolean", description: "Include open local Threads when filtering discovery." }, reader: { type: "string", description: "Local reader identity; defaults to IDEASPACES_READER or person." }, hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "list"], positional: [], flags: { new: { flag: "--new", boolean: "bare" }, unread: { flag: "--unread", boolean: "bare" }, space: { flag: "--space" }, depth: { flag: "--depth" }, kind: { flag: "--kind" }, since: { flag: "--since" }, limit: { flag: "--limit" }, cursor: { flag: "--cursor" }, open: { flag: "--open", boolean: "bare" }, reader: { flag: "--reader" }, hosted: { flag: "--hosted", boolean: "bare" } }, local_flags: ["new", "unread", "space", "depth", "kind", "since", "limit", "cursor", "open", "reader"], hosted_flags: ["hosted", "limit", "cursor", "new", "unread"] }, output: { json: ["schema", "threads", "hosted_checked", "local_complete", "hosted_error", "cursor"] } }, { id: "threads.recent", owner: "cli", status: "active", job: "J6", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read local Thread activity since a cursor or named reader baseline.", use_when: "Find what moved, not every Thread.", check: "Compare shown with moved; baseline means nothing new yet. Reading does not advance the position.", bound: "Default 50 Threads, max 500; keep returned cursor; unshown activity stays new." }, bound: { unit: "entries", default: 50, max: 500, says: true, continue: "cursor" }, parameters: { type: "object", properties: { cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." }, reader: { type: "string", description: "Local reader identity; defaults to IDEASPACES_READER or person." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1, maximum: 500, default: 50 } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "recent"], positional: [], flags: { cursor: { flag: "--cursor" }, reader: { flag: "--reader" }, limit: { flag: "--limit" } }, local_flags: ["cursor", "reader", "limit"] }, output: { json: ["schema", "baseline", "threads", "moved", "shown", "cursor"] } }, { id: "threads.check", owner: "cli", status: "active", job: "J6", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Check local posts changed or deleted since commit.", use_when: "Verify immutable Thread history before relying on it.", check: "Strict exits nonzero on findings or incomplete Git evidence.", bound: "All findings in selected Thread or local root; no paging." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, strict: { type: "boolean", description: "Fail on changed posts or incomplete Git evidence." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "check"], positional: ["thread"], flags: { strict: { flag: "--strict", boolean: "bare" } }, local_flags: ["strict"] }, output: { json: ["schema", "path", "checked", "clean", "modified"] } }, { id: "map.create", owner: "cli", status: "active", job: "J7", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create a local Map Note.", use_when: "Start a local view over references.", check: "Check path, name and summary; a Map never grants content access.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." } }, required: ["path", "name", "summary"], additionalProperties: false }, cli: { argv: ["map", "create"], positional: ["path"], flags: { name: { flag: "--name" }, summary: { flag: "--summary" } } }, output: { json: ["path", "sha", "status"] } }, { id: "map.add", owner: "cli", status: "active", job: "J7", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Add one reference or root/member to a local Map.", use_when: "Explicitly extend a local view.", check: "Check root identity, pin and position; adding a reference shares nothing.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, address: { type: "string", description: "Positional address for map.add." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, position: { type: "string", description: "Repository-relative position of a Map member." }, root: { type: "integer", description: "Explicit root selector; meaning is command-specific.", minimum: 0 }, root_node_id: { type: "string", description: "Stable repository root identity, not a filesystem path." }, sha: { type: "string", description: "Exact Git commit pin for a Map root." }, checkout: { type: "string", description: "Absolute checkout root for an explicitly selected Map member." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["map", "add"], positional: ["path", "address"], flags: { depth: { flag: "--depth" }, name: { flag: "--name" }, summary: { flag: "--summary" }, position: { flag: "--position" }, root: { flag: "--root" }, root_node_id: { flag: "--root-node-id" }, sha: { flag: "--sha" }, checkout: { flag: "--checkout" }, if_match: { flag: "--if-match" } } }, output: { json: ["path", "sha", "member_index", "status"] } }, { id: "map.remove", owner: "cli", status: "active", job: "J7", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Remove one local Map member or empty root.", use_when: "Explicitly narrow a view, never delete referenced content.", check: "Use if_match from map.read for ordinal removal; inspect address/position.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, selector: { type: "string", description: "Positional selector for map.remove." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." }, root_node_id: { type: "string", description: "Stable repository root identity, not a filesystem path." }, position: { type: "string", description: "Repository-relative position of a Map member." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["map", "remove"], positional: ["path", "selector"], flags: { if_match: { flag: "--if-match" }, root_node_id: { flag: "--root-node-id" }, position: { flag: "--position" } } }, output: { json: ["path", "sha", "member_index", "status"] } }, { id: "map.select", owner: "cli", status: "active", job: "J7", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Select exact hosted context from a local Note, Map or directory.", use_when: "Build a pinned hosted-context selection for an existing published repo.", check: "Check binding, committed identity and remote head; references never grant access.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, hostname: { type: "string", description: "Organization hostname, or target hosting namespace as selected by the command." }, note_depth: { type: "string", description: "Portable Note disclosure rung." }, entity_depth: { type: "string", description: "Portable entity disclosure, name or summary." }, note_name: { type: "string", description: "Authored label for the Note reference." }, note_summary: { type: "string", description: "Authored context for the Note reference." }, entity_name: { type: "string", description: "Authored label for the entity reference." }, entity_summary: { type: "string", description: "Authored context for the entity reference." }, about: { type: "string", description: "Local Thread title, or a portable contextual entity where supported." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["map", "select"], positional: ["path"], flags: { hostname: { flag: "--hostname" }, note_depth: { flag: "--note-depth" }, entity_depth: { flag: "--entity-depth" }, note_name: { flag: "--note-name" }, note_summary: { flag: "--note-summary" }, entity_name: { flag: "--entity-name" }, entity_summary: { flag: "--entity-summary" }, about: { flag: "--about" } } }, output: { json: ["roots", "members"] } }, { id: "spaces.list", owner: "cli", status: "active", job: "J7", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List hosted Maps or legacy coordination objects.", use_when: "Choose a hosted Space before reading or editing it.", check: "Use hosted for Maps; local Maps and legacy objects are different.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." }, attached_to: { type: "string", description: "Parent entity/post reference for the Note or local Thread." }, include_dormant: { type: "boolean", description: "Include dormant legacy coordination objects." } }, required: [], additionalProperties: false }, cli: { argv: ["spaces", "list"], positional: [], flags: { hosted: { flag: "--hosted", boolean: "bare" }, attached_to: { flag: "--attached-to" }, include_dormant: { flag: "--include-dormant", boolean: "bare" } }, hosted_flags: ["hosted"] }, output: { json: ["maps", "spaces"] } }, { id: "spaces.open", owner: "cli", status: "active", job: "J8", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read one hosted Map and its current version.", use_when: "Need members and version_id for a guarded hosted edit.", check: "Check omitted_members, independent item access and version_id.", bound: "Service may omit members; inspect omitted_members. No client continuation." }, bound: "n/a", parameters: { type: "object", properties: { map_id: { type: "string", description: "Positional map id for spaces.open." }, hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." } }, required: ["map_id"], additionalProperties: false }, cli: { argv: ["spaces", "open"], positional: ["map_id"], flags: { hosted: { flag: "--hosted", boolean: "bare" } }, hosted_flags: ["hosted"] }, output: { json: ["map_id", "version_id", "members", "omitted_members"] } }, { id: "spaces.new", owner: "cli", status: "active", job: "J8", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create a hosted Space with a Core Thread in an explicit Vault.", use_when: "A person explicitly wants a new hosted Space.", check: "Check Vault ownership and subscription; keep command_id and arguments for exact retries.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." }, vault: { type: "string", description: "Explicit personal or organization Vault identity for Space creation." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, command_id: { type: "string", description: "Stable hosted write id; retain identical arguments for exact retry." } }, required: ["hosted", "vault", "name", "summary", "message"], additionalProperties: false }, cli: { argv: ["spaces", "new"], positional: [], flags: { hosted: { flag: "--hosted", boolean: "bare" }, vault: { flag: "--vault" }, name: { flag: "--name" }, summary: { flag: "--summary" }, message: { flag: "--message" }, command_id: { flag: "--command-id" } } }, output: { json: ["map_id", "version_id", "command_id"] } }, { id: "spaces.add", owner: "cli", status: "active", job: "J8", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Add one reference to a hosted Map at an expected version.", use_when: "Extend a hosted view without granting content access.", check: "Use if_match version_id, not a file hash; preserve command_id for retries.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { map_id: { type: "string", description: "Positional map id for spaces.add." }, address: { type: "string", description: "Positional address for spaces.add." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." }, command_id: { type: "string", description: "Stable hosted write id; retain identical arguments for exact retry." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, position: { type: "string", description: "Repository-relative position of a Map member." }, root_node_id: { type: "string", description: "Stable repository root identity, not a filesystem path." }, sha: { type: "string", description: "Exact Git commit pin for a Map root." } }, required: ["map_id", "if_match"], additionalProperties: false }, cli: { argv: ["spaces", "add"], positional: ["map_id", "address"], flags: { if_match: { flag: "--if-match" }, command_id: { flag: "--command-id" }, depth: { flag: "--depth" }, name: { flag: "--name" }, summary: { flag: "--summary" }, position: { flag: "--position" }, root_node_id: { flag: "--root-node-id" }, sha: { flag: "--sha" } } }, output: { json: ["map_id", "version_id", "command_id"] } }, { id: "spaces.remove", owner: "cli", status: "active", job: "J8", effect: "write-hosted", reach: "hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or remove one hosted Map member.", use_when: "Explicitly remove a reference, never content.", check: "Read the preview then yes; Core cannot be removed. Use if_match version_id.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { map_id: { type: "string", description: "Positional map id for spaces.remove." }, ordinal: { type: "string", description: "Positional ordinal for spaces.remove." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." }, command_id: { type: "string", description: "Stable hosted write id; retain identical arguments for exact retry." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: ["map_id", "ordinal", "if_match"], additionalProperties: false }, cli: { argv: ["spaces", "remove"], positional: ["map_id", "ordinal"], flags: { if_match: { flag: "--if-match" }, command_id: { flag: "--command-id" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["preview", "map_id", "member_ordinal", "version_id", "command_id"] } }, { id: "spaces.import", owner: "cli", status: "active", job: "J8", effect: "write-hosted", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create a personal hosted copy of a local Map.", use_when: "Copy a local view to the service explicitly.", check: "Uncertain import is not retried; check list first. No new Core or content grants.", bound: "One local Map, max 1048576 UTF-8 bytes." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["spaces", "import"], positional: ["path"], flags: {} }, output: { json: ["map_id"] } }, { id: "spaces.export", owner: "cli", status: "active", job: "J8", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Write an independent local copy of a hosted Map/version.", use_when: "Need a portable local Map copy.", check: "Use version_id for an exact copy; destination must not exist.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { map_or_version_id: { type: "string", description: "Positional map or version id for spaces.export." }, path: { type: "string", description: "Local path to the target." } }, required: ["map_or_version_id", "path"], additionalProperties: false }, cli: { argv: ["spaces", "export"], positional: ["map_or_version_id", "path"], flags: {} }, output: { json: ["path", "source", "copy"] } }, { id: "vaults", owner: "cli", status: "active", job: "J8", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List personal, organization and shared Vaults.", use_when: "Choose a Vault for hosted Space creation.", check: "Company creation needs org_node_id and current OWNER authority.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["vaults"], positional: [], flags: {} }, output: { json: ["vaults"] } }, { id: "get", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview bringing a Space home; yes plus as selects clone, fork or link.", use_when: "Start from a shared URL or existing directory.", check: "Read proposed action and destination before yes.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { source: { type: "string", description: "Positional source for get." }, destination: { type: "string", description: "Positional destination for get." }, as: { type: "string", description: "Explicit get mode: clone, fork or link; used with yes." }, name: { type: "string", description: "Human-readable name/title." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: ["source"], additionalProperties: false }, cli: { argv: ["get"], positional: ["source", "destination"], flags: { as: { flag: "--as" }, name: { flag: "--name" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["address", "kind", "root_node_id", "modes", "logged_in", "next"] } }, { id: "clone", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Clone an authorized repo into a local folder.", use_when: "Need remote history and an ongoing Git remote.", check: "Check destination and authorization; cloning does not widen access.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { source: { type: "string", description: "Positional source for clone." }, destination: { type: "string", description: "Positional destination for clone." } }, required: ["source"], additionalProperties: false }, cli: { argv: ["clone"], positional: ["source", "destination"], flags: {} }, output: { json: ["repo_id", "root_node_id", "repo_url", "path", "identity_state"] } }, { id: "fork", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Materialize an independent local copy without source history.", use_when: "Need an independent Space rather than a remote clone.", check: "Check source lineage and destination; no implicit publish or sharing.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { source: { type: "string", description: "Positional source for fork." }, destination: { type: "string", description: "Positional destination for fork." }, name: { type: "string", description: "Human-readable name/title." } }, required: ["source"], additionalProperties: false }, cli: { argv: ["fork"], positional: ["source", "destination"], flags: { name: { flag: "--name" } } }, output: { json: ["path", "root_node_id", "source_root_node_id", "source_history_copied", "published"] } }, { id: "link", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Bind an existing local clone to a hosted repo.", use_when: "Already have a checkout to register.", check: "Check the checkout identity and selected hosted repo.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["link"], positional: ["path", "repo"], flags: {} }, output: { json: ["repo_id", "root_node_id", "namespace", "path"] } }, { id: "forget", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Unregister a local checkout, optionally delete its folder.", use_when: "Explicitly stop tracking a clone.", check: "Delete removes the folder; never set delete without the person agreeing.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, delete: { type: "boolean", description: "Delete the local checkout folder as well as unregister it; explicit destructive intent required." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["forget"], positional: ["path"], flags: { delete: { flag: "--delete", boolean: "bare" } } }, output: { json: ["forgotten", "deleted", "path"] } }, { id: "clones", owner: "cli", status: "active", job: "J9", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List registered local checkouts.", use_when: "Need local paths and identities, not hosted repo discovery.", check: "Entries can be stale; check path availability before using them.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["clones"], positional: [], flags: {} }, output: { json: ["clones"] } }, { id: "integrate", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or apply remote/source updates for this checkout.", use_when: "Bring content up to date using the checkout kind.", check: "Read preview before yes; check from and conflict results.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { from: { type: "string", description: "Integration channel: remote or fork source." }, rebase: { type: "boolean", description: "Integrate by rebase (default true) rather than merge." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: [], additionalProperties: false }, cli: { argv: ["integrate"], positional: [], flags: { from: { flag: "--from" }, rebase: { flag: "--rebase", boolean: "bare" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: [] } }, { id: "update", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or apply source updates to a fork.", use_when: "Need a three-way fork source update, not a CLI upgrade.", check: "Read plan before yes; resolve conflicts deliberately.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: [], additionalProperties: false }, cli: { argv: ["update"], positional: [], flags: { yes: { flag: "--yes", boolean: "bare" } } }, output: { json: [] } }, { id: "pull", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Fetch and integrate remote Git changes into this checkout.", use_when: "Explicitly update a clone, not a fork source.", check: "Use dry_run first when useful; dirty captures must be saved first.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { dry_run: { type: "boolean", description: "Preview remote sync state without pushing or integrating." }, rebase: { type: "boolean", description: "Integrate by rebase (default true) rather than merge.", default: true } }, required: [], additionalProperties: false }, cli: { argv: ["pull"], positional: [], flags: { dry_run: { flag: "--dry-run", boolean: "bare" }, rebase: { flag: "--rebase", boolean: "bare" } } }, output: { json: ["upstream", "dry_run", "integrated"] } }, { id: "push", owner: "cli", status: "active", job: "J9", effect: "share", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Push committed captures to the configured remote.", use_when: "Sharing committed repo state was explicitly requested.", check: "Check dry_run, remote and ahead/behind; pull first if behind.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { dry_run: { type: "boolean", description: "Preview remote sync state without pushing or integrating." } }, required: [], additionalProperties: false }, cli: { argv: ["push"], positional: [], flags: { dry_run: { flag: "--dry-run", boolean: "bare" } } }, output: { json: ["upstream", "dry_run", "pushed"] } }, { id: "sync", owner: "cli", status: "active", job: "J9", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Report local, remote and fork-source state without integrating.", use_when: "Need a sync plan rather than an update.", check: "Read conflict/drift findings; this report does not integrate content.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 } }, required: [], additionalProperties: false }, cli: { argv: ["sync"], positional: [], flags: { limit: { flag: "--limit" } } }, output: { json: ["upstream", "ahead", "behind", "fetched", "incoming", "incoming_unavailable", "outgoing", "source", "integrated"] } }, { id: "catalog", owner: "cli", status: "active", job: "J9", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List local and remote repos with sync state.", use_when: "Need a combined repository overview.", check: "Fetch is explicit; unavailable remote evidence is not clean state.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { fetch: { type: "boolean", description: "Explicitly fetch remote refs before reporting state." } }, required: [], additionalProperties: false }, cli: { argv: ["catalog"], positional: [], flags: { fetch: { flag: "--fetch", boolean: "bare" } } }, output: { json: ["logged_in", "username", "notes", "entries"] } }, { id: "repos", owner: "cli", status: "active", job: "J9", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List hosted repos and your available actions.", use_when: "Discover repos, not Maps or local checkout paths.", check: "Check relationship and actions; repo access is separate from Space membership.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["repos"], positional: [], flags: {} }, output: { json: ["username", "repos"] } }, { id: "publish", owner: "cli", status: "active", job: "J9", effect: "share", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or publish this folder as a remote repo.", use_when: "A person explicitly wants to host this local repo.", check: "Read the plan before yes; verify slug and hostname.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { slug: { type: "string", description: "Hosted repository route slug." }, name: { type: "string", description: "Human-readable name/title." }, hostname: { type: "string", description: "Organization hostname, or target hosting namespace as selected by the command." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: [], additionalProperties: false }, cli: { argv: ["publish"], positional: [], flags: { slug: { flag: "--slug" }, name: { flag: "--name" }, hostname: { flag: "--hostname" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["plan", "applied", "repo_id", "root_node_id", "repo_url", "identity_state"] } }, { id: "status", owner: "cli", status: "active", job: "J9", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read Git state, staged captures, activity and drift.", use_when: "Need volatile checkout state or one file revision.", check: "No session capture ownership is inferred by this CLI; inspect staged paths.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, fetch: { type: "boolean", description: "Explicitly fetch remote refs before reporting state." }, workspace: { type: "string", description: "Workspace directory used for orientation/state." }, mount: { type: "array", description: "Additional content roots for workspace orientation.", items: { type: "string" } }, pullable: { type: "string", description: "Additional pullable source declarations for workspace state." }, contract: { type: "string", description: "Reference frame: foundation or agreement, never caller authority." } }, required: [], additionalProperties: false }, cli: { argv: ["status"], positional: [], flags: { path: { flag: "--path" }, fetch: { flag: "--fetch", boolean: "bare" }, workspace: { flag: "--workspace" }, mount: { flag: "--mount", list: "csv" }, pullable: { flag: "--pullable" }, contract: { flag: "--contract" } } }, output: { json: ["repoRoot", "branch", "ahead", "behind", "dirty", "tracked_captures", "path", "sha", "revision"] } }, { id: "share.status", owner: "cli", status: "active", job: "J10", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Inspect access and standing.", use_when: "Before changing access.", check: "Read standing and direct versus inherited capabilities.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { repo_url: { type: "string", description: "Positional repo url for share.status." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: [], additionalProperties: false }, cli: { argv: ["share", "status"], positional: ["repo_url"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.log", owner: "cli", status: "active", job: "J10", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read the per-node access event log.", use_when: "When auditing access decisions.", check: "Verify the node id and event provenance.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { repo_url: { type: "string", description: "Positional repo url for share.log." }, node: { type: "string", description: "Exact node id for the per-node share log." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: [], additionalProperties: false }, cli: { argv: ["share", "log"], positional: ["repo_url"], flags: { node: { flag: "--node" }, repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: ["repo_id", "node_id", "scope", "complete_repo_log", "events"] } }, { id: "share.person", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Grant or invite a person at an explicit grade.", use_when: "When the person explicitly requested sharing.", check: "Verify recipient and grade; history is a separate explicit grant.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for share.person." }, grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." }, history: { type: "boolean", description: "Explicitly grant hosted history access when sharing with a person." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["recipient"], additionalProperties: false }, cli: { argv: ["share", "person"], positional: ["recipient"], flags: { grade: { flag: "--grade" }, history: { flag: "--history", boolean: "bare" }, repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.team", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Grant access to a team.", use_when: "When team sharing is explicitly agreed.", check: "Verify hostname, grade and inherited access.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { hostname: { type: "string", description: "Organization hostname, or target hosting namespace as selected by the command." }, grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["hostname"], additionalProperties: false }, cli: { argv: ["share", "team"], positional: ["hostname"], flags: { grade: { flag: "--grade" }, repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.list", owner: "cli", status: "active", job: "J10", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List direct people, invitations and teams.", use_when: "Before changing an existing grant.", check: "Inspect direct and inherited grants separately.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: [], additionalProperties: false }, cli: { argv: ["share", "list"], positional: [], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: ["target_node_id", "visibility", "people", "pending_invites", "teams", "unavailable"] } }, { id: "share.remove", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Remove direct access or an invitation.", use_when: "When revocation is explicitly agreed.", check: "Inherited access may remain; inspect the result.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for share.remove." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["recipient"], additionalProperties: false }, cli: { argv: ["share", "remove"], positional: ["recipient"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: ["revoked", "target_node_id"] } }, { id: "share.resend", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Resend a pending invitation.", use_when: "When an invitation needs another delivery.", check: "Verify email and pending state.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for share.resend." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["recipient"], additionalProperties: false }, cli: { argv: ["share", "resend"], positional: ["recipient"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.history", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Set history visibility for a person.", use_when: "When explicitly asked to change history access.", check: "Verify identity and on/off; this changes what history is shared.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for share.history." }, state: { type: "string", description: "Positional state for share.history." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["recipient", "state"], additionalProperties: false }, cli: { argv: ["share", "history"], positional: ["recipient", "state"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.visibility", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or set public/private visibility.", use_when: "When publication visibility is explicitly agreed.", check: "Read plan before yes; public visibility exposes content.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { visibility: { type: "string", description: "Positional visibility for share.visibility." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: ["visibility"], additionalProperties: false }, cli: { argv: ["share", "visibility"], positional: ["visibility"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["plan", "applied", "visibility"] } }, { id: "request.ask", owner: "cli", status: "active", job: "J10", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Ask an owner for access.", use_when: "Need access that is not granted yet.", check: "A request is not a grant; check target, grade and returned request id.", bound: "One request per call." }, bound: "n/a", parameters: { type: "object", properties: { node_id: { type: "string", description: "Hosted node identity." }, grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." }, reason: { type: "string", description: "Reason supplied with an access request." } }, required: ["node_id"], additionalProperties: false }, cli: { argv: ["request", "ask"], positional: ["node_id"], flags: { grade: { flag: "--grade" }, reason: { flag: "--reason" } } }, output: { json: ["id", "requested_grade", "target_node_id", "state"] } }, { id: "request.list", owner: "cli", status: "active", job: "J10", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List incoming or your own access requests.", use_when: "Inspect pending decisions before approving or cancelling.", check: "Mine/own select your requests; incoming is the default.", bound: "Unbounded service request list; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { incoming: { type: "boolean", description: "List incoming requests (the default)." }, mine: { type: "boolean", description: "List requests made by this account, not incoming requests." }, own: { type: "boolean", description: "Compatibility spelling of mine for request list." }, include_terminal: { type: "boolean", description: "Include terminal states when listing your access requests." } }, required: [], additionalProperties: false }, cli: { argv: ["request", "list"], positional: [], flags: { incoming: { flag: "--incoming", boolean: "bare" }, mine: { flag: "--mine", boolean: "bare" }, own: { flag: "--own", boolean: "bare" }, include_terminal: { flag: "--include-terminal", boolean: "bare" } } }, aliases: ["request incoming"], output: { json: ["requests"] } }, { id: "request.approve", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Approve one incoming access request.", use_when: "An authorized owner explicitly agrees to grant access.", check: "Verify request, recipient and approved grade.", bound: "One request per call." }, bound: "n/a", parameters: { type: "object", properties: { request_id: { type: "string", description: "Positional request id for request.approve." }, grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." } }, required: ["request_id"], additionalProperties: false }, cli: { argv: ["request", "approve"], positional: ["request_id"], flags: { grade: { flag: "--grade" } } }, output: { json: ["id", "approved_grade", "state"] } }, { id: "request.deny", owner: "cli", status: "active", job: "J10", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Decline one incoming access request.", use_when: "An authorized owner explicitly refuses the request.", check: "Check request identity and resulting state.", bound: "One request per call." }, bound: "n/a", parameters: { type: "object", properties: { request_id: { type: "string", description: "Positional request id for request.deny." } }, required: ["request_id"], additionalProperties: false }, cli: { argv: ["request", "deny"], positional: ["request_id"], flags: {} }, aliases: ["request decline"], output: { json: ["id", "state"] } }, { id: "request.cancel", owner: "cli", status: "active", job: "J10", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Cancel your own pending access request.", use_when: "Explicitly withdraw a request you made.", check: "Check ownership and request state; grants are not revoked.", bound: "One request per call." }, bound: "n/a", parameters: { type: "object", properties: { request_id: { type: "string", description: "Positional request id for request.cancel." } }, required: ["request_id"], additionalProperties: false }, cli: { argv: ["request", "cancel"], positional: ["request_id"], flags: {} }, output: { json: ["id", "state"] } }, { id: "agent.run", owner: "cli", status: "active", job: "J11", effect: "launch", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Launch a local agent POV on Pi or Claude with explicit reach.", use_when: "Need a separate agent run; inspect agent.capabilities first.", check: "Check disclosed reach, requested versus observed model and final status. Host permissions still govern.", bound: "Message capped at 8192 bytes; no implicit run ceiling. Output streams lifecycle events." }, bound: "n/a", parameters: { type: "object", properties: { pov: { type: "string", description: "Local agent POV folder." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, task: { type: "string", description: "Short task description stored on the local run." }, runtime: { type: "string", description: "Local runtime, pi or claude.", enum: ["pi", "claude"], default: "pi" }, model: { type: "string", description: "Requested runtime model, or hosted conversation model tier." }, parent: { type: "string", description: "Parent run id for local records; explicit value overrides environment discovery." }, parent_tool_use_id: { type: "string", description: "Parent tool-use coordinate recorded for run attribution." }, run_id: { type: "string", description: "Stable local run record id; agent record can also use IDEASPACES_RUN_ID." }, pi_thinking: { type: "string", description: "Pi thinking level forwarded to the runtime." }, pi_trust: { type: "string", description: "Pi resource trust: saved or explicit." }, topic: { type: "string", description: "Explicit name for a new Pi agent transcript only." }, ext: { type: "array", description: "Explicit Pi extension paths; not ambient discovery.", items: { type: "string" } }, skill: { type: "array", description: "Explicit local runtime skill directories.", items: { type: "string" } }, claude_effort: { type: "string", description: "Claude effort level; the installed runtime validates it." }, permission_mode: { type: "string", description: "Claude permission mode; bypassPermissions is refused." }, read_only: { type: "boolean", description: "Claude read-only launch, with MCP servers removed." }, reach: { type: "array", description: "Explicit extra directories for a Claude local turn.", items: { type: "string" } }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, thread_map: { type: "string", description: "Authored Map selecting the source Thread of a local run." }, thread_member: { type: "integer", description: "Zero-based source Thread Map member ordinal.", minimum: 0 }, pi_bin: { type: "string", description: "Explicit Pi executable path." }, claude_bin: { type: "string", description: "Explicit Claude Code executable path." }, pi_model: { type: "string", description: "Pi provider/model selector." }, claude_model: { type: "string", description: "Claude Code model selector." }, claude_auth: { type: "string", description: "Claude authentication mode: login or api-key." }, model_tier: { type: "string", description: "Local conversation model-tier metadata." }, session_dir: { type: "string", description: "Local runtime transcript directory." }, working_root: { type: "string", description: "Local launch working-set root, not permission to widen reach." }, focus: { type: "string", description: "Reference focus path for a local runtime launch." }, autocompact: { type: "string", description: "Claude auto-compaction window, auto or 100k\u20131M." } }, required: ["pov", "message"], additionalProperties: false }, cli: { argv: ["agent", "run"], positional: ["pov"], flags: { message: { flag: "--message" }, task: { flag: "--task" }, runtime: { flag: "--runtime" }, model: { flag: "--model" }, parent: { flag: "--parent" }, parent_tool_use_id: { flag: "--parent-tool-use-id" }, run_id: { flag: "--run-id" }, pi_thinking: { flag: "--pi-thinking" }, pi_trust: { flag: "--pi-trust" }, topic: { flag: "--topic" }, ext: { flag: "--ext", list: "csv" }, skill: { flag: "--skill", list: "csv" }, claude_effort: { flag: "--claude-effort" }, permission_mode: { flag: "--permission-mode" }, read_only: { flag: "--read-only", boolean: "bare" }, reach: { flag: "--reach", list: "repeat" }, map: { flag: "--map" }, conversation: { flag: "--conversation" }, thread: { flag: "--thread" }, thread_map: { flag: "--thread-map" }, thread_member: { flag: "--thread-member" }, pi_bin: { flag: "--pi-bin" }, claude_bin: { flag: "--claude-bin" }, pi_model: { flag: "--pi-model" }, claude_model: { flag: "--claude-model" }, claude_auth: { flag: "--claude-auth" }, model_tier: { flag: "--model-tier" }, session_dir: { flag: "--session-dir" }, working_root: { flag: "--working-root" }, focus: { flag: "--focus" }, autocompact: { flag: "--autocompact" } } }, output: { json: [] } }, { id: "agent.runs", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List persisted local agent run records.", use_when: "Inspect past or active runs, optionally by parent or POV.", check: "Check status and model provenance; recorded state is not a live process probe.", bound: "Unbounded unless limit is supplied; filter parent/agent to narrow the local run store." }, bound: "unbounded", parameters: { type: "object", properties: { parent: { type: "string", description: "Parent run id for local records; explicit value overrides environment discovery." }, agent: { type: "string", description: "Agent Actor node id or local POV filter, as selected by this command." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 } }, required: [], additionalProperties: false }, cli: { argv: ["agent", "runs"], positional: [], flags: { parent: { flag: "--parent" }, agent: { flag: "--agent" }, limit: { flag: "--limit" } } }, output: { json: ["runs", "total"] } }, { id: "agent.record", owner: "cli", status: "active", job: "J11", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Append or merge lifecycle information for an external agent run.", use_when: "A hook or runtime has observed a run update.", check: "Record observed facts only; unavailable model or usage is unknown, not zero.", bound: "One run update, identified by run_id; existing fields merge." }, bound: "n/a", parameters: { type: "object", properties: { run_id: { type: "string", description: "Stable local run record id; agent record can also use IDEASPACES_RUN_ID." }, parent: { type: "string", description: "Parent run id for local records; explicit value overrides environment discovery." }, parent_tool_use_id: { type: "string", description: "Parent tool-use coordinate recorded for run attribution." }, agent: { type: "string", description: "Agent Actor node id or local POV filter, as selected by this command." }, task: { type: "string", description: "Short task description stored on the local run." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, harness: { type: "string", description: "Observed run harness, pi or claude." }, model: { type: "string", description: "Requested runtime model, or hosted conversation model tier." }, model_requested: { type: "string", description: "Model id requested by the launcher; not an observed model." }, model_observed: { type: "string", description: "Model id actually reported by the runtime; omit if unknown." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, status: { type: "string", description: "Observed run status, not an inferred process probe." }, started: { type: "string", description: "Observed run start time, ISO timestamp." }, ended: { type: "string", description: "Observed run end time, ISO timestamp." } }, required: ["run_id"], additionalProperties: false }, cli: { argv: ["agent", "record"], positional: [], flags: { run_id: { flag: "--run-id" }, parent: { flag: "--parent" }, parent_tool_use_id: { flag: "--parent-tool-use-id" }, agent: { flag: "--agent" }, task: { flag: "--task" }, message: { flag: "--message" }, harness: { flag: "--harness" }, model: { flag: "--model" }, model_requested: { flag: "--model-requested" }, model_observed: { flag: "--model-observed" }, conversation: { flag: "--conversation" }, status: { flag: "--status" }, started: { flag: "--started" }, ended: { flag: "--ended" } } }, output: { json: ["run_id", "status", "model_requested", "model_observed"] } }, { id: "agent.list", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List validated local POVs from an explicit Map.", use_when: "Choose an agent POV before launching.", check: "Check validation status and resolved checkout; Map membership grants no access.", bound: "All agent members in the selected Map; no paging." }, bound: "n/a", parameters: { type: "object", properties: { map: { type: "string", description: "Authored Map input/path; references grant no access." } }, required: ["map"], additionalProperties: false }, cli: { argv: ["agent", "list"], positional: [], flags: { map: { flag: "--map" } } }, output: { json: ["agents"] } }, { id: "agent.capabilities", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read the existing agent-run guarantees and feature schema.", use_when: "Before building a launcher or choosing run flags.", check: "Use feature guarantees, not help text, to decide what this installed CLI supports.", bound: "One capability document; unchanged schema id." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["agent", "capabilities"], positional: [], flags: {} }, output: { json: ["schema", "features"] } }, { id: "conversation.new", owner: "cli", status: "active", job: "J11", effect: "write-hosted", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create a private hosted conversation or mint a local runtime conversation id.", use_when: "Start a hosted conversation for a repo and optional Agent Actor.", check: "Hosted creation needs repo_id; local creation needs local and a selected runtime. Check returned conversation_id.", bound: "One conversation per call." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, name: { type: "string", description: "Human-readable name/title." }, agent: { type: "string", description: "Agent Actor node id or local POV filter, as selected by this command." }, local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, runtime: { type: "string", description: "Local runtime, pi or claude." } }, required: [], additionalProperties: false }, cli: { argv: ["conversation", "new"], positional: ["repo_id"], flags: { name: { flag: "--name" }, agent: { flag: "--agent" }, local: { flag: "--local", boolean: "bare" }, runtime: { flag: "--runtime" } } }, output: { json: ["id"] } }, { id: "conversation.send", owner: "cli", status: "active", job: "J11", effect: "launch", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Send one hosted or local conversation turn.", use_when: "Continue an existing conversation, not launch a new POV.", check: "For local turns check runtime, reach and final outcome. Host permissions remain authoritative.", bound: "Streams one turn; use conversation get for persisted hosted output." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, conversation_id: { type: "string", description: "Positional conversation id for conversation.send." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, context: { type: "string", description: "Local runtime context directory." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, runtime: { type: "string", description: "Local runtime, pi or claude.", enum: ["pi", "claude"], default: "pi" }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, ext: { type: "array", description: "Explicit Pi extension paths; not ambient discovery.", items: { type: "string" } }, skill: { type: "array", description: "Explicit local runtime skill directories.", items: { type: "string" } }, pi_bin: { type: "string", description: "Explicit Pi executable path." }, pi_model: { type: "string", description: "Pi provider/model selector." }, pi_thinking: { type: "string", description: "Pi thinking level forwarded to the runtime." }, pi_trust: { type: "string", description: "Pi resource trust: saved or explicit." }, claude_bin: { type: "string", description: "Explicit Claude Code executable path." }, claude_model: { type: "string", description: "Claude Code model selector." }, claude_effort: { type: "string", description: "Claude effort level; the installed runtime validates it." }, permission_mode: { type: "string", description: "Claude permission mode; bypassPermissions is refused." }, read_only: { type: "boolean", description: "Claude read-only launch, with MCP servers removed." }, reach: { type: "array", description: "Explicit extra directories for a Claude local turn.", items: { type: "string" } }, autocompact: { type: "string", description: "Claude auto-compaction window, auto or 100k\u20131M." }, working_root: { type: "string", description: "Local launch working-set root, not permission to widen reach." }, focus: { type: "string", description: "Reference focus path for a local runtime launch." }, session_dir: { type: "string", description: "Local runtime transcript directory." }, model: { type: "string", description: "Requested runtime model, or hosted conversation model tier." }, thinking: { type: "boolean", description: "Enable hosted model thinking explicitly." }, model_tier: { type: "string", description: "Local conversation model-tier metadata." }, claude_auth: { type: "string", description: "Claude authentication mode: login or api-key." }, thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, thread_map: { type: "string", description: "Authored Map selecting the source Thread of a local run." }, thread_member: { type: "integer", description: "Zero-based source Thread Map member ordinal.", minimum: 0 } }, required: ["message"], additionalProperties: false }, cli: { argv: ["conversation", "send"], positional: ["repo_id", "conversation_id"], flags: { message: { flag: "--message" }, local: { flag: "--local", boolean: "bare" }, context: { flag: "--context" }, conversation: { flag: "--conversation" }, runtime: { flag: "--runtime" }, map: { flag: "--map" }, ext: { flag: "--ext", list: "csv" }, skill: { flag: "--skill", list: "csv" }, pi_bin: { flag: "--pi-bin" }, pi_model: { flag: "--pi-model" }, pi_thinking: { flag: "--pi-thinking" }, pi_trust: { flag: "--pi-trust" }, claude_bin: { flag: "--claude-bin" }, claude_model: { flag: "--claude-model" }, claude_effort: { flag: "--claude-effort" }, permission_mode: { flag: "--permission-mode" }, read_only: { flag: "--read-only", boolean: "bare" }, reach: { flag: "--reach", list: "repeat" }, autocompact: { flag: "--autocompact" }, working_root: { flag: "--working-root" }, focus: { flag: "--focus" }, session_dir: { flag: "--session-dir" }, model: { flag: "--model" }, thinking: { flag: "--thinking", boolean: "bare" }, model_tier: { flag: "--model-tier" }, claude_auth: { flag: "--claude-auth" }, thread: { flag: "--thread" }, thread_map: { flag: "--thread-map" }, thread_member: { flag: "--thread-member" } } }, output: { json: [] } }, { id: "conversation.get", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read one hosted or local conversation and its history.", use_when: "Inspect an exact hosted conversation.", check: "Hosted reads need repo_id and conversation_id. Local reads need local and conversation, plus optional context.", bound: "Service result without client-side paging; output may be large." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, conversation_id: { type: "string", description: "Positional conversation id for conversation.get." }, local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, context: { type: "string", description: "Local runtime context directory." }, runtime: { type: "string", description: "Local runtime, pi or claude." }, conversation: { type: "string", description: "Existing local runtime conversation id." } }, required: [], additionalProperties: false }, cli: { argv: ["conversation", "get"], positional: ["repo_id", "conversation_id"], flags: { local: { flag: "--local", boolean: "bare" }, context: { flag: "--context" }, runtime: { flag: "--runtime" }, conversation: { flag: "--conversation" } } }, output: { json: ["conversation", "messages"] } }, { id: "conversation.cancel", owner: "cli", status: "active", job: "J11", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Cancel a hosted conversation turn.", use_when: "Stop an active hosted turn.", check: "Check returned cancellation state; completed work is not undone.", bound: "One conversation per call." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, conversation_id: { type: "string", description: "Positional conversation id for conversation.cancel." } }, required: ["repo_id", "conversation_id"], additionalProperties: false }, cli: { argv: ["conversation", "cancel"], positional: ["repo_id", "conversation_id"], flags: {} }, output: { json: ["status"] } }, { id: "conversation.compact", owner: "cli", status: "active", job: "J11", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Compact a local runtime conversation.", use_when: "Runtime context needs compaction; this is not a shared-state edit.", check: "Only Claude currently supports compaction; Pi refuses. Check context and conversation; raw history remains runtime-owned.", bound: "One local conversation per call." }, bound: "n/a", parameters: { type: "object", properties: { local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, context: { type: "string", description: "Local runtime context directory." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, runtime: { type: "string", description: "Local runtime, pi or claude.", enum: ["pi", "claude"], default: "pi" }, claude_auth: { type: "string", description: "Claude authentication mode: login or api-key." }, claude_bin: { type: "string", description: "Explicit Claude Code executable path." } }, required: ["local", "context", "conversation"], additionalProperties: false }, cli: { argv: ["conversation", "compact"], positional: [], flags: { local: { flag: "--local", boolean: "bare" }, context: { flag: "--context" }, conversation: { flag: "--conversation" }, runtime: { flag: "--runtime" }, claude_auth: { flag: "--claude-auth" }, claude_bin: { flag: "--claude-bin" } } }, output: { json: [] } }, { id: "conversations", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List hosted or local conversations.", use_when: "Choose an existing conversation before continuing it.", check: "Check whether the result is local or hosted and the selected context/repo.", bound: "Complete runtime/service list; no client-side continuation." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, context: { type: "string", description: "Local runtime context directory." }, runtime: { type: "string", description: "Local runtime, pi or claude." } }, required: [], additionalProperties: false }, cli: { argv: ["conversations"], positional: ["repo_id"], flags: { local: { flag: "--local", boolean: "bare" }, context: { flag: "--context" }, runtime: { flag: "--runtime" } } }, output: { json: ["repo_id", "conversations", "total", "has_more"] } }, { id: "agents", owner: "cli", status: "active", job: "J11", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List Agent Actors available to the signed-in account.", use_when: "Choose a hosted actor, not a local POV.", check: "Check owner and actor identity; availability is not a permission grant.", bound: "Complete service list; no client-side paging." }, bound: "n/a", parameters: { type: "object", properties: { owner: { type: "string", description: "Agent Actor owner selector, person:user or hostname:domain." } }, required: [], additionalProperties: false }, cli: { argv: ["agents"], positional: [], flags: { owner: { flag: "--owner" } } }, output: { json: ["agents"] } }, { id: "threads.launch-text", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Assemble bounded launch context from one local Thread post and its Map.", use_when: "Start a session from an explicit post, not the latest by accident.", check: "Read cut diagnostics; pinned Map members are reference, not added authority.", bound: "Launch capped at 16384 bytes; Map character budget can lower detail or drop members." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, post: { type: "string", description: "Exact post id to select." }, member: { type: "integer", description: "Zero-based authored Map member ordinal.", minimum: 0 }, pov: { type: "string", description: "Local agent POV folder." }, budget: { type: "integer", description: "Character budget for bounded Map/orientation rendering.", minimum: 0 } }, required: ["thread", "post"], additionalProperties: false }, cli: { argv: ["threads", "launch-text"], positional: ["thread"], flags: { post: { flag: "--post" }, member: { flag: "--member" }, pov: { flag: "--pov" }, budget: { flag: "--budget" } }, local_flags: ["post", "member", "pov", "budget"] }, output: { json: ["text", "cut", "merged"] } }, { id: "pi.status", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Probe the local Pi binary, providers and extensions.", use_when: "Check whether Pi can run a local agent.", check: "Check binary provenance, provider availability and extension diagnostics; not a hosted account check.", bound: "One installed runtime probe; no paging." }, bound: "n/a", parameters: { type: "object", properties: { pi_bin: { type: "string", description: "Explicit Pi executable path." }, ext: { type: "array", description: "Explicit Pi extension paths; not ambient discovery.", items: { type: "string" } } }, required: [], additionalProperties: false }, cli: { argv: ["pi-status"], positional: [], flags: { pi_bin: { flag: "--pi-bin" }, ext: { flag: "--ext", list: "csv" } } }, output: { json: ["binary", "providers", "configured", "extensions", "ready"] } }, { id: "pi.models", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List models available through the local Pi runtime.", use_when: "Choose an authenticated Pi provider/model before launch.", check: "Availability is auth-gated; inspect provider and model id, not just labels.", bound: "One installed runtime model list; no paging." }, bound: "n/a", parameters: { type: "object", properties: { pi_bin: { type: "string", description: "Explicit Pi executable path." } }, required: [], additionalProperties: false }, cli: { argv: ["pi-models"], positional: [], flags: { pi_bin: { flag: "--pi-bin" } } }, output: { json: ["models"] } }, { id: "pi.login", owner: "cli", status: "active", job: "J11", effect: "account", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Configure one local Pi model provider credential.", use_when: "Explicitly asked to configure a model provider for Pi.", check: "Writes Pi auth.json, not IdeaSpaces login. Keep api_key out of logs and shared artifacts.", bound: "One provider credential per call." }, bound: "n/a", parameters: { type: "object", properties: { provider: { type: "string", description: "Pi model-provider id." }, api_key: { type: "string", description: "Secret model-provider key; never log or capture it." } }, required: ["provider", "api_key"], additionalProperties: false }, cli: { argv: ["pi-login"], positional: [], flags: { provider: { flag: "--provider" }, api_key: { flag: "--api-key" } } }, output: { json: ["provider", "method", "configured", "authPath"] } }, { id: "pi.logout", owner: "cli", status: "active", job: "J11", effect: "account", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Remove one provider from local Pi credentials.", use_when: "Explicitly asked to disconnect a Pi model provider.", check: "Check provider id; does not sign out of IdeaSpaces.", bound: "One provider per call." }, bound: "n/a", parameters: { type: "object", properties: { provider: { type: "string", description: "Pi model-provider id." } }, required: ["provider"], additionalProperties: false }, cli: { argv: ["pi-logout"], positional: [], flags: { provider: { flag: "--provider" } } }, output: { json: ["provider", "removed", "authPath"] } }, { id: "claude.status", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Probe local Claude Code binary, version and sign-in.", use_when: "Check whether Claude can run a local agent.", check: "Check binary path and auth mode; this is not IdeaSpaces account status.", bound: "One installed runtime probe; no paging." }, bound: "n/a", parameters: { type: "object", properties: { claude_bin: { type: "string", description: "Explicit Claude Code executable path." }, claude_auth: { type: "string", description: "Claude authentication mode: login or api-key." } }, required: [], additionalProperties: false }, cli: { argv: ["claude-status"], positional: [], flags: { claude_bin: { flag: "--claude-bin" }, claude_auth: { flag: "--claude-auth" } } }, output: { json: ["binary", "login", "auth", "ready", "models", "capabilities"] } }, { id: "claude.models", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List models and context capabilities of local Claude Code.", use_when: "Choose a model supported by the installed Claude binary.", check: "Check installed binary and model capabilities; not an online latest-version claim.", bound: "One installed runtime model list; no paging." }, bound: "n/a", parameters: { type: "object", properties: { claude_bin: { type: "string", description: "Explicit Claude Code executable path." } }, required: [], additionalProperties: false }, cli: { argv: ["claude-models"], positional: [], flags: { claude_bin: { flag: "--claude-bin" } } }, output: { json: ["binary", "models", "capabilities"] } }, { id: "change.new", owner: "cli", status: "active", job: "J12", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Mint a Change-Id for one decision spanning commits or repos.", use_when: "A decision needs one durable coordinate across several commits.", check: "Reuse an existing Change-Id when continuing the same decision.", bound: "One id per call; does not arm host session state." }, bound: "n/a", parameters: { type: "object", properties: { handle: { type: "string", description: "Positional handle for change.new." } }, required: [], additionalProperties: false }, cli: { argv: ["change", "new"], positional: ["handle"], flags: { handle: { flag: "--handle" } } }, output: { json: ["change_id"] } }, { id: "login", owner: "cli", status: "active", job: "J13", effect: "account", reach: "local+hosted", confirm: "browser", requires: { cli: ">=0.9.0" }, text: { does: "Open browser sign-in for this CLI on this machine.", use_when: "A person explicitly wants this CLI authenticated.", check: "Complete browser authorization; host-run auth must stay with the host.", bound: "One browser flow; headless callers use an existing IS_API_KEY." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["login"], positional: [], flags: {} }, output: { json: ["logged_in", "web_url", "env_override_active"] } }, { id: "logout", owner: "cli", status: "active", job: "J13", effect: "account", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Revoke this CLI session, then clear its credentials.", use_when: "Explicitly asked to sign this CLI out.", check: "Credentials are retained if revocation fails; host auth is not replaced.", bound: "One CLI session; no paging." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["logout"], positional: [], flags: {} }, aliases: ["power logout"], output: { json: ["logged_out", "env_override_active"] } }, { id: "whoami", owner: "cli", status: "active", job: "J13", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Show this CLI login state.", use_when: "Need account identity rather than repo status.", check: "Check account and configured endpoint; does not prove a hosted write is authorized.", bound: "One account status result." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["whoami"], positional: [], flags: {} }, aliases: ["status account"], output: { json: ["logged_in", "api_url", "username"] } }, { id: "doctor", owner: "cli", status: "active", job: "J13", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Diagnose Node, Git, remote auth and CLI update state.", use_when: "Investigate installation or credential problems.", check: "Read individual findings; an installed version is not a claim about the latest release.", bound: "One diagnostic report." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["doctor"], positional: [], flags: {} }, aliases: ["status doctor"], output: { json: ["schema_version", "ok", "platform", "checks"] } }, { id: "upgrade", owner: "cli", status: "active", job: "J13", effect: "account", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Check for or install a newer CLI.", use_when: "Update the CLI itself; update/integrate are for repo content.", check: "Check installation kind; check is read-only. Host-managed installs must use their host updater.", bound: "One installation; check does not install." }, bound: "n/a", parameters: { type: "object", properties: { check: { type: "boolean", description: "Report drift/update state without applying changes." } }, required: [], additionalProperties: false }, cli: { argv: ["upgrade"], positional: [], flags: { check: { flag: "--check", boolean: "bare" } } }, output: { json: ["current", "latest", "behind", "upgraded", "install", "path", "advice"] } }, { id: "version", owner: "cli", status: "active", job: "J13", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Report the installed CLI version.", use_when: "Need build identity, not online update availability.", check: "This is the built package version, not the latest published version.", bound: "One version field." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["--version"], positional: [], flags: {} }, aliases: ["--version", "-v"], output: { json: ["version"] } }, { id: "create", owner: "cli", status: "active", job: "J13", effect: "write-local", reach: "local", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or scaffold a local ideaspace.", use_when: "A person wants a new local repo or Home scaffold.", check: "Read the plan before yes; check destination and scaffold kind.", bound: "One destination; defaults to preview until yes." }, bound: "n/a", parameters: { type: "object", properties: { name: { type: "string", description: "Human-readable name/title." }, shared: { type: "boolean", description: "Create shared agent instructions rather than private local defaults." }, agent: { type: "boolean", description: "Agent Actor node id or local POV filter, as selected by this command." }, foundation: { type: "boolean", description: "Choose a Foundation scaffold instead of Agreement." }, home: { type: "string", description: "Hosted map:<id> placement, or Home scaffold destination for create." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: [], additionalProperties: false }, cli: { argv: ["create"], positional: ["name"], flags: { shared: { flag: "--shared", boolean: "bare" }, agent: { flag: "--agent", boolean: "bare" }, foundation: { flag: "--foundation", boolean: "bare" }, home: { flag: "--home" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["target", "shape", "plan", "scaffolded", "root_node_id", "identity_state"] } }, { id: "capabilities", owner: "cli", status: "active", job: "J13", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.10.0" }, text: { does: "Discover agent contracts progressively by group and id.", use_when: "Discover groups first, then entries, then the full contract for one id.", check: "Catalogs describe contracts, not host permissions or exposure.", bound: "Fourteen group lines, group summaries, or one complete entry; no paging." }, bound: "n/a", parameters: { type: "object", properties: { selector: { type: "string", description: "Positional selector for capabilities." } }, required: [], additionalProperties: false }, cli: { argv: ["capabilities"], positional: ["selector"], flags: {} }, output: { json: ["schema", "version", "cli", "protocol", "digest", "groups", "entries", "entry"] } }, { id: "search", owner: "cli", status: "active", job: "J14", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Search local Markdown or open a saved result Map.", use_when: "Find content across explicit roots; save references only when requested.", check: "Check result roots, match count and any unresolved saved references. Saving does not share content.", bound: "Default limit 20, no result maximum; scan truncation/incomplete roots are reported. Narrow query/roots or increase limit." }, bound: { unit: "entries", default: 20, says: true }, parameters: { type: "object", properties: { query: { type: "string", description: "Filename filtering text for ls." }, root: { type: "array", description: "Explicit root selector; meaning is command-specific.", items: { type: "string" } }, threads: { type: "boolean", description: "Include Thread Notes in search." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1, default: 20 }, save: { type: "string", description: "Write a search result Map to this local Note path." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, force: { type: "boolean", description: "Bypass existing revision/overwrite protection explicitly." }, open: { type: "string", description: "Include open local Threads when filtering discovery." } }, required: [], additionalProperties: false }, cli: { argv: ["search"], positional: ["query"], flags: { root: { flag: "--root", list: "repeat" }, threads: { flag: "--threads", boolean: "bare" }, limit: { flag: "--limit" }, save: { flag: "--save" }, name: { flag: "--name" }, summary: { flag: "--summary" }, force: { flag: "--force", boolean: "bare" }, open: { flag: "--open" } } }, output: { json: ["query", "scanned", "total", "matched", "results", "map", "map_status", "complete", "saved"] } }, { id: "follow", owner: "cli", status: "retired", refusal: "Follow, unfollow and subscription cursor acknowledgement are retired. No request was sent. Use `ideaspaces threads list --unread` for unread Threads; use `ideaspaces threads ack <id> --cursor <cursor>` only to mark a Thread read explicitly.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["follow"], positional: [], flags: {} } }, { id: "unfollow", owner: "cli", status: "retired", refusal: "Follow, unfollow and subscription cursor acknowledgement are retired. No request was sent. Use `ideaspaces threads list --unread` for unread Threads; use `ideaspaces threads ack <id> --cursor <cursor>` only to mark a Thread read explicitly.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["unfollow"], positional: [], flags: {} } }, { id: "threads.posts", owner: "cli", status: "retired", refusal: "threads posts retired with the Inbox; use threads list and open, or manage membership on the web.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: { space: { type: "string", description: "Compatibility repository URL selector for share." }, scope: { type: "string", description: "The scope option for threads.posts; see this entry's check and bound." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 }, since: { type: "string", description: "Continuation position from the prior page or ISO filter where supported." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, order: { type: "string", description: "Page direction: older or newer; since advances forward with older." }, cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "posts"], positional: [], flags: { space: { flag: "--space" }, scope: { flag: "--scope" }, limit: { flag: "--limit" }, since: { flag: "--since" }, depth: { flag: "--depth" }, order: { flag: "--order" }, cursor: { flag: "--cursor" } }, local_flags: ["space", "scope", "limit", "since", "depth", "order", "cursor"] } }, { id: "threads.expand", owner: "cli", status: "retired", refusal: "threads expand retired with the Inbox; use threads list and open, or manage membership on the web.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["threads", "expand"], positional: [], flags: {}, local_flags: [] } }, { id: "threads.add", owner: "cli", status: "retired", refusal: "threads add retired with the Inbox; use threads list and open, or manage membership on the web.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: { grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "add"], positional: [], flags: { grade: { flag: "--grade" } }, local_flags: ["grade"] } }, { id: "change.open", owner: "host", implemented_by: ["mcp", "pi"], status: "active", job: "J12", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Open a session Change, minting or continuing its id.", use_when: "Manage a multi-commit decision in the current host session.", check: "Session state belongs to the host; this entry grants no permissions or cross-session ownership.", bound: "One host session; optional file selection is exact." }, bound: "n/a", parameters: { type: "object", properties: { handle: { type: "string", description: "Handle used to mint a new Change-Id." }, id: { type: "string", description: "Existing Change-Id to continue." } }, required: [], additionalProperties: false }, calls: ["change.new"], output: { json: ["id"] } }, { id: "change.close", owner: "host", implemented_by: ["mcp", "pi"], status: "active", job: "J12", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Close the session Change; later commits no longer carry its id.", use_when: "Manage a multi-commit decision in the current host session.", check: "Session state belongs to the host; this entry grants no permissions or cross-session ownership.", bound: "One host session; optional file selection is exact." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, calls: [], output: { json: ["id"] } }, { id: "session.status", owner: "host", implemented_by: ["mcp", "pi"], status: "active", job: "J9", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read session captures, open Change and optional safe file revisions.", use_when: "Inspect session-owned captures and file revisions before saving.", check: "Session state belongs to the host; this entry grants no permissions or cross-session ownership.", bound: "One host session; optional file selection is exact." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Optional file to inspect for safe refinement." } }, required: [], additionalProperties: false }, calls: ["status"], output: { json: ["session_owned", "change", "captures", "revision"] } }], exclusions: [{ id: "agent_session", reason: "Removed from every surface; not a tool." }, { id: "is_cli", reason: "Shell alias in a plugin skill, not a tool." }, { id: "is_share", reason: "Mentioned only in no-native-tool guidance; not a tool." }, { id: "credential", reason: "Git credential helper, not an agent-facing command." }, { id: "update-check", reason: "Internal update probe, not an agent-facing command." }], capabilities: { threads: { schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, agent: { schema: "ideaspaces.agent-run.capabilities", version: 1, features: ["pi.explicit-extensions", "pi.retry-terminal", "pi.skill-isolation", "pi.trust", "pi.thinking", "pi.topic", "claude.read-only", "claude.effort", "claude.permission-mode", "model.requested-observed", "run.records", "run.record-command", "run.terminal-error", "run.cancelled-nonzero"] } } };
+    define_IDEASPACES_AGENT_CATALOG_default = { schema: "ideaspaces.agent-tools", version: 1, cli: { version: "0.11.0", commit: "608b5c46d3f40454c7957d054cb24051c294d83b" }, protocol: { version: "0.33.0", commit: "6e1aadd33e566a56b929d3698e245f8ea7084c58" }, digest: "sha256:ead2d917edbf07e1fc0f693381cd0d27d637678501be1094721cca2257a6cc9a", groups: [{ id: "read", job: "J1", name: "Read content", use_when: "Read one target progressively, inspect Markdown, or locate content." }, { id: "notes", job: "J2", name: "Write Notes", use_when: "Create or update a Note, locally or by hosted identity." }, { id: "commits", job: "J3", name: "Save captures", use_when: "Save explicitly selected staged files to Git." }, { id: "threads", job: "J4", name: "Local Threads", use_when: "Create, post to, close, attach or maintain a local Thread." }, { id: "hosted-threads", job: "J5", name: "Hosted Threads", use_when: "Send or reply remotely, acknowledge, rename, or check transport support." }, { id: "thread-status", job: "J6", name: "Thread activity", use_when: "List Threads, see what moved, or check immutable posts." }, { id: "maps", job: "J7", name: "Local Maps", use_when: "Create or edit references in a local Map; list Spaces." }, { id: "spaces", job: "J8", name: "Hosted Spaces", use_when: "Read, create, edit or copy a hosted Map, or choose a Vault." }, { id: "repositories", job: "J9", name: "Repositories", use_when: "Bring repos home, inspect sync state, integrate, push or publish." }, { id: "share", job: "J10", name: "Access", use_when: "Inspect access or explicitly grant, revoke or request it." }, { id: "agent-tools", job: "J11", name: "Agents and runtimes", use_when: "Discover and run agents, inspect conversations, or configure a runtime provider." }, { id: "changes", job: "J12", name: "Changes", use_when: "Mint or manage a session Change spanning commits and repos." }, { id: "account", job: "J13", name: "Account and setup", use_when: "Sign in or out, diagnose installation, upgrade the CLI or scaffold a repo." }, { id: "searching", job: "J14", name: "Search", use_when: "Find Markdown by query or open a saved result Map." }], entries: [{ id: "look", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read one local Note, Content directory, Thread or pinned Map address. A folder that keeps time (a Thread, or keeps_time: true) starts with its state from its entries: name, parent, about, closed, current Map; as_of reads it as it stood at a moment.", use_when: "Deepen one identified target; use navigate for orientation.", check: "Check target.page.nextCursor and continue with since. A Thread's children show each post's id, kind and author; cite the id shown, never a guessed or padded one. Open the post for body evidence; a summary alone is not proof. Read state before the children: it is the folder's current truth.", bound: "Rungs bound detail; directory target.page reports total, shown and nextCursor. Continue with since. With as_of, the page shows the entries at or before the cursor and state.as_of says how many were left out." }, bound: { unit: "entries", says: true, continue: "since" }, parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented. Default summary; children when limit, since or order pages a folder; full when post selects one post.", enum: ["name", "summary", "surface", "children", "full"], default: "summary" }, contract: { type: "string", description: "Reference frame: foundation or agreement, never caller authority.", enum: ["foundation", "agreement"] }, agreement: { type: "string", description: "Reference Agreement representation, never caller authority.", enum: ["summary", "full"] }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 0 }, since: { type: "string", description: "Continuation position from the prior page (a child filename); in a folder that keeps time, also an entry id or an ISO date, resolved to the newest entry at or before it." }, order: { type: "string", description: "Page direction: older or newer; since advances forward with older.", enum: ["older", "newer"] }, post: { type: "string", description: "Post id to select and read in full: the full msg_ id, or its unique eight-hex short form." }, as_of: { type: "string", description: "Read a folder that keeps time as it stood at this cursor: an ISO date or instant (a day is its end), an entry id, or an entry's filename. Entries after it set nothing and are not listed." }, pin: { type: "string", description: "Exact authored Git commit for reading a local path." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, at: { type: "string", description: "Read a Map address at its authored pin or checkout head.", enum: ["pin", "head"] } }, required: [], additionalProperties: false }, cli: { argv: ["look"], positional: ["path"], flags: { depth: { flag: "--depth" }, contract: { flag: "--contract" }, agreement: { flag: "--agreement" }, limit: { flag: "--limit" }, since: { flag: "--since" }, order: { flag: "--order" }, post: { flag: "--post" }, as_of: { flag: "--as-of" }, pin: { flag: "--pin" }, map: { flag: "--map" }, at: { flag: "--at" } } }, output: { json: ["text", "kind", "depth", "state", "as_of", "reference", "target", "target.page.shown", "target.page.total", "target.page.nextCursor", "map", "portable", "dirty"] } }, { id: "navigate", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Orient here or read another position as reference without changing authority.", use_when: "Change reference focus, not your working directory or operating contract.", check: "A target Agreement is reference only. Check selected contract and tree depth.", bound: "Depth 1 by default, up to 4; focus is a bounded depth-one reference view." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, focus: { type: "boolean", description: "Read the target as bounded reference focus without changing caller authority." }, agreement: { type: "string", description: "Reference Agreement representation, never caller authority." }, contract: { type: "string", description: "Reference frame: foundation or agreement, never caller authority." }, depth: { type: "integer", description: "Progressive-disclosure rung or numeric tree depth as documented.", minimum: 1, maximum: 4, default: 1 }, mark_seen: { type: "boolean", description: "Record the orientation checkpoint explicitly." }, workspace: { type: "string", description: "Workspace directory used for orientation/state." }, mount: { type: "array", description: "Additional content roots for workspace orientation.", items: { type: "string" } }, pullable: { type: "string", description: "Additional pullable source declarations for workspace state." }, no_git: { type: "boolean", description: "Omit Git-derived orientation state." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, at: { type: "string", description: "Read a Map address at its authored pin or checkout head." } }, required: [], additionalProperties: false }, cli: { argv: ["navigate"], positional: ["path"], flags: { focus: { flag: "--focus", boolean: "bare" }, agreement: { flag: "--agreement" }, contract: { flag: "--contract" }, depth: { flag: "--depth" }, mark_seen: { flag: "--mark-seen", boolean: "bare" }, workspace: { flag: "--workspace" }, mount: { flag: "--mount", list: "csv" }, pullable: { flag: "--pullable" }, no_git: { flag: "--no-git", boolean: "bare" }, map: { flag: "--map" }, at: { flag: "--at" } } }, output: { json: ["text", "position", "root", "repoRoot", "manifest", "space"] } }, { id: "inspect", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Inspect one Markdown file by summary, outline or exact section.", use_when: "Start at summary, then outline, then one heading; no full-document mode.", check: "Check truncation and section status; disambiguate duplicate headings with occurrence.", bound: "Defaults to 51200 inspection bytes, max 1048576; raise max_bytes or read the exact file if truncated." }, bound: { unit: "bytes", default: 51200, max: 1048576, says: true }, parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, mode: { type: "string", description: "Markdown inspection mode: summary, outline or section.", enum: ["summary", "outline", "section"], default: "summary" }, heading: { type: "string", description: "Exact case-sensitive Markdown heading for section mode." }, occurrence: { type: "integer", description: "One-based duplicate heading occurrence in section mode.", minimum: 1 }, max_bytes: { type: "integer", description: "Maximum UTF-8 inspection payload bytes, 128..1048576.", minimum: 128, maximum: 1048576, default: 51200 } }, required: ["path"], additionalProperties: false }, cli: { argv: ["inspect"], positional: ["path"], flags: { mode: { flag: "--mode" }, heading: { flag: "--heading" }, occurrence: { flag: "--occurrence" }, max_bytes: { flag: "--max-bytes" } } }, output: { json: ["path", "mode", "status", "truncation"] } }, { id: "map.read", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read a curated Map, derive a Content Map, render orientation, or map the Thread tree (kind threads): every _threads/ in the start and its repositories, each Thread by the protocol's state rule, parents resolved across them, at a rung, to a level, as of or since a moment, problems named.", use_when: "Inspect references before editing a Map or launching from it; or see where every Thread sits and what is wrong in one call (kind threads with problems).", check: "References grant no access. Check file_sha before guarded removal; roots carry image or image_problem. With kind threads: read counts and problems with their one-line definitions; map is null (projection_pending) when a root has no identity or HEAD; uncommitted names the files Git does not have.", bound: "Depth defaults to 1, max 4 or full; orientation uses a character budget. kind threads: about 70 bytes per Thread at the name rung; levels and where bound the members; surface and full show five newest posts as lines, never bodies." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target; with kind threads, the start (the Space root)." }, depth: { type: "string", description: "Numeric tree depth for a content Map (default 1), or with kind threads the rung per member (default name).", enum: ["1", "2", "3", "4", "full", "name", "summary", "children", "surface"] }, orientation: { type: "boolean", description: "Render a bounded orientation from the Map instead of a derived Content tree." }, budget: { type: "integer", description: "Character budget for bounded Map/orientation rendering.", minimum: 0 }, kind: { type: "string", description: "What to map by kind: threads, the Thread tree under the start.", enum: ["threads"] }, levels: { type: "string", description: "kind threads: how many tree levels below the roots, a positive whole number or all (default all)." }, where: { type: "string", description: "kind threads: list only matching Threads, flat with their parents: open, closed, holder:<name>, no-holder, or stale:<date> (open with no post since)." }, problems: { type: "boolean", description: "kind threads: name what is wrong over the whole tree, each code defined in one line: open-under-closed, extra-root, parent-unresolved, no-holder, moved-title, uncommitted." }, since: { type: "string", description: "kind threads: only the Threads with a post after this cursor (ISO date or instant, entry id, or entry filename), with the count." }, as_of: { type: "string", description: "kind threads: read every Thread as it stood at this cursor (ISO date or instant, entry id, or entry filename)." } }, required: [], additionalProperties: false }, cli: { argv: ["map"], positional: ["path"], flags: { depth: { flag: "--depth" }, orientation: { flag: "--orientation", boolean: "bare" }, budget: { flag: "--budget" }, kind: { flag: "--kind" }, levels: { flag: "--levels" }, where: { flag: "--where" }, problems: { flag: "--problems", boolean: "bare" }, since: { flag: "--since" }, as_of: { flag: "--as-of" } } }, aliases: ["map"], output: { json: ["kind", "path", "file_sha", "roots", "members", "omitted_entries", "lowered", "dropped", "text", "problems", "definitions", "uncommitted", "counts", "map", "map_status", "warnings", "trimmed", "complete"] } }, { id: "ls", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List typed files and folders for a path and optional query.", use_when: "Find a filename rather than search Markdown bodies.", check: "Check truncation before treating the list as complete.", bound: "Default limit 25; scan caps at 5000 entries and depth 10. Check truncated and narrow the path/query." }, bound: { unit: "entries", default: 25, max: 5e3, says: true }, parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, query: { type: "string", description: "Filename filtering text for ls." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1, default: 25 } }, required: [], additionalProperties: false }, cli: { argv: ["ls"], positional: ["path"], flags: { query: { flag: "--query" }, limit: { flag: "--limit" } } }, output: { json: ["root", "query", "scanned", "truncated", "total", "entries"] } }, { id: "times", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read first and last Git commit times per Note in this checkout.", use_when: "Need clone-local Git timestamps, not authored dates.", check: "Uncommitted Notes have no committed timestamp; shallow history may be incomplete.", bound: "Unbounded per-note output for this checkout; no continuation." }, bound: "unbounded", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["times"], positional: [], flags: {} }, output: { json: ["files"] } }, { id: "threads.open", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read one local or hosted Thread at a selected rung.", use_when: "Read a Thread or one exact post; use list for discovery.", check: "Compare shown with matching. A snapshot plus tail can omit intervening posts; page since the snapshot. For folded marks, continue since last_activity_id.", bound: "Local surface defaults to 5 including the head; other pages default to 10. Hosted defaults to 50, max 200. Continue since locally or cursor remotely." }, bound: { unit: "posts", default: 5, says: true, continue: "since" }, parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, new: { type: "boolean", description: "Select activity after a local reader position; hosted list uses service unread counts." }, ack: { type: "boolean", description: "Explicitly acknowledge the selected local read; reading alone never acknowledges." }, since: { type: "string", description: "Continuation position from the prior page or ISO filter where supported." }, post: { type: "string", description: "Exact post id to select." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, member: { type: "integer", description: "Zero-based authored Map member ordinal.", minimum: 0 }, checkout: { type: "string", description: "Absolute checkout root for an explicitly selected Map member." }, pin: { type: "string", description: "Exact authored Git commit for reading a local path." }, position: { type: "string", description: "Repository-relative position of a Map member." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 }, order: { type: "string", description: "Page direction: older or newer; since advances forward with older." }, agreement: { type: "string", description: "Reference Agreement representation, never caller authority." }, reader: { type: "string", description: "Local reader identity; defaults to IDEASPACES_READER or person." }, cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." }, kind: { type: "string", description: "Compatibility filter accepted only by the read alias." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "open"], positional: ["thread"], flags: { depth: { flag: "--depth" }, new: { flag: "--new", boolean: "bare" }, ack: { flag: "--ack", boolean: "bare" }, since: { flag: "--since" }, post: { flag: "--post" }, map: { flag: "--map" }, member: { flag: "--member" }, checkout: { flag: "--checkout" }, pin: { flag: "--pin" }, position: { flag: "--position" }, limit: { flag: "--limit" }, order: { flag: "--order" }, agreement: { flag: "--agreement" }, reader: { flag: "--reader" }, cursor: { flag: "--cursor" } }, local_flags: ["depth", "new", "ack", "since", "post", "map", "member", "checkout", "pin", "position", "limit", "order", "agreement", "reader"], hosted_flags: ["limit", "cursor"], alias_flags: { "threads read": ["kind"] } }, aliases: ["threads read"], output: { json: ["shown", "matching", "has_more", "posts", "thread.current_map", "thread.snapshot", "child_threads", "cursor", "older_cursor", "last_activity_id"] } }, { id: "threads.render", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Render one local Thread as Markdown.", use_when: "Need a full local export rather than bounded discovery.", check: "Full output can be large; local authors are unverified claims.", bound: "Unbounded complete local Thread rendering; prefer open for bounded reads." }, bound: "unbounded", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." } }, required: ["thread"], additionalProperties: false }, cli: { argv: ["threads", "render"], positional: ["thread"], flags: {}, local_flags: [] }, output: { json: ["path", "readme", "timeline"] } }, { id: "threads.locate", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Locate an opening post id in explicit local Space roots.", use_when: "Know the Thread identity but not its folder.", check: "Check found, ambiguous or not_found; never pick an ambiguous location silently.", bound: "Only supplied Space roots are searched; returns every matching Thread." }, bound: "n/a", parameters: { type: "object", properties: { opening_id: { type: "string", description: "Positional opening id for threads.locate." }, roots: { type: "array", description: "Positional roots for threads.locate.", items: { type: "string" }, minItems: 1 } }, required: ["opening_id", "roots"], additionalProperties: false }, cli: { argv: ["threads", "locate"], positional: ["opening_id", "roots"], flags: {}, local_flags: [] }, output: { json: ["status", "thread_id", "matches"] } }, { id: "skills.read", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List the skill catalog or read one skill.", use_when: "Find instructions before executing a workflow.", check: "Read the selected skill in full before relying on it.", bound: "One skill body or the complete local skill catalog; no paging." }, bound: "n/a", parameters: { type: "object", properties: { name: { type: "string", description: "Human-readable name/title." } }, required: [], additionalProperties: false }, cli: { argv: ["skills"], positional: ["name"], flags: {} }, aliases: ["skills"], output: { json: ["name", "description", "content"] } }, { id: "skills.sync", owner: "cli", status: "active", job: "J1", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Sync Space skills into the Claude skills directory.", use_when: "Need local harness skill files, or check generated drift.", check: "Use check to inspect drift without writing; inspect the selected Space root.", bound: "All discovered skills; check reports drift without copying." }, bound: "n/a", parameters: { type: "object", properties: { check: { type: "boolean", description: "Report drift/update state without applying changes." } }, required: [], additionalProperties: false }, cli: { argv: ["skills", "sync"], positional: [], flags: { check: { flag: "--check", boolean: "bare" } } }, output: { json: ["created", "updated", "removed", "unchanged", "skipped", "privateAgentLevels"] } }, { id: "node.get", owner: "cli", status: "active", job: "J1", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Resolve one hosted Note by repo and node identity.", use_when: "Know the exact hosted identity to read.", check: "Check returned identity and content; access remains independently checked.", bound: "One Note per call; no continuation." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, node_id: { type: "string", description: "Hosted node identity." } }, required: ["repo_id", "node_id"], additionalProperties: false }, cli: { argv: ["node", "get"], positional: ["repo_id", "node_id"], flags: {} }, output: { json: ["node_id", "content"] } }, { id: "node.history", owner: "cli", status: "active", job: "J1", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read local path or hosted Note version history.", use_when: "Need committed versions, not filesystem modification times.", check: "Check whether the path is local or hosted; shallow Git history may be incomplete.", bound: "Local limit defaults to 20; hosted returns its service result without client paging." }, bound: { unit: "entries", default: 20, says: true }, parameters: { type: "object", properties: { path_or_repo_id: { type: "string", description: "Positional path or repo id for node.history." }, node_id: { type: "string", description: "Hosted node identity." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1, default: 20 }, cwd: { type: "string", description: "Directory in which local path history is resolved." } }, required: [], additionalProperties: false }, cli: { argv: ["node", "history"], positional: ["path_or_repo_id", "node_id"], flags: { limit: { flag: "--limit" }, cwd: { flag: "--cwd" } } }, output: { json: ["path", "created", "total", "history"] } }, { id: "write", owner: "cli", status: "active", job: "J2", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create or update a local Note with frontmatter and optional staging.", use_when: "Capture durable knowledge; use if_match when updating a prior revision.", check: "Check frontmatter validation and returned sha; force bypasses revision checking.", bound: "One Note per call; content is supplied explicitly or on stdin." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } }, attached_to: { type: "string", description: "Parent entity/post reference for the Note or local Thread." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, content: { type: "string", description: "Exact Note content; otherwise reads stdin." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." }, force: { type: "boolean", description: "Bypass existing revision/overwrite protection explicitly." }, stage: { type: "boolean", description: "Stage the written Note in Git (default true).", default: true } }, required: ["path"], additionalProperties: false }, cli: { argv: ["write"], positional: ["path"], flags: { name: { flag: "--name" }, summary: { flag: "--summary" }, tags: { flag: "--tags", list: "csv" }, attached_to: { flag: "--attached-to" }, map: { flag: "--map" }, content: { flag: "--content" }, if_match: { flag: "--if-match" }, force: { flag: "--force", boolean: "bare" }, stage: { flag: "--stage", boolean: "bare" } } }, output: { json: ["path", "sha", "staged"] } }, { id: "node.put", owner: "cli", status: "active", job: "J2", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Write hosted Note content by repo identity and path.", use_when: "Update a hosted Note, not a local capture.", check: "Check returned save report; do not equate an HTTP response with a local Git commit.", bound: "One Note per call; content argument or stdin." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, path: { type: "string", description: "Local path to the target." }, content: { type: "string", description: "Exact Note content; otherwise reads stdin." } }, required: ["repo_id", "path"], additionalProperties: false }, cli: { argv: ["node", "put"], positional: ["repo_id", "path"], flags: { content: { flag: "--content" } } }, output: { json: ["path", "commit_sha", "node_id"] } }, { id: "commit", owner: "cli", status: "active", job: "J3", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Commit only named staged paths, or all staged files when all is explicit.", use_when: "Save agreed captures to Git; this CLI has no session-owned capture set.", check: "Inspect selected paths. all means every staged file, not this session; check returned commit SHA.", bound: "One commit; explicit paths or all, never both." }, bound: "n/a", parameters: { type: "object", properties: { paths: { type: "array", description: "Positional paths for commit.", items: { type: "string" }, minItems: 1 }, all: { type: "boolean", description: "Commit all staged files, NOT this session captures." }, author_name: { type: "string", description: "Explicit Git commit author name." }, author_email: { type: "string", description: "Explicit Git commit author email." }, op: { type: "string", description: "Commit operation trailer." }, change_id: { type: "string", description: "Change-Id trailer for the commit." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, co_author: { type: "string", description: "Agent identity for a co-author commit trailer." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." } }, required: ["message"], additionalProperties: false }, cli: { argv: ["commit"], positional: ["paths"], flags: { all: { flag: "--all", boolean: "bare" }, author_name: { flag: "--author-name" }, author_email: { flag: "--author-email" }, op: { flag: "--op" }, change_id: { flag: "--change-id" }, conversation: { flag: "--conversation" }, co_author: { flag: "--co-author" }, message: { flag: "--message", aliases: ["-m"] } } }, output: { json: ["commit_sha", "committed_paths"] } }, { id: "post", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.12.0" }, text: { does: "Append one entry to anything that keeps time: a local Thread, a folder whose Agreement says keeps_time: true, or a hosted Thread. The entry may set state: parent moves, about links, closed closes or reopens, map is the current Map. new opens a Thread.", use_when: "Say something in a Thread, move or rename or close it, record a lesson in a time-keeping folder, or open a Thread; the one writer over threads post, new, close and attach.", check: "Verify the returned id and path, and committed (false carries a reason: the entry is written, not committed). A reframe with name or summary renames; with only parent it moves and the name stays. Author is a claim. Keep post_id for exact hosted retries.", bound: "One entry; a local one is committed on its own, never pushed. Hosted takes the hosted subset of flags; its kind and state are the service's." }, bound: "n/a", parameters: { type: "object", properties: { target: { type: "string", description: "Local Thread slug or path, a folder that keeps time, or a hosted x_ id. Omitted with new." }, new: { type: "string", description: "Open a Thread with this slug; name is its title and the opening post carries parent, about and the Map." }, message: { type: "string", description: "The entry's body; stdin is accepted." }, reply_to: { type: "array", items: { type: "string" }, description: "Parent entry id(s); in a Thread, latest is explicit, and the opening is the default. A full msg_ id or its unique eight-hex short form. In a declared folder there is no default." }, kind: { type: "string", description: "post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true." }, parent: { type: "string", description: "The Thread's new parent, a post reference (post:msg_\u2026, msg_\u2026, or _threads/<thread>/<post>.md); on a reframe it moves the Thread." }, about: { type: "array", items: { type: "string" }, description: "What the folder is about: typed links (<type>:<id>); an empty value clears." }, closed: { type: "boolean", description: "true closes the folder (beside kind closure for older readers, when the kind is post), false reopens it." }, name: { type: "string", description: "The entry's title; on a reframe, the Thread's own name. With new, the Thread's name." }, summary: { type: "string", description: "The entry's summary; on a reframe, the Thread's own summary." }, map: { type: "string", description: "Authored Map note or inline Map; a pinned moment. The entry's Map becomes the current Map." }, mark: { type: "string", description: "Value of a mark replying to exactly one entry." }, supersedes: { type: "string", description: "Entry id a correction supersedes." }, tags: { type: "array", items: { type: "string" }, description: "Retrieval labels on the entry." }, author: { type: "string", description: "Local author claim, not verified identity; defaults to the nearest agent Agreement's name." }, no_check_links: { type: "boolean", description: "Thread only: write the body without checking its file-relative links." }, no_commit: { type: "boolean", description: "Local only: write the entry without committing it, for tests and dry runs." }, post_id: { type: "string", description: "Hosted only: stable msg_ id for an exact resend after an uncertain outcome." } }, required: [], additionalProperties: false }, cli: { argv: ["post"], positional: ["target"], flags: { new: { flag: "--new" }, message: { flag: "--message" }, reply_to: { flag: "--reply-to", list: "csv" }, kind: { flag: "--kind" }, parent: { flag: "--parent" }, about: { flag: "--about", list: "csv" }, closed: { flag: "--closed" }, name: { flag: "--name" }, summary: { flag: "--summary" }, map: { flag: "--map" }, mark: { flag: "--mark" }, supersedes: { flag: "--supersedes" }, tags: { flag: "--tags", list: "csv" }, author: { flag: "--author" }, no_check_links: { flag: "--no-check-links", boolean: "bare" }, no_commit: { flag: "--no-commit", boolean: "bare" }, post_id: { flag: "--post-id" } }, local_flags: ["new", "message", "reply-to", "kind", "parent", "about", "closed", "name", "summary", "map", "mark", "supersedes", "tags", "author", "no-check-links", "no-commit"], hosted_flags: ["reply-to", "message", "name", "summary", "map", "tags", "post-id"] }, output: { json: ["id", "path", "kind", "in_reply_to", "folder", "parent", "about", "closed", "committed", "commit", "reason", "slug", "thread_id", "opening_post_id"] } }, { id: "threads.post", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Append an immutable local or hosted Thread post. A local post is committed on its own (only its file, never pushed) unless no_commit; a hosted post is sent.", use_when: "Reply to a specific post or branch from the post your topic serves.", check: "Supply name, summary and reply_to; verify returned id/path and, for a local post, committed (false carries a reason: the post is written, not committed). Local author is a claim. Keep post_id for exact hosted retries.", bound: "One post; local kind/mark and host metadata have distinct validation." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, member: { type: "integer", description: "Zero-based authored Map member ordinal.", minimum: 0 }, checkout: { type: "string", description: "Absolute checkout root for an explicitly selected Map member." }, reply_to: { type: "array", description: "Parent post id(s); latest is explicit, never implicit. Locally a full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in the Thread starts with it; an ambiguous one is refused with the matches.", items: { type: "string" } }, kind: { type: "string", description: "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb." }, mark: { type: "string", description: "Value of a local mark replying to exactly one post." }, author: { type: "string", description: "Local author claim, not verified identity." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, supersedes: { type: "string", description: "Prior post id superseded by a correction." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } }, no_check_links: { type: "boolean", description: "Skip local post link validation only when deliberately required." }, no_commit: { type: "boolean", description: "Local only: write the post without committing it, for tests and dry runs." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." } }, required: ["thread"], additionalProperties: false }, cli: { argv: ["threads", "post"], positional: ["thread"], flags: { map: { flag: "--map" }, member: { flag: "--member" }, checkout: { flag: "--checkout" }, reply_to: { flag: "--reply-to", list: "csv" }, kind: { flag: "--kind" }, mark: { flag: "--mark" }, author: { flag: "--author" }, name: { flag: "--name" }, summary: { flag: "--summary" }, supersedes: { flag: "--supersedes" }, message: { flag: "--message" }, tags: { flag: "--tags", list: "csv" }, no_check_links: { flag: "--no-check-links", boolean: "bare" }, no_commit: { flag: "--no-commit", boolean: "bare" }, post_id: { flag: "--post-id" } }, local_flags: ["map", "member", "checkout", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags", "no-check-links", "no-commit"], hosted_flags: ["reply-to", "message", "name", "summary", "post-id", "map", "tags"] }, output: { json: ["id", "path", "kind", "in_reply_to", "state", "committed", "commit", "reason", "warnings"] } }, { id: "threads.close", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Close a local or hosted Thread. A local close writes a post with closed: true (beside the legacy kind closure, for older readers), committed on its own (only its file, never pushed) unless no_commit.", use_when: "Done-when holds and closure has been agreed.", check: "Verify target and rationale; hosted close requires yes.", bound: "One closure post; no content or history is removed." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, reply_to: { type: "array", description: "Parent post id(s); latest is explicit, never implicit. Locally a full msg_ id, or its eight-hex short form (msg_1b7f2056) when only one post in the Thread starts with it; an ambiguous one is refused with the matches.", items: { type: "string" } }, kind: { type: "string", description: "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb." }, author: { type: "string", description: "Local author claim, not verified identity." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, supersedes: { type: "string", description: "Prior post id superseded by a correction." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." }, no_commit: { type: "boolean", description: "Local only: write the closure without committing it, for tests and dry runs." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: ["thread"], additionalProperties: false }, cli: { argv: ["threads", "close"], positional: ["thread"], flags: { map: { flag: "--map" }, reply_to: { flag: "--reply-to", list: "csv" }, kind: { flag: "--kind" }, author: { flag: "--author" }, name: { flag: "--name" }, summary: { flag: "--summary" }, supersedes: { flag: "--supersedes" }, message: { flag: "--message" }, post_id: { flag: "--post-id" }, no_commit: { flag: "--no-commit", boolean: "bare" }, yes: { flag: "--yes", boolean: "bare" } }, local_flags: ["map", "reply-to", "kind", "author", "name", "summary", "supersedes", "message", "no-commit"], hosted_flags: ["message", "post-id"] }, output: { json: ["id", "path", "kind", "in_reply_to", "committed", "commit", "reason"] } }, { id: "threads.new", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Start a local or hosted Thread.", use_when: "New direction needs a Thread, not another reply.", check: "Local needs about; hosted needs name, summary and message. Check attachment, recipients and returned id.", bound: "One Thread; local/hosted creation are independent." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, about: { type: "string", description: "Local Thread title, or a portable contextual entity where supported." }, attached_to: { type: "string", description: "Parent entity/post reference for the Note or local Thread." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, from_note: { type: "string", description: "Local: open the Thread about this Note. Commits the Note, pins its Map with the Note first in full; replaces --map; --about defaults to its name." }, hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Hosted: the Thread's summary. Local: one line about what the Thread is for; the opening post, the README and the Thread's Agreement say it. A place's first Thread without it opens with its Agreement's line, or else its first firefly's." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." }, recipients: { type: "array", description: "Explicit hosted recipients, handles or emails.", items: { type: "string" } }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } }, home: { type: "string", description: "Hosted map:<id> placement, or Home scaffold destination for create." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "new"], positional: ["thread"], flags: { about: { flag: "--about" }, attached_to: { flag: "--attached-to" }, map: { flag: "--map" }, from_note: { flag: "--from-note" }, hosted: { flag: "--hosted", boolean: "bare" }, name: { flag: "--name" }, summary: { flag: "--summary" }, message: { flag: "--message" }, post_id: { flag: "--post-id" }, recipients: { flag: "--recipients", list: "csv" }, tags: { flag: "--tags", list: "csv" }, home: { flag: "--home" } }, local_flags: ["about", "summary", "attached-to", "map", "from-note"], hosted_flags: ["hosted", "name", "summary", "message", "post-id", "recipients", "map", "tags", "home"] }, output: { json: ["path", "slug", "thread_id", "opening_post_id", "date", "note"] } }, { id: "threads.attach", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Move a local Thread under another post: one reframe carrying parent and no name or summary (the Thread keeps its own); the Agreement's attached_to is written too, for older readers.", use_when: "Move a Thread direction to another parent post explicitly.", check: "Check the parent post and rationale; the previous parent stays in history and the Thread's name is unchanged.", bound: "One local Thread attachment event." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, parent: { type: "string", description: "Parent run id for local records; explicit value overrides environment discovery." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, author: { type: "string", description: "Local author claim, not verified identity." } }, required: ["thread", "parent", "message"], additionalProperties: false }, cli: { argv: ["threads", "attach"], positional: ["thread", "parent"], flags: { message: { flag: "--message" }, author: { flag: "--author" } }, local_flags: ["message", "author"] }, output: { json: ["path", "previous_parent", "parent", "reframe", "cycle_check_skipped"] } }, { id: "threads.init", owner: "cli", status: "active", job: "J4", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Initialize the local Threads worktree.", use_when: "Set up a repository Threads branch.", check: "Check repository and worktree location before initialization.", bound: "One repository worktree." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["threads", "init"], positional: [], flags: {}, local_flags: [] }, output: { json: ["path"] } }, { id: "threads.push", owner: "cli", status: "active", job: "J4", effect: "share", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Push the local Threads branch to an explicit team remote.", use_when: "Sharing the committed Thread branch has been agreed.", check: "Verify remote; this explicitly shares committed posts, never a private conversation log.", bound: "One Threads branch to the named remote." }, bound: "n/a", parameters: { type: "object", properties: { remote: { type: "string", description: "Explicit Git remote for the Threads branch." } }, required: ["remote"], additionalProperties: false }, cli: { argv: ["threads", "push"], positional: [], flags: { remote: { flag: "--remote" } }, local_flags: ["remote"] }, output: { json: ["remote"] } }, { id: "threads.send", owner: "cli", status: "active", job: "J5", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Start a hosted Thread with an explicit recipient.", use_when: "Send a new topic remotely; use reply/post for an existing Thread.", check: "Verify recipient and content. Preserve post_id and all arguments for an exact retry after uncertain delivery.", bound: "One opening post; no automatic retry of an uncertain send." }, bound: "n/a", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for threads.send." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } }, home: { type: "string", description: "Hosted map:<id> placement, or Home scaffold destination for create." } }, required: ["recipient", "name", "summary", "message"], additionalProperties: false }, cli: { argv: ["threads", "send"], positional: ["recipient"], flags: { name: { flag: "--name" }, summary: { flag: "--summary" }, message: { flag: "--message" }, post_id: { flag: "--post-id" }, map: { flag: "--map" }, tags: { flag: "--tags", list: "csv" }, home: { flag: "--home" } }, hosted_flags: ["name", "summary", "message", "post-id", "map", "tags", "home"] }, output: { json: [] } }, { id: "threads.reply", owner: "cli", status: "active", job: "J5", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Reply to an exact hosted Thread post.", use_when: "Continue an existing hosted discussion.", check: "Supply reply_to; preserve post_id for exact retry. Do not resend as a new topic.", bound: "One hosted post." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, reply_to: { type: "array", description: "Parent post id(s); latest is explicit, never implicit.", items: { type: "string" } }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, tags: { type: "array", description: "Retrieval labels.", items: { type: "string" } } }, required: ["thread", "reply_to"], additionalProperties: false }, cli: { argv: ["threads", "reply"], positional: ["thread"], flags: { reply_to: { flag: "--reply-to", list: "csv" }, message: { flag: "--message" }, name: { flag: "--name" }, summary: { flag: "--summary" }, post_id: { flag: "--post-id" }, map: { flag: "--map" }, tags: { flag: "--tags", list: "csv" } }, hosted_flags: ["reply-to", "message", "name", "summary", "post-id", "map", "tags"] }, output: { json: [] } }, { id: "threads.ack", owner: "cli", status: "active", job: "J5", effect: "write-hosted", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Explicitly acknowledge local or hosted Thread activity.", use_when: "A person or reader explicitly chooses how far to mark read.", check: "Reading does not acknowledge. Supply through, recent, seq or cursor for the selected location.", bound: "One explicit read position; unseen posts remain unread." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, through: { type: "string", description: "Exact local post id or latest to acknowledge through." }, recent: { type: "string", description: "Returned local activity cursor to acknowledge explicitly." }, reader: { type: "string", description: "Local reader identity; defaults to IDEASPACES_READER or person." }, seq: { type: "integer", description: "Hosted sequence number to acknowledge explicitly.", minimum: 0 }, cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "ack"], positional: ["thread"], flags: { through: { flag: "--through" }, recent: { flag: "--recent" }, reader: { flag: "--reader" }, seq: { flag: "--seq" }, cursor: { flag: "--cursor" } }, local_flags: ["through", "recent", "reader"], hosted_flags: ["seq", "cursor"] }, output: { json: [] } }, { id: "threads.rename", owner: "cli", status: "active", job: "J5", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Append a hosted Thread reframe with title and summary.", use_when: "Rename a hosted Thread with a stated reason.", check: "Supply name, summary and message; preserve post_id for retries.", bound: "One hosted reframe post." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, post_id: { type: "string", description: "Stable id for exact hosted resend after uncertain delivery." } }, required: ["thread", "name", "summary", "message"], additionalProperties: false }, cli: { argv: ["threads", "rename"], positional: ["thread"], flags: { message: { flag: "--message" }, name: { flag: "--name" }, summary: { flag: "--summary" }, post_id: { flag: "--post-id" } }, hosted_flags: ["message", "name", "summary", "post-id"] }, output: { json: [] } }, { id: "threads.capabilities", owner: "cli", status: "active", job: "J5", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read the existing hosted Threads transport capability schema.", use_when: "Before a remote Thread operation.", check: "Schema must be ideaspaces.threads.capabilities.v1; no legacy exchange fallback.", bound: "One unchanged capability document." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["threads", "capabilities"], positional: [], flags: {} }, output: { json: ["schema", "transport", "legacy_exchange_fallback"] } }, { id: "threads.list", owner: "cli", status: "active", job: "J6", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List local or hosted Threads. A local list is one level of the Thread tree at the summary rung; map with kind threads gives the tree, the problems and the time filters.", use_when: "Discover Threads before reading one; for where every Thread sits, use map kind threads.", check: "Local rows may include unreadable posts. new is reader state; hosted unread counts come from the service.", bound: "Hosted pages default 50, max 200; continue cursor. Local list has no paging and returns all discovered Threads." }, bound: "n/a", parameters: { type: "object", properties: { new: { type: "boolean", description: "Select activity after a local reader position; hosted list uses service unread counts." }, unread: { type: "boolean", description: "Only hosted service-unread Threads or local reader-unread Threads." }, space: { type: "string", description: "Compatibility repository URL selector for share." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, kind: { type: "string", description: "Local immutable post kind: post, reframe, correction or mark. snapshot and closure are legacy spellings, written as a post carrying a Map and as closed: true. Hosted kind is chosen by its verb." }, since: { type: "string", description: "Continuation position from the prior page or ISO filter where supported." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 }, cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." }, open: { type: "boolean", description: "Include open local Threads when filtering discovery." }, reader: { type: "string", description: "Local reader identity; defaults to IDEASPACES_READER or person." }, hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "list"], positional: [], flags: { new: { flag: "--new", boolean: "bare" }, unread: { flag: "--unread", boolean: "bare" }, space: { flag: "--space" }, depth: { flag: "--depth" }, kind: { flag: "--kind" }, since: { flag: "--since" }, limit: { flag: "--limit" }, cursor: { flag: "--cursor" }, open: { flag: "--open", boolean: "bare" }, reader: { flag: "--reader" }, hosted: { flag: "--hosted", boolean: "bare" } }, local_flags: ["new", "unread", "space", "depth", "kind", "since", "limit", "cursor", "open", "reader"], hosted_flags: ["hosted", "limit", "cursor", "new", "unread"] }, output: { json: ["schema", "threads", "hosted_checked", "local_complete", "hosted_error", "cursor"] } }, { id: "threads.recent", owner: "cli", status: "active", job: "J6", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read local Thread activity since a cursor or named reader baseline.", use_when: "Find what moved, not every Thread.", check: "Compare shown with moved; baseline means nothing new yet. Reading does not advance the position.", bound: "Default 50 Threads, max 500; keep returned cursor; unshown activity stays new." }, bound: { unit: "entries", default: 50, max: 500, says: true, continue: "cursor" }, parameters: { type: "object", properties: { cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." }, reader: { type: "string", description: "Local reader identity; defaults to IDEASPACES_READER or person." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1, maximum: 500, default: 50 } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "recent"], positional: [], flags: { cursor: { flag: "--cursor" }, reader: { flag: "--reader" }, limit: { flag: "--limit" } }, local_flags: ["cursor", "reader", "limit"] }, output: { json: ["schema", "baseline", "threads", "moved", "shown", "cursor"] } }, { id: "threads.check", owner: "cli", status: "active", job: "J6", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Check local posts changed or deleted since commit.", use_when: "Verify immutable Thread history before relying on it.", check: "Strict exits nonzero on findings or incomplete Git evidence.", bound: "All findings in selected Thread or local root; no paging." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, strict: { type: "boolean", description: "Fail on changed posts or incomplete Git evidence." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "check"], positional: ["thread"], flags: { strict: { flag: "--strict", boolean: "bare" } }, local_flags: ["strict"] }, output: { json: ["schema", "path", "checked", "clean", "modified"] } }, { id: "map.create", owner: "cli", status: "active", job: "J7", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create a local Map Note.", use_when: "Start a local view over references.", check: "Check path, name and summary; a Map never grants content access.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." } }, required: ["path", "name", "summary"], additionalProperties: false }, cli: { argv: ["map", "create"], positional: ["path"], flags: { name: { flag: "--name" }, summary: { flag: "--summary" } } }, output: { json: ["path", "sha", "status"] } }, { id: "map.add", owner: "cli", status: "active", job: "J7", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Add one reference or root/member to a local Map.", use_when: "Explicitly extend a local view.", check: "Check root identity, pin and position; adding a reference shares nothing.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, address: { type: "string", description: "Positional address for map.add." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, position: { type: "string", description: "Repository-relative position of a Map member." }, root: { type: "integer", description: "Explicit root selector; meaning is command-specific.", minimum: 0 }, root_node_id: { type: "string", description: "Stable repository root identity, not a filesystem path." }, sha: { type: "string", description: "Exact Git commit pin for a Map root." }, checkout: { type: "string", description: "Absolute checkout root for an explicitly selected Map member." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["map", "add"], positional: ["path", "address"], flags: { depth: { flag: "--depth" }, name: { flag: "--name" }, summary: { flag: "--summary" }, position: { flag: "--position" }, root: { flag: "--root" }, root_node_id: { flag: "--root-node-id" }, sha: { flag: "--sha" }, checkout: { flag: "--checkout" }, if_match: { flag: "--if-match" } } }, output: { json: ["path", "sha", "member_index", "status"] } }, { id: "map.remove", owner: "cli", status: "active", job: "J7", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Remove one local Map member or empty root.", use_when: "Explicitly narrow a view, never delete referenced content.", check: "Use if_match from map.read for ordinal removal; inspect address/position.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, selector: { type: "string", description: "Positional selector for map.remove." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." }, root_node_id: { type: "string", description: "Stable repository root identity, not a filesystem path." }, position: { type: "string", description: "Repository-relative position of a Map member." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["map", "remove"], positional: ["path", "selector"], flags: { if_match: { flag: "--if-match" }, root_node_id: { flag: "--root-node-id" }, position: { flag: "--position" } } }, output: { json: ["path", "sha", "member_index", "status"] } }, { id: "map.select", owner: "cli", status: "active", job: "J7", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Select exact hosted context from a local Note, Map or directory.", use_when: "Build a pinned hosted-context selection for an existing published repo.", check: "Check binding, committed identity and remote head; references never grant access.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, hostname: { type: "string", description: "Organization hostname, or target hosting namespace as selected by the command." }, note_depth: { type: "string", description: "Portable Note disclosure rung." }, entity_depth: { type: "string", description: "Portable entity disclosure, name or summary." }, note_name: { type: "string", description: "Authored label for the Note reference." }, note_summary: { type: "string", description: "Authored context for the Note reference." }, entity_name: { type: "string", description: "Authored label for the entity reference." }, entity_summary: { type: "string", description: "Authored context for the entity reference." }, about: { type: "string", description: "Local Thread title, or a portable contextual entity where supported." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["map", "select"], positional: ["path"], flags: { hostname: { flag: "--hostname" }, note_depth: { flag: "--note-depth" }, entity_depth: { flag: "--entity-depth" }, note_name: { flag: "--note-name" }, note_summary: { flag: "--note-summary" }, entity_name: { flag: "--entity-name" }, entity_summary: { flag: "--entity-summary" }, about: { flag: "--about" } } }, output: { json: ["roots", "members"] } }, { id: "spaces.list", owner: "cli", status: "active", job: "J7", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List hosted Maps or legacy coordination objects.", use_when: "Choose a hosted Space before reading or editing it.", check: "Use hosted for Maps; local Maps and legacy objects are different.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." }, attached_to: { type: "string", description: "Parent entity/post reference for the Note or local Thread." }, include_dormant: { type: "boolean", description: "Include dormant legacy coordination objects." } }, required: [], additionalProperties: false }, cli: { argv: ["spaces", "list"], positional: [], flags: { hosted: { flag: "--hosted", boolean: "bare" }, attached_to: { flag: "--attached-to" }, include_dormant: { flag: "--include-dormant", boolean: "bare" } }, hosted_flags: ["hosted"] }, output: { json: ["maps", "spaces"] } }, { id: "spaces.open", owner: "cli", status: "active", job: "J8", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read one hosted Map and its current version.", use_when: "Need members and version_id for a guarded hosted edit.", check: "Check omitted_members, independent item access and version_id.", bound: "Service may omit members; inspect omitted_members. No client continuation." }, bound: "n/a", parameters: { type: "object", properties: { map_id: { type: "string", description: "Positional map id for spaces.open." }, hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." } }, required: ["map_id"], additionalProperties: false }, cli: { argv: ["spaces", "open"], positional: ["map_id"], flags: { hosted: { flag: "--hosted", boolean: "bare" } }, hosted_flags: ["hosted"] }, output: { json: ["map_id", "version_id", "members", "omitted_members"] } }, { id: "spaces.new", owner: "cli", status: "active", job: "J8", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create a hosted Space with a Core Thread in an explicit Vault.", use_when: "A person explicitly wants a new hosted Space.", check: "Check Vault ownership and subscription; keep command_id and arguments for exact retries.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { hosted: { type: "boolean", description: "Use hosted routing rather than the local/legacy path." }, vault: { type: "string", description: "Explicit personal or organization Vault identity for Space creation." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, command_id: { type: "string", description: "Stable hosted write id; retain identical arguments for exact retry." } }, required: ["hosted", "vault", "name", "summary", "message"], additionalProperties: false }, cli: { argv: ["spaces", "new"], positional: [], flags: { hosted: { flag: "--hosted", boolean: "bare" }, vault: { flag: "--vault" }, name: { flag: "--name" }, summary: { flag: "--summary" }, message: { flag: "--message" }, command_id: { flag: "--command-id" } } }, output: { json: ["map_id", "version_id", "command_id"] } }, { id: "spaces.add", owner: "cli", status: "active", job: "J8", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Add one reference to a hosted Map at an expected version.", use_when: "Extend a hosted view without granting content access.", check: "Use if_match version_id, not a file hash; preserve command_id for retries.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { map_id: { type: "string", description: "Positional map id for spaces.add." }, address: { type: "string", description: "Positional address for spaces.add." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." }, command_id: { type: "string", description: "Stable hosted write id; retain identical arguments for exact retry." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, position: { type: "string", description: "Repository-relative position of a Map member." }, root_node_id: { type: "string", description: "Stable repository root identity, not a filesystem path." }, sha: { type: "string", description: "Exact Git commit pin for a Map root." } }, required: ["map_id", "if_match"], additionalProperties: false }, cli: { argv: ["spaces", "add"], positional: ["map_id", "address"], flags: { if_match: { flag: "--if-match" }, command_id: { flag: "--command-id" }, depth: { flag: "--depth" }, name: { flag: "--name" }, summary: { flag: "--summary" }, position: { flag: "--position" }, root_node_id: { flag: "--root-node-id" }, sha: { flag: "--sha" } } }, output: { json: ["map_id", "version_id", "command_id"] } }, { id: "spaces.remove", owner: "cli", status: "active", job: "J8", effect: "write-hosted", reach: "hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or remove one hosted Map member.", use_when: "Explicitly remove a reference, never content.", check: "Read the preview then yes; Core cannot be removed. Use if_match version_id.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { map_id: { type: "string", description: "Positional map id for spaces.remove." }, ordinal: { type: "string", description: "Positional ordinal for spaces.remove." }, if_match: { type: "string", description: "Expected revision: local hash, or hosted version_id for spaces edits." }, command_id: { type: "string", description: "Stable hosted write id; retain identical arguments for exact retry." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: ["map_id", "ordinal", "if_match"], additionalProperties: false }, cli: { argv: ["spaces", "remove"], positional: ["map_id", "ordinal"], flags: { if_match: { flag: "--if-match" }, command_id: { flag: "--command-id" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["preview", "map_id", "member_ordinal", "version_id", "command_id"] } }, { id: "spaces.import", owner: "cli", status: "active", job: "J8", effect: "write-hosted", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create a personal hosted copy of a local Map.", use_when: "Copy a local view to the service explicitly.", check: "Uncertain import is not retried; check list first. No new Core or content grants.", bound: "One local Map, max 1048576 UTF-8 bytes." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["spaces", "import"], positional: ["path"], flags: {} }, output: { json: ["map_id"] } }, { id: "spaces.export", owner: "cli", status: "active", job: "J8", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Write an independent local copy of a hosted Map/version.", use_when: "Need a portable local Map copy.", check: "Use version_id for an exact copy; destination must not exist.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { map_or_version_id: { type: "string", description: "Positional map or version id for spaces.export." }, path: { type: "string", description: "Local path to the target." } }, required: ["map_or_version_id", "path"], additionalProperties: false }, cli: { argv: ["spaces", "export"], positional: ["map_or_version_id", "path"], flags: {} }, output: { json: ["path", "source", "copy"] } }, { id: "vaults", owner: "cli", status: "active", job: "J8", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List personal, organization and shared Vaults.", use_when: "Choose a Vault for hosted Space creation.", check: "Company creation needs org_node_id and current OWNER authority.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["vaults"], positional: [], flags: {} }, output: { json: ["vaults"] } }, { id: "get", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview bringing a Space home; yes plus as selects clone, fork or link.", use_when: "Start from a shared URL or existing directory.", check: "Read proposed action and destination before yes.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { source: { type: "string", description: "Positional source for get." }, destination: { type: "string", description: "Positional destination for get." }, as: { type: "string", description: "Explicit get mode: clone, fork or link; used with yes." }, name: { type: "string", description: "Human-readable name/title." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: ["source"], additionalProperties: false }, cli: { argv: ["get"], positional: ["source", "destination"], flags: { as: { flag: "--as" }, name: { flag: "--name" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["address", "kind", "root_node_id", "modes", "logged_in", "next"] } }, { id: "clone", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Clone an authorized repo into a local folder.", use_when: "Need remote history and an ongoing Git remote.", check: "Check destination and authorization; cloning does not widen access.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { source: { type: "string", description: "Positional source for clone." }, destination: { type: "string", description: "Positional destination for clone." } }, required: ["source"], additionalProperties: false }, cli: { argv: ["clone"], positional: ["source", "destination"], flags: {} }, output: { json: ["repo_id", "root_node_id", "repo_url", "path", "identity_state"] } }, { id: "fork", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Materialize an independent local copy without source history.", use_when: "Need an independent Space rather than a remote clone.", check: "Check source lineage and destination; no implicit publish or sharing.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { source: { type: "string", description: "Positional source for fork." }, destination: { type: "string", description: "Positional destination for fork." }, name: { type: "string", description: "Human-readable name/title." } }, required: ["source"], additionalProperties: false }, cli: { argv: ["fork"], positional: ["source", "destination"], flags: { name: { flag: "--name" } } }, output: { json: ["path", "root_node_id", "source_root_node_id", "source_history_copied", "published"] } }, { id: "link", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Bind an existing local clone to a hosted repo.", use_when: "Already have a checkout to register.", check: "Check the checkout identity and selected hosted repo.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["link"], positional: ["path", "repo"], flags: {} }, output: { json: ["repo_id", "root_node_id", "namespace", "path"] } }, { id: "forget", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Unregister a local checkout, optionally delete its folder.", use_when: "Explicitly stop tracking a clone.", check: "Delete removes the folder; never set delete without the person agreeing.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, delete: { type: "boolean", description: "Delete the local checkout folder as well as unregister it; explicit destructive intent required." } }, required: ["path"], additionalProperties: false }, cli: { argv: ["forget"], positional: ["path"], flags: { delete: { flag: "--delete", boolean: "bare" } } }, output: { json: ["forgotten", "deleted", "path"] } }, { id: "clones", owner: "cli", status: "active", job: "J9", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List registered local checkouts.", use_when: "Need local paths and identities, not hosted repo discovery.", check: "Entries can be stale; check path availability before using them.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["clones"], positional: [], flags: {} }, output: { json: ["clones"] } }, { id: "integrate", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or apply remote/source updates for this checkout.", use_when: "Bring content up to date using the checkout kind.", check: "Read preview before yes; check from and conflict results.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { from: { type: "string", description: "Integration channel: remote or fork source." }, rebase: { type: "boolean", description: "Integrate by rebase (default true) rather than merge." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: [], additionalProperties: false }, cli: { argv: ["integrate"], positional: [], flags: { from: { flag: "--from" }, rebase: { flag: "--rebase", boolean: "bare" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: [] } }, { id: "update", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or apply source updates to a fork.", use_when: "Need a three-way fork source update, not a CLI upgrade.", check: "Read plan before yes; resolve conflicts deliberately.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: [], additionalProperties: false }, cli: { argv: ["update"], positional: [], flags: { yes: { flag: "--yes", boolean: "bare" } } }, output: { json: [] } }, { id: "pull", owner: "cli", status: "active", job: "J9", effect: "write-local", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Fetch and integrate remote Git changes into this checkout.", use_when: "Explicitly update a clone, not a fork source.", check: "Use dry_run first when useful; dirty captures must be saved first.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { dry_run: { type: "boolean", description: "Preview remote sync state without pushing or integrating." }, rebase: { type: "boolean", description: "Integrate by rebase (default true) rather than merge.", default: true } }, required: [], additionalProperties: false }, cli: { argv: ["pull"], positional: [], flags: { dry_run: { flag: "--dry-run", boolean: "bare" }, rebase: { flag: "--rebase", boolean: "bare" } } }, output: { json: ["upstream", "dry_run", "integrated"] } }, { id: "push", owner: "cli", status: "active", job: "J9", effect: "share", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Push committed captures to the configured remote.", use_when: "Sharing committed repo state was explicitly requested.", check: "Check dry_run, remote and ahead/behind; pull first if behind.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { dry_run: { type: "boolean", description: "Preview remote sync state without pushing or integrating." } }, required: [], additionalProperties: false }, cli: { argv: ["push"], positional: [], flags: { dry_run: { flag: "--dry-run", boolean: "bare" } } }, output: { json: ["upstream", "dry_run", "pushed"] } }, { id: "sync", owner: "cli", status: "active", job: "J9", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Report local, remote and fork-source state without integrating.", use_when: "Need a sync plan rather than an update.", check: "Read conflict/drift findings; this report does not integrate content.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 } }, required: [], additionalProperties: false }, cli: { argv: ["sync"], positional: [], flags: { limit: { flag: "--limit" } } }, output: { json: ["upstream", "ahead", "behind", "fetched", "incoming", "incoming_unavailable", "outgoing", "source", "integrated"] } }, { id: "catalog", owner: "cli", status: "active", job: "J9", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List local and remote repos with sync state.", use_when: "Need a combined repository overview.", check: "Fetch is explicit; unavailable remote evidence is not clean state.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { fetch: { type: "boolean", description: "Explicitly fetch remote refs before reporting state." } }, required: [], additionalProperties: false }, cli: { argv: ["catalog"], positional: [], flags: { fetch: { flag: "--fetch", boolean: "bare" } } }, output: { json: ["logged_in", "username", "notes", "entries"] } }, { id: "repos", owner: "cli", status: "active", job: "J9", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List hosted repos and your available actions.", use_when: "Discover repos, not Maps or local checkout paths.", check: "Check relationship and actions; repo access is separate from Space membership.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["repos"], positional: [], flags: {} }, output: { json: ["username", "repos"] } }, { id: "publish", owner: "cli", status: "active", job: "J9", effect: "share", reach: "local+hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or publish this folder as a remote repo.", use_when: "A person explicitly wants to host this local repo.", check: "Read the plan before yes; verify slug and hostname.", bound: "One target per call; no paging." }, bound: "n/a", parameters: { type: "object", properties: { slug: { type: "string", description: "Hosted repository route slug." }, name: { type: "string", description: "Human-readable name/title." }, hostname: { type: "string", description: "Organization hostname, or target hosting namespace as selected by the command." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: [], additionalProperties: false }, cli: { argv: ["publish"], positional: [], flags: { slug: { flag: "--slug" }, name: { flag: "--name" }, hostname: { flag: "--hostname" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["plan", "applied", "repo_id", "root_node_id", "repo_url", "identity_state"] } }, { id: "status", owner: "cli", status: "active", job: "J9", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read Git state, staged captures, activity and drift.", use_when: "Need volatile checkout state or one file revision.", check: "No session capture ownership is inferred by this CLI; inspect staged paths.", bound: "Unbounded result for the selected scope; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { path: { type: "string", description: "Local path to the target." }, fetch: { type: "boolean", description: "Explicitly fetch remote refs before reporting state." }, workspace: { type: "string", description: "Workspace directory used for orientation/state." }, mount: { type: "array", description: "Additional content roots for workspace orientation.", items: { type: "string" } }, pullable: { type: "string", description: "Additional pullable source declarations for workspace state." }, contract: { type: "string", description: "Reference frame: foundation or agreement, never caller authority." } }, required: [], additionalProperties: false }, cli: { argv: ["status"], positional: [], flags: { path: { flag: "--path" }, fetch: { flag: "--fetch", boolean: "bare" }, workspace: { flag: "--workspace" }, mount: { flag: "--mount", list: "csv" }, pullable: { flag: "--pullable" }, contract: { flag: "--contract" } } }, output: { json: ["repoRoot", "branch", "ahead", "behind", "dirty", "tracked_captures", "path", "sha", "revision"] } }, { id: "share.status", owner: "cli", status: "active", job: "J10", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Inspect access and standing.", use_when: "Before changing access.", check: "Read standing and direct versus inherited capabilities.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { repo_url: { type: "string", description: "Positional repo url for share.status." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: [], additionalProperties: false }, cli: { argv: ["share", "status"], positional: ["repo_url"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.log", owner: "cli", status: "active", job: "J10", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read the per-node access event log.", use_when: "When auditing access decisions.", check: "Verify the node id and event provenance.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { repo_url: { type: "string", description: "Positional repo url for share.log." }, node: { type: "string", description: "Exact node id for the per-node share log." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: [], additionalProperties: false }, cli: { argv: ["share", "log"], positional: ["repo_url"], flags: { node: { flag: "--node" }, repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: ["repo_id", "node_id", "scope", "complete_repo_log", "events"] } }, { id: "share.person", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Grant or invite a person at an explicit grade.", use_when: "When the person explicitly requested sharing.", check: "Verify recipient and grade; history is a separate explicit grant.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for share.person." }, grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." }, history: { type: "boolean", description: "Explicitly grant hosted history access when sharing with a person." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["recipient"], additionalProperties: false }, cli: { argv: ["share", "person"], positional: ["recipient"], flags: { grade: { flag: "--grade" }, history: { flag: "--history", boolean: "bare" }, repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.team", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Grant access to a team.", use_when: "When team sharing is explicitly agreed.", check: "Verify hostname, grade and inherited access.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { hostname: { type: "string", description: "Organization hostname, or target hosting namespace as selected by the command." }, grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["hostname"], additionalProperties: false }, cli: { argv: ["share", "team"], positional: ["hostname"], flags: { grade: { flag: "--grade" }, repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.list", owner: "cli", status: "active", job: "J10", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List direct people, invitations and teams.", use_when: "Before changing an existing grant.", check: "Inspect direct and inherited grants separately.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: [], additionalProperties: false }, cli: { argv: ["share", "list"], positional: [], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: ["target_node_id", "visibility", "people", "pending_invites", "teams", "unavailable"] } }, { id: "share.remove", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Remove direct access or an invitation.", use_when: "When revocation is explicitly agreed.", check: "Inherited access may remain; inspect the result.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for share.remove." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["recipient"], additionalProperties: false }, cli: { argv: ["share", "remove"], positional: ["recipient"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: ["revoked", "target_node_id"] } }, { id: "share.resend", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Resend a pending invitation.", use_when: "When an invitation needs another delivery.", check: "Verify email and pending state.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for share.resend." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["recipient"], additionalProperties: false }, cli: { argv: ["share", "resend"], positional: ["recipient"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.history", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Set history visibility for a person.", use_when: "When explicitly asked to change history access.", check: "Verify identity and on/off; this changes what history is shared.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { recipient: { type: "string", description: "Positional recipient for share.history." }, state: { type: "string", description: "Positional state for share.history." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." } }, required: ["recipient", "state"], additionalProperties: false }, cli: { argv: ["share", "history"], positional: ["recipient", "state"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" } } }, output: { json: [] } }, { id: "share.visibility", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or set public/private visibility.", use_when: "When publication visibility is explicitly agreed.", check: "Read plan before yes; public visibility exposes content.", bound: "Unbounded service result for this repo/node; no client-side continuation." }, bound: "unbounded", parameters: { type: "object", properties: { visibility: { type: "string", description: "Positional visibility for share.visibility." }, repo: { type: "string", description: "Explicit remote repository URL (global CLI flag)." }, space: { type: "string", description: "Compatibility repository URL selector for share." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: ["visibility"], additionalProperties: false }, cli: { argv: ["share", "visibility"], positional: ["visibility"], flags: { repo: { flag: "--repo" }, space: { flag: "--space" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["plan", "applied", "visibility"] } }, { id: "request.ask", owner: "cli", status: "active", job: "J10", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Ask an owner for access.", use_when: "Need access that is not granted yet.", check: "A request is not a grant; check target, grade and returned request id.", bound: "One request per call." }, bound: "n/a", parameters: { type: "object", properties: { node_id: { type: "string", description: "Hosted node identity." }, grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." }, reason: { type: "string", description: "Reason supplied with an access request." } }, required: ["node_id"], additionalProperties: false }, cli: { argv: ["request", "ask"], positional: ["node_id"], flags: { grade: { flag: "--grade" }, reason: { flag: "--reason" } } }, output: { json: ["id", "requested_grade", "target_node_id", "state"] } }, { id: "request.list", owner: "cli", status: "active", job: "J10", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List incoming or your own access requests.", use_when: "Inspect pending decisions before approving or cancelling.", check: "Mine/own select your requests; incoming is the default.", bound: "Unbounded service request list; no client continuation." }, bound: "unbounded", parameters: { type: "object", properties: { incoming: { type: "boolean", description: "List incoming requests (the default)." }, mine: { type: "boolean", description: "List requests made by this account, not incoming requests." }, own: { type: "boolean", description: "Compatibility spelling of mine for request list." }, include_terminal: { type: "boolean", description: "Include terminal states when listing your access requests." } }, required: [], additionalProperties: false }, cli: { argv: ["request", "list"], positional: [], flags: { incoming: { flag: "--incoming", boolean: "bare" }, mine: { flag: "--mine", boolean: "bare" }, own: { flag: "--own", boolean: "bare" }, include_terminal: { flag: "--include-terminal", boolean: "bare" } } }, aliases: ["request incoming"], output: { json: ["requests"] } }, { id: "request.approve", owner: "cli", status: "active", job: "J10", effect: "share", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Approve one incoming access request.", use_when: "An authorized owner explicitly agrees to grant access.", check: "Verify request, recipient and approved grade.", bound: "One request per call." }, bound: "n/a", parameters: { type: "object", properties: { request_id: { type: "string", description: "Positional request id for request.approve." }, grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." } }, required: ["request_id"], additionalProperties: false }, cli: { argv: ["request", "approve"], positional: ["request_id"], flags: { grade: { flag: "--grade" } } }, output: { json: ["id", "approved_grade", "state"] } }, { id: "request.deny", owner: "cli", status: "active", job: "J10", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Decline one incoming access request.", use_when: "An authorized owner explicitly refuses the request.", check: "Check request identity and resulting state.", bound: "One request per call." }, bound: "n/a", parameters: { type: "object", properties: { request_id: { type: "string", description: "Positional request id for request.deny." } }, required: ["request_id"], additionalProperties: false }, cli: { argv: ["request", "deny"], positional: ["request_id"], flags: {} }, aliases: ["request decline"], output: { json: ["id", "state"] } }, { id: "request.cancel", owner: "cli", status: "active", job: "J10", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Cancel your own pending access request.", use_when: "Explicitly withdraw a request you made.", check: "Check ownership and request state; grants are not revoked.", bound: "One request per call." }, bound: "n/a", parameters: { type: "object", properties: { request_id: { type: "string", description: "Positional request id for request.cancel." } }, required: ["request_id"], additionalProperties: false }, cli: { argv: ["request", "cancel"], positional: ["request_id"], flags: {} }, output: { json: ["id", "state"] } }, { id: "agent.run", owner: "cli", status: "active", job: "J11", effect: "launch", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Launch a local agent POV on Pi or Claude with explicit reach.", use_when: "Need a separate agent run; inspect agent.capabilities first.", check: "Check disclosed reach, requested versus observed model and final status. Host permissions still govern.", bound: "Message capped at 8192 bytes; no implicit run ceiling. Output streams lifecycle events." }, bound: "n/a", parameters: { type: "object", properties: { pov: { type: "string", description: "Local agent POV folder." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, task: { type: "string", description: "Short task description stored on the local run." }, runtime: { type: "string", description: "Local runtime, pi or claude.", enum: ["pi", "claude"], default: "pi" }, model: { type: "string", description: "Requested runtime model, or hosted conversation model tier." }, parent: { type: "string", description: "Parent run id for local records; explicit value overrides environment discovery." }, parent_tool_use_id: { type: "string", description: "Parent tool-use coordinate recorded for run attribution." }, run_id: { type: "string", description: "Stable local run record id; agent record can also use IDEASPACES_RUN_ID." }, pi_thinking: { type: "string", description: "Pi thinking level forwarded to the runtime." }, pi_trust: { type: "string", description: "Pi resource trust: saved or explicit." }, topic: { type: "string", description: "Explicit name for a new Pi agent transcript only." }, ext: { type: "array", description: "Explicit Pi extension paths; not ambient discovery.", items: { type: "string" } }, skill: { type: "array", description: "Explicit local runtime skill directories.", items: { type: "string" } }, claude_effort: { type: "string", description: "Claude effort level; the installed runtime validates it." }, permission_mode: { type: "string", description: "Claude permission mode; bypassPermissions is refused." }, read_only: { type: "boolean", description: "Claude read-only launch, with MCP servers removed." }, reach: { type: "array", description: "Explicit extra directories for a Claude local turn.", items: { type: "string" } }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, thread_map: { type: "string", description: "Authored Map selecting the source Thread of a local run." }, thread_member: { type: "integer", description: "Zero-based source Thread Map member ordinal.", minimum: 0 }, pi_bin: { type: "string", description: "Explicit Pi executable path." }, claude_bin: { type: "string", description: "Explicit Claude Code executable path." }, pi_model: { type: "string", description: "Pi provider/model selector." }, claude_model: { type: "string", description: "Claude Code model selector." }, claude_auth: { type: "string", description: "Claude authentication mode: login or api-key." }, model_tier: { type: "string", description: "Local conversation model-tier metadata." }, session_dir: { type: "string", description: "Local runtime transcript directory." }, working_root: { type: "string", description: "Local launch working-set root, not permission to widen reach." }, focus: { type: "string", description: "Reference focus path for a local runtime launch." }, autocompact: { type: "string", description: "Claude auto-compaction window, auto or 100k\u20131M." } }, required: ["pov", "message"], additionalProperties: false }, cli: { argv: ["agent", "run"], positional: ["pov"], flags: { message: { flag: "--message" }, task: { flag: "--task" }, runtime: { flag: "--runtime" }, model: { flag: "--model" }, parent: { flag: "--parent" }, parent_tool_use_id: { flag: "--parent-tool-use-id" }, run_id: { flag: "--run-id" }, pi_thinking: { flag: "--pi-thinking" }, pi_trust: { flag: "--pi-trust" }, topic: { flag: "--topic" }, ext: { flag: "--ext", list: "csv" }, skill: { flag: "--skill", list: "csv" }, claude_effort: { flag: "--claude-effort" }, permission_mode: { flag: "--permission-mode" }, read_only: { flag: "--read-only", boolean: "bare" }, reach: { flag: "--reach", list: "repeat" }, map: { flag: "--map" }, conversation: { flag: "--conversation" }, thread: { flag: "--thread" }, thread_map: { flag: "--thread-map" }, thread_member: { flag: "--thread-member" }, pi_bin: { flag: "--pi-bin" }, claude_bin: { flag: "--claude-bin" }, pi_model: { flag: "--pi-model" }, claude_model: { flag: "--claude-model" }, claude_auth: { flag: "--claude-auth" }, model_tier: { flag: "--model-tier" }, session_dir: { flag: "--session-dir" }, working_root: { flag: "--working-root" }, focus: { flag: "--focus" }, autocompact: { flag: "--autocompact" } } }, output: { json: [] } }, { id: "agent.runs", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List persisted local agent run records.", use_when: "Inspect past or active runs, optionally by parent or POV.", check: "Check status and model provenance; recorded state is not a live process probe.", bound: "Unbounded unless limit is supplied; filter parent/agent to narrow the local run store." }, bound: "unbounded", parameters: { type: "object", properties: { parent: { type: "string", description: "Parent run id for local records; explicit value overrides environment discovery." }, agent: { type: "string", description: "Agent Actor node id or local POV filter, as selected by this command." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 } }, required: [], additionalProperties: false }, cli: { argv: ["agent", "runs"], positional: [], flags: { parent: { flag: "--parent" }, agent: { flag: "--agent" }, limit: { flag: "--limit" } } }, output: { json: ["runs", "total"] } }, { id: "agent.record", owner: "cli", status: "active", job: "J11", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Append or merge lifecycle information for an external agent run.", use_when: "A hook or runtime has observed a run update.", check: "Record observed facts only; unavailable model or usage is unknown, not zero.", bound: "One run update, identified by run_id; existing fields merge." }, bound: "n/a", parameters: { type: "object", properties: { run_id: { type: "string", description: "Stable local run record id; agent record can also use IDEASPACES_RUN_ID." }, parent: { type: "string", description: "Parent run id for local records; explicit value overrides environment discovery." }, parent_tool_use_id: { type: "string", description: "Parent tool-use coordinate recorded for run attribution." }, agent: { type: "string", description: "Agent Actor node id or local POV filter, as selected by this command." }, task: { type: "string", description: "Short task description stored on the local run." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, harness: { type: "string", description: "Observed run harness, pi or claude." }, model: { type: "string", description: "Requested runtime model, or hosted conversation model tier." }, model_requested: { type: "string", description: "Model id requested by the launcher; not an observed model." }, model_observed: { type: "string", description: "Model id actually reported by the runtime; omit if unknown." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, status: { type: "string", description: "Observed run status, not an inferred process probe." }, started: { type: "string", description: "Observed run start time, ISO timestamp." }, ended: { type: "string", description: "Observed run end time, ISO timestamp." } }, required: ["run_id"], additionalProperties: false }, cli: { argv: ["agent", "record"], positional: [], flags: { run_id: { flag: "--run-id" }, parent: { flag: "--parent" }, parent_tool_use_id: { flag: "--parent-tool-use-id" }, agent: { flag: "--agent" }, task: { flag: "--task" }, message: { flag: "--message" }, harness: { flag: "--harness" }, model: { flag: "--model" }, model_requested: { flag: "--model-requested" }, model_observed: { flag: "--model-observed" }, conversation: { flag: "--conversation" }, status: { flag: "--status" }, started: { flag: "--started" }, ended: { flag: "--ended" } } }, output: { json: ["run_id", "status", "model_requested", "model_observed"] } }, { id: "agent.list", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List validated local POVs from an explicit Map.", use_when: "Choose an agent POV before launching.", check: "Check validation status and resolved checkout; Map membership grants no access.", bound: "All agent members in the selected Map; no paging." }, bound: "n/a", parameters: { type: "object", properties: { map: { type: "string", description: "Authored Map input/path; references grant no access." } }, required: ["map"], additionalProperties: false }, cli: { argv: ["agent", "list"], positional: [], flags: { map: { flag: "--map" } } }, output: { json: ["agents"] } }, { id: "agent.capabilities", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read the existing agent-run guarantees and feature schema.", use_when: "Before building a launcher or choosing run flags.", check: "Use feature guarantees, not help text, to decide what this installed CLI supports.", bound: "One capability document; unchanged schema id." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["agent", "capabilities"], positional: [], flags: {} }, output: { json: ["schema", "features"] } }, { id: "conversation.new", owner: "cli", status: "active", job: "J11", effect: "write-hosted", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Create a private hosted conversation or mint a local runtime conversation id.", use_when: "Start a hosted conversation for a repo and optional Agent Actor.", check: "Hosted creation needs repo_id; local creation needs local and a selected runtime. Check returned conversation_id.", bound: "One conversation per call." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, name: { type: "string", description: "Human-readable name/title." }, agent: { type: "string", description: "Agent Actor node id or local POV filter, as selected by this command." }, local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, runtime: { type: "string", description: "Local runtime, pi or claude." } }, required: [], additionalProperties: false }, cli: { argv: ["conversation", "new"], positional: ["repo_id"], flags: { name: { flag: "--name" }, agent: { flag: "--agent" }, local: { flag: "--local", boolean: "bare" }, runtime: { flag: "--runtime" } } }, output: { json: ["id"] } }, { id: "conversation.send", owner: "cli", status: "active", job: "J11", effect: "launch", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Send one hosted or local conversation turn.", use_when: "Continue an existing conversation, not launch a new POV.", check: "For local turns check runtime, reach and final outcome. Host permissions remain authoritative.", bound: "Streams one turn; use conversation get for persisted hosted output." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, conversation_id: { type: "string", description: "Positional conversation id for conversation.send." }, message: { type: "string", description: "Exact message/content; stdin is accepted where documented." }, local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, context: { type: "string", description: "Local runtime context directory." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, runtime: { type: "string", description: "Local runtime, pi or claude.", enum: ["pi", "claude"], default: "pi" }, map: { type: "string", description: "Authored Map input/path; references grant no access." }, ext: { type: "array", description: "Explicit Pi extension paths; not ambient discovery.", items: { type: "string" } }, skill: { type: "array", description: "Explicit local runtime skill directories.", items: { type: "string" } }, pi_bin: { type: "string", description: "Explicit Pi executable path." }, pi_model: { type: "string", description: "Pi provider/model selector." }, pi_thinking: { type: "string", description: "Pi thinking level forwarded to the runtime." }, pi_trust: { type: "string", description: "Pi resource trust: saved or explicit." }, claude_bin: { type: "string", description: "Explicit Claude Code executable path." }, claude_model: { type: "string", description: "Claude Code model selector." }, claude_effort: { type: "string", description: "Claude effort level; the installed runtime validates it." }, permission_mode: { type: "string", description: "Claude permission mode; bypassPermissions is refused." }, read_only: { type: "boolean", description: "Claude read-only launch, with MCP servers removed." }, reach: { type: "array", description: "Explicit extra directories for a Claude local turn.", items: { type: "string" } }, autocompact: { type: "string", description: "Claude auto-compaction window, auto or 100k\u20131M." }, working_root: { type: "string", description: "Local launch working-set root, not permission to widen reach." }, focus: { type: "string", description: "Reference focus path for a local runtime launch." }, session_dir: { type: "string", description: "Local runtime transcript directory." }, model: { type: "string", description: "Requested runtime model, or hosted conversation model tier." }, thinking: { type: "boolean", description: "Enable hosted model thinking explicitly." }, model_tier: { type: "string", description: "Local conversation model-tier metadata." }, claude_auth: { type: "string", description: "Claude authentication mode: login or api-key." }, thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, thread_map: { type: "string", description: "Authored Map selecting the source Thread of a local run." }, thread_member: { type: "integer", description: "Zero-based source Thread Map member ordinal.", minimum: 0 } }, required: ["message"], additionalProperties: false }, cli: { argv: ["conversation", "send"], positional: ["repo_id", "conversation_id"], flags: { message: { flag: "--message" }, local: { flag: "--local", boolean: "bare" }, context: { flag: "--context" }, conversation: { flag: "--conversation" }, runtime: { flag: "--runtime" }, map: { flag: "--map" }, ext: { flag: "--ext", list: "csv" }, skill: { flag: "--skill", list: "csv" }, pi_bin: { flag: "--pi-bin" }, pi_model: { flag: "--pi-model" }, pi_thinking: { flag: "--pi-thinking" }, pi_trust: { flag: "--pi-trust" }, claude_bin: { flag: "--claude-bin" }, claude_model: { flag: "--claude-model" }, claude_effort: { flag: "--claude-effort" }, permission_mode: { flag: "--permission-mode" }, read_only: { flag: "--read-only", boolean: "bare" }, reach: { flag: "--reach", list: "repeat" }, autocompact: { flag: "--autocompact" }, working_root: { flag: "--working-root" }, focus: { flag: "--focus" }, session_dir: { flag: "--session-dir" }, model: { flag: "--model" }, thinking: { flag: "--thinking", boolean: "bare" }, model_tier: { flag: "--model-tier" }, claude_auth: { flag: "--claude-auth" }, thread: { flag: "--thread" }, thread_map: { flag: "--thread-map" }, thread_member: { flag: "--thread-member" } } }, output: { json: [] } }, { id: "conversation.get", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read one hosted or local conversation and its history.", use_when: "Inspect an exact hosted conversation.", check: "Hosted reads need repo_id and conversation_id. Local reads need local and conversation, plus optional context.", bound: "Service result without client-side paging; output may be large." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, conversation_id: { type: "string", description: "Positional conversation id for conversation.get." }, local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, context: { type: "string", description: "Local runtime context directory." }, runtime: { type: "string", description: "Local runtime, pi or claude." }, conversation: { type: "string", description: "Existing local runtime conversation id." } }, required: [], additionalProperties: false }, cli: { argv: ["conversation", "get"], positional: ["repo_id", "conversation_id"], flags: { local: { flag: "--local", boolean: "bare" }, context: { flag: "--context" }, runtime: { flag: "--runtime" }, conversation: { flag: "--conversation" } } }, output: { json: ["conversation", "messages"] } }, { id: "conversation.cancel", owner: "cli", status: "active", job: "J11", effect: "write-hosted", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Cancel a hosted conversation turn.", use_when: "Stop an active hosted turn.", check: "Check returned cancellation state; completed work is not undone.", bound: "One conversation per call." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, conversation_id: { type: "string", description: "Positional conversation id for conversation.cancel." } }, required: ["repo_id", "conversation_id"], additionalProperties: false }, cli: { argv: ["conversation", "cancel"], positional: ["repo_id", "conversation_id"], flags: {} }, output: { json: ["status"] } }, { id: "conversation.compact", owner: "cli", status: "active", job: "J11", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Compact a local runtime conversation.", use_when: "Runtime context needs compaction; this is not a shared-state edit.", check: "Only Claude currently supports compaction; Pi refuses. Check context and conversation; raw history remains runtime-owned.", bound: "One local conversation per call." }, bound: "n/a", parameters: { type: "object", properties: { local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, context: { type: "string", description: "Local runtime context directory." }, conversation: { type: "string", description: "Existing local runtime conversation id." }, runtime: { type: "string", description: "Local runtime, pi or claude.", enum: ["pi", "claude"], default: "pi" }, claude_auth: { type: "string", description: "Claude authentication mode: login or api-key." }, claude_bin: { type: "string", description: "Explicit Claude Code executable path." } }, required: ["local", "context", "conversation"], additionalProperties: false }, cli: { argv: ["conversation", "compact"], positional: [], flags: { local: { flag: "--local", boolean: "bare" }, context: { flag: "--context" }, conversation: { flag: "--conversation" }, runtime: { flag: "--runtime" }, claude_auth: { flag: "--claude-auth" }, claude_bin: { flag: "--claude-bin" } } }, output: { json: [] } }, { id: "conversations", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List hosted or local conversations.", use_when: "Choose an existing conversation before continuing it.", check: "Check whether the result is local or hosted and the selected context/repo.", bound: "Complete runtime/service list; no client-side continuation." }, bound: "n/a", parameters: { type: "object", properties: { repo_id: { type: "string", description: "Hosted repository id." }, local: { type: "boolean", description: "Use the local runtime rather than hosted conversation." }, context: { type: "string", description: "Local runtime context directory." }, runtime: { type: "string", description: "Local runtime, pi or claude." } }, required: [], additionalProperties: false }, cli: { argv: ["conversations"], positional: ["repo_id"], flags: { local: { flag: "--local", boolean: "bare" }, context: { flag: "--context" }, runtime: { flag: "--runtime" } } }, output: { json: ["repo_id", "conversations", "total", "has_more"] } }, { id: "agents", owner: "cli", status: "active", job: "J11", effect: "read", reach: "hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List Agent Actors available to the signed-in account.", use_when: "Choose a hosted actor, not a local POV.", check: "Check owner and actor identity; availability is not a permission grant.", bound: "Complete service list; no client-side paging." }, bound: "n/a", parameters: { type: "object", properties: { owner: { type: "string", description: "Agent Actor owner selector, person:user or hostname:domain." } }, required: [], additionalProperties: false }, cli: { argv: ["agents"], positional: [], flags: { owner: { flag: "--owner" } } }, output: { json: ["agents"] } }, { id: "threads.launch-text", owner: "cli", status: "active", job: "J11", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Assemble bounded launch context from one local Thread post and its Map.", use_when: "Start a session from an explicit post, not the latest by accident.", check: "Read cut diagnostics; pinned Map members are reference, not added authority.", bound: "Launch capped at 16384 bytes; Map character budget can lower detail or drop members." }, bound: "n/a", parameters: { type: "object", properties: { thread: { type: "string", description: "Local Thread slug/path or hosted x_ id." }, post: { type: "string", description: "Exact post id to select." }, member: { type: "integer", description: "Zero-based authored Map member ordinal.", minimum: 0 }, pov: { type: "string", description: "Local agent POV folder." }, budget: { type: "integer", description: "Character budget for bounded Map/orientation rendering.", minimum: 0 } }, required: ["thread", "post"], additionalProperties: false }, cli: { argv: ["threads", "launch-text"], positional: ["thread"], flags: { post: { flag: "--post" }, member: { flag: "--member" }, pov: { flag: "--pov" }, budget: { flag: "--budget" } }, local_flags: ["post", "member", "pov", "budget"] }, output: { json: ["text", "cut", "merged"] } }, { id: "pi.status", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Probe the local Pi binary, providers and extensions.", use_when: "Check whether Pi can run a local agent.", check: "Check binary provenance, provider availability and extension diagnostics; not a hosted account check.", bound: "One installed runtime probe; no paging." }, bound: "n/a", parameters: { type: "object", properties: { pi_bin: { type: "string", description: "Explicit Pi executable path." }, ext: { type: "array", description: "Explicit Pi extension paths; not ambient discovery.", items: { type: "string" } } }, required: [], additionalProperties: false }, cli: { argv: ["pi-status"], positional: [], flags: { pi_bin: { flag: "--pi-bin" }, ext: { flag: "--ext", list: "csv" } } }, output: { json: ["binary", "providers", "configured", "extensions", "ready"] } }, { id: "pi.models", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List models available through the local Pi runtime.", use_when: "Choose an authenticated Pi provider/model before launch.", check: "Availability is auth-gated; inspect provider and model id, not just labels.", bound: "One installed runtime model list; no paging." }, bound: "n/a", parameters: { type: "object", properties: { pi_bin: { type: "string", description: "Explicit Pi executable path." } }, required: [], additionalProperties: false }, cli: { argv: ["pi-models"], positional: [], flags: { pi_bin: { flag: "--pi-bin" } } }, output: { json: ["models"] } }, { id: "pi.login", owner: "cli", status: "active", job: "J11", effect: "account", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Configure one local Pi model provider credential.", use_when: "Explicitly asked to configure a model provider for Pi.", check: "Writes Pi auth.json, not IdeaSpaces login. Keep api_key out of logs and shared artifacts.", bound: "One provider credential per call." }, bound: "n/a", parameters: { type: "object", properties: { provider: { type: "string", description: "Pi model-provider id." }, api_key: { type: "string", description: "Secret model-provider key; never log or capture it." } }, required: ["provider", "api_key"], additionalProperties: false }, cli: { argv: ["pi-login"], positional: [], flags: { provider: { flag: "--provider" }, api_key: { flag: "--api-key" } } }, output: { json: ["provider", "method", "configured", "authPath"] } }, { id: "pi.logout", owner: "cli", status: "active", job: "J11", effect: "account", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Remove one provider from local Pi credentials.", use_when: "Explicitly asked to disconnect a Pi model provider.", check: "Check provider id; does not sign out of IdeaSpaces.", bound: "One provider per call." }, bound: "n/a", parameters: { type: "object", properties: { provider: { type: "string", description: "Pi model-provider id." } }, required: ["provider"], additionalProperties: false }, cli: { argv: ["pi-logout"], positional: [], flags: { provider: { flag: "--provider" } } }, output: { json: ["provider", "removed", "authPath"] } }, { id: "claude.status", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Probe local Claude Code binary, version and sign-in.", use_when: "Check whether Claude can run a local agent.", check: "Check binary path and auth mode; this is not IdeaSpaces account status.", bound: "One installed runtime probe; no paging." }, bound: "n/a", parameters: { type: "object", properties: { claude_bin: { type: "string", description: "Explicit Claude Code executable path." }, claude_auth: { type: "string", description: "Claude authentication mode: login or api-key." } }, required: [], additionalProperties: false }, cli: { argv: ["claude-status"], positional: [], flags: { claude_bin: { flag: "--claude-bin" }, claude_auth: { flag: "--claude-auth" } } }, output: { json: ["binary", "login", "auth", "ready", "models", "capabilities"] } }, { id: "claude.models", owner: "cli", status: "active", job: "J11", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "List models and context capabilities of local Claude Code.", use_when: "Choose a model supported by the installed Claude binary.", check: "Check installed binary and model capabilities; not an online latest-version claim.", bound: "One installed runtime model list; no paging." }, bound: "n/a", parameters: { type: "object", properties: { claude_bin: { type: "string", description: "Explicit Claude Code executable path." } }, required: [], additionalProperties: false }, cli: { argv: ["claude-models"], positional: [], flags: { claude_bin: { flag: "--claude-bin" } } }, output: { json: ["binary", "models", "capabilities"] } }, { id: "change.new", owner: "cli", status: "active", job: "J12", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Mint a Change-Id for one decision spanning commits or repos.", use_when: "A decision needs one durable coordinate across several commits.", check: "Reuse an existing Change-Id when continuing the same decision.", bound: "One id per call; does not arm host session state." }, bound: "n/a", parameters: { type: "object", properties: { handle: { type: "string", description: "Positional handle for change.new." } }, required: [], additionalProperties: false }, cli: { argv: ["change", "new"], positional: ["handle"], flags: { handle: { flag: "--handle" } } }, output: { json: ["change_id"] } }, { id: "login", owner: "cli", status: "active", job: "J13", effect: "account", reach: "local+hosted", confirm: "browser", requires: { cli: ">=0.9.0" }, text: { does: "Open browser sign-in for this CLI on this machine.", use_when: "A person explicitly wants this CLI authenticated.", check: "Complete browser authorization; host-run auth must stay with the host.", bound: "One browser flow; headless callers use an existing IS_API_KEY." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["login"], positional: [], flags: {} }, output: { json: ["logged_in", "web_url", "env_override_active"] } }, { id: "logout", owner: "cli", status: "active", job: "J13", effect: "account", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Revoke this CLI session, then clear its credentials.", use_when: "Explicitly asked to sign this CLI out.", check: "Credentials are retained if revocation fails; host auth is not replaced.", bound: "One CLI session; no paging." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["logout"], positional: [], flags: {} }, aliases: ["power logout"], output: { json: ["logged_out", "env_override_active"] } }, { id: "whoami", owner: "cli", status: "active", job: "J13", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Show this CLI login state.", use_when: "Need account identity rather than repo status.", check: "Check account and configured endpoint; does not prove a hosted write is authorized.", bound: "One account status result." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["whoami"], positional: [], flags: {} }, aliases: ["status account"], output: { json: ["logged_in", "api_url", "username"] } }, { id: "doctor", owner: "cli", status: "active", job: "J13", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Diagnose Node, Git, remote auth and CLI update state.", use_when: "Investigate installation or credential problems.", check: "Read individual findings; an installed version is not a claim about the latest release.", bound: "One diagnostic report." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["doctor"], positional: [], flags: {} }, aliases: ["status doctor"], output: { json: ["schema_version", "ok", "platform", "checks"] } }, { id: "upgrade", owner: "cli", status: "active", job: "J13", effect: "account", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Check for or install a newer CLI.", use_when: "Update the CLI itself; update/integrate are for repo content.", check: "Check installation kind; check is read-only. Host-managed installs must use their host updater.", bound: "One installation; check does not install." }, bound: "n/a", parameters: { type: "object", properties: { check: { type: "boolean", description: "Report drift/update state without applying changes." } }, required: [], additionalProperties: false }, cli: { argv: ["upgrade"], positional: [], flags: { check: { flag: "--check", boolean: "bare" } } }, output: { json: ["current", "latest", "behind", "upgraded", "install", "path", "advice"] } }, { id: "version", owner: "cli", status: "active", job: "J13", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Report the installed CLI version.", use_when: "Need build identity, not online update availability.", check: "This is the built package version, not the latest published version.", bound: "One version field." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["--version"], positional: [], flags: {} }, aliases: ["--version", "-v"], output: { json: ["version"] } }, { id: "create", owner: "cli", status: "active", job: "J13", effect: "write-local", reach: "local", confirm: "plan-then-yes", requires: { cli: ">=0.9.0" }, text: { does: "Preview or scaffold a local ideaspace.", use_when: "A person wants a new local repo or Home scaffold.", check: "Read the plan before yes; check destination and scaffold kind.", bound: "One destination; defaults to preview until yes." }, bound: "n/a", parameters: { type: "object", properties: { name: { type: "string", description: "Human-readable name/title." }, shared: { type: "boolean", description: "Create shared agent instructions rather than private local defaults." }, agent: { type: "boolean", description: "Agent Actor node id or local POV filter, as selected by this command." }, foundation: { type: "boolean", description: "Choose a Foundation scaffold instead of Agreement." }, home: { type: "string", description: "Hosted map:<id> placement, or Home scaffold destination for create." }, yes: { type: "boolean", description: "Explicit application of the previously read plan." } }, required: [], additionalProperties: false }, cli: { argv: ["create"], positional: ["name"], flags: { shared: { flag: "--shared", boolean: "bare" }, agent: { flag: "--agent", boolean: "bare" }, foundation: { flag: "--foundation", boolean: "bare" }, home: { flag: "--home" }, yes: { flag: "--yes", boolean: "bare" } } }, output: { json: ["target", "shape", "plan", "scaffolded", "root_node_id", "identity_state"] } }, { id: "capabilities", owner: "cli", status: "active", job: "J13", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.10.0" }, text: { does: "Discover agent contracts progressively by group and id.", use_when: "Discover groups first, then entries, then the full contract for one id.", check: "Catalogs describe contracts, not host permissions or exposure.", bound: "Fourteen group lines, group summaries, or one complete entry; no paging." }, bound: "n/a", parameters: { type: "object", properties: { selector: { type: "string", description: "Positional selector for capabilities." } }, required: [], additionalProperties: false }, cli: { argv: ["capabilities"], positional: ["selector"], flags: {} }, output: { json: ["schema", "version", "cli", "protocol", "digest", "groups", "entries", "entry"] } }, { id: "search", owner: "cli", status: "active", job: "J14", effect: "read", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Search local Markdown or open a saved result Map.", use_when: "Find content across explicit roots; save references only when requested.", check: "Check result roots, match count and any unresolved saved references. Saving does not share content.", bound: "Default limit 20, no result maximum; scan truncation/incomplete roots are reported. Narrow query/roots or increase limit." }, bound: { unit: "entries", default: 20, says: true }, parameters: { type: "object", properties: { query: { type: "string", description: "Filename filtering text for ls." }, root: { type: "array", description: "Explicit root selector; meaning is command-specific.", items: { type: "string" } }, threads: { type: "boolean", description: "Include Thread Notes in search." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1, default: 20 }, save: { type: "string", description: "Write a search result Map to this local Note path." }, name: { type: "string", description: "Human-readable name/title." }, summary: { type: "string", description: "Dense summary for progressive discovery." }, force: { type: "boolean", description: "Bypass existing revision/overwrite protection explicitly." }, open: { type: "string", description: "Include open local Threads when filtering discovery." } }, required: [], additionalProperties: false }, cli: { argv: ["search"], positional: ["query"], flags: { root: { flag: "--root", list: "repeat" }, threads: { flag: "--threads", boolean: "bare" }, limit: { flag: "--limit" }, save: { flag: "--save" }, name: { flag: "--name" }, summary: { flag: "--summary" }, force: { flag: "--force", boolean: "bare" }, open: { flag: "--open" } } }, output: { json: ["query", "scanned", "total", "matched", "results", "map", "map_status", "complete", "saved"] } }, { id: "follow", owner: "cli", status: "retired", refusal: "Follow, unfollow and subscription cursor acknowledgement are retired. No request was sent. Use `ideaspaces threads list --unread` for unread Threads; use `ideaspaces threads ack <id> --cursor <cursor>` only to mark a Thread read explicitly.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["follow"], positional: [], flags: {} } }, { id: "unfollow", owner: "cli", status: "retired", refusal: "Follow, unfollow and subscription cursor acknowledgement are retired. No request was sent. Use `ideaspaces threads list --unread` for unread Threads; use `ideaspaces threads ack <id> --cursor <cursor>` only to mark a Thread read explicitly.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["unfollow"], positional: [], flags: {} } }, { id: "threads.posts", owner: "cli", status: "retired", refusal: "threads posts retired with the Inbox; use threads list and open, or manage membership on the web.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: { space: { type: "string", description: "Compatibility repository URL selector for share." }, scope: { type: "string", description: "The scope option for threads.posts; see this entry's check and bound." }, limit: { type: "integer", description: "Maximum results in this page; inspect returned continuation/counts.", minimum: 1 }, since: { type: "string", description: "Continuation position from the prior page or ISO filter where supported." }, depth: { type: "string", description: "Progressive-disclosure rung or numeric tree depth as documented." }, order: { type: "string", description: "Page direction: older or newer; since advances forward with older." }, cursor: { type: "string", description: "Opaque continuation/read position returned by this operation." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "posts"], positional: [], flags: { space: { flag: "--space" }, scope: { flag: "--scope" }, limit: { flag: "--limit" }, since: { flag: "--since" }, depth: { flag: "--depth" }, order: { flag: "--order" }, cursor: { flag: "--cursor" } }, local_flags: ["space", "scope", "limit", "since", "depth", "order", "cursor"] } }, { id: "threads.expand", owner: "cli", status: "retired", refusal: "threads expand retired with the Inbox; use threads list and open, or manage membership on the web.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, cli: { argv: ["threads", "expand"], positional: [], flags: {}, local_flags: [] } }, { id: "threads.add", owner: "cli", status: "retired", refusal: "threads add retired with the Inbox; use threads list and open, or manage membership on the web.", job: "J16", effect: "status", reach: "local+hosted", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Refuse a retired operation; no request is sent.", use_when: "Recognize a stale wrapper or instruction; choose the replacement instead.", check: "Read the refusal and do not retry this retired id.", bound: "One refusal; no continuation." }, bound: "n/a", parameters: { type: "object", properties: { grade: { type: "string", description: "Requested or granted access grade; command-specific vocabulary is checked by the CLI." } }, required: [], additionalProperties: false }, cli: { argv: ["threads", "add"], positional: [], flags: { grade: { flag: "--grade" } }, local_flags: ["grade"] } }, { id: "change.open", owner: "host", implemented_by: ["mcp", "pi"], status: "active", job: "J12", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Open a session Change, minting or continuing its id.", use_when: "Manage a multi-commit decision in the current host session.", check: "Session state belongs to the host; this entry grants no permissions or cross-session ownership.", bound: "One host session; optional file selection is exact." }, bound: "n/a", parameters: { type: "object", properties: { handle: { type: "string", description: "Handle used to mint a new Change-Id." }, id: { type: "string", description: "Existing Change-Id to continue." } }, required: [], additionalProperties: false }, calls: ["change.new"], output: { json: ["id"] } }, { id: "change.close", owner: "host", implemented_by: ["mcp", "pi"], status: "active", job: "J12", effect: "write-local", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Close the session Change; later commits no longer carry its id.", use_when: "Manage a multi-commit decision in the current host session.", check: "Session state belongs to the host; this entry grants no permissions or cross-session ownership.", bound: "One host session; optional file selection is exact." }, bound: "n/a", parameters: { type: "object", properties: {}, required: [], additionalProperties: false }, calls: [], output: { json: ["id"] } }, { id: "session.status", owner: "host", implemented_by: ["mcp", "pi"], status: "active", job: "J9", effect: "status", reach: "local", confirm: "none", requires: { cli: ">=0.9.0" }, text: { does: "Read session captures, open Change and optional safe file revisions.", use_when: "Inspect session-owned captures and file revisions before saving.", check: "Session state belongs to the host; this entry grants no permissions or cross-session ownership.", bound: "One host session; optional file selection is exact." }, bound: "n/a", parameters: { type: "object", properties: { path: { type: "string", description: "Optional file to inspect for safe refinement." } }, required: [], additionalProperties: false }, calls: ["status"], output: { json: ["session_owned", "change", "captures", "revision"] } }], exclusions: [{ id: "agent_session", reason: "Removed from every surface; not a tool." }, { id: "is_cli", reason: "Shell alias in a plugin skill, not a tool." }, { id: "is_share", reason: "Mentioned only in no-native-tool guidance; not a tool." }, { id: "credential", reason: "Git credential helper, not an agent-facing command." }, { id: "update-check", reason: "Internal update probe, not an agent-facing command." }], capabilities: { threads: { schema: "ideaspaces.threads.capabilities.v1", transport: "/threads", legacy_exchange_fallback: false }, agent: { schema: "ideaspaces.agent-run.capabilities", version: 1, features: ["pi.explicit-extensions", "pi.retry-terminal", "pi.skill-isolation", "pi.trust", "pi.thinking", "pi.topic", "claude.read-only", "claude.effort", "claude.permission-mode", "model.requested-observed", "run.records", "run.record-command", "run.terminal-error", "run.cancelled-nonzero"] } } };
   }
 });
 
@@ -19995,7 +19995,7 @@ async function assembleContentAwareness(opts) {
     }
     return readFloorAwarenessSections(common);
   });
-  const [context, git7, staleDocs, sections] = await Promise.all([
+  const [context, git8, staleDocs, sections] = await Promise.all([
     pathContextPromise,
     gitPromise,
     staleDocsPromise,
@@ -20016,7 +20016,7 @@ async function assembleContentAwareness(opts) {
     spaceRoot,
     position: { placement: "head", path: position, base, repoRoot: repoRoot2, context },
     ...sections,
-    git: git7,
+    git: git8,
     staleDocs,
     missingDirection
   };
@@ -22569,24 +22569,24 @@ function contentRevision2(content) {
 // node_modules/@ideaspaces/protocol/dist/content-state.js
 init_define_IDEASPACES_AGENT_CATALOG();
 async function assembleContentState(repoRoot2) {
-  const [git7, captures] = await Promise.all([
+  const [git8, captures] = await Promise.all([
     gitState(repoRoot2),
     stagedIdeaspacePaths(repoRoot2)
   ]);
-  return { placement: "tail", git: git7, captures };
+  return { placement: "tail", git: git8, captures };
 }
 function renderContentState(state) {
-  const { git: git7, captures } = state;
-  const lines = ["State:", `  branch: ${git7.branch ?? "(detached)"}`];
-  if (git7.ahead != null || git7.behind != null) {
-    lines.push(`  remote: ahead ${git7.ahead ?? 0}, behind ${git7.behind ?? 0}`);
+  const { git: git8, captures } = state;
+  const lines = ["State:", `  branch: ${git8.branch ?? "(detached)"}`];
+  if (git8.ahead != null || git8.behind != null) {
+    lines.push(`  remote: ahead ${git8.ahead ?? 0}, behind ${git8.behind ?? 0}`);
   } else {
     lines.push("  remote: no upstream");
   }
-  lines.push(`  working tree: ${git7.dirty ? "dirty" : "clean"}`);
+  lines.push(`  working tree: ${git8.dirty ? "dirty" : "clean"}`);
   lines.push(`  captures awaiting commit: ${captures.length}`);
-  if (git7.untrackedInTrackedDirs.length) {
-    lines.push(`  untracked knowledge files: ${git7.untrackedInTrackedDirs.length}`);
+  if (git8.untrackedInTrackedDirs.length) {
+    lines.push(`  untracked knowledge files: ${git8.untrackedInTrackedDirs.length}`);
   }
   return lines.join("\n");
 }
@@ -23877,7 +23877,7 @@ function buildDoctorReport(input) {
         };
     }
   })();
-  const git7 = (() => {
+  const git8 = (() => {
     switch (input.git.state) {
       case "usable":
         return {
@@ -23932,9 +23932,9 @@ function buildDoctorReport(input) {
   };
   return {
     schema_version: 1,
-    ok: node.ok && git7.ok,
+    ok: node.ok && git8.ok,
     platform: input.platform,
-    checks: { node, git: git7, remote_auth: remoteAuth, cli: cliCheck(input.cli) }
+    checks: { node, git: git8, remote_auth: remoteAuth, cli: cliCheck(input.cli) }
   };
 }
 function formatCheck(label, check) {
@@ -25104,7 +25104,7 @@ function inspectLocalRootIdentity(cwd, apiUrl) {
   const worktree = withFallback(selectedWorktreeDeclaration, selectedWorktree);
   const identitySource = isValidRootNodeId(agreementHead) ? "agreement" : isValidRootNodeId(foundationHead) ? "foundation" : null;
   const dirty = !sameDeclaration(head2, index) || !sameDeclaration(head2, worktree);
-  const record2 = findSpaceFor(cwd);
+  const record2 = isHostAuth() ? null : findSpaceFor(cwd);
   const localRegistry = record2?.root_node_id;
   const origin = originUrl(cwd);
   const configuredApiUrl = apiUrl ?? peekConfig()?.apiUrl ?? getDefaultApiUrl();
@@ -26427,9 +26427,173 @@ Git push/pull uses the session automatically. Manage or revoke this install in w
 
 // dist/commands/publish.js
 init_define_IDEASPACES_AGENT_CATALOG();
+import { spawnSync as spawnSync6 } from "node:child_process";
+import { existsSync as existsSync8, statSync } from "node:fs";
+import { basename as basename6, join as join20 } from "node:path";
+
+// dist/commands/publish-host.js
+init_define_IDEASPACES_AGENT_CATALOG();
 import { spawnSync as spawnSync5 } from "node:child_process";
-import { existsSync as existsSync7, statSync } from "node:fs";
+import { existsSync as existsSync7 } from "node:fs";
 import { basename as basename5, join as join19 } from "node:path";
+function git2(cwd, args2, env = isolatedGitEnv()) {
+  const r = spawnSync5(gitBinary(), ["-C", cwd, ...args2], { encoding: "utf-8", env });
+  if (r.error)
+    return { ok: false, stdout: "", stderr: r.error.message, status: null };
+  return { ok: r.status === 0, stdout: (r.stdout || "").trim(), stderr: (r.stderr || "").trim(), status: r.status };
+}
+function isolatedGitEnv(extra = []) {
+  const env = sanitizedGitEnvironment();
+  for (const key2 of Object.keys(env)) {
+    if (/^GIT_(TRACE|CURL_VERBOSE|ASKPASS|SSH|PROXY|SSL_NO_VERIFY|CONFIG$|CONFIG_PARAMETERS|CONFIG_SYSTEM|REDIRECT)/.test(key2) || key2 === "SSH_ASKPASS")
+      delete env[key2];
+  }
+  const pairs = [["credential.helper", ""], ["core.hooksPath", "/dev/null"], ["core.fsmonitor", "false"], ["protocol.allow", "never"], ["protocol.https.allow", "always"], ...extra];
+  return {
+    ...env,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_TERMINAL_PROMPT: "0",
+    GCM_INTERACTIVE: "never",
+    GIT_CONFIG_COUNT: String(pairs.length),
+    ...Object.fromEntries(pairs.flatMap(([key2, value4], i) => [[`GIT_CONFIG_KEY_${i}`, key2], [`GIT_CONFIG_VALUE_${i}`, value4]]))
+  };
+}
+function urlRewrites(cwd) {
+  const steer = "^(url\\..*\\.(insteadof|pushinsteadof)|http\\.(.*\\.)?(proxy|proxyauthmethod|sslverify|sslcainfo|sslcapath|sslcert|sslkey|sslcertpasswordprotected|curloptresolve|followredirects|extraheader|emptyauth|cookiefile))$";
+  const r = git2(cwd, ["config", "--get-regexp", steer], isolatedGitEnv());
+  return r.ok && r.stdout ? r.stdout.split("\n").filter(Boolean) : [];
+}
+async function publishInHost(cwd, flags2, checks) {
+  const answer = (data) => {
+    process.stdout.write(`${JSON.stringify(data, null, 2)}
+`);
+    return 0;
+  };
+  const fail = (code, state, message) => {
+    process.stdout.write(`${JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: { state, code, message } }, null, 2)}
+`);
+    process.stderr.write(`${message}
+`);
+    return 1;
+  };
+  delete process.env.IS_GIT_URL;
+  let config;
+  try {
+    config = hostedConfig("Publishing");
+  } catch (err) {
+    return fail("signed_out", "signed_out", err instanceof HostAuthRefusal ? err.message : "No sign-in was passed.");
+  }
+  if (!existsSync7(join19(cwd, ".git")))
+    return fail("not_git", "invalid_request", "This folder isn't a Git repository yet.");
+  const branch = git2(cwd, ["symbolic-ref", "--short", "HEAD"]);
+  if (!branch.ok || branch.stdout !== "main")
+    return fail("not_main", "invalid_request", "This folder's branch isn't main, which IdeaSpaces publishes.");
+  if (!git2(cwd, ["rev-parse", "--verify", "--quiet", "HEAD"]).ok)
+    return fail("no_commits", "invalid_request", "This folder has nothing committed to publish.");
+  let identity;
+  try {
+    identity = inspectLocalRootIdentity(cwd, config.apiUrl);
+  } catch {
+    return fail("identity", "invalid_request", "This folder's identity couldn't be read.");
+  }
+  const problem = checks.identityProblem(identity);
+  if (problem)
+    return fail("identity", "invalid_request", problem);
+  if (identity.origin_url) {
+    if (identity.canonical_origin && identity.root_node_id && identity.canonical_origin === identity.root_node_id)
+      return answer({ status: "already", root_node_id: identity.root_node_id, repo_url: canonicalRepoUrl(config.apiUrl, identity.root_node_id) });
+    return fail("origin", "conflict", "This folder already has a Git origin that isn't its IdeaSpaces home, so it isn't published again.");
+  }
+  const big = checks.sizeOffenders(cwd);
+  if (big.length)
+    return fail("too_large", "invalid_request", `${big.length} file${big.length === 1 ? " is" : "s are"} over IdeaSpaces' 200 KB limit: ${big.slice(0, 3).map((o) => o.path).join(", ")}.`);
+  const frontmatter = await checks.frontmatterProblem(cwd);
+  if (frontmatter)
+    return fail("frontmatter", "invalid_request", "Some Notes have frontmatter IdeaSpaces can't read. Fix it, commit, and publish again.");
+  if (urlRewrites(cwd).length)
+    return fail("redirected", "invalid_request", "This folder's Git config rewrites URLs or sets a proxy, TLS or redirect option, which could send the push elsewhere. Nothing was published.");
+  let me;
+  try {
+    me = await fetchAuthMe(config);
+  } catch (err) {
+    if (err instanceof UnauthorizedError)
+      return fail("expired", "expired", "The sign-in was refused.");
+    return fail("offline", "offline", "IdeaSpaces couldn't be reached.");
+  }
+  if (!me.username)
+    return fail("no_username", "invalid_request", "This account has no username yet.");
+  const committedId = typeof identity.declaration.head === "string" ? identity.declaration.head : void 0;
+  let repo;
+  try {
+    repo = await createRepo(config, { name: flags2.name?.toString() || basename5(cwd), ...committedId ? { root_node_id: committedId } : {} }, { statusError: true });
+  } catch (err) {
+    if (err instanceof ApiStatusError) {
+      if (err.status === 402)
+        return fail("subscription", "forbidden", "Publishing needs a publishing plan.");
+      if (err.status === 401)
+        return fail("expired", "expired", "The sign-in was refused.");
+      if (err.status === 409 && committedId)
+        repo = { repo_id: null, root_node_id: committedId, name: flags2.name?.toString() || basename5(cwd) };
+      else if (err.status === 409)
+        return fail("identity", "conflict", "IdeaSpaces already has a repository with this folder's identity.");
+      else
+        return fail("unavailable", err.status === 429 ? "rate_limited" : "unavailable", `IdeaSpaces refused to create the repository (${err.status}).`);
+    } else
+      return fail("offline", "offline", "IdeaSpaces couldn't be reached.");
+  }
+  if (!repo?.root_node_id || committedId && repo.root_node_id !== committedId)
+    return fail("identity", "conflict", "IdeaSpaces didn't keep this folder's identity. Nothing was pushed.");
+  const email = identityEmail(me.username);
+  const tip = git2(cwd, ["log", "-1", "--format=%ae"]);
+  const before = git2(cwd, ["rev-parse", "HEAD"]).stdout;
+  let added = false;
+  if (tip.stdout !== email) {
+    const commit = git2(cwd, [
+      "-c",
+      `user.email=${email}`,
+      "-c",
+      `user.name=${identityName({ name: me.name, username: me.username })}`,
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "--allow-empty",
+      "--no-verify",
+      "-q",
+      "-m",
+      "Published to IdeaSpaces"
+    ], isolatedGitEnv());
+    if (!commit.ok)
+      return fail("push_refused", "invalid_request", "The publishing commit couldn't be made. Nothing was pushed.");
+    added = true;
+  }
+  const url = canonicalGitUrl(config.apiUrl, repo.root_node_id);
+  if (!/^https:\/\//.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])[:/]/.test(url))
+    return fail("redirected", "invalid_request", "IdeaSpaces' Git address isn't https. Nothing was pushed.");
+  const basic = Buffer.from(`ideaspaces:${config.apiKey}`).toString("base64");
+  const loopback = url.startsWith("http://") ? [["protocol.http.allow", "always"]] : [];
+  const pinned = [[`http.${url}.proxy`, ""], [`http.${url}.sslVerify`, "true"], [`http.${url}.followRedirects`, "false"]];
+  const push2 = git2(cwd, ["push", "--no-verify", "--porcelain", url, "HEAD:refs/heads/main"], isolatedGitEnv([...loopback, ...pinned, [`http.${url}.extraHeader`, `Authorization: Basic ${basic}`]]));
+  if (!push2.ok) {
+    if (added)
+      git2(cwd, ["update-ref", "-m", "publish failed", "refs/heads/main", before]);
+    const tooBig = /size cap|too large|exceeds/i.test(push2.stderr);
+    return fail(tooBig ? "too_large" : "push_refused", "invalid_request", tooBig ? "A file is over IdeaSpaces' 200 KB limit." : "IdeaSpaces refused the push.");
+  }
+  git2(cwd, ["remote", "add", "origin", url]);
+  git2(cwd, ["config", "branch.main.remote", "origin"]);
+  git2(cwd, ["config", "branch.main.merge", "refs/heads/main"]);
+  return answer({
+    status: "published",
+    private: true,
+    with_history: true,
+    root_node_id: repo.root_node_id,
+    repo_id: repo.repo_id,
+    name: repo.name,
+    repo_url: canonicalRepoUrl(config.apiUrl, repo.root_node_id),
+    commit_added: added
+  });
+}
 
 // dist/root-actions.js
 init_define_IDEASPACES_AGENT_CATALOG();
@@ -26494,7 +26658,7 @@ function renderFrontmatterSyntaxProblems(scan2, opts = {}) {
 
 // dist/commands/publish.js
 function runGit4(cwd, args2) {
-  const r = spawnSync5(gitBinary(), ["-C", cwd, ...args2], { encoding: "utf-8" });
+  const r = spawnSync6(gitBinary(), ["-C", cwd, ...args2], { encoding: "utf-8" });
   if (r.error) {
     return { ok: false, stderr: `git not available: ${r.error.message}`, stdout: "" };
   }
@@ -26513,7 +26677,7 @@ function legacyWebUrl(apiUrl, namespace2, slug) {
 var SIZE_CAP_BYTES = 2e5;
 var SIZE_CAP_MARKERS = ["size cap", "too large", "exceeds"];
 function preflightSize(cwd) {
-  const r = spawnSync5(gitBinary(), ["-C", cwd, "ls-files", "-z"], { encoding: "utf-8" });
+  const r = spawnSync6(gitBinary(), ["-C", cwd, "ls-files", "-z"], { encoding: "utf-8" });
   if (r.error)
     throw new Error(`git not available: ${r.error.message}`);
   if (r.status !== 0) {
@@ -26521,7 +26685,7 @@ function preflightSize(cwd) {
   }
   const offenders = [];
   for (const rel of r.stdout.split("\0").filter(Boolean)) {
-    const abs = join19(cwd, rel);
+    const abs = join20(cwd, rel);
     let bytes;
     try {
       bytes = statSync(abs).size;
@@ -26597,16 +26761,16 @@ async function checkMarkdownFrontmatterSyntax(cwd) {
   });
 }
 function trackedMarkdownFiles(cwd) {
-  const r = spawnSync5(gitBinary(), ["-C", cwd, "ls-files", "-z", "--", "*.md"], { encoding: "utf-8" });
+  const r = spawnSync6(gitBinary(), ["-C", cwd, "ls-files", "-z", "--", "*.md"], { encoding: "utf-8" });
   if (r.error)
     throw new Error(`git not available: ${r.error.message}`);
   if (r.status !== 0) {
     throw new Error(r.stderr.trim() || "git ls-files failed while checking markdown identities");
   }
-  return r.stdout.split("\0").filter(Boolean).map((path) => join19(cwd, path));
+  return r.stdout.split("\0").filter(Boolean).map((path) => join20(cwd, path));
 }
 function deriveFreshNaming(cwd, flags2, unpublishedName, username) {
-  const folderName = basename5(cwd);
+  const folderName = basename6(cwd);
   const name = flags2.name?.toString() || unpublishedName || folderName;
   const slugInput = flags2.slug?.toString() || unpublishedName || folderName;
   const slug = slugify2(slugInput);
@@ -26627,7 +26791,15 @@ var publishCommand = {
     const output = createOutput(global3);
     const flags2 = rawFlags;
     const cwd = process.cwd();
-    if (!existsSync7(join19(cwd, ".git"))) {
+    if (isHostAuth()) {
+      if (global3.yes !== true) {
+        process.stdout.write(`${JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: { state: "invalid_request", code: "not_confirmed", message: "An app publishes with --yes, after the person's confirm." } })}
+`);
+        return 1;
+      }
+      return publishInHost(cwd, flags2, { sizeOffenders: preflightSize, frontmatterProblem: checkMarkdownFrontmatterSyntax, identityProblem: rootIdentityProblem });
+    }
+    if (!existsSync8(join20(cwd, ".git"))) {
       output.error("Not a git repo. Run `ideaspaces create` first, or `git init` here.");
       return 1;
     }
@@ -26969,8 +27141,8 @@ ${push2.stderr}${hint}`);
 // dist/commands/write.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { promises as fs11, readFileSync as readFileSync6 } from "node:fs";
-import { existsSync as existsSync8, statSync as statSync2 } from "node:fs";
-import { join as join21, relative as relative10, resolve as resolve14 } from "node:path";
+import { existsSync as existsSync9, statSync as statSync2 } from "node:fs";
+import { join as join22, relative as relative10, resolve as resolve14 } from "node:path";
 var import_yaml4 = __toESM(require_dist(), 1);
 
 // node_modules/@ideaspaces/protocol/dist/local-effects-runtime.js
@@ -26978,7 +27150,7 @@ init_define_IDEASPACES_AGENT_CATALOG();
 var import_yaml3 = __toESM(require_dist(), 1);
 import { randomUUID as randomUUID5 } from "node:crypto";
 import { lstat as nodeLstat2, mkdir, open, readFile as readFile2, realpath as nodeRealpath2, rename, rm } from "node:fs/promises";
-import { basename as basename6, dirname as dirname5, join as join20 } from "node:path";
+import { basename as basename7, dirname as dirname5, join as join21 } from "node:path";
 var nodeLocalEffectFileSystem = {
   realpath: (path) => nodeRealpath2(path),
   async lstat(path) {
@@ -27004,7 +27176,7 @@ var nodeLocalEffectFileSystem = {
       if (error.code !== "ENOENT")
         throw error;
     }
-    const temporary = join20(dirname5(path), `.${basename6(path)}.${process.pid}.${randomUUID5()}.tmp`);
+    const temporary = join21(dirname5(path), `.${basename7(path)}.${process.pid}.${randomUUID5()}.tmp`);
     let handle = null;
     try {
       handle = await open(temporary, "wx", mode);
@@ -27328,7 +27500,7 @@ async function runGit5(capabilities, root, args2) {
   }
 }
 function hostPath(root, path) {
-  return join20(root, ...path.split("/"));
+  return join21(root, ...path.split("/"));
 }
 function literalPathspec2(path) {
   return `:(literal)${path}`;
@@ -27382,14 +27554,14 @@ function detail2(error) {
 
 // dist/local-effects-adapter.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync6 } from "node:child_process";
+import { spawnSync as spawnSync7 } from "node:child_process";
 import { realpathSync as realpathSync5 } from "node:fs";
 import { isAbsolute as isAbsolute5, relative as relative9, resolve as resolve13, sep as sep7 } from "node:path";
 function localEffectGitEnvironment() {
   return sanitizedGitEnvironment();
 }
 var localEffectGitRunner = async (root, args2) => {
-  const result = spawnSync6(gitBinary(), [...args2], {
+  const result = spawnSync7(gitBinary(), [...args2], {
     cwd: root,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -27434,7 +27606,7 @@ async function gitIdentityConfigForEffects(root, key2) {
   return result.stdout.trim() || null;
 }
 function canonicalRepoRoot(cwd = process.cwd()) {
-  const result = spawnSync6(gitBinary(), ["rev-parse", "--show-toplevel"], {
+  const result = spawnSync7(gitBinary(), ["rev-parse", "--show-toplevel"], {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -27687,7 +27859,7 @@ var writeCommand = {
       emitEffectFailure(output, global3, failure2);
       return 1;
     }
-    const absPath = join21(root, ...segments);
+    const absPath = join22(root, ...segments);
     const reviewed = await pathRevision(root, portablePath, localEffectCapabilities.git, localEffectCapabilities.filesystem);
     if (reviewed.status === "error") {
       const failure2 = localEffectError("write_markdown", reviewed.code, reviewed.phase, reviewed.message, reviewed.path, reviewed.detail);
@@ -27767,7 +27939,7 @@ function parseMapInput(raw, root) {
   if (typeof raw === "string") {
     const trimmed = raw.trim();
     const candidatePath = resolve14(root, trimmed);
-    if (existsSync8(candidatePath) && statSync2(candidatePath).isFile()) {
+    if (existsSync9(candidatePath) && statSync2(candidatePath).isFile()) {
       try {
         const fileContent = readFileSync6(candidatePath, "utf-8");
         const fm = parseFrontmatter(fileContent);
@@ -27812,7 +27984,7 @@ function isBatchTarget(targets) {
   if (targets.length > 1)
     return true;
   const abs = resolve14(targets[0]);
-  return existsSync8(abs) && statSync2(abs).isDirectory();
+  return existsSync9(abs) && statSync2(abs).isDirectory();
 }
 async function runBatchStage(targets, flags2, output) {
   const stage = parseBool(flags2.stage, true);
@@ -27856,7 +28028,7 @@ async function collectMarkdown(targets) {
   const skipped = [];
   for (const t of targets) {
     const abs = resolve14(t);
-    if (!existsSync8(abs)) {
+    if (!existsSync9(abs)) {
       missing.push(t);
     } else if (statSync2(abs).isDirectory()) {
       await walkMarkdown(abs, files);
@@ -27873,7 +28045,7 @@ async function walkMarkdown(dir, out) {
   for (const entry of entries2) {
     if (entry.name.startsWith(".") || entry.name === "node_modules")
       continue;
-    const p = join21(dir, entry.name);
+    const p = join22(dir, entry.name);
     if (entry.isDirectory()) {
       await walkMarkdown(p, out);
     } else if (entry.isFile() && entry.name.endsWith(".md")) {
@@ -27898,7 +28070,7 @@ function healthIssues(content) {
 
 // dist/commands/commit.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { join as join22 } from "node:path";
+import { join as join23 } from "node:path";
 var OP_SET = {
   create: true,
   update: true,
@@ -28031,7 +28203,7 @@ var commitCommand = {
       paths = converted;
     }
     paths = [...new Set(paths)];
-    const legacyPaths = flags2.all ? [...paths] : paths.map((path) => join22(root, ...path.split("/")));
+    const legacyPaths = flags2.all ? [...paths] : paths.map((path) => join23(root, ...path.split("/")));
     if (!paths.length) {
       const failure2 = localEffectError("commit_paths", "invalid_request", "preflight", "Refusing to commit with no paths. Name paths or use --all.");
       emitEffectFailure(output, global3, failure2);
@@ -28122,8 +28294,8 @@ var changeCommand = {
 
 // dist/commands/look.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync15, statSync as statSync4 } from "node:fs";
-import { dirname as dirname11, join as join29, relative as relative14, resolve as resolve20, sep as sep10 } from "node:path";
+import { existsSync as existsSync16, statSync as statSync4 } from "node:fs";
+import { dirname as dirname11, join as join30, relative as relative14, resolve as resolve20, sep as sep10 } from "node:path";
 
 // dist/local-map-root.js
 init_define_IDEASPACES_AGENT_CATALOG();
@@ -28161,7 +28333,7 @@ import { isAbsolute as isAbsolute8 } from "node:path";
 init_define_IDEASPACES_AGENT_CATALOG();
 import { createHash as createHash6 } from "node:crypto";
 import { readFileSync as readFileSync7, promises as fs12 } from "node:fs";
-import { basename as basename7, isAbsolute as isAbsolute6, relative as relative11, resolve as resolve15, sep as sep8 } from "node:path";
+import { basename as basename8, isAbsolute as isAbsolute6, relative as relative11, resolve as resolve15, sep as sep8 } from "node:path";
 var NoMapBlockError = class extends Error {
   constructor(message) {
     super(message);
@@ -28223,7 +28395,7 @@ function loadMapNote(reference, contextRoot) {
 }
 async function writeNewMapNote(reference, content) {
   const path = resolve15(reference);
-  if (basename7(path) !== "README.md" && !basename7(path).endsWith(".map.md")) {
+  if (basename8(path) !== "README.md" && !basename8(path).endsWith(".map.md")) {
     throw new Error("A local Map needs a *.map.md or README.md path.");
   }
   if (typeof content !== "string")
@@ -28263,15 +28435,15 @@ async function writeNewMapNote(reference, content) {
 
 // dist/local/map-look.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync7 } from "node:child_process";
+import { spawnSync as spawnSync8 } from "node:child_process";
 import { mkdirSync as mkdirSync5, mkdtempSync, realpathSync as realpathSync6, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename as basename8, dirname as dirname6, join as join23 } from "node:path";
+import { basename as basename9, dirname as dirname6, join as join24 } from "node:path";
 var COMMIT_READ_MAX_BYTES = 32 * 1024 * 1024;
 async function lookAtCommit(target, options) {
   const wholeTree = target.kind === "directory" && (options.depth === "children" || options.depth === "full" || options.postId !== void 0);
   return withSnapshot(target, wholeTree, async (dir) => {
-    const position = join23(dir, target.position);
+    const position = join24(dir, target.position);
     const request2 = {
       position,
       depth: options.depth,
@@ -28302,7 +28474,7 @@ async function focusAtCommit(target, contractSource, agreement) {
   if (target.kind !== "directory")
     return { status: "not_content", reason: `${target.position} is not a directory.` };
   return withSnapshot(target, true, async (dir) => {
-    const position = join23(dir, target.position);
+    const position = join24(dir, target.position);
     const focusOpts = { position, ...contractSource ? { contractSource } : {}, ...agreement ? { agreement } : {} };
     let focus = await assembleContentFocus(focusOpts);
     if (focus?.status === "contract_choice_required" && !contractSource) {
@@ -28319,8 +28491,8 @@ async function focusAtCommit(target, contractSource, agreement) {
   });
 }
 async function withSnapshot(target, wholeTree, read) {
-  const parent = realpathSync6.native(mkdtempSync(join23(tmpdir(), "ideaspaces-commit-read-")));
-  const dir = join23(parent, basename8(target.checkoutPath) || "root");
+  const parent = realpathSync6.native(mkdtempSync(join24(tmpdir(), "ideaspaces-commit-read-")));
+  const dir = join24(parent, basename9(target.checkoutPath) || "root");
   try {
     mkdirSync5(dir);
     const written = writeSnapshot(target, wholeTree, dir);
@@ -28331,7 +28503,7 @@ async function withSnapshot(target, wholeTree, read) {
     rmSync2(parent, { recursive: true, force: true });
   }
 }
-var git2 = (cwd, args2, options = {}) => spawnSync7(gitBinary(), ["-C", cwd, ...args2], {
+var git3 = (cwd, args2, options = {}) => spawnSync8(gitBinary(), ["-C", cwd, ...args2], {
   env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
   maxBuffer: options.maxBuffer ?? 64 * 1024 * 1024,
   ...options.input === void 0 ? {} : { input: options.input }
@@ -28351,7 +28523,7 @@ function writeSnapshot(target, wholeTree, dir) {
   const below = position === "." ? "" : `${position}/`;
   const specs = [...agentDirs, ...kind === "file" ? [position] : wholeTree ? [position] : [`${below}README.md`]];
   const pathspecs = specs.includes(".") ? [] : ["--", ...specs.map((spec) => `:(literal)${spec}`)];
-  const listed = git2(checkoutPath, ["ls-tree", "-r", "-z", "--full-tree", commit, ...pathspecs]);
+  const listed = git3(checkoutPath, ["ls-tree", "-r", "-z", "--full-tree", commit, ...pathspecs]);
   if (listed.error || listed.status !== 0)
     return gitFailure(listed, "git ls-tree");
   const files = [];
@@ -28365,11 +28537,11 @@ function writeSnapshot(target, wholeTree, dir) {
       files.push({ path, object: match[2] });
   }
   if (kind === "directory")
-    mkdirSync5(join23(dir, position), { recursive: true });
+    mkdirSync5(join24(dir, position), { recursive: true });
   if (!files.length) {
     return initRepository(dir);
   }
-  const shown = git2(checkoutPath, ["cat-file", "--batch"], {
+  const shown = git3(checkoutPath, ["cat-file", "--batch"], {
     input: files.map((file2) => file2.object).join("\n") + "\n",
     maxBuffer: COMMIT_READ_MAX_BYTES + files.length * 128
   });
@@ -28392,7 +28564,7 @@ function writeSnapshot(target, wholeTree, dir) {
     const start = newline + 1;
     if (start + size > out.length)
       return { status: "git_error", reason: `git cat-file ended inside ${file2.path} at ${commit}.` };
-    const destination = join23(dir, file2.path);
+    const destination = join24(dir, file2.path);
     mkdirSync5(dirname6(destination), { recursive: true });
     writeFileSync6(destination, out.subarray(start, start + size));
     offset = start + size + 1;
@@ -28400,7 +28572,7 @@ function writeSnapshot(target, wholeTree, dir) {
   return initRepository(dir);
 }
 function initRepository(dir) {
-  const made = git2(dir, ["init", "-q"]);
+  const made = git3(dir, ["init", "-q"]);
   return made.error || made.status !== 0 ? gitFailure(made, "git init") : void 0;
 }
 function relabeller(dir, label) {
@@ -28432,22 +28604,22 @@ function relabelDeep(value4, relabel) {
 
 // dist/local/map-resolve.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync8 } from "node:child_process";
+import { spawnSync as spawnSync9 } from "node:child_process";
 
 // dist/local/space-map.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync10, readFileSync as readFileSync9, readdirSync, realpathSync as realpathSync8, statSync as statSync3 } from "node:fs";
-import { dirname as dirname7, join as join25, resolve as resolve17 } from "node:path";
+import { existsSync as existsSync11, readFileSync as readFileSync9, readdirSync, realpathSync as realpathSync8, statSync as statSync3 } from "node:fs";
+import { dirname as dirname7, join as join26, resolve as resolve17 } from "node:path";
 
 // dist/local/map-checkouts.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { randomUUID as randomUUID6 } from "node:crypto";
-import { existsSync as existsSync9, mkdirSync as mkdirSync6, readFileSync as readFileSync8, realpathSync as realpathSync7, renameSync as renameSync4, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "node:fs";
-import { resolve as resolve16, join as join24, isAbsolute as isAbsolute7 } from "node:path";
-var file = () => join24(configDir(), "map-checkouts.json");
+import { existsSync as existsSync10, mkdirSync as mkdirSync6, readFileSync as readFileSync8, realpathSync as realpathSync7, renameSync as renameSync4, rmSync as rmSync3, writeFileSync as writeFileSync7 } from "node:fs";
+import { resolve as resolve16, join as join25, isAbsolute as isAbsolute7 } from "node:path";
+var file = () => join25(configDir(), "map-checkouts.json");
 var key = (path) => realpathSync7.native(resolve16(path));
 function loadMapCheckouts() {
-  if (!existsSync9(file()))
+  if (!existsSync10(file()))
     return {};
   let data;
   try {
@@ -28476,7 +28648,7 @@ function saveMapCheckout(path, id) {
     writeFileSync7(temp, JSON.stringify(entries2, null, 2) + "\n", { mode: 384 });
     renameSync4(temp, file());
   } finally {
-    if (existsSync9(temp))
+    if (existsSync10(temp))
       rmSync3(temp, { force: true });
   }
 }
@@ -28511,7 +28683,7 @@ var CHECKOUT_SEARCH_DEPTH = 3;
 var CHECKOUT_SEARCH_LIMIT = 2e3;
 var SKIPPED_FOLDERS = /* @__PURE__ */ new Set(["node_modules"]);
 function getRepoRootNodeId(dir, apiUrl, spaces) {
-  if (!existsSync10(join25(dir, ".git")))
+  if (!existsSync11(join26(dir, ".git")))
     return null;
   try {
     const report = inspectLocalRootIdentity(dir, apiUrl);
@@ -28546,12 +28718,12 @@ function rootNodeIdFromRouteOrigin(dir, apiUrl, spaces) {
 }
 function discoverSpaceMapFiles(dir) {
   try {
-    if (!existsSync10(dir) || !statSync3(dir).isDirectory())
+    if (!existsSync11(dir) || !statSync3(dir).isDirectory())
       return null;
     const entries2 = readdirSync(dir, { withFileTypes: true });
     const mapFiles = entries2.filter((e) => e.isFile() && e.name.endsWith(".map.md") && !e.name.startsWith(".")).map((e) => e.name).sort();
-    const readme = join25(dir, "README.md");
-    if (existsSync10(readme) && statSync3(readme).isFile()) {
+    const readme = join26(dir, "README.md");
+    if (existsSync11(readme) && statSync3(readme).isFile()) {
       const content = readFileSync9(readme, "utf8");
       const fm = parseFrontmatter(content);
       const front = /^---\r?\n([\s\S]*?)\r?\n---(?=\r?\n|$)/.exec(content);
@@ -28627,8 +28799,8 @@ function inspectSpaceMapRoots(roots, context) {
               capped = true;
               continue;
             }
-            const candidate = join25(parent, dirent.name);
-            if (existsSync10(join25(candidate, ".git"))) {
+            const candidate = join26(parent, dirent.name);
+            if (existsSync11(join26(candidate, ".git"))) {
               const id = getRepoRootNodeId(candidate, apiUrl, spaces);
               if (id && !found.has(id))
                 found.set(id, candidate);
@@ -28665,7 +28837,7 @@ function inspectSpaceMapRoots(roots, context) {
         const matchesId = rootNodeId && (record2.root_node_id === rootNodeId || record2.canonical_path === `/repos/${rootNodeId}` || record2.canonical_path === `/spaces/${rootNodeId}`);
         const matchesRoute = routeInfo && isHostedSpaceRecord(record2) && (record2.route_namespace === routeInfo.namespace && record2.route_slug === routeInfo.slug || record2.namespace === routeInfo.namespace && record2.slug === routeInfo.slug);
         if (matchesId || matchesRoute) {
-          if (existsSync10(registeredPath)) {
+          if (existsSync11(registeredPath)) {
             checkoutPath = registeredPath;
             break;
           }
@@ -28674,7 +28846,7 @@ function inspectSpaceMapRoots(roots, context) {
     }
     if (!checkoutPath && rootNodeId) {
       for (const [path, id] of Object.entries(hints())) {
-        if (id === rootNodeId && existsSync10(path) && getRepoRootNodeId(path, apiUrl, spaces) === id) {
+        if (id === rootNodeId && existsSync11(path) && getRepoRootNodeId(path, apiUrl, spaces) === id) {
           checkoutPath = path;
           break;
         }
@@ -28849,7 +29021,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
     return { status: "pin_absent", reason: `${commit} is not a full commit id.` };
   if (position.includes("\n"))
     return { status: "missing_path", reason: "A position cannot contain a newline." };
-  const git7 = (args2, buffer = 64 * 1024, input) => spawnSync8(gitBinary(), ["-C", checkoutPath, ...args2], {
+  const git8 = (args2, buffer = 64 * 1024, input) => spawnSync9(gitBinary(), ["-C", checkoutPath, ...args2], {
     encoding: "utf8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" }),
     maxBuffer: buffer,
@@ -28858,7 +29030,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   const objectAt = (path2) => path2 === "." || path2 === "" ? `${commit}^{tree}` : `${commit}:${path2}`;
   const isThreads = position === "_threads" || position.startsWith("_threads/");
   const candidates = [position, ...isThreads ? [position === "_threads" ? "." : position.slice("_threads/".length)] : []];
-  const probe = git7(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
+  const probe = git8(["cat-file", "--batch-check"], 64 * 1024, [`${commit}^{commit}`, ...candidates.map(objectAt)].join("\n") + "\n");
   if (probe.error)
     return { status: "git_error", reason: probe.error.message };
   if (probe.status !== 0) {
@@ -28881,7 +29053,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
     return { status: "missing_path", reason: `${position} is not in commit ${commit}.` };
   }
   if (object.type === "tree") {
-    const listing = git7(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
+    const listing = git8(["ls-tree", "-z", objectAt(path)], 16 * 1024 * 1024);
     if (listing.status !== 0)
       return { status: "git_error", reason: (listing.stderr ?? "").trim() || "git ls-tree failed" };
     const entries2 = [];
@@ -28895,7 +29067,7 @@ function readCheckoutAt(checkoutPath, commit, position, maxBytes = MAP_READ_MAX_
   if (object.size > maxBytes) {
     return { status: "too_large", reason: `${position} is ${object.size} bytes; the read limit is ${maxBytes}.` };
   }
-  const shown = git7(["cat-file", "blob", objectAt(path)], maxBytes + 1);
+  const shown = git8(["cat-file", "blob", objectAt(path)], maxBytes + 1);
   if (shown.status !== 0 || shown.error) {
     return { status: "git_error", reason: (shown.stderr ?? "").trim() || shown.error?.message || "git cat-file failed" };
   }
@@ -29127,24 +29299,24 @@ function renderHeader(note, resolved, name) {
 
 // dist/local/folder-state.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync14, lstatSync as lstatSync3, readdirSync as readdirSync4, readFileSync as readFileSync12, realpathSync as realpathSync11 } from "node:fs";
-import { basename as basename10, dirname as dirname10, join as join28, relative as relative13 } from "node:path";
+import { existsSync as existsSync15, lstatSync as lstatSync3, readdirSync as readdirSync4, readFileSync as readFileSync12, realpathSync as realpathSync11 } from "node:fs";
+import { basename as basename11, dirname as dirname10, join as join29, relative as relative13 } from "node:path";
 
 // dist/local/threads.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { randomUUID as randomUUID8, createHash as createHash8 } from "node:crypto";
-import { spawnSync as spawnSync9 } from "node:child_process";
-import { existsSync as existsSync13, lstatSync as lstatSync2, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync3, realpathSync as realpathSync10, renameSync as renameSync6, rmSync as rmSync4, writeFileSync as writeFileSync9 } from "node:fs";
+import { spawnSync as spawnSync10 } from "node:child_process";
+import { existsSync as existsSync14, lstatSync as lstatSync2, mkdirSync as mkdirSync8, readFileSync as readFileSync11, readdirSync as readdirSync3, realpathSync as realpathSync10, renameSync as renameSync6, rmSync as rmSync4, writeFileSync as writeFileSync9 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { basename as basename9, dirname as dirname9, isAbsolute as isAbsolute10, join as join27, resolve as resolve19 } from "node:path";
+import { basename as basename10, dirname as dirname9, isAbsolute as isAbsolute10, join as join28, resolve as resolve19 } from "node:path";
 var import_yaml5 = __toESM(require_dist(), 1);
 
 // dist/local/thread-recent.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { createHash as createHash7, randomUUID as randomUUID7 } from "node:crypto";
-import { existsSync as existsSync11, lstatSync, mkdirSync as mkdirSync7, readdirSync as readdirSync2, readFileSync as readFileSync10, renameSync as renameSync5, writeFileSync as writeFileSync8 } from "node:fs";
+import { existsSync as existsSync12, lstatSync, mkdirSync as mkdirSync7, readdirSync as readdirSync2, readFileSync as readFileSync10, renameSync as renameSync5, writeFileSync as writeFileSync8 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join26 } from "node:path";
+import { join as join27 } from "node:path";
 var VERSION = 1;
 var KEY_BYTES = 6;
 var RECORD_BYTES = KEY_BYTES + 8;
@@ -29160,10 +29332,10 @@ function fingerprint(slug, files) {
   return { key: sha(slug).subarray(0, KEY_BYTES).toString("hex"), count: Math.min(files.length, 65535), set: set.toString("hex") };
 }
 function current(threadsDir) {
-  if (!existsSync11(threadsDir))
+  if (!existsSync12(threadsDir))
     return [];
   return readdirSync2(threadsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.name.startsWith(".")).map((entry) => {
-    const files = readdirSync2(join26(threadsDir, entry.name), { withFileTypes: true }).filter((file2) => file2.isFile() && file2.name.endsWith(".md") && file2.name !== "README.md").map((file2) => file2.name);
+    const files = readdirSync2(join27(threadsDir, entry.name), { withFileTypes: true }).filter((file2) => file2.isFile() && file2.name.endsWith(".md") && file2.name !== "README.md").map((file2) => file2.name);
     return { slug: entry.name, ...fingerprint(entry.name, files) };
   });
 }
@@ -29231,29 +29403,29 @@ function readerName(flag, environment = process.env.IDEASPACES_READER) {
   return reader;
 }
 function readersDirectory(reader) {
-  const base = join26(homedir2(), ".ideaspaces", "cursors");
-  for (const path of [base, join26(base, "readers")]) {
-    if (existsSync11(path) && lstatSync(path).isSymbolicLink())
+  const base = join27(homedir2(), ".ideaspaces", "cursors");
+  for (const path of [base, join27(base, "readers")]) {
+    if (existsSync12(path) && lstatSync(path).isSymbolicLink())
       throw new Error("Refusing symlink local cursor directory.");
   }
-  return join26(base, "readers", reader);
+  return join27(base, "readers", reader);
 }
 function readerCursorDirectory(reader) {
   return reader === PERSON_READER ? void 0 : readersDirectory(reader);
 }
 function heldPath(root, reader) {
-  return join26(readersDirectory(reader), `recent-${sha(root).subarray(0, 16).toString("hex")}.json`);
+  return join27(readersDirectory(reader), `recent-${sha(root).subarray(0, 16).toString("hex")}.json`);
 }
 function hold(root, reader, cursor) {
   const path = heldPath(root, reader);
-  mkdirSync7(join26(path, ".."), { recursive: true, mode: 448 });
+  mkdirSync7(join27(path, ".."), { recursive: true, mode: 448 });
   const temporary = `${path}.${randomUUID7()}.tmp`;
   writeFileSync8(temporary, JSON.stringify({ cursor }), { flag: "wx", mode: 384 });
   renameSync5(temporary, path);
 }
 function recentForReader(root, threadsDir, reader, limit = Infinity) {
   const path = heldPath(root, reader);
-  if (!existsSync11(path)) {
+  if (!existsSync12(path)) {
     const baseline = recentSince(root, threadsDir);
     hold(root, reader, baseline.cursor);
     return baseline;
@@ -29276,7 +29448,7 @@ function acknowledgeRecent(root, reader, cursor) {
 
 // dist/local/post-links.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync12, realpathSync as realpathSync9 } from "node:fs";
+import { existsSync as existsSync13, realpathSync as realpathSync9 } from "node:fs";
 import { dirname as dirname8, isAbsolute as isAbsolute9, relative as relative12, resolve as resolve18, sep as sep9 } from "node:path";
 var SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 var POST_FILE = /^(\d{4}-\d{2}-\d{2}T[\d-]+Z-)?(.*-)?msg_[0-9a-f-]+\.md$/i;
@@ -29322,10 +29494,10 @@ function checkPostLinks(body, postDir, spaceRoot) {
       report.errors.push(`${raw}: resolves outside the Space (${target}). Links are relative to the post file, which sits in ${postDir}.`);
       continue;
     }
-    if (existsSync12(target))
+    if (existsSync13(target))
       continue;
     const name = target.split(sep9).pop() ?? "";
-    if (POST_FILE.test(name) && existsSync12(dirname8(target)) && /(^|[\\/])_threads[\\/][^\\/]+$/.test(dirname8(target))) {
+    if (POST_FILE.test(name) && existsSync13(dirname8(target)) && /(^|[\\/])_threads[\\/][^\\/]+$/.test(dirname8(target))) {
       report.warnings.push(`${raw}: no such post yet. Written anyway as a forward reference; check the filename if the post already exists.`);
       continue;
     }
@@ -29353,20 +29525,20 @@ function sameTarget(a, b) {
 function originNote(thread) {
   return thread.origin !== null && !sameTarget(thread.origin, thread.attachment) ? { origin: attachmentText(thread.origin) } : {};
 }
-function git3(cwd, args2) {
+function git4(cwd, args2) {
   const availability = gitAvailability();
   if (availability.state !== "usable")
     throw new Error(availability.hint);
-  const result = spawnSync9(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  const result = spawnSync10(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status !== 0)
     throw new Error((result.stderr || result.error?.message || `git ${args2[0]} failed`).trim());
   return result.stdout.trim();
 }
 function safeDirectory(path) {
   const abs = resolve19(path);
-  if (existsSync13(abs) && lstatSync2(abs).isSymbolicLink())
+  if (existsSync14(abs) && lstatSync2(abs).isSymbolicLink())
     throw new Error(`Refusing symlink: ${abs}`);
-  if (!existsSync13(abs) || !lstatSync2(abs).isDirectory())
+  if (!existsSync14(abs) || !lstatSync2(abs).isDirectory())
     throw new Error(`Thread directory not found: ${abs}`);
   return realpathSync10(abs);
 }
@@ -29380,7 +29552,7 @@ function safeFile(path) {
 function threadBase(cwd = process.cwd()) {
   let at = safeDirectory(cwd);
   while (true) {
-    if (existsSync13(join27(at, "_agent", "agreement.md")))
+    if (existsSync14(join28(at, "_agent", "agreement.md")))
       return at;
     const parent = dirname9(at);
     if (parent === at)
@@ -29391,20 +29563,20 @@ function threadBase(cwd = process.cwd()) {
 function spaceForThread(threadDir) {
   const dir = safeDirectory(threadDir);
   const threads = dirname9(dir);
-  if (basename9(threads) !== "_threads")
+  if (basename10(threads) !== "_threads")
     throw new Error("Thread must be an immediate child of _threads/.");
   const space = dirname9(threads);
-  if (!existsSync13(join27(space, "_agent", "agreement.md")))
+  if (!existsSync14(join28(space, "_agent", "agreement.md")))
     throw new NoAgreementError("No Space Agreement above this Thread.");
   return space;
 }
 function threadsDirectory(cwd = process.cwd()) {
-  return join27(threadBase(cwd), "_threads");
+  return join28(threadBase(cwd), "_threads");
 }
 function resolveLocalThread(input, cwd = process.cwd()) {
   const base = threadsDirectory(cwd);
   safeDirectory(base);
-  const path = input.includes("/") || input.startsWith(".") || isAbsolute10(input) ? resolve19(cwd, input) : join27(base, input);
+  const path = input.includes("/") || input.startsWith(".") || isAbsolute10(input) ? resolve19(cwd, input) : join28(base, input);
   const dir = safeDirectory(path);
   if (dirname9(dir) !== base)
     throw new Error("A local Thread must be an immediate child of this Space's _threads/ directory.");
@@ -29421,14 +29593,14 @@ function isHostedThreadTarget(value4, cwd = process.cwd()) {
       return true;
     throw error;
   }
-  return !lexists(join27(base, value4));
+  return !lexists(join28(base, value4));
 }
 function threadAgreementContent(path) {
-  const agent = join27(path, "_agent");
+  const agent = join28(path, "_agent");
   if (!lexists(agent))
     return null;
   safeDirectory(agent);
-  const agreement = join27(agent, "agreement.md");
+  const agreement = join28(agent, "agreement.md");
   return lexists(agreement) ? safeFile(agreement) : null;
 }
 function lexists(path) {
@@ -29452,15 +29624,15 @@ function parseTimeCursor(value4) {
 }
 function loadThread(dir, options = {}) {
   const path = safeDirectory(dir);
-  const readmePath = join27(path, "README.md");
-  if (!existsSync13(readmePath))
+  const readmePath = join28(path, "README.md");
+  if (!existsSync14(readmePath))
     throw new Error(`Thread ${path} needs README.md.`);
   const agreementContent = threadAgreementContent(path);
   const readme = safeFile(readmePath);
   const fm = parseFrontmatter(readme);
   if (!fm)
     throw new Error(`Malformed README frontmatter: ${readmePath}`);
-  const slug = basename9(path);
+  const slug = basename10(path);
   let sources2 = [];
   for (const entry of readdirSync3(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent")
@@ -29469,7 +29641,7 @@ function loadThread(dir, options = {}) {
       continue;
     if (!entry.isFile() || !entry.name.endsWith(".md"))
       throw new Error(`Unexpected thread entry: ${entry.name}`);
-    sources2.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join27(path, entry.name)) });
+    sources2.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join28(path, entry.name)) });
   }
   if (options.asOf) {
     const parsed2 = sources2.flatMap((source) => {
@@ -29485,7 +29657,7 @@ function loadThread(dir, options = {}) {
   }
   const agreementAttachment = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${slug}/_agent/agreement.md`);
   const inspection = inspectThreadPosts(sources2, agreementAttachment);
-  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename9(post.path) }));
+  const allPosts = inspection.posts.map((post) => ({ ...post, path: basename10(post.path) }));
   const seen = /* @__PURE__ */ new Set();
   for (const post of allPosts) {
     if (seen.has(post.id))
@@ -29498,8 +29670,8 @@ function loadThread(dir, options = {}) {
   const found = currentThreadMap(sources2);
   const currentMap2 = {
     ...found,
-    ...found.post ? { post: { ...found.post, path: basename9(found.post.path) } } : {},
-    skipped: found.skipped.map((entry) => ({ ...entry, path: basename9(entry.path) }))
+    ...found.post ? { post: { ...found.post, path: basename10(found.post.path) } } : {},
+    skipped: found.skipped.map((entry) => ({ ...entry, path: basename10(entry.path) }))
   };
   const warnings = [
     ...agreementContent === null ? [NO_THREAD_AGREEMENT] : [],
@@ -29534,13 +29706,13 @@ function loadThread(dir, options = {}) {
 }
 function listLocal(cwd = process.cwd(), onError, options = {}) {
   const base = threadsDirectory(cwd);
-  if (!existsSync13(base))
+  if (!existsSync14(base))
     return [];
   safeDirectory(base);
   const rows = [];
   for (const entry of readdirSync3(base, { withFileTypes: true }).filter((e) => e.isDirectory())) {
     try {
-      rows.push(loadThread(join27(base, entry.name), options));
+      rows.push(loadThread(join28(base, entry.name), options));
     } catch (error) {
       if (!onError)
         throw error;
@@ -29572,23 +29744,23 @@ function preflightThread(slug, about, attachedTo, cwd = process.cwd(), folder = 
     throw new Error("--attached-to requires a valid <type>:<id> value; invalid attached_to field. No Thread created.");
   }
   const base = threadsDirectory(cwd);
-  if (existsSync13(base))
+  if (existsSync14(base))
     safeDirectory(base);
-  if (folder && existsSync13(join27(base, slug)))
+  if (folder && existsSync14(join28(base, slug)))
     throw new Error(`A Thread named ${slug} is already here (EEXIST). Choose another slug. No Thread created.`);
 }
 function createThread(slug, about, cwd = process.cwd(), attachedTo, line3) {
   preflightThread(slug, about, attachedTo, cwd, false);
   const base = threadsDirectory(cwd);
-  if (existsSync13(base))
+  if (existsSync14(base))
     safeDirectory(base);
   else
     mkdirSync8(base);
-  const dir = join27(base, slug);
+  const dir = join28(base, slug);
   mkdirSync8(dir);
-  mkdirSync8(join27(dir, "_agent"));
-  writeFileSync9(join27(dir, "_agent", "agreement.md"), minimalAgreement(about.trim(), void 0, line3), { flag: "wx" });
-  writeFileSync9(join27(dir, "README.md"), (0, import_yaml5.stringify)({ name: about.trim(), summary: line3 ?? about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n" + (line3 ? `
+  mkdirSync8(join28(dir, "_agent"));
+  writeFileSync9(join28(dir, "_agent", "agreement.md"), minimalAgreement(about.trim(), void 0, line3), { flag: "wx" });
+  writeFileSync9(join28(dir, "README.md"), (0, import_yaml5.stringify)({ name: about.trim(), summary: line3 ?? about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n" + (line3 ? `
 ${line3}
 ` : ""), { flag: "wx" });
   return loadThread(dir);
@@ -29620,9 +29792,9 @@ function earliestLocalActivity(posts2) {
   }, null);
 }
 function resolveThreadParent2(threadDir, knownThreads) {
-  const agreementPath = join27(threadDir, "_agent", "agreement.md");
+  const agreementPath = join28(threadDir, "_agent", "agreement.md");
   const agreementContent = threadAgreementContent(safeDirectory(threadDir));
-  const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename9(threadDir)}/_agent/agreement.md`);
+  const parsedAgreement = agreementContent === null ? { status: "absent" } : parseThreadAgreementAttachment(agreementContent, `_threads/${basename10(threadDir)}/_agent/agreement.md`);
   const canonicalThreadDir = realpathSync10(threadDir);
   const thread = knownThreads?.find((candidate) => candidate.path === canonicalThreadDir) ?? loadThread(threadDir);
   if (parsedAgreement.status === "invalid" && !thread.attachment) {
@@ -29660,7 +29832,7 @@ function resolveThreadParent2(threadDir, knownThreads) {
 }
 function findChildThreads(targetThreadDir, postId2, onError) {
   const spaceRoot = spaceForThread(targetThreadDir);
-  const targetSlug = basename9(targetThreadDir);
+  const targetSlug = basename10(targetThreadDir);
   const targetThread = loadThread(targetThreadDir);
   const allThreads = listLocal(spaceRoot, onError);
   const children = [];
@@ -29870,7 +30042,7 @@ function appendPost(dir, options) {
     validateThreadMomentMap(options.map);
   const warnings = [];
   if (options.checkLinks) {
-    if (basename9(dirname9(thread.path)) !== "_threads")
+    if (basename10(dirname9(thread.path)) !== "_threads")
       throw new Error("Thread must be an immediate child of _threads/.");
     const links = checkPostLinks(options.body, thread.path, dirname9(dirname9(thread.path)));
     if (links.errors.length) {
@@ -29884,7 +30056,7 @@ Fix the path (it is relative to the post file), remove the link, or pass --no-ch
   const id = `msg_${randomUUID8()}`;
   const date = (/* @__PURE__ */ new Date()).toISOString();
   const stamp = date.replace(/[:.]/g, "-");
-  const path = join27(thread.path, `${stamp}-${id}.md`);
+  const path = join28(thread.path, `${stamp}-${id}.md`);
   const fields = {
     id,
     date,
@@ -29908,7 +30080,7 @@ ${(0, import_yaml5.stringify)(fields)}---
 
 ${options.body.trim()}
 `;
-  const parsed2 = parseThreadPost(content, basename9(path));
+  const parsed2 = parseThreadPost(content, basename10(path));
   if (parsed2.status !== "valid")
     throw new Error(`Generated post failed validation before write: ${parsed2.issues.join(", ")}`);
   if (parsed2.post.warnings?.length)
@@ -29921,11 +30093,11 @@ ${options.body.trim()}
 var NOT_IN_GIT_REPOSITORY = "this folder is not in a Git repository";
 function commitPost(postPath2, message) {
   const cwd = dirname9(postPath2);
-  const file2 = basename9(postPath2);
+  const file2 = basename10(postPath2);
   const availability = gitAvailability();
   if (availability.state !== "usable")
     return { committed: false, reason: availability.hint };
-  const run2 = (args2) => spawnSync9(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment(), timeout: 12e4 });
+  const run2 = (args2) => spawnSync10(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment(), timeout: 12e4 });
   const failure2 = (result) => {
     const text = (result.stderr || result.stdout || result.error?.message || "").trim();
     const lines = text.split(/\r?\n/).map((line3) => line3.trim()).filter(Boolean);
@@ -29955,13 +30127,13 @@ function commitPost(postPath2, message) {
 }
 function cursorPath(thread, reader = PERSON_READER) {
   const key2 = createHash8("sha256").update(thread.path).digest("hex");
-  return join27(readerCursorDirectory(reader) ?? join27(homedir3(), ".ideaspaces", "cursors"), `${key2}.json`);
+  return join28(readerCursorDirectory(reader) ?? join28(homedir3(), ".ideaspaces", "cursors"), `${key2}.json`);
 }
 function readCursor(thread, reader = PERSON_READER) {
   const path = cursorPath(thread, reader);
-  if (existsSync13(dirname9(path)) && lstatSync2(dirname9(path)).isSymbolicLink())
+  if (existsSync14(dirname9(path)) && lstatSync2(dirname9(path)).isSymbolicLink())
     throw new Error("Refusing symlink local cursor directory.");
-  if (!existsSync13(path))
+  if (!existsSync14(path))
     return /* @__PURE__ */ new Set();
   const data = JSON.parse(safeFile(path));
   if (!data || typeof data !== "object" || !Array.isArray(data.seen) || !data.seen.every((id) => typeof id === "string"))
@@ -30011,24 +30183,24 @@ function readPinnedThreadAgreement(repo, pin, position) {
 }
 function initWorktree(cwd = process.cwd()) {
   const root = threadBase(cwd);
-  const dir = join27(root, "_threads");
-  if (existsSync13(dir))
+  const dir = join28(root, "_threads");
+  if (existsSync14(dir))
     throw new Error("_threads/ already exists; refusing to replace it.");
-  const origin = git3(root, ["rev-parse", "--show-toplevel"]);
+  const origin = git4(root, ["rev-parse", "--show-toplevel"]);
   const canonical = (path) => {
     const value4 = realpathSync10.native(path);
     return process.platform === "win32" ? value4.toLowerCase() : value4;
   };
   if (canonical(origin) !== canonical(root))
     throw new Error("Run threads init at the repository root Agreement.");
-  if (git3(root, ["branch", "--list", "threads"]))
+  if (git4(root, ["branch", "--list", "threads"]))
     throw new Error("Local threads branch already exists; refusing to replace it.");
-  const ignore = join27(root, ".gitignore");
-  if (existsSync13(ignore) && lstatSync2(ignore).isSymbolicLink())
+  const ignore = join28(root, ".gitignore");
+  if (existsSync14(ignore) && lstatSync2(ignore).isSymbolicLink())
     throw new Error("Refusing symlink .gitignore.");
-  git3(root, ["worktree", "add", "--orphan", "-b", "threads", dir]);
+  git4(root, ["worktree", "add", "--orphan", "-b", "threads", dir]);
   markPrivateThreadsWorktree(dir);
-  const old = existsSync13(ignore) ? readFileSync11(ignore, "utf8") : "";
+  const old = existsSync14(ignore) ? readFileSync11(ignore, "utf8") : "";
   if (!old.split("\n").includes("/_threads/"))
     writeFileSync9(ignore, `${old}${old && !old.endsWith("\n") ? "\n" : ""}/_threads/
 `);
@@ -30038,9 +30210,9 @@ function pushWorktree(cwd = process.cwd(), remote) {
   const dir = safeDirectory(threadsDirectory(cwd));
   if (!remote || !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(remote))
     throw new Error("Pass --remote <team-remote> explicitly; never push private Threads to the default remote.");
-  if (git3(dir, ["branch", "--show-current"]) !== "threads")
+  if (git4(dir, ["branch", "--show-current"]) !== "threads")
     throw new Error("_threads/ must be the dedicated threads branch worktree.");
-  const url = git3(dir, ["remote", "get-url", "--push", remote]);
+  const url = git4(dir, ["remote", "get-url", "--push", remote]);
   if (remote === "origin")
     throw new Error("Refusing to push private Threads to origin; configure a separate team remote.");
   const scp = /^[^@\s]+@([^:/\s]+):/.exec(url);
@@ -30048,7 +30220,7 @@ function pushWorktree(cwd = process.cwd(), remote) {
   if (host !== "git.ideaspaces.xyz" && !(url.startsWith("file://") || isAbsolute10(url))) {
     throw new Error("Private Threads may push only to git.ideaspaces.xyz or a local file remote; GitHub and unknown hosts are refused.");
   }
-  git3(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
+  git4(dir, ["push", remote, "refs/heads/threads:refs/heads/threads"]);
   return remote;
 }
 function writeAgreementFile(path, content) {
@@ -30147,8 +30319,8 @@ function attachThread(dir, target, options, writes = { appendPost, writeAgreemen
   if (previous?.id === resolved.parent.id)
     throw new Error(`Thread ${thread.slug} is already attached to ${resolved.parent.id}; nothing changed.`);
   const value4 = /^msg_[A-Za-z0-9][A-Za-z0-9_-]*$/.test(resolved.parent.id) ? resolved.parent.id : resolved.parent.path;
-  const agentDir = join27(thread.path, "_agent");
-  const agreementPath = join27(agentDir, "agreement.md");
+  const agentDir = join28(thread.path, "_agent");
+  const agreementPath = join28(agentDir, "agreement.md");
   const before = threadAgreementContent(thread.path);
   const createdDir = !lexists(agentDir);
   const after = before === null ? minimalAgreement(thread.name, value4) : withAttachedTo(before, value4);
@@ -30214,12 +30386,12 @@ Why: ${options.message.trim()}
 
 // dist/local/folder-state.js
 function folderKeeping(dir) {
-  if (!existsSync14(dir) || !lstatSync3(dir).isDirectory())
+  if (!existsSync15(dir) || !lstatSync3(dir).isDirectory())
     return null;
-  if (basename10(dirname10(dir)) === "_threads")
+  if (basename11(dirname10(dir)) === "_threads")
     return "placement";
-  const agreement = join28(dir, "_agent", "agreement.md");
-  if (!existsSync14(agreement))
+  const agreement = join29(dir, "_agent", "agreement.md");
+  if (!existsSync15(agreement))
     return null;
   try {
     return readsTime(parseFrontmatter(readFileSync12(agreement, "utf8"))).keeps ? "agreement" : null;
@@ -30233,18 +30405,18 @@ function folderPosition(dir) {
     const here = realpathSync11.native(dir);
     return relative13(top, here).split("\\").join("/") || ".";
   } catch {
-    return basename10(dir);
+    return basename11(dir);
   }
 }
 var portablePosition2 = folderPosition;
 function declaredSources(dir, position) {
-  return readdirSync4(dir, { withFileTypes: true }).filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md" && !entry.name.startsWith(".")).map((entry) => entry.name).sort().map((name) => ({ path: `${position}/${name}`, content: readFileSync12(join28(dir, name), "utf8") }));
+  return readdirSync4(dir, { withFileTypes: true }).filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md" && !entry.name.startsWith(".")).map((entry) => entry.name).sort().map((name) => ({ path: `${position}/${name}`, content: readFileSync12(join29(dir, name), "utf8") }));
 }
 function entriesAsOf(dir, asOf) {
   const keeping = folderKeeping(dir);
   if (!keeping)
     throw new Error(`${dir} keeps no time (not a Thread, and its Agreement does not say keeps_time: true); --as-of reads a folder that keeps time. For a commit, use --pin.`);
-  const position = keeping === "placement" ? `_threads/${basename10(dir)}` : portablePosition2(dir);
+  const position = keeping === "placement" ? `_threads/${basename11(dir)}` : portablePosition2(dir);
   const sources2 = declaredSources(dir, position);
   const entries2 = sources2.flatMap((source) => {
     const result = parseEntry(source.content, source.path, { keeping });
@@ -30254,7 +30426,7 @@ function entriesAsOf(dir, asOf) {
   const selection = selectEntries(entries2, { asOf: cursor });
   if (selection.status !== "ok")
     throw new Error(`--as-of ${JSON.stringify(Object.values(asOf)[0])} is ${selection.status} in ${position}: ${selection.reason}`);
-  return new Set(selection.entries.map((entry) => basename10(entry.path)));
+  return new Set(selection.entries.map((entry) => basename11(entry.path)));
 }
 function sinceCursorFile(dir, since) {
   if (since.endsWith(".md"))
@@ -30262,7 +30434,7 @@ function sinceCursorFile(dir, since) {
   const keeping = folderKeeping(dir);
   if (!keeping)
     throw new Error(`--since ${since} is not a child filename, and ${dir} keeps no time, so it cannot be an entry id or a moment. Pass the previous page's nextCursor.`);
-  const position = keeping === "placement" ? `_threads/${basename10(dir)}` : portablePosition2(dir);
+  const position = keeping === "placement" ? `_threads/${basename11(dir)}` : portablePosition2(dir);
   const entries2 = declaredSources(dir, position).flatMap((source) => {
     const result = parseEntry(source.content, source.path, { keeping });
     return result.status === "valid" ? [result.post] : [];
@@ -30273,15 +30445,15 @@ function sinceCursorFile(dir, since) {
     if (selection.status !== "ok")
       throw new Error(`--since ${since}: ${selection.reason}`);
     const last = selection.entries.at(-1);
-    return last ? basename10(last.path) : void 0;
+    return last ? basename11(last.path) : void 0;
   }
   if ("path" in cursor)
-    return basename10(cursor.path);
+    return basename11(cursor.path);
   const id = cursor.id;
   const match = entries2.find((entry) => entry.id === id || entry.id.startsWith(`${id}-`));
   if (!match)
     throw new Error(`--since ${since} names no entry in ${position}. Give an entry id, an ISO date, or the previous page's nextCursor.`);
-  return basename10(match.path);
+  return basename11(match.path);
 }
 function mapState(current2) {
   return {
@@ -30322,7 +30494,7 @@ function declaredState(dir, asOf) {
   const position = portablePosition2(dir);
   const all = declaredSources(dir, position);
   const kept = asOf ? entriesAsOf(dir, asOf) : null;
-  const sources2 = kept ? all.filter((source) => kept.has(basename10(source.path)) || parseEntry(source.content, source.path, { keeping: "agreement" }).status === "note") : all;
+  const sources2 = kept ? all.filter((source) => kept.has(basename11(source.path)) || parseEntry(source.content, source.path, { keeping: "agreement" }).status === "note") : all;
   const inspection = inspectEntries(sources2, { keeping: "agreement", folder: position });
   const current2 = currentMap(sources2, { keeping: "agreement" });
   const parent = inspection.parent === "unknown" ? "unknown" : inspection.parent === null ? null : { value: attachmentText(inspection.parent), source: inspection.source, ...inspection.parentPost ? { post: inspection.parentPost.id } : {} };
@@ -30563,7 +30735,7 @@ var lookCommand = {
       return 1;
     }
     const path = resolve20(raw);
-    const keeping = existsSync15(path) && statSync4(path).isDirectory() ? folderKeeping(path) : null;
+    const keeping = existsSync16(path) && statSync4(path).isDirectory() ? folderKeeping(path) : null;
     if (asOfRaw && !keeping) {
       output.error(`--as-of reads a folder that keeps time (a Thread, or one whose Agreement says keeps_time: true); ${raw} is not one. For a commit, use --pin <sha>.`);
       return 1;
@@ -30712,7 +30884,7 @@ async function lookAtPin(output, json, raw, pin, options) {
   let checkout;
   try {
     let probe = path;
-    while (!existsSync15(probe) || !statSync4(probe).isDirectory())
+    while (!existsSync16(probe) || !statSync4(probe).isDirectory())
       probe = dirname11(probe);
     checkout = repoRoot(probe);
   } catch {
@@ -30818,7 +30990,7 @@ function observedPaths(looked) {
   const { target } = looked;
   const paths = [target.position];
   if (target.kind === "directory") {
-    if (existsSync15(join29(target.path, "README.md"))) {
+    if (existsSync16(join30(target.path, "README.md"))) {
       paths.push(target.position === "." ? "README.md" : `${target.position}/README.md`);
     }
     for (const child of target.children ?? []) {
@@ -30849,14 +31021,14 @@ function portabilityLine(projection) {
 // dist/commands/navigate.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { relative as relative15, resolve as resolve21 } from "node:path";
-import { statSync as statSync6, existsSync as existsSync17 } from "node:fs";
-import { spawnSync as spawnSync10 } from "node:child_process";
+import { statSync as statSync6, existsSync as existsSync18 } from "node:fs";
+import { spawnSync as spawnSync11 } from "node:child_process";
 
 // dist/catalog.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync16, statSync as statSync5 } from "node:fs";
+import { existsSync as existsSync17, statSync as statSync5 } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { basename as basename11, join as join30, resolve as resolvePath } from "node:path";
+import { basename as basename12, join as join31, resolve as resolvePath } from "node:path";
 var AUTOCOMPLETE_EXCLUDES = [".git", "node_modules", "backups", ".pi", ".claude"];
 var MAX_CATALOG_REPOS = 20;
 function directoryDetails(count) {
@@ -30871,17 +31043,17 @@ async function formatWorkingSetSection(homeRoot, mounts) {
   const inputs = [
     {
       root: 0,
-      name: basename11(homeRoot) || homeRoot,
+      name: basename12(homeRoot) || homeRoot,
       summary: home.summary,
       presentation: {
         label: "home",
-        display: basename11(homeRoot) || homeRoot,
+        display: basename12(homeRoot) || homeRoot,
         details: directoryDetails(home.directoryCount)
       }
     },
     ...mounts.map((mount, index) => ({
       root: index + 1,
-      name: basename11(mount) || mount,
+      name: basename12(mount) || mount,
       summary: mounted[index]?.summary,
       presentation: {
         label: "mount",
@@ -30921,10 +31093,10 @@ function catalogInput(repository, root, pov, mounts) {
     details.push("mounted");
   return {
     root,
-    name: basename11(repository.root) || repository.root,
+    name: basename12(repository.root) || repository.root,
     summary: repository.summary,
     presentation: {
-      display: basename11(repository.root) || repository.root,
+      display: basename12(repository.root) || repository.root,
       details
     }
   };
@@ -30932,7 +31104,7 @@ function catalogInput(repository, root, pov, mounts) {
 async function catalogCandidates(workspaceFolder) {
   try {
     const entries2 = await readdir(workspaceFolder, { withFileTypes: true });
-    return entries2.filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name)).map((entry) => join30(workspaceFolder, entry.name)).filter((root) => existsSync16(join30(root, ".git"))).sort((left, right) => basename11(left).localeCompare(basename11(right)));
+    return entries2.filter((entry) => entry.isDirectory() && !AUTOCOMPLETE_EXCLUDES.includes(entry.name)).map((entry) => join31(workspaceFolder, entry.name)).filter((root) => existsSync17(join31(root, ".git"))).sort((left, right) => basename12(left).localeCompare(basename12(right)));
   } catch {
     return [];
   }
@@ -30989,7 +31161,7 @@ function planCatalog(flags2, povRepoRoot) {
   const workspace = typeof flags2.workspace === "string" ? resolvePath(flags2.workspace) : null;
   if (!workspace)
     return { kind: "none" };
-  if (!existsSync16(workspace) || !statSync5(workspace).isDirectory()) {
+  if (!existsSync17(workspace) || !statSync5(workspace).isDirectory()) {
     return { kind: "warn", text: `\u26A0 --workspace is not a readable directory: ${workspace} (catalog skipped)` };
   }
   const mounts = typeof flags2.mount === "string" ? flags2.mount.split(",").map((m) => m.trim()).filter(Boolean) : [];
@@ -31022,7 +31194,7 @@ function formatSpacePosition(renderedBlock, spaceMapFile, header) {
 ${renderedBlock}`;
 }
 function gitRef(cwd, args2) {
-  const r = spawnSync10(gitBinary(), ["-C", cwd, ...args2], { encoding: "utf-8" });
+  const r = spawnSync11(gitBinary(), ["-C", cwd, ...args2], { encoding: "utf-8" });
   return r.status === 0 ? r.stdout.trim() || null : null;
 }
 var navigateCommand = {
@@ -31092,7 +31264,7 @@ var navigateCommand = {
       return 1;
     }
     const target = resolve21(raw === "" ? "." : raw);
-    if (!existsSync17(target)) {
+    if (!existsSync18(target)) {
       output.error(`No such path: ${target}`);
       return 1;
     }
@@ -31221,16 +31393,16 @@ var navigateCommand = {
 
 // dist/commands/map.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync26, realpathSync as realpathSync19, statSync as statSync9 } from "node:fs";
-import { basename as basename20, dirname as dirname18, resolve as resolve28 } from "node:path";
+import { existsSync as existsSync27, realpathSync as realpathSync19, statSync as statSync9 } from "node:fs";
+import { basename as basename21, dirname as dirname18, resolve as resolve28 } from "node:path";
 
 // dist/local/map-orientation.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { join as join31 } from "node:path";
+import { join as join32 } from "node:path";
 
 // dist/local/map-agents.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { basename as basename12 } from "node:path";
+import { basename as basename13 } from "node:path";
 function isMapBlock(value4) {
   return typeof value4 === "object" && value4 !== null && "roots" in value4 && "members" in value4;
 }
@@ -31308,7 +31480,7 @@ function projectMapAgents(mapInput, options) {
     const declaredRootNodeId = typeof frontmatter.root_node_id === "string" && frontmatter.root_node_id.trim() ? frontmatter.root_node_id.trim() : void 0;
     const memberPosition = typeof member2.position === "string" ? member2.position : void 0;
     agents.push({
-      name: declaredName ?? (typeof member2.name === "string" ? member2.name : void 0) ?? basename12(checkoutPath),
+      name: declaredName ?? (typeof member2.name === "string" ? member2.name : void 0) ?? basename13(checkoutPath),
       ...declaredSummary ? { summary: declaredSummary } : {},
       agreement: declaredAgreement,
       ...root.root_node_id || declaredRootNodeId ? { root_node_id: root.root_node_id ?? declaredRootNodeId } : {},
@@ -31483,7 +31655,7 @@ function locate(entry) {
   const root = entry.read.checkoutPath;
   if (!root)
     return {};
-  return { path: entry.member.position === "." ? root : join31(root, entry.member.position) };
+  return { path: entry.member.position === "." ? root : join32(root, entry.member.position) };
 }
 function isLoadedAsNote(note, map, member2) {
   const target = note?.members[0];
@@ -31684,25 +31856,25 @@ function quoted2(value4) {
 
 // dist/local/thread-tree.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync25, lstatSync as lstatSync10, readdirSync as readdirSync7, realpathSync as realpathSync16 } from "node:fs";
-import { basename as basename17, join as join39, relative as relative19 } from "node:path";
-import { spawnSync as spawnSync17 } from "node:child_process";
+import { existsSync as existsSync26, lstatSync as lstatSync10, readdirSync as readdirSync7, realpathSync as realpathSync16 } from "node:fs";
+import { basename as basename18, join as join40, relative as relative19 } from "node:path";
+import { spawnSync as spawnSync18 } from "node:child_process";
 
 // dist/commands/threads.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync24, lstatSync as lstatSync9, readFileSync as readFileSync19, readdirSync as readdirSync6, realpathSync as realpathSync15 } from "node:fs";
-import { spawnSync as spawnSync16 } from "node:child_process";
-import { basename as basename16, dirname as dirname15, isAbsolute as isAbsolute15, join as join38, relative as relative18, resolve as resolve25, sep as sep12 } from "node:path";
+import { existsSync as existsSync25, lstatSync as lstatSync9, readFileSync as readFileSync19, readdirSync as readdirSync6, realpathSync as realpathSync15 } from "node:fs";
+import { spawnSync as spawnSync17 } from "node:child_process";
+import { basename as basename17, dirname as dirname15, isAbsolute as isAbsolute15, join as join39, relative as relative18, resolve as resolve25, sep as sep12 } from "node:path";
 
 // dist/local/thread-map-member.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync18, lstatSync as lstatSync4, readFileSync as readFileSync13 } from "node:fs";
+import { existsSync as existsSync19, lstatSync as lstatSync4, readFileSync as readFileSync13 } from "node:fs";
 import { resolve as resolve22 } from "node:path";
 var import_yaml6 = __toESM(require_dist(), 1);
 function loadLocalThreadMap(input) {
   const path = resolve22(input);
   let value4;
-  if (existsSync18(path)) {
+  if (existsSync19(path)) {
     if (!lstatSync4(path).isFile() || lstatSync4(path).isSymbolicLink() || lstatSync4(path).size > 128 * 1024)
       throw new Error("--map file must be a regular file no larger than 128 KiB.");
     const content = readFileSync13(path, "utf8");
@@ -31742,12 +31914,12 @@ function selectPinnedThreadMember(value4, ordinal) {
 // dist/local/launch-text.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { readFileSync as readFileSync15 } from "node:fs";
-import { basename as basename14, dirname as dirname13, join as join35 } from "node:path";
+import { basename as basename15, dirname as dirname13, join as join36 } from "node:path";
 
 // dist/local/agent-pov.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync19, lstatSync as lstatSync5, realpathSync as realpathSync12, statSync as statSync7 } from "node:fs";
-import { isAbsolute as isAbsolute11, join as join32, relative as relative16, resolve as resolve23 } from "node:path";
+import { existsSync as existsSync20, lstatSync as lstatSync5, realpathSync as realpathSync12, statSync as statSync7 } from "node:fs";
+import { isAbsolute as isAbsolute11, join as join33, relative as relative16, resolve as resolve23 } from "node:path";
 function isWithin2(parent, child) {
   const rel = relative16(parent, child);
   return !rel.startsWith("..") && !isAbsolute11(rel);
@@ -31764,7 +31936,7 @@ function validateAgentPov(pov, options = {}) {
   const cwd = options.cwd ?? process.cwd();
   let candidatePath = null;
   const directCandidate = resolve23(cwd, trimmed);
-  if (existsSync19(directCandidate)) {
+  if (existsSync20(directCandidate)) {
     try {
       if (statSync7(directCandidate).isDirectory()) {
         candidatePath = directCandidate;
@@ -31796,7 +31968,7 @@ function validateAgentPov(pov, options = {}) {
           return true;
         return false;
       });
-      if (found && existsSync19(found.path)) {
+      if (found && existsSync20(found.path)) {
         if (statSync7(found.path).isDirectory()) {
           candidatePath = found.path;
         }
@@ -31829,11 +32001,11 @@ function validateAgentPov(pov, options = {}) {
       message: `Agent point of view "${pov}" is inaccessible: ${err instanceof Error ? err.message : String(err)}`
     };
   }
-  const agreementPath = join32(canonicalDir, "_agent", "agreement.md");
-  const foundationPath = join32(canonicalDir, "_agent", "foundation.md");
-  const hasAgreement = existsSync19(agreementPath);
+  const agreementPath = join33(canonicalDir, "_agent", "agreement.md");
+  const foundationPath = join33(canonicalDir, "_agent", "foundation.md");
+  const hasAgreement = existsSync20(agreementPath);
   const allowFoundation = options.allowFoundation ?? true;
-  const hasFoundation = allowFoundation && existsSync19(foundationPath);
+  const hasFoundation = allowFoundation && existsSync20(foundationPath);
   if (!hasAgreement && !hasFoundation) {
     return {
       valid: false,
@@ -31881,7 +32053,7 @@ function revalidateAgentPov(canonicalPath, options = {}) {
 
 // dist/local/launch-point.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { join as join34 } from "node:path";
+import { join as join35 } from "node:path";
 
 // dist/local/claims.js
 init_define_IDEASPACES_AGENT_CATALOG();
@@ -31900,8 +32072,8 @@ function markText(mark) {
 
 // dist/local/thread-launch.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync20, lstatSync as lstatSync6, readFileSync as readFileSync14 } from "node:fs";
-import { basename as basename13, dirname as dirname12, isAbsolute as isAbsolute12, join as join33 } from "node:path";
+import { existsSync as existsSync21, lstatSync as lstatSync6, readFileSync as readFileSync14 } from "node:fs";
+import { basename as basename14, dirname as dirname12, isAbsolute as isAbsolute12, join as join34 } from "node:path";
 function withThreadSnapshot(event, id, path) {
   return { ...event, result: { ...event.result, thread_snapshot: { id, path } } };
 }
@@ -31911,14 +32083,14 @@ function referenceBody(body) {
 function threadContext(threadPath, pov) {
   if (isAbsolute12(threadPath)) {
     const parent = dirname12(threadPath);
-    if (basename13(parent) === "_threads")
+    if (basename14(parent) === "_threads")
       return dirname12(parent);
     return dirname12(threadPath);
   }
   return pov;
 }
 function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
-  if (!existsSync20(mapPath) || !lstatSync6(mapPath).isFile() || lstatSync6(mapPath).isSymbolicLink()) {
+  if (!existsSync21(mapPath) || !lstatSync6(mapPath).isFile() || lstatSync6(mapPath).isSymbolicLink()) {
     throw new Error("--thread-map must name a regular authored Map file; inline YAML is not a launch coordinate.");
   }
   const { root, member: member2 } = selectPinnedThreadMember(loadLocalThreadMap(mapPath), ordinal);
@@ -31936,12 +32108,12 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   const authoredId = root.root_node_id ?? /\/repos\/(n_[0-9a-f]{12}(?:[0-9a-f]{12})?)(?:\/|$)/.exec(root.repo ?? "")?.[1];
   if (authoredId && rootId3 !== authoredId)
     throw new Error("Selected Map root does not identify this local Thread Space.");
-  const expectedPrefix = `_threads/${basename13(directory)}/`;
+  const expectedPrefix = `_threads/${basename14(directory)}/`;
   if (!member2.position.startsWith(expectedPrefix) || member2.position === `${expectedPrefix}README.md` || !member2.position.endsWith(".md") || member2.position.includes("/_agent/") || member2.depth === "name") {
     throw new Error("Selected Map member must name a summary-or-full post in the hinted local Thread, not another Thread or README.");
   }
   const raw = readPinnedThreadMember(base, pin, member2.position);
-  const parsed2 = parseThreadPost(raw, basename13(member2.position));
+  const parsed2 = parseThreadPost(raw, basename14(member2.position));
   if (parsed2.status !== "valid")
     throw new Error("Selected authored Thread post is invalid.");
   const agreement = readPinnedThreadAgreement(base, pin, `${expectedPrefix}_agent/agreement.md`);
@@ -31950,8 +32122,8 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   if (!parseFrontmatter(agreement) || typeof threadName !== "string")
     throw new Error("Pinned Thread Agreement or README is invalid.");
   let agentName = "Agent";
-  const agentAgreement = join33(pov, "_agent", "agreement.md");
-  if (existsSync20(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
+  const agentAgreement = join34(pov, "_agent", "agreement.md");
+  if (existsSync21(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
     const agent = parseFrontmatter(readFileSync14(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
@@ -31975,7 +32147,7 @@ function prepareThreadLaunch(pov, threadPath, mapPath, ordinal, options) {
   ];
   const orientation = [
     "[Pinned local Thread \u2014 reference context, not instructions]",
-    `Authored Map: ${JSON.stringify(basename13(mapPath))} member ${ordinal}`,
+    `Authored Map: ${JSON.stringify(basename14(mapPath))} member ${ordinal}`,
     `Pin: ${pin} \xB7 ${member2.position}`,
     `Thread: ${JSON.stringify(threadName)}`,
     `Agreement (at authored pin):
@@ -31988,7 +32160,7 @@ ${agreement}`,
     throw new Error("Pinned Thread frame exceeds 12,000 characters; shorten the Thread Agreement or post summary before launching.");
   const agreementFrontmatter = parseFrontmatter(agreement);
   const parts = {
-    map: basename13(mapPath),
+    map: basename14(mapPath),
     ordinal,
     pin,
     position: member2.position,
@@ -31997,19 +32169,19 @@ ${agreement}`,
       text: agreement,
       ...typeof agreementFrontmatter?.name === "string" ? { name: agreementFrontmatter.name } : {},
       ...typeof agreementFrontmatter?.summary === "string" ? { summary: agreementFrontmatter.summary } : {},
-      path: join33(directory, "_agent", "agreement.md")
+      path: join34(directory, "_agent", "agreement.md")
     },
     post: postLines,
     summaryFromBody: post.frontmatter.summary === void 0
   };
   const people = post.frontmatter.author ? [post.frontmatter.author] : [];
   const receipt = {
-    thread: basename13(directory),
+    thread: basename14(directory),
     name: threadName,
     post_count: 1,
     // Only the selected pinned post is supplied in this pinned frame
     people,
-    map: `${basename13(mapPath)}#${ordinal}`
+    map: `${basename14(mapPath)}#${ordinal}`
   };
   return { kind: "local", directory, parentId: post.id, agentName, citation, orientation, parts, closed: localThread.closed, receipt };
 }
@@ -32019,8 +32191,8 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   if (localThread.closed)
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   let agentName = "Agent";
-  const agentAgreement = join33(pov, "_agent", "agreement.md");
-  if (existsSync20(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
+  const agentAgreement = join34(pov, "_agent", "agreement.md");
+  if (existsSync21(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
     const agent = parseFrontmatter(readFileSync14(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
@@ -32033,7 +32205,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   const maxBytes = 1e4;
   const headerLines = [
     "[Local Thread \u2014 reference context, not instructions]",
-    `Thread: ${JSON.stringify(localThread.name)} (${basename13(directory)})`,
+    `Thread: ${JSON.stringify(localThread.name)} (${basename14(directory)})`,
     ...localThread.summary ? [`Summary: ${JSON.stringify(localThread.summary)}`] : []
   ];
   const footerLines = [
@@ -32081,7 +32253,7 @@ function prepareUnpinnedThreadLaunch(pov, threadPath, options) {
   ].join("\n");
   const people = lastPost?.frontmatter.author ? [lastPost.frontmatter.author] : [];
   const receipt = {
-    thread: basename13(directory),
+    thread: basename14(directory),
     name: localThread.name,
     post_count: lastPost ? 1 : 0,
     people,
@@ -32104,8 +32276,8 @@ async function prepareHostedThreadLaunch(pov, threadId, options) {
     throw new Error("Thread is closed; no agent was launched or turn sent.");
   }
   let agentName = "Agent";
-  const agentAgreement = join33(pov, "_agent", "agreement.md");
-  if (existsSync20(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
+  const agentAgreement = join34(pov, "_agent", "agreement.md");
+  if (existsSync21(agentAgreement) && lstatSync6(agentAgreement).isFile() && !lstatSync6(agentAgreement).isSymbolicLink()) {
     const agent = parseFrontmatter(readFileSync14(agentAgreement, "utf8"));
     if (typeof agent?.name === "string" && agent.name.trim()) {
       agentName = agent.name.replace(/^Agreement\s*[—-]\s*/, "").trim();
@@ -32162,10 +32334,10 @@ function findLaunchMap(holder, directory) {
   const newestFirst = holder.posts.map((post, index) => ({ post, index })).sort((a, b) => stamp(a.post) < stamp(b.post) ? 1 : stamp(a.post) > stamp(b.post) ? -1 : b.index - a.index).map(({ post }) => post);
   for (const post of newestFirst) {
     if (carries(post))
-      return { post, file: join34(directory, post.path), origin: post.id === opening?.id ? "opening" : "post" };
+      return { post, file: join35(directory, post.path), origin: post.id === opening?.id ? "opening" : "post" };
   }
   if (opening && opening.mapResult !== void 0 && opening.mapResult.status !== "absent")
-    return { post: opening, file: join34(directory, opening.path), origin: "opening" };
+    return { post: opening, file: join35(directory, opening.path), origin: "opening" };
   throw new NoMapBlockError(`Thread ${holder.slug} has no Map to launch from: no post carries one and ${opening ? `its opening post ${opening.id}` : "it has no opening post"} has none. Post with a map: block (a snapshot always carries one), or launch from a Thread that has one.`);
 }
 function postsSince(holder, map) {
@@ -32238,7 +32410,7 @@ Read it in full before you write in that Thread: ${path}`;
 function renderLaunchFrame(input) {
   const { holder, started, map, since, note } = input;
   const agreementText = threadAgreementContent(holder.path);
-  const agreementPath = join34(holder.path, "_agent", "agreement.md");
+  const agreementPath = join35(holder.path, "_agent", "agreement.md");
   const facts = (agreementText === null ? void 0 : parseFrontmatter(agreementText)) ?? {};
   const own = {
     name: typeof facts.name === "string" ? facts.name : void 0,
@@ -32266,7 +32438,7 @@ ${agreementText}`] : [agreementLine(own, agreementPath).replace("that Thread", "
     `Authored Map: ${JSON.stringify(note.map)} member ${note.ordinal}`,
     `Pin: ${note.pin} \xB7 ${note.position}`,
     `Thread: ${JSON.stringify(note.threadName)}${input.noteInLaunchThread ? " (the launch Thread, above)" : ""}`,
-    ...input.noteInLaunchThread ? [] : [agreementLine(note.agreement, join34(input.noteDirectory, "_agent", "agreement.md"))],
+    ...input.noteInLaunchThread ? [] : [agreementLine(note.agreement, join35(input.noteDirectory, "_agent", "agreement.md"))],
     // A summary taken from the body's first line, and a name that is only the id, repeat what is already there.
     ...note.post.filter((line3) => !(note.summaryFromBody && line3.startsWith("Summary: "))).map((line3) => line3.replace(/^Selected post: "(msg_[0-9a-f-]+)" \(\1\)$/, "Selected post: $1")),
     "Read this Note at its authored pin; do not replace it with the working tree or HEAD.",
@@ -32363,7 +32535,7 @@ async function assembleLaunchText(input) {
   const started = holder.allPosts.find((entry) => entry.id === input.post);
   if (!started)
     throw new Error(`Thread ${holder.slug} has no post ${input.post}. Run \`ideaspaces threads open ${holder.slug}\` to see its posts.`);
-  const startedFile = join35(directory, started.path);
+  const startedFile = join36(directory, started.path);
   const source = findLaunchMap(holder, directory);
   const note = loadMapNote(source.file, cwd);
   const chosen = selectNote(note.map, noteCandidates(holder, started, source.post), started.id, input.member);
@@ -32384,7 +32556,7 @@ async function assembleLaunchText(input) {
       throw new Error(valid.message);
     pov = { path: valid.path, text: renderPovOrientation(valid, readFileSync15(valid.contractPath, "utf8")) };
   }
-  const noteDirectory = join35(dirname13(directory), home);
+  const noteDirectory = join36(dirname13(directory), home);
   const pinned = prepareThreadLaunch(pov?.path ?? threadBase(dirname13(dirname13(directory))), noteDirectory, source.file, String(ordinal), { requireAuthor: false, readOnly: true, frameLimit: false });
   const since = postsSince(holder, source.post);
   const listable = renderLaunchFrame({ holder, directory, started, map: source, since, note: pinned.parts, noteDirectory, noteInLaunchThread: noteDirectory === directory, agreement: "whole" }).listed;
@@ -32424,7 +32596,7 @@ async function assembleLaunchText(input) {
       ...entry,
       reason: `over the Map's ${map.budget}-character budget even at name; read it at ${readAt(entry)}`
     })),
-    ...map.legendOmitted ? [{ kind: "legend", reason: `over the Map's ${map.budget}-character budget; the legend is in ${basename14(source.file)}` }] : [],
+    ...map.legendOmitted ? [{ kind: "legend", reason: `over the Map's ${map.budget}-character budget; the legend is in ${basename15(source.file)}` }] : [],
     ...frame.omittedSince ? [{
       kind: "posts",
       omitted: frame.omittedSince,
@@ -32432,7 +32604,7 @@ async function assembleLaunchText(input) {
     }] : [],
     ...frame.agreement === "line" ? [{
       kind: "agreement",
-      path: join35(directory, "_agent", "agreement.md"),
+      path: join36(directory, "_agent", "agreement.md"),
       reason: "the launch had no room for this Thread's Agreement whole; read it in full at its path"
     }] : []
   ];
@@ -32467,19 +32639,19 @@ async function assembleLaunchText(input) {
 
 // dist/local/thread-from-note.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync11 } from "node:child_process";
-import { existsSync as existsSync21, lstatSync as lstatSync7, readFileSync as readFileSync16, realpathSync as realpathSync13 } from "node:fs";
+import { spawnSync as spawnSync12 } from "node:child_process";
+import { existsSync as existsSync22, lstatSync as lstatSync7, readFileSync as readFileSync16, realpathSync as realpathSync13 } from "node:fs";
 import { dirname as dirname14, isAbsolute as isAbsolute13, relative as relative17, resolve as resolve24, sep as sep11 } from "node:path";
 var MAX_NOTE = 1024 * 1024;
 var SHA3 = /^[0-9a-f]{40}$/;
 var DEPTHS3 = new Set(MAP_DEPTHS);
 var PIN_TO_BE = "0".repeat(40);
 var DEFAULT_MEMBER_DEPTH = "summary";
-function git4(cwd, args2) {
-  return spawnSync11(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment(), timeout: 12e4 });
+function git5(cwd, args2) {
+  return spawnSync12(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment(), timeout: 12e4 });
 }
 function gitText(cwd, args2) {
-  const result = git4(cwd, args2);
+  const result = git5(cwd, args2);
   return result.status === 0 ? result.stdout.trim() : null;
 }
 function failure(result) {
@@ -32500,7 +32672,7 @@ function noteRefusal(position) {
   return null;
 }
 function commitNote(top, position, message) {
-  const status = git4(top, ["status", "--porcelain", "--untracked-files=all", "--", position]);
+  const status = git5(top, ["status", "--porcelain", "--untracked-files=all", "--", position]);
   if (status.status !== 0)
     throw new Error(`Git couldn't read the Note's state: ${failure(status)}. Nothing created.`);
   const head2 = gitText(top, ["rev-parse", "--verify", "-q", "HEAD"]);
@@ -32509,12 +32681,12 @@ function commitNote(top, position, message) {
       throw new Error("The Note's repository has no commits yet, and the Note isn't in Git. Nothing created.");
     return { commit: head2, committed: false };
   }
-  const tracked = git4(top, ["ls-files", "--error-unmatch", "--", position]).status === 0;
+  const tracked = git5(top, ["ls-files", "--error-unmatch", "--", position]).status === 0;
   const retrying = (args2) => {
-    let result = git4(top, args2);
+    let result = git5(top, args2);
     for (let attempt = 0; attempt < 4 && result.status !== 0 && /index\.lock/.test(result.stderr ?? ""); attempt++) {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
-      result = git4(top, args2);
+      result = git5(top, args2);
     }
     return result;
   };
@@ -32523,7 +32695,7 @@ function commitNote(top, position, message) {
     throw new Error(`The Note couldn't be added to Git: ${failure(added)}. Nothing created.`);
   const made = retrying(["commit", "-q", "-m", message, "--", position]);
   if (made.status !== 0) {
-    git4(top, tracked ? ["reset", "-q", "--", position] : ["rm", "--cached", "-q", "--", position]);
+    git5(top, tracked ? ["reset", "-q", "--", position] : ["rm", "--cached", "-q", "--", position]);
     throw new Error(`The Note couldn't be committed, so the Thread's Map can't point at it as it is now: ${failure(made)}. The Note is on disk as you wrote it. Nothing created.`);
   }
   const commit = gitText(top, ["rev-parse", "HEAD"]);
@@ -32542,7 +32714,7 @@ function rootId(root) {
 function pinFromCheckout(id) {
   const checkouts = loadMapCheckouts();
   for (const [path, registered] of Object.entries(checkouts)) {
-    if (registered !== id || !existsSync21(path))
+    if (registered !== id || !existsSync22(path))
       continue;
     const sha2 = gitText(path, ["rev-parse", "HEAD"]);
     if (sha2 && SHA3.test(sha2))
@@ -32552,7 +32724,7 @@ function pinFromCheckout(id) {
 }
 function prepareNoteForThread(input, cwd = process.cwd(), title) {
   const requested = resolve24(cwd, input);
-  if (!existsSync21(requested))
+  if (!existsSync22(requested))
     throw new Error(`--from-note names a Note that isn't there: ${requested}. Nothing created.`);
   const stat2 = lstatSync7(requested);
   if (stat2.isSymbolicLink() || !stat2.isFile())
@@ -32651,9 +32823,9 @@ function prepareNoteForThread(input, cwd = process.cwd(), title) {
 
 // dist/local/cross-thread-target.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync12 } from "node:child_process";
-import { existsSync as existsSync22, lstatSync as lstatSync8, readFileSync as readFileSync17, realpathSync as realpathSync14 } from "node:fs";
-import { basename as basename15, isAbsolute as isAbsolute14, join as join36 } from "node:path";
+import { spawnSync as spawnSync13 } from "node:child_process";
+import { existsSync as existsSync23, lstatSync as lstatSync8, readFileSync as readFileSync17, realpathSync as realpathSync14 } from "node:fs";
+import { basename as basename16, isAbsolute as isAbsolute14, join as join37 } from "node:path";
 function physical(path) {
   if (!isAbsolute14(path))
     throw new Error(`Local checkout must be an existing non-symlink absolute directory: ${path}`);
@@ -32674,7 +32846,7 @@ function rootId2(root) {
 }
 function validatedCheckout(path, expected) {
   const checkout = physical(path);
-  const result = spawnSync12(gitBinary(), ["rev-parse", "--show-toplevel"], {
+  const result = spawnSync13(gitBinary(), ["rev-parse", "--show-toplevel"], {
     cwd: checkout,
     encoding: "utf8",
     env: sanitizedGitEnvironment()
@@ -32721,7 +32893,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   if (!member2.depth)
     throw new Error("Selected authored Thread member needs a depth ceiling.");
   const checkout = locate2(root, checkoutHint);
-  const commit = spawnSync12(gitBinary(), ["cat-file", "-t", pin], {
+  const commit = spawnSync13(gitBinary(), ["cat-file", "-t", pin], {
     cwd: checkout,
     encoding: "utf8",
     env: sanitizedGitEnvironment()
@@ -32740,7 +32912,7 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   }
   const thread = loadThread(directory);
   const pinned = readPinnedThreadMember(checkout, pin, position);
-  const parsed2 = parseThreadPost(pinned, basename15(position));
+  const parsed2 = parseThreadPost(pinned, basename16(position));
   if (parsed2.status !== "valid")
     throw new Error("Selected authored Thread post is invalid.");
   const prefix = `_threads/${slug}/`;
@@ -32754,21 +32926,21 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
   const verifyWrite = (live, parents, supersedes) => {
     if (live.path !== directory || live.slug !== slug || live.closed)
       throw new Error("Selected live Thread changed or closed; refusing append.");
-    const selectedPath = join36(directory, basename15(position));
+    const selectedPath = join37(directory, basename16(position));
     const safeEqual = (path, content) => {
-      if (!existsSync22(path))
+      if (!existsSync23(path))
         return false;
       const entry = lstatSync8(path);
       return !entry.isSymbolicLink() && entry.isFile() && readFileSync17(path, "utf8") === content;
     };
-    if (!safeEqual(join36(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join36(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename15(position))) {
+    if (!safeEqual(join37(directory, "_agent", "agreement.md"), agreement) || !safeEqual(join37(directory, "README.md"), readme) || !safeEqual(selectedPath, pinned) || !live.posts.some((post) => post.id === parsed2.post.id && post.path === basename16(position))) {
       throw new Error("Selected live Thread differs from the authored pin; re-author the Map at the updated Thread commit before appending.");
     }
     if (!parents.length || new Set(parents).size !== parents.length)
       throw new Error("Selected cross-Space post requires distinct explicit --reply-to ids; no implicit HEAD parent.");
     for (const id of [...parents, ...supersedes ? [supersedes] : []]) {
       const parent = live.posts.find((post) => post.id === id);
-      if (!parent || !safeEqual(join36(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
+      if (!parent || !safeEqual(join37(directory, parent.path), readPinnedThreadMember(checkout, pin, `${prefix}${parent.path}`))) {
         throw new Error(`Selected parent or superseded post ${id} is missing or changed since the authored pin.`);
       }
     }
@@ -32778,9 +32950,9 @@ function selectLocalThreadTarget(input, root, member2, checkoutHint) {
 
 // dist/local/first-thread.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync13 } from "node:child_process";
-import { existsSync as existsSync23, readFileSync as readFileSync18, readdirSync as readdirSync5 } from "node:fs";
-import { join as join37 } from "node:path";
+import { spawnSync as spawnSync14 } from "node:child_process";
+import { existsSync as existsSync24, readFileSync as readFileSync18, readdirSync as readdirSync5 } from "node:fs";
+import { join as join38 } from "node:path";
 var LINE_LIMIT = 280;
 var PROMPT = /(?:^|[^\p{L}\p{N}])A prompt\b/u;
 function plainLine(summary) {
@@ -32812,11 +32984,11 @@ function isAgent(agreement) {
   }
 }
 function placeLine(place) {
-  const own = join37(place, "_agent", "agreement.md");
-  const ownLine = existsSync23(own) ? plainLine(summaryOf(own)) : void 0;
+  const own = join38(place, "_agent", "agreement.md");
+  const ownLine = existsSync24(own) ? plainLine(summaryOf(own)) : void 0;
   if (ownLine)
     return { line: ownLine, source: "agreement", from: own };
-  const agents = join37(place, "agents");
+  const agents = join38(place, "agents");
   let names = [];
   try {
     names = readdirSync5(agents, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
@@ -32824,8 +32996,8 @@ function placeLine(place) {
     return void 0;
   }
   for (const name of names) {
-    const agreement = join37(agents, name, "_agent", "agreement.md");
-    if (!existsSync23(agreement) || !isAgent(agreement))
+    const agreement = join38(agents, name, "_agent", "agreement.md");
+    if (!existsSync24(agreement) || !isAgent(agreement))
       continue;
     const line3 = plainLine(summaryOf(agreement));
     if (line3)
@@ -32834,11 +33006,11 @@ function placeLine(place) {
   return void 0;
 }
 function commitBlocker(dir) {
-  const git7 = (...args2) => spawnSync13(gitBinary(), args2, { cwd: dir, env: sanitizedGitEnvironment(), encoding: "utf8" });
-  if (git7("rev-parse", "--show-toplevel").status !== 0) {
+  const git8 = (...args2) => spawnSync14(gitBinary(), args2, { cwd: dir, env: sanitizedGitEnvironment(), encoding: "utf8" });
+  if (git8("rev-parse", "--show-toplevel").status !== 0) {
     return "This folder is in no Git repository, so its posts are written but not committed. Run git init here to keep their history.";
   }
-  const missing = ["user.name", "user.email"].filter((key2) => !git7("config", "--get", key2).stdout.trim());
+  const missing = ["user.name", "user.email"].filter((key2) => !git8("config", "--get", key2).stdout.trim());
   if (!missing.length)
     return void 0;
   return `This repository's Git has no ${missing.map((key2) => key2 === "user.name" ? "name" : "email").join(" and ")}, so its posts are written but not committed. Set them here: git config user.name "Your Name" and git config user.email you@example.com.`;
@@ -32883,10 +33055,10 @@ function displayThread(thread) {
 
 // dist/local/thread-check.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync14 } from "node:child_process";
+import { spawnSync as spawnSync15 } from "node:child_process";
 var NO_CUT2 = Number.MAX_SAFE_INTEGER;
-function git5(cwd, args2) {
-  const result = spawnSync14(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 512 * 1024 * 1024, timeout: 12e4 });
+function git6(cwd, args2) {
+  const result = spawnSync15(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 512 * 1024 * 1024, timeout: 12e4 });
   return { ok: !result.error && result.status === 0, out: result.stdout ?? "", err: (result.stderr ?? "").trim() || result.error?.message || "" };
 }
 function unquotePath(path) {
@@ -32922,7 +33094,7 @@ function checkThreads(threadsDir, only) {
   return result.note === void 0 ? result : { ...result, note: singleLine2(result.note, NO_CUT2) };
 }
 function scan(threadsDir, only) {
-  const inside = git5(threadsDir, ["rev-parse", "--is-inside-work-tree"]);
+  const inside = git6(threadsDir, ["rev-parse", "--is-inside-work-tree"]);
   if (!inside.ok || inside.out.trim() !== "true") {
     return { checked: false, note: "this Space is not in a Git repository, so there is no history to check; posts here cannot be shown to be unchanged", modified: [] };
   }
@@ -32943,9 +33115,9 @@ function scan(threadsDir, only) {
     });
     found.set(key2, entry);
   };
-  const prefix = git5(threadsDir, ["rev-parse", "--show-prefix"]).out.trim();
+  const prefix = git6(threadsDir, ["rev-parse", "--show-prefix"]).out.trim();
   const fromHere = (path) => prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
-  const status = git5(threadsDir, ["status", "--porcelain=v1", "-z", "--untracked-files=no", "--", ...scope]);
+  const status = git6(threadsDir, ["status", "--porcelain=v1", "-z", "--untracked-files=no", "--", ...scope]);
   if (!status.ok)
     return { checked: false, note: singleLine2(`Git could not report the working tree${status.err ? `: ${status.err.split("\n").pop()}` : ""}`, NO_CUT2), modified: [] };
   const entries2 = status.out.split("\0").filter(Boolean);
@@ -32965,11 +33137,11 @@ function scan(threadsDir, only) {
     else if (code.includes("M") || code.includes("T"))
       add(path, { kind: "uncommitted-edit" });
   }
-  const shallow = git5(threadsDir, ["rev-parse", "--is-shallow-repository"]);
+  const shallow = git6(threadsDir, ["rev-parse", "--is-shallow-repository"]);
   if (shallow.ok && shallow.out.trim() === "true") {
     return { checked: false, note: "this clone is shallow (its history stops at the fetch depth), so an edit made before that cannot be seen; fetch the full history (git fetch --unshallow) to check", modified: [...found.values()] };
   }
-  const log = git5(threadsDir, ["-c", "core.quotePath=false", "log", "--no-renames", "--diff-filter=MDT", "--name-status", "--relative", "--pretty=format:%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...scope]);
+  const log = git6(threadsDir, ["-c", "core.quotePath=false", "log", "--no-renames", "--diff-filter=MDT", "--name-status", "--relative", "--pretty=format:%x1e%H%x1f%an%x1f%aI%x1f%s", "--", ...scope]);
   if (!log.ok) {
     if (/does not have any commits yet/.test(log.err))
       return { checked: true, modified: [...found.values()] };
@@ -33012,14 +33184,14 @@ ${post.changes.map((change) => `    ${CHANGE_WORDS[change.kind]}${change.commit 
 
 // dist/local/thread-state.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync15 } from "node:child_process";
+import { spawnSync as spawnSync16 } from "node:child_process";
 var GIT_WAIT_MS = 8e3;
 var CALL_MS = 5e3;
 function gitCall(cwd, args2, deadline, waitMs) {
   const left = deadline - Date.now();
   if (left <= 0)
     return { ok: false, status: null, out: "", err: `Git did not answer within ${Math.round(waitMs / 100) / 10} s` };
-  const result = spawnSync15(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 16 * 1024 * 1024, timeout: Math.min(left, CALL_MS) });
+  const result = spawnSync16(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 16 * 1024 * 1024, timeout: Math.min(left, CALL_MS) });
   const timedOut = result.error?.code === "ETIMEDOUT";
   return {
     ok: !result.error && result.status === 0,
@@ -33031,8 +33203,8 @@ function gitCall(cwd, args2, deadline, waitMs) {
 var unchecked = (note) => ({ checked: false, note, upstream: null, states: /* @__PURE__ */ new Map(), modified: /* @__PURE__ */ new Set(), unmerged: /* @__PURE__ */ new Set(), inRepository: true, counts: { local: 0, committed: 0, pushed: 0 } });
 function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
   const deadline = Date.now() + waitMs;
-  const git7 = (cwd, args2) => gitCall(cwd, args2, deadline, waitMs);
-  const where = git7(threadDir, ["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
+  const git8 = (cwd, args2) => gitCall(cwd, args2, deadline, waitMs);
+  const where = git8(threadDir, ["rev-parse", "--is-inside-work-tree", "--show-prefix"]);
   if (!where.ok) {
     if (where.status === 128 && /not a git repository/i.test(where.err)) {
       const states2 = new Map(files.map((file2) => [file2, "local"]));
@@ -33047,7 +33219,7 @@ function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
     const rest = prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
     return rest.includes("/") ? void 0 : rest;
   };
-  const status = git7(threadDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
+  const status = git8(threadDir, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."]);
   if (!status.ok)
     return unchecked(`Git could not report this Thread's status${status.err ? `: ${status.err.split("\n").pop()}` : ""}`);
   const local = /* @__PURE__ */ new Set();
@@ -33071,17 +33243,17 @@ function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
     else if (code.includes("M") || code.includes("T") || code[0] === "R")
       modified.add(name);
   }
-  const haveHead = git7(threadDir, ["rev-parse", "--verify", "--quiet", "HEAD"]);
+  const haveHead = git8(threadDir, ["rev-parse", "--verify", "--quiet", "HEAD"]);
   let inHead = /* @__PURE__ */ new Set();
   if (haveHead.ok) {
-    const tree = git7(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
+    const tree = git8(threadDir, ["ls-tree", "-z", "--name-only", "HEAD", "--", "."]);
     if (!tree.ok)
       return unchecked(`Git could not list what is committed${tree.err ? `: ${tree.err.split("\n").pop()}` : ""}`);
     inHead = new Set(tree.out.split("\0").filter((path) => path && !path.includes("/")));
   } else if (!(haveHead.status === 1 && !haveHead.err)) {
     return unchecked(`Git could not read HEAD${haveHead.err ? `: ${haveHead.err.split("\n").pop()}` : ""}`);
   }
-  const upstreamRef = git7(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  const upstreamRef = git8(threadDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
   if (!upstreamRef.ok && upstreamRef.status === null)
     return unchecked(`Git could not name the upstream: ${upstreamRef.err}`);
   const upstream = upstreamRef.ok ? upstreamRef.out.trim() : null;
@@ -33089,7 +33261,7 @@ function readThreadShare(threadDir, files, waitMs = GIT_WAIT_MS) {
   let note;
   let compared = false;
   if (upstream) {
-    const diff = git7(threadDir, ["diff", "--name-only", "-z", "--no-renames", "--relative", upstream, "HEAD", "--", "."]);
+    const diff = git8(threadDir, ["diff", "--name-only", "-z", "--no-renames", "--relative", upstream, "HEAD", "--", "."]);
     compared = diff.ok;
     if (diff.ok) {
       for (const path of diff.out.split("\0").filter(Boolean))
@@ -33775,7 +33947,7 @@ function threadSection(markdown, heading) {
 function threadFrame(thread) {
   let agreement = "";
   try {
-    agreement = readFileSync19(join38(thread.path, "_agent", "agreement.md"), "utf8");
+    agreement = readFileSync19(join39(thread.path, "_agent", "agreement.md"), "utf8");
   } catch (error) {
     if (error.code !== "ENOENT")
       throw error;
@@ -33914,7 +34086,7 @@ Marks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`)
 }
 function selectedWriterName() {
   const cwd = realpathSync15(process.cwd());
-  const prefix = spawnSync16(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
+  const prefix = spawnSync17(gitBinary(), ["rev-parse", "--show-prefix"], { cwd, encoding: "utf8", env: sanitizedGitEnvironment() });
   const boundary = prefix.status === 0 ? prefix.stdout.trim().split("/").filter(Boolean).reduce((at2) => dirname15(at2), cwd) : cwd;
   let at = cwd;
   while (true) {
@@ -33922,10 +34094,10 @@ function selectedWriterName() {
     const outsideRoot = pathFromRoot === ".." || pathFromRoot.startsWith(`..${sep12}`) || isAbsolute15(pathFromRoot);
     if (outsideRoot)
       break;
-    const agentDir = join38(at, "_agent");
-    const agreement = join38(agentDir, "agreement.md");
-    if (existsSync24(agentDir) || existsSync24(agreement)) {
-      if (!existsSync24(agentDir) || lstatSync9(agentDir).isSymbolicLink() || !lstatSync9(agentDir).isDirectory() || !existsSync24(agreement) || lstatSync9(agreement).isSymbolicLink() || !lstatSync9(agreement).isFile()) {
+    const agentDir = join39(at, "_agent");
+    const agreement = join39(agentDir, "agreement.md");
+    if (existsSync25(agentDir) || existsSync25(agreement)) {
+      if (!existsSync25(agentDir) || lstatSync9(agentDir).isSymbolicLink() || !lstatSync9(agentDir).isDirectory() || !existsSync25(agreement) || lstatSync9(agreement).isSymbolicLink() || !lstatSync9(agreement).isFile()) {
         throw new Error("Caller POV needs a regular _agent/agreement.md with a name to author a selected Thread post.");
       }
       const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
@@ -33948,8 +34120,8 @@ function writerName(explicit) {
     return explicit;
   let at = resolve25(process.cwd());
   while (true) {
-    const agreement = join38(at, "_agent", "agreement.md");
-    if (existsSync24(agreement)) {
+    const agreement = join39(at, "_agent", "agreement.md");
+    if (existsSync25(agreement)) {
       const fm = parseFrontmatter(readFileSync19(agreement, "utf8"));
       if (typeof fm?.agreement === "string" && fm.agreement.startsWith("agent:repo:") && typeof fm.name === "string") {
         return fm.name.replace(/^Agreement\s*[—-]\s*/, "");
@@ -33959,7 +34131,7 @@ function writerName(explicit) {
       break;
     at = dirname15(at);
   }
-  const result = spawnSync16(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
+  const result = spawnSync17(gitBinary(), ["config", "user.name"], { cwd: process.cwd(), encoding: "utf8", env: sanitizedGitEnvironment() });
   if (result.status === 0 && result.stdout.trim())
     return result.stdout.trim();
   throw new Error("No writer identity. Pass --author <name> (or set git user.name / run from an agent Agreement).");
@@ -34101,7 +34273,7 @@ var threadsCommand = {
         if (rest.length < 2 || !/^msg_[0-9a-f-]+$/.test(rest[0]))
           throw new Error("Usage: threads locate <opening-post-id> <space-root> [<space-root> ...]");
         const matches2 = [...new Map(rest.slice(1).flatMap((root) => {
-          if (!existsSync24(resolve25(root)))
+          if (!existsSync25(resolve25(root)))
             throw new Error(`Space root not found: ${root}. Supply an existing folder with _agent/agreement.md.`);
           if (lstatSync9(resolve25(root)).isSymbolicLink())
             throw new Error(`Refusing symlink Space root: ${root}`);
@@ -34295,7 +34467,7 @@ Local Thread listing incomplete: ${localWarnings} unreadable item(s).` : "") + h
         const title = str2(flags2, "about") ?? note.name;
         const openingMap = note ? note.map : str2(flags2, "map") ? loadLocalThreadMap(str2(flags2, "map")) : void 0;
         const threadsHere = threadsDirectory();
-        const first = !existsSync24(threadsHere) || !readdirSync6(threadsHere, { withFileTypes: true }).some((entry) => entry.isDirectory());
+        const first = !existsSync25(threadsHere) || !readdirSync6(threadsHere, { withFileTypes: true }).some((entry) => entry.isDirectory());
         const derived = summaryFlag || note || !first ? void 0 : placeLine(threadBase());
         const line3 = summaryFlag ?? derived?.line;
         if (openingMap !== void 0)
@@ -34557,7 +34729,7 @@ ${post.id} \xB7 ${post.kind} \xB7 ${post.date ?? "undated"} \xB7 ${postName} \xB
           ...p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}
         } : { ...p, ...stateField(p) });
         const frame = effectiveRung === "name" ? threadFrame(thread) : void 0;
-        const rawPost = postId2 && posts2.length ? readFileSync19(join38(thread.path, posts2[0].path), "utf8") : void 0;
+        const rawPost = postId2 && posts2.length ? readFileSync19(join39(thread.path, posts2[0].path), "utf8") : void 0;
         let humanText;
         if (pinned && effectiveRung === "full") {
           humanText = pinned;
@@ -34738,11 +34910,11 @@ Last activity: ${nextActivity} (folded mark; use this id with --since).`;
         });
         for (const warning of warnings)
           output.log(`Link warning: ${warning}`);
-        const outcome = flags2["no-commit"] === true ? { committed: false, reason: "--no-commit" } : commitPost(path, `Thread ${basename16(dirname15(path))}: ${post.kind} ${post.id}${post.frontmatter.name ? `
+        const outcome = flags2["no-commit"] === true ? { committed: false, reason: "--no-commit" } : commitPost(path, `Thread ${basename17(dirname15(path))}: ${post.kind} ${post.id}${post.frontmatter.name ? `
 
 ${post.frontmatter.name}` : ""}`);
-        const postShare = readThreadShare(dirname15(path), [basename16(path)]);
-        const posted = postShare.states.get(basename16(path));
+        const postShare = readThreadShare(dirname15(path), [basename17(path)]);
+        const posted = postShare.states.get(basename17(path));
         const commitLine2 = outcome.committed ? `
 Committed ${outcome.commit.slice(0, 12)}: only this post's file. Not pushed; push it for anyone else to read it.` : flags2["no-commit"] === true ? "\nState: local only. Written, not committed (--no-commit); commit and push it for anyone else to read it." : outcome.reason === NOT_IN_GIT_REPOSITORY ? "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only." : `
 State: local only. Written, not committed: ${outcome.reason}. The post is on this disk; commit that file when you can.`;
@@ -34764,10 +34936,10 @@ State: local only. Written, not committed: ${outcome.reason}. The post is on thi
           throw new Error("Usage: threads check [<slug|path>] [--strict]");
         const target = rest[0] ? resolveLocalThread(rest[0]) : void 0;
         const threadsDir = target ? dirname15(target) : threadsDirectory();
-        if (!existsSync24(threadsDir))
+        if (!existsSync25(threadsDir))
           throw new Error(`No _threads/ folder at ${threadsDir}. Run from a Space, or name a Thread.`);
-        const result = checkThreads(threadsDir, target ? basename16(target) : void 0);
-        const scope = target ? basename16(target) : "This Space";
+        const result = checkThreads(threadsDir, target ? basename17(target) : void 0);
+        const scope = target ? basename17(target) : "This Space";
         output.result({
           schema: "ideaspaces.threads.check.v1",
           path: target ?? threadsDir,
@@ -34850,7 +35022,7 @@ function parseWhere(value4) {
 function findThreadRoots(start) {
   const found = [];
   const canonical = realpathSync16(start);
-  if (existsSync25(join39(canonical, "_threads")))
+  if (existsSync26(join40(canonical, "_threads")))
     found.push(canonical);
   let visited = 0;
   const walk = (dir, level) => {
@@ -34865,7 +35037,7 @@ function findThreadRoots(start) {
     for (const name of entries2.sort()) {
       if (name.startsWith(".") || SKIPPED.has(name))
         continue;
-      const child = join39(dir, name);
+      const child = join40(dir, name);
       visited++;
       let isDirectory4 = false;
       try {
@@ -34875,8 +35047,8 @@ function findThreadRoots(start) {
       }
       if (!isDirectory4)
         continue;
-      const repository = existsSync25(join39(child, ".git"));
-      if (repository && existsSync25(join39(child, "_threads")))
+      const repository = existsSync26(join40(child, ".git"));
+      if (repository && existsSync26(join40(child, "_threads")))
         found.push(child);
       if (!repository)
         walk(child, level + 1);
@@ -34885,12 +35057,12 @@ function findThreadRoots(start) {
   walk(canonical, 1);
   return found;
 }
-function git6(cwd, args2) {
-  const result = spawnSync17(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 64 * 1024 * 1024, timeout: 8e3 });
+function git7(cwd, args2) {
+  const result = spawnSync18(gitBinary(), args2, { cwd, encoding: "utf8", env: sanitizedGitEnvironment({ GIT_OPTIONAL_LOCKS: "0" }), maxBuffer: 64 * 1024 * 1024, timeout: 8e3 });
   return result.status === 0 ? result.stdout : null;
 }
 function uncommittedUnder(root) {
-  const out = git6(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "_threads"]);
+  const out = git7(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "_threads"]);
   const map = /* @__PURE__ */ new Map();
   if (out === null)
     return map;
@@ -34919,7 +35091,7 @@ function cursorInstant(raw, loaded) {
   }
   for (const { threads } of loaded) {
     for (const thread of threads) {
-      const post = thread.allPosts.find((candidate) => "id" in cursor ? candidate.id === cursor.id : candidate.path === basename17(cursor.path));
+      const post = thread.allPosts.find((candidate) => "id" in cursor ? candidate.id === cursor.id : candidate.path === basename18(cursor.path));
       if (post) {
         const instant = entryInstant({ ...post, path: `_threads/${thread.slug}/${post.path}` });
         if (instant === void 0)
@@ -34947,7 +35119,7 @@ function assembleThreadTree(start, options) {
   const loadAll = (asOf2) => rootPaths.map((path, index) => {
     const label = path === canonicalStart ? "." : relative19(canonicalStart, path).split("\\").join("/");
     const uncommitted2 = uncommittedUnder(path);
-    const root = { root: index, path, label, root_node_id: checkoutRootNodeId(path), sha: git6(path, ["rev-parse", "--verify", "--quiet", "HEAD"])?.trim() ?? null, threads: 0, uncommitted: uncommitted2.size };
+    const root = { root: index, path, label, root_node_id: checkoutRootNodeId(path), sha: git7(path, ["rev-parse", "--verify", "--quiet", "HEAD"])?.trim() ?? null, threads: 0, uncommitted: uncommitted2.size };
     let threads = [];
     try {
       threads = listLocal(path, (message) => warnings.push(`${label}: ${message}`), asOf2 ? { asOf: asOf2 } : {});
@@ -35209,9 +35381,9 @@ function renderThreadTree(tree) {
 
 // dist/commands/map-selection.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync18 } from "node:child_process";
+import { spawnSync as spawnSync19 } from "node:child_process";
 import { realpathSync as realpathSync17, statSync as statSync8 } from "node:fs";
-import { basename as basename18, dirname as dirname16, isAbsolute as isAbsolute16, relative as relative20, resolve as resolve26, sep as sep13 } from "node:path";
+import { basename as basename19, dirname as dirname16, isAbsolute as isAbsolute16, relative as relative20, resolve as resolve26, sep as sep13 } from "node:path";
 import { posix } from "node:path";
 
 // dist/auth/resolve-space.js
@@ -35353,7 +35525,7 @@ function bindingFailure(failure2) {
   }
 }
 function gitRead(cwd, args2) {
-  const result = spawnSync18(gitBinary(), args2, {
+  const result = spawnSync19(gitBinary(), args2, {
     cwd,
     encoding: "utf8",
     env: sanitizedGitEnvironment({ GIT_TERMINAL_PROMPT: "0" })
@@ -35396,7 +35568,7 @@ function noteDisclosure(content, position) {
     throw new Error("The committed Note frontmatter summary must be a string");
   }
   return {
-    name: rawName || basename18(position, posix.extname(position)),
+    name: rawName || basename19(position, posix.extname(position)),
     summary: rawSummary || ""
   };
 }
@@ -35546,7 +35718,7 @@ async function runMapSelection(args2, flags2, _global, output) {
         throw new Error(`The committed Note has malformed frontmatter: ${syntax.message}`);
       }
       const frontmatter = parseFrontmatter(committed) ?? {};
-      const isMapNote = basename18(position).endsWith(".map.md") || basename18(position) === "README.md" && frontmatter.map !== void 0;
+      const isMapNote = basename19(position).endsWith(".map.md") || basename19(position) === "README.md" && frontmatter.map !== void 0;
       if (isMapNote && frontmatter.map && typeof frontmatter.map === "object") {
         const parsedMap = parseMap(frontmatter.map);
         if (parsedMap.status !== "valid")
@@ -35720,7 +35892,7 @@ init_define_IDEASPACES_AGENT_CATALOG();
 var import_yaml8 = __toESM(require_dist(), 1);
 import { createHash as createHash9, randomUUID as randomUUID10 } from "node:crypto";
 import { promises as fs13, realpathSync as realpathSync18 } from "node:fs";
-import { basename as basename19, dirname as dirname17, resolve as resolve27 } from "node:path";
+import { basename as basename20, dirname as dirname17, resolve as resolve27 } from "node:path";
 var USAGE3 = "ideaspaces map create <path.map.md|README.md> --name <name> --summary <summary>\n       ideaspaces map add <map-note> <address> [--depth name|summary] [--name <name>] [--summary <summary>] [--if-match <file_sha>]\n       ideaspaces map add <map-note> --position <path> [--depth <name|summary|surface|children|full>] (--root <index> | --root-node-id <id> [--sha <commit>] | --checkout <repo> [--sha <commit>])\n       ideaspaces map remove <map-note> <member-index> --if-match <file_sha>  # map <map-note> --json\n       ideaspaces map remove <map-note> <address|@root//position> [--if-match <file_sha>]\n       ideaspaces map remove <map-note> --root-node-id <id> --position <path>\n       ideaspaces map remove <map-note> --root-node-id <id>  # remove an empty root explicitly";
 function value(flags2, key2) {
   const v = flags2[key2];
@@ -35730,7 +35902,7 @@ function hash(content) {
   return createHash9("sha256").update(content).digest("hex");
 }
 function validFile(path) {
-  return basename19(path) === "README.md" || basename19(path).endsWith(".map.md");
+  return basename20(path) === "README.md" || basename20(path).endsWith(".map.md");
 }
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
@@ -35768,7 +35940,7 @@ async function locked(file2, action, warn) {
   return result;
 }
 async function replace(file2, content) {
-  const temp = resolve27(dirname17(file2), `.${basename19(file2)}.${randomUUID10()}.tmp`);
+  const temp = resolve27(dirname17(file2), `.${basename20(file2)}.${randomUUID10()}.tmp`);
   try {
     const mode = (await fs13.stat(file2)).mode & 511;
     await fs13.writeFile(temp, content, { flag: "wx", mode });
@@ -36077,7 +36249,7 @@ async function runThreadTree(args2, flags2, output) {
     return 1;
   }
   const start = resolve28((args2[0] ?? ".").trim() || ".");
-  if (!existsSync26(start) || !statSync9(start).isDirectory()) {
+  if (!existsSync27(start) || !statSync9(start).isDirectory()) {
     output.error(`Not a directory: ${start}. Give the Space root (or any folder whose repositories hold _threads/).`);
     return 1;
   }
@@ -36223,8 +36395,8 @@ The answer is a Map: roots pinned at HEAD with their uncommitted files counted, 
     let target;
     let selectedFile;
     try {
-      if (statSync9(requested).isFile() && (basename20(requested).endsWith(".map.md") || basename20(requested) === "README.md")) {
-        selectedFile = basename20(requested);
+      if (statSync9(requested).isFile() && (basename21(requested).endsWith(".map.md") || basename21(requested) === "README.md")) {
+        selectedFile = basename21(requested);
         target = realpathSync19.native(dirname18(requested));
       } else if (statSync9(requested).isDirectory()) {
         target = realpathSync19.native(requested);
@@ -36436,18 +36608,18 @@ async function rootImage(checkoutPath) {
 // dist/commands/post.js
 init_define_IDEASPACES_AGENT_CATALOG();
 var import_yaml10 = __toESM(require_dist(), 1);
-import { existsSync as existsSync27, statSync as statSync10, writeFileSync as writeFileSync11 } from "node:fs";
-import { basename as basename21, join as join41, resolve as resolve29 } from "node:path";
+import { existsSync as existsSync28, statSync as statSync10, writeFileSync as writeFileSync11 } from "node:fs";
+import { basename as basename22, join as join42, resolve as resolve29 } from "node:path";
 
 // dist/local/entry-writer.js
 init_define_IDEASPACES_AGENT_CATALOG();
 var import_yaml9 = __toESM(require_dist(), 1);
 import { randomUUID as randomUUID11 } from "node:crypto";
 import { readdirSync as readdirSync8, readFileSync as readFileSync20, writeFileSync as writeFileSync10 } from "node:fs";
-import { join as join40 } from "node:path";
+import { join as join41 } from "node:path";
 var MAX_ENTRY = 1024 * 1024;
 function sources(dir, position) {
-  return readdirSync8(dir, { withFileTypes: true }).filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md" && !entry.name.startsWith(".")).map((entry) => entry.name).sort().map((name) => ({ path: `${position}/${name}`, content: readFileSync20(join40(dir, name), "utf8") }));
+  return readdirSync8(dir, { withFileTypes: true }).filter((entry) => entry.isFile() && entry.name.endsWith(".md") && entry.name !== "README.md" && !entry.name.startsWith(".")).map((entry) => entry.name).sort().map((name) => ({ path: `${position}/${name}`, content: readFileSync20(join41(dir, name), "utf8") }));
 }
 function appendEntry(dir, options) {
   const keeping = folderKeeping(dir);
@@ -36535,7 +36707,7 @@ ${options.body.trim()}
     throw new Error(`Generated entry failed validation before write: ${parsed2.status === "invalid" ? parsed2.issues.join(", ") : parsed2.status}`);
   if (parsed2.post.warnings?.length)
     throw new Error(`Generated entry failed validation before write: ${parsed2.post.warnings.map((w) => `${w.field}: ${w.warning}`).join(", ")}`);
-  const path = join40(dir, file2);
+  const path = join41(dir, file2);
   writeFileSync10(path, content, { flag: "wx", mode: 384 });
   return { post: parsed2.post, path, position };
 }
@@ -36646,7 +36818,7 @@ var postCommand = {
           validateThreadMomentMap(map);
         const thread = createThread(newSlug, name, process.cwd(), attachedTo);
         if (summary !== name)
-          writeFileSync11(join41(thread.path, "README.md"), `---
+          writeFileSync11(join42(thread.path, "README.md"), `---
 ${(0, import_yaml10.stringify)({ name, summary })}---
 
 # ${name}
@@ -36660,7 +36832,7 @@ ${(0, import_yaml10.stringify)({ name, summary })}---
         let outcome2 = { committed: false, reason: "--no-commit" };
         if (!noCommit) {
           try {
-            const files = [join41(thread.path, "README.md"), join41(thread.path, "_agent", "agreement.md"), opening.path];
+            const files = [join42(thread.path, "README.md"), join42(thread.path, "_agent", "agreement.md"), opening.path];
             outcome2 = { committed: true, commit: commitPaths(`Thread ${thread.slug}: opened
 
 ${name}`, files, thread.path) };
@@ -36685,7 +36857,7 @@ ${name}`, files, thread.path) };
         return 0;
       }
       const asPath = resolve29(target);
-      const dir = existsSync27(asPath) && statSync10(asPath).isDirectory() ? asPath : resolveLocalThread(target);
+      const dir = existsSync28(asPath) && statSync10(asPath).isDirectory() ? asPath : resolveLocalThread(target);
       const keeping = folderKeeping(dir);
       if (!keeping)
         throw new Error(`${target} keeps no time: it is not a Thread, and its Agreement does not say keeps_time: true. Write a Note there with ideaspaces write, or turn time on in its _agent/agreement.md.`);
@@ -36715,7 +36887,7 @@ ${name}`, files, thread.path) };
           checkLinks: flags2["no-check-links"] !== true,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`)
         });
-        written = { id: result.post.id, kind: result.post.kind, inReplyTo: result.post.inReplyTo, path: result.path, label: `Thread ${basename21(dir)}`, name: result.post.frontmatter.name, warnings: result.warnings, mark: result.post.mark };
+        written = { id: result.post.id, kind: result.post.kind, inReplyTo: result.post.inReplyTo, path: result.path, label: `Thread ${basename22(dir)}`, name: result.post.frontmatter.name, warnings: result.warnings, mark: result.post.mark };
       } else {
         const result = appendEntry(dir, common);
         written = { id: result.post.id, kind: result.post.kind, inReplyTo: result.post.inReplyTo, path: result.path, label: result.position, name: result.post.frontmatter.name, warnings: [], mark: result.post.mark };
@@ -36731,7 +36903,7 @@ ${written.name}` : ""}`);
         kind: written.kind,
         ...written.mark ? { mark: written.mark } : {},
         in_reply_to: written.inReplyTo,
-        folder: { position: keeping === "placement" ? `_threads/${basename21(dir)}` : folderPosition(dir), keeping },
+        folder: { position: keeping === "placement" ? `_threads/${basename22(dir)}` : folderPosition(dir), keeping },
         ...parentRef !== void 0 ? { parent: parentRef } : {},
         ...about !== void 0 ? { about } : {},
         ...closed !== void 0 ? { closed } : {},
@@ -37685,9 +37857,9 @@ init_define_IDEASPACES_AGENT_CATALOG();
 init_define_IDEASPACES_AGENT_CATALOG();
 var import_yaml11 = __toESM(require_dist(), 1);
 import { promises as fs14 } from "node:fs";
-import { existsSync as existsSync28 } from "node:fs";
-import { spawnSync as spawnSync19 } from "node:child_process";
-import { dirname as dirname19, join as join42, relative as relative21, sep as sep14 } from "node:path";
+import { existsSync as existsSync29 } from "node:fs";
+import { spawnSync as spawnSync20 } from "node:child_process";
+import { dirname as dirname19, join as join43, relative as relative21, sep as sep14 } from "node:path";
 var GENERATED_MARKER = "ideaspaces:generated skill pointer";
 var MARKER_LINE = `<!-- ${GENERATED_MARKER} \u2014 edit the canonical skill, then re-run \`ideaspaces skills sync\` -->`;
 var PORTABLE_FIELDS = ["description", "license", "compatibility", "metadata", "allowed-tools"];
@@ -37717,12 +37889,12 @@ async function syncSkillPointers(position, opts = {}) {
   for (const level of await collectSkillLevels(root)) {
     const entries2 = await discoverSkillEntries([level]);
     const wanted = new Set(entries2.map((e) => e.name));
-    const pointerRoot = join42(level, ".claude", "skills");
+    const pointerRoot = join43(level, ".claude", "skills");
     for (const entry of entries2) {
-      const target = join42(pointerRoot, entry.name, "SKILL.md");
+      const target = join43(pointerRoot, entry.name, "SKILL.md");
       const desired = await renderPointer(entry.name, entry.path, dirname19(target));
       const rel = relative21(root, target);
-      if (existsSync28(target)) {
+      if (existsSync29(target)) {
         const existing = await fs14.readFile(target, "utf-8");
         if (!existing.includes(GENERATED_MARKER)) {
           report.skipped.push(rel);
@@ -37751,7 +37923,7 @@ async function syncSkillPointers(position, opts = {}) {
     for (const name of pointerDirs) {
       if (wanted.has(name))
         continue;
-      const target = join42(pointerRoot, name, "SKILL.md");
+      const target = join43(pointerRoot, name, "SKILL.md");
       let existing;
       try {
         existing = await fs14.readFile(target, "utf-8");
@@ -37763,7 +37935,7 @@ async function syncSkillPointers(position, opts = {}) {
       report.removed.push(relative21(root, target));
       if (!check) {
         await fs14.rm(target);
-        await fs14.rmdir(join42(pointerRoot, name)).catch(() => {
+        await fs14.rmdir(join43(pointerRoot, name)).catch(() => {
         });
       }
     }
@@ -37777,7 +37949,7 @@ async function collectSkillLevels(root) {
   async function walk(dir, isRoot) {
     if (!isRoot && await startsNestedSpace(dir))
       return;
-    if (existsSync28(join42(dir, "_agent", "skills")))
+    if (existsSync29(join43(dir, "_agent", "skills")))
       levels.push(dir);
     let dirents;
     try {
@@ -37790,17 +37962,17 @@ async function collectSkillLevels(root) {
         continue;
       if (e.name.startsWith(".") || e.name.startsWith("_") || e.name === "node_modules")
         continue;
-      await walk(join42(dir, e.name), false);
+      await walk(join43(dir, e.name), false);
     }
   }
   await walk(root, true);
   return levels;
 }
 async function startsNestedSpace(dir) {
-  if (existsSync28(join42(dir, "_agent", "foundation.md")))
+  if (existsSync29(join43(dir, "_agent", "foundation.md")))
     return true;
   try {
-    const agreement = await fs14.readFile(join42(dir, "_agent", "agreement.md"), "utf-8");
+    const agreement = await fs14.readFile(join43(dir, "_agent", "agreement.md"), "utf-8");
     const rootNodeId = parseFrontmatter(agreement)?.root_node_id;
     return isValidRootNodeId(rootNodeId);
   } catch {
@@ -37833,7 +38005,7 @@ async function renderPointer(name, canonicalPath, pointerDir) {
   ].join("\n");
 }
 function agentIsGitignored(level) {
-  const r = spawnSync19(gitBinary(), ["-C", level, "check-ignore", "-q", join42(level, "_agent", "skills")], {
+  const r = spawnSync20(gitBinary(), ["-C", level, "check-ignore", "-q", join43(level, "_agent", "skills")], {
     encoding: "utf-8",
     env: sanitizedGitEnvironment()
   });
@@ -38387,23 +38559,23 @@ var cloneCommand = {
 
 // dist/commands/get.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync31, statSync as statSync12 } from "node:fs";
+import { existsSync as existsSync32, statSync as statSync12 } from "node:fs";
 import { resolve as resolve35 } from "node:path";
 
 // dist/commands/fork.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync21 } from "node:child_process";
-import { existsSync as existsSync30, mkdirSync as mkdirSync10, mkdtempSync as mkdtempSync3, renameSync as renameSync8, rmSync as rmSync6, statSync as statSync11, writeFileSync as writeFileSync13 } from "node:fs";
-import { basename as basename22, dirname as dirname21, join as join44, resolve as resolve33 } from "node:path";
+import { spawnSync as spawnSync22 } from "node:child_process";
+import { existsSync as existsSync31, mkdirSync as mkdirSync10, mkdtempSync as mkdtempSync3, renameSync as renameSync8, rmSync as rmSync6, statSync as statSync11, writeFileSync as writeFileSync13 } from "node:fs";
+import { basename as basename23, dirname as dirname21, join as join45, resolve as resolve33 } from "node:path";
 
 // dist/fork-update.js
 init_define_IDEASPACES_AGENT_CATALOG();
 var import_yaml12 = __toESM(require_dist(), 1);
-import { spawnSync as spawnSync20 } from "node:child_process";
+import { spawnSync as spawnSync21 } from "node:child_process";
 import { createHash as createHash10, randomUUID as randomUUID12 } from "node:crypto";
-import { existsSync as existsSync29, lstatSync as lstatSync11, mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync2, readFileSync as readFileSync21, realpathSync as realpathSync20, renameSync as renameSync7, rmSync as rmSync5, unlinkSync as unlinkSync3, writeFileSync as writeFileSync12 } from "node:fs";
+import { existsSync as existsSync30, lstatSync as lstatSync11, mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync2, readFileSync as readFileSync21, realpathSync as realpathSync20, renameSync as renameSync7, rmSync as rmSync5, unlinkSync as unlinkSync3, writeFileSync as writeFileSync12 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { dirname as dirname20, isAbsolute as isAbsolute17, join as join43, relative as relative22, resolve as resolve32, sep as sep15 } from "node:path";
+import { dirname as dirname20, isAbsolute as isAbsolute17, join as join44, relative as relative22, resolve as resolve32, sep as sep15 } from "node:path";
 
 // dist/fork-paths.js
 init_define_IDEASPACES_AGENT_CATALOG();
@@ -38420,7 +38592,7 @@ function isExactAssetPayloadPath(path) {
 
 // dist/fork-update.js
 function runGit6(args2, cwd) {
-  const result = spawnSync20(gitBinary(), args2, {
+  const result = spawnSync21(gitBinary(), args2, {
     cwd,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
@@ -38434,7 +38606,7 @@ function runGit6(args2, cwd) {
   return result.stdout ?? "";
 }
 function runGitBuffer(args2, cwd) {
-  const result = spawnSync20(gitBinary(), args2, {
+  const result = spawnSync21(gitBinary(), args2, {
     cwd,
     maxBuffer: 64 * 1024 * 1024,
     env: sanitizedGitEnvironment()
@@ -38560,14 +38732,14 @@ function readLocalBuffer(path, root) {
   }
   let cursor = root;
   for (const part of rel.split(sep15)) {
-    cursor = join43(cursor, part);
-    if (!existsSync29(cursor))
+    cursor = join44(cursor, part);
+    if (!existsSync30(cursor))
       break;
     if (lstatSync11(cursor).isSymbolicLink()) {
       throw new Error(`Refusing to follow a symbolic link in update path: ${path}`);
     }
   }
-  return existsSync29(absolute) ? readFileSync21(absolute) : null;
+  return existsSync30(absolute) ? readFileSync21(absolute) : null;
 }
 function assetRevision(content) {
   return createHash10("sha256").update(content).digest("hex");
@@ -38657,7 +38829,7 @@ function planForkUpdate(baseline, incoming, root, incomingAssets = []) {
 }
 function writeTree(root, files) {
   for (const [path, content] of Object.entries(files)) {
-    const absolute = join43(root, path);
+    const absolute = join44(root, path);
     mkdirSync9(dirname20(absolute), { recursive: true });
     writeFileSync12(absolute, content);
   }
@@ -38666,9 +38838,9 @@ function applyForkUpdate(plan, root) {
   const changed = [...Object.keys(plan.writes), ...Object.keys(plan.asset_writes), ...plan.deletes];
   if (!changed.length)
     return;
-  const temp = mkdtempSync2(join43(tmpdir2(), "ideaspaces-update-"));
-  const beforeDir = join43(temp, "before");
-  const afterDir = join43(temp, "after");
+  const temp = mkdtempSync2(join44(tmpdir2(), "ideaspaces-update-"));
+  const beforeDir = join44(temp, "before");
+  const afterDir = join44(temp, "after");
   mkdirSync9(beforeDir);
   mkdirSync9(afterDir);
   try {
@@ -38690,7 +38862,7 @@ function applyForkUpdate(plan, root) {
     }
     writeTree(beforeDir, before);
     writeTree(afterDir, after);
-    const diff = spawnSync20(gitBinary(), ["-c", "core.autocrlf=false", "diff", "--no-index", "--binary", "--no-renames", "--", "before", "after"], {
+    const diff = spawnSync21(gitBinary(), ["-c", "core.autocrlf=false", "diff", "--no-index", "--binary", "--no-renames", "--", "before", "after"], {
       cwd: temp,
       encoding: "utf-8",
       maxBuffer: 64 * 1024 * 1024,
@@ -38702,7 +38874,7 @@ function applyForkUpdate(plan, root) {
       throw new Error((diff.stderr || "Could not prepare update patch").trim());
     }
     const patch = (diff.stdout ?? "").replaceAll("a/before/", "a/").replaceAll("b/after/", "b/");
-    const applied = spawnSync20(gitBinary(), ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", "-"], {
+    const applied = spawnSync21(gitBinary(), ["-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", "-"], {
       cwd: root,
       input: patch,
       encoding: "utf-8",
@@ -38731,11 +38903,11 @@ function baselinePaths(root) {
   }
   return [...roots].map((candidate) => {
     const key2 = createHash10("sha256").update(candidate).digest("hex");
-    return join43(configDir(), "fork-baselines", `${key2}.json`);
+    return join44(configDir(), "fork-baselines", `${key2}.json`);
   });
 }
 function loadForkBaseline(root) {
-  const path = baselinePaths(root).find(existsSync29);
+  const path = baselinePaths(root).find(existsSync30);
   if (!path)
     return null;
   try {
@@ -38972,7 +39144,7 @@ function runGit7(cwd, args2, importIdentity = false) {
       GIT_COMMITTER_EMAIL: IMPORT_EMAIL
     } : {}
   });
-  const result = spawnSync21(gitBinary(), ["-C", cwd, ...args2], {
+  const result = spawnSync22(gitBinary(), ["-C", cwd, ...args2], {
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
     env
@@ -39018,19 +39190,19 @@ function destinationRootIdentity(markdown, sourceRootNodeId) {
 }
 function writeTree2(root, markdown, assets) {
   for (const [path, content] of Object.entries(markdown)) {
-    const absolute = join44(root, path);
+    const absolute = join45(root, path);
     mkdirSync10(dirname21(absolute), { recursive: true });
     writeFileSync13(absolute, content, { encoding: "utf-8", flag: "wx" });
   }
   for (const asset of assets) {
-    const absolute = join44(root, asset.path);
+    const absolute = join45(root, asset.path);
     mkdirSync10(dirname21(absolute), { recursive: true });
     writeFileSync13(absolute, asset.content, { flag: "wx" });
   }
   const ignore = gitignoreWithDefaults(null, { privateAgent: false });
   if (ignore === null)
     throw new Error("Could not prepare local-only ignore rules");
-  writeFileSync13(join44(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
+  writeFileSync13(join45(root, ".gitignore"), ignore, { encoding: "utf-8", flag: "wx" });
 }
 function initializeImport(root) {
   runGit7(root, ["init", "-q", "-b", "main"]);
@@ -39050,7 +39222,7 @@ function initializeImport(root) {
   }
 }
 function preflightDestination(path) {
-  if (existsSync30(path))
+  if (existsSync31(path))
     return `${path} already exists. Choose another destination folder.`;
   if (findSpaceFor(path)) {
     return `${path} still has a local Space registry record. Forget or repair that state before reusing the path.`;
@@ -39078,10 +39250,10 @@ function installLocalFork(opts) {
   let installed = false;
   let baselineSaved = false;
   try {
-    temporary = mkdtempSync3(join44(parent, `.${basename22(destination)}.ideaspaces-fork-`));
+    temporary = mkdtempSync3(join45(parent, `.${basename23(destination)}.ideaspaces-fork-`));
     writeTree2(temporary, markdown, assets);
     initializeImport(temporary);
-    if (existsSync30(destination))
+    if (existsSync31(destination))
       throw new Error(`${destination} appeared while the fork was being prepared`);
     renameSync8(temporary, destination);
     temporary = null;
@@ -39515,7 +39687,7 @@ var getCommand = {
     try {
       if (isUrl(address)) {
         plan = await planSpace(address, output);
-      } else if (existsSync31(address) && statSync12(address).isDirectory()) {
+      } else if (existsSync32(address) && statSync12(address).isDirectory()) {
         plan = planFolder(resolve35(address));
       } else {
         output.error(`Not a Space URL or an existing folder: ${address}`);
@@ -39798,28 +39970,28 @@ var clonesCommand = {
 
 // dist/commands/upgrade.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync22 } from "node:child_process";
+import { spawnSync as spawnSync23 } from "node:child_process";
 var WINDOWS = process.platform === "win32";
 var defaultRuntime2 = {
   current: CLI_VERSION,
   install: detectInstall,
   latest: () => fetchLatestVersion({ timeoutMs: 1e4 }),
   npmRoot() {
-    const result = spawnSync22("npm", ["root", "-g"], { encoding: "utf8", timeout: 15e3, shell: WINDOWS });
+    const result = spawnSync23("npm", ["root", "-g"], { encoding: "utf8", timeout: 15e3, shell: WINDOWS });
     if (result.error || result.status !== 0)
       return null;
     const root = result.stdout.trim();
     return root ? realPathOr(root) : null;
   },
   npmInstall(json) {
-    const result = spawnSync22("npm", ["install", "-g", "@ideaspaces/cli@latest"], {
+    const result = spawnSync23("npm", ["install", "-g", "@ideaspaces/cli@latest"], {
       stdio: json ? ["ignore", process.stderr.fd, process.stderr.fd] : "inherit",
       shell: WINDOWS
     });
     return result.status ?? 1;
   },
   installedVersion(path) {
-    const result = spawnSync22(process.execPath, [path, "--version"], { encoding: "utf8", timeout: 15e3 });
+    const result = spawnSync23(process.execPath, [path, "--version"], { encoding: "utf8", timeout: 15e3 });
     return result.status === 0 ? result.stdout.trim() : null;
   }
 };
@@ -40211,13 +40383,13 @@ function makeConversationCommand(local) {
 // dist/commands/agent.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { randomUUID as randomUUID13 } from "node:crypto";
-import { existsSync as existsSync34, readFileSync as readFileSync23, realpathSync as realpathSync24, statSync as statSync14 } from "node:fs";
-import { isAbsolute as isAbsolute21, join as join47, resolve as resolve39 } from "node:path";
+import { existsSync as existsSync35, readFileSync as readFileSync23, realpathSync as realpathSync24, statSync as statSync14 } from "node:fs";
+import { isAbsolute as isAbsolute21, join as join48, resolve as resolve39 } from "node:path";
 
 // dist/local/agent-reach.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync32, realpathSync as realpathSync21, statSync as statSync13 } from "node:fs";
-import { dirname as dirname23, isAbsolute as isAbsolute18, join as join45, resolve as resolve37 } from "node:path";
+import { existsSync as existsSync33, realpathSync as realpathSync21, statSync as statSync13 } from "node:fs";
+import { dirname as dirname23, isAbsolute as isAbsolute18, join as join46, resolve as resolve37 } from "node:path";
 function discoverAgentReach(opts) {
   const errors = [];
   const warnings = [];
@@ -40233,7 +40405,7 @@ function discoverAgentReach(opts) {
   try {
     const candidate = repoRoot(pov);
     nestedRepo = candidate === pov;
-    if (!nestedRepo && existsSync32(join45(candidate, "_threads")))
+    if (!nestedRepo && existsSync33(join46(candidate, "_threads")))
       spaceRoot = candidate;
   } catch {
   }
@@ -40242,7 +40414,7 @@ function discoverAgentReach(opts) {
       try {
         if (repoRoot(parent) !== parent)
           continue;
-        if (existsSync32(join45(parent, "_threads")))
+        if (existsSync33(join46(parent, "_threads")))
           spaceRoot = parent;
         break;
       } catch {
@@ -40349,9 +40521,9 @@ function enteredThroughRoot(root, path) {
 
 // dist/local/agent-runs.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { appendFileSync, existsSync as existsSync33, mkdirSync as mkdirSync11, readFileSync as readFileSync22, realpathSync as realpathSync23 } from "node:fs";
+import { appendFileSync, existsSync as existsSync34, mkdirSync as mkdirSync11, readFileSync as readFileSync22, realpathSync as realpathSync23 } from "node:fs";
 import { createHash as createHash11 } from "node:crypto";
-import { dirname as dirname25, isAbsolute as isAbsolute20, join as join46, resolve as resolve38, win32 } from "node:path";
+import { dirname as dirname25, isAbsolute as isAbsolute20, join as join47, resolve as resolve38, win32 } from "node:path";
 function agentDisplayName(agentPath) {
   const trimmed = agentPath.replace(/[\\/]+$/, "");
   return win32.basename(trimmed) || agentPath;
@@ -40398,10 +40570,10 @@ function deriveTask(message, cwd = process.cwd()) {
 function recordAgentRun(record2) {
   try {
     const dir = configDir();
-    if (!existsSync33(dir)) {
+    if (!existsSync34(dir)) {
       mkdirSync11(dir, { recursive: true, mode: 448 });
     }
-    const file2 = join46(dir, "agent-runs.jsonl");
+    const file2 = join47(dir, "agent-runs.jsonl");
     appendFileSync(file2, `${JSON.stringify(record2)}
 `, { mode: 384, encoding: "utf8" });
     return true;
@@ -40410,8 +40582,8 @@ function recordAgentRun(record2) {
   }
 }
 function listAgentRuns(options = {}) {
-  const file2 = join46(configDir(), "agent-runs.jsonl");
-  if (!existsSync33(file2))
+  const file2 = join47(configDir(), "agent-runs.jsonl");
+  if (!existsSync34(file2))
     return [];
   let content;
   try {
@@ -40484,9 +40656,9 @@ function cachedClaudeSessionId(projectDir) {
     } catch {
     }
     const key2 = createHash11("sha256").update(resolved).digest("hex").slice(0, 16);
-    const sessionsDir = join46(configDir(), "sessions");
-    const file2 = join46(sessionsDir, key2);
-    if (existsSync33(file2)) {
+    const sessionsDir = join47(configDir(), "sessions");
+    const file2 = join47(sessionsDir, key2);
+    if (existsSync34(file2)) {
       const id = readFileSync22(file2, "utf8").trim();
       if (id)
         return id;
@@ -40501,7 +40673,7 @@ function findActiveClaudeSessionId(cwd = process.cwd()) {
     const id = cachedClaudeSessionId(cur);
     if (id)
       return id;
-    if (existsSync33(join46(cur, ".git")) || existsSync33(join46(cur, "_agent"))) {
+    if (existsSync34(join47(cur, ".git")) || existsSync34(join47(cur, "_agent"))) {
       break;
     }
     const parent = dirname25(cur);
@@ -40578,13 +40750,13 @@ var CAPABILITIES_USAGE = "ideaspaces agent capabilities [--json]";
 var USAGE9 = `ideaspaces agent <run|runs|record|list|capabilities> \u2026 (run ${RUN_ARGS}; runs [--parent <id>] [--agent <path>] [--limit <n>] [--json]; record ${RECORD_ARGS}; list --map <file> [--json]; capabilities [--json])`;
 function readAgentDefaults(povPath) {
   const available = [
-    ...existsSync34(join47(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
-    ...existsSync34(join47(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
+    ...existsSync35(join48(povPath, "_agent", "agreement.md")) ? ["agreement"] : [],
+    ...existsSync35(join48(povPath, "_agent", "foundation.md")) ? ["foundation"] : []
   ];
   const source = preferredContractSource(available);
   if (!source)
     return {};
-  const contractPath = join47(povPath, "_agent", `${source}.md`);
+  const contractPath = join48(povPath, "_agent", `${source}.md`);
   try {
     const content = readFileSync23(contractPath, "utf-8");
     const fm = parseFrontmatter(content);
@@ -40760,7 +40932,7 @@ async function cmdRun(args2, flags2, local, output, jsonMode) {
         continue;
       for (const raw of flags2[key2].split(",").map((s) => s.trim()).filter(Boolean)) {
         const path = isAbsolute21(raw) ? raw : resolve39(povPath, raw);
-        if (!existsSync34(path)) {
+        if (!existsSync35(path)) {
           output.error(`Refusing ${key2} path ${raw}: path not found. Select an installed, reviewed path before launch.`);
           return 1;
         }
@@ -41129,7 +41301,7 @@ Usage: ${RECORD_USAGE}`);
   };
   const ok = recordAgentRun(record2);
   if (!ok) {
-    output.error(`Failed to record agent run ${record2.run_id} to ${join47(configDir(), "agent-runs.jsonl")}`);
+    output.error(`Failed to record agent run ${record2.run_id} to ${join48(configDir(), "agent-runs.jsonl")}`);
     return 1;
   }
   output.result(record2, `Recorded run ${record2.run_id} (${record2.status}) for ${agentDisplayName(record2.agent)}`);
@@ -41248,16 +41420,16 @@ var agentsCommand = {
 
 // dist/commands/node.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync35, realpathSync as realpathSync25, statSync as statSync15 } from "node:fs";
+import { existsSync as existsSync36, realpathSync as realpathSync25, statSync as statSync15 } from "node:fs";
 import { isAbsolute as isAbsolute22, relative as relative24, resolve as resolve40, sep as sep17 } from "node:path";
 var USAGE10 = "ideaspaces node <get <repo_id> <node_id> | put <repo_id> <path> --content ... | history <path> [--limit N] | history <repo_id> <node_id>>";
 var USAGE_GET = "ideaspaces node get <repo_id> <node_id>";
 var USAGE_PUT = "ideaspaces node put <repo_id> <path> [--content TEXT]  (else reads stdin)";
 var USAGE_HISTORY = "ideaspaces node history <path> [--limit N]  (in a local clone)\nideaspaces node history <repo_id> <node_id>  (hosted)";
 function toRepoRelativePath(repoRootPath, inputPath, cwd = process.cwd()) {
-  const realCwd = existsSync35(cwd) ? realpathSync25.native(cwd) : cwd;
+  const realCwd = existsSync36(cwd) ? realpathSync25.native(cwd) : cwd;
   const absPath = resolve40(realCwd, inputPath);
-  const realAbsPath = existsSync35(absPath) ? realpathSync25.native(absPath) : absPath;
+  const realAbsPath = existsSync36(absPath) ? realpathSync25.native(absPath) : absPath;
   const rel = relative24(repoRootPath, realAbsPath);
   if (rel === ".." || rel.startsWith(`..${sep17}`) || isAbsolute22(rel)) {
     throw new Error(`Path is outside repository: ${inputPath}`);
@@ -41363,7 +41535,7 @@ async function cmdHistory(args2, flags2, output) {
       return 1;
     }
     const fullPath = resolve40(root, relPath);
-    if (relPath === "" || existsSync35(fullPath) && statSync15(fullPath).isDirectory()) {
+    if (relPath === "" || existsSync36(fullPath) && statSync15(fullPath).isDirectory()) {
       output.error("node history requires a file path, not a directory.");
       return 1;
     }
@@ -41378,7 +41550,7 @@ async function cmdHistory(args2, flags2, output) {
     }
     try {
       const details = getFileHistoryDetails(relPath, { cwd: root, maxEntries });
-      if (details.total === 0 && !existsSync35(fullPath)) {
+      if (details.total === 0 && !existsSync36(fullPath)) {
         output.error(`Note not found: ${targetPath}`);
         return 1;
       }
@@ -41455,13 +41627,13 @@ var nodeCommand = {
 // dist/commands/search.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { realpathSync as realpathSync28 } from "node:fs";
-import { basename as basename26, join as join50, relative as relative27, resolve as resolve43 } from "node:path";
+import { basename as basename27, join as join51, relative as relative27, resolve as resolve43 } from "node:path";
 
 // dist/search-saved.js
 init_define_IDEASPACES_AGENT_CATALOG();
 var import_yaml13 = __toESM(require_dist(), 1);
-import { existsSync as existsSync36, readFileSync as readFileSync24, realpathSync as realpathSync26, statSync as statSync16, writeFileSync as writeFileSync14 } from "node:fs";
-import { basename as basename23, dirname as dirname26, isAbsolute as isAbsolute23, relative as relative25, resolve as resolve41, sep as sep18 } from "node:path";
+import { existsSync as existsSync37, readFileSync as readFileSync24, realpathSync as realpathSync26, statSync as statSync16, writeFileSync as writeFileSync14 } from "node:fs";
+import { basename as basename24, dirname as dirname26, isAbsolute as isAbsolute23, relative as relative25, resolve as resolve41, sep as sep18 } from "node:path";
 var SavedSearchError = class extends Error {
 };
 var MAX_NOTE_BYTES2 = 64 * 1024;
@@ -41469,9 +41641,9 @@ var MAX_CHECK_BYTES = 4 * 1024 * 1024;
 function searchBoundary(dir) {
   let repo = null;
   for (let at = dir; ; at = dirname26(at)) {
-    if (existsSync36(resolve41(at, "home.map.md")))
+    if (existsSync37(resolve41(at, "home.map.md")))
       return at;
-    if (repo === null && existsSync36(resolve41(at, ".git")))
+    if (repo === null && existsSync37(resolve41(at, ".git")))
       repo = at;
     if (dirname26(at) === at)
       break;
@@ -41553,7 +41725,7 @@ function checkSaveTarget(notePath, force) {
   } catch {
     throw new SavedSearchError(`No such folder for the saved search: ${dirname26(notePath)}`);
   }
-  if (existsSync36(path)) {
+  if (existsSync37(path)) {
     if (!force)
       throw new SavedSearchError(`${notePath} already exists. Choose another name, or pass --force to replace it.`);
     if (!existingIsSavedSearch(path, notePath)) {
@@ -41588,7 +41760,7 @@ function writeSavedSearch(notePath, options) {
     describeQuery(search),
     "",
     // No machine or working-directory path: the Note reads the same wherever it is opened.
-    `Open it again with \`ideaspaces search --open ${shellWord(basename23(path))}\` from this folder, or give its path from anywhere.`,
+    `Open it again with \`ideaspaces search --open ${shellWord(basename24(path))}\` from this folder, or give its path from anywhere.`,
     ""
   ].join("\n");
   writeFileSync14(path, `---
@@ -42029,8 +42201,8 @@ function acceptsFrontmatter(q, frontmatter, kind = "note", raw) {
 // dist/search-corpus.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { execFile as execFile3 } from "node:child_process";
-import { existsSync as existsSync37, lstatSync as lstatSync12, readdirSync as readdirSync9, readFileSync as readFileSync25, realpathSync as realpathSync27, statSync as statSync17 } from "node:fs";
-import { basename as basename24, dirname as dirname27, isAbsolute as isAbsolute24, join as join48, relative as relative26, resolve as resolve42, sep as sep19 } from "node:path";
+import { existsSync as existsSync38, lstatSync as lstatSync12, readdirSync as readdirSync9, readFileSync as readFileSync25, realpathSync as realpathSync27, statSync as statSync17 } from "node:fs";
+import { basename as basename25, dirname as dirname27, isAbsolute as isAbsolute24, join as join49, relative as relative26, resolve as resolve42, sep as sep19 } from "node:path";
 var WALK_SKIP = /* @__PURE__ */ new Set(["node_modules", "_assets", "target", "dist"]);
 var WALK_MAX_DEPTH = 12;
 var WALK_MAX_FILES = 5e4;
@@ -42131,7 +42303,7 @@ function walkMarkdown2(root) {
     for (const entry of entries2) {
       if (entry.name.startsWith("."))
         continue;
-      const abs = join48(dir, entry.name);
+      const abs = join49(dir, entry.name);
       if (entry.isFile() && entry.name.endsWith(".md")) {
         if (files.length >= WALK_MAX_FILES) {
           truncated = true;
@@ -42139,7 +42311,7 @@ function walkMarkdown2(root) {
         }
         files.push(toPosix2(relative26(root, abs)));
       } else if (entry.isDirectory() && depth2 < WALK_MAX_DEPTH && !WALK_SKIP.has(entry.name)) {
-        if (existsSync37(join48(abs, ".git")))
+        if (existsSync38(join49(abs, ".git")))
           continue;
         visit(abs, depth2 + 1);
       }
@@ -42149,9 +42321,9 @@ function walkMarkdown2(root) {
   return { files, truncated, unreadable };
 }
 function ownThreadFiles(root, warnings) {
-  if (!existsSync37(join48(root, "_agent", "agreement.md")))
+  if (!existsSync38(join49(root, "_agent", "agreement.md")))
     return [];
-  const base = join48(root, "_threads");
+  const base = join49(root, "_threads");
   let stat2;
   try {
     stat2 = lstatSync12(base);
@@ -42170,7 +42342,7 @@ function ownThreadFiles(root, warnings) {
       continue;
     let entries2;
     try {
-      entries2 = readdirSync9(join48(base, thread.name), { withFileTypes: true });
+      entries2 = readdirSync9(join49(base, thread.name), { withFileTypes: true });
     } catch {
       continue;
     }
@@ -42229,7 +42401,7 @@ async function listRoots(roots, threads) {
   const byDepth = [...listings].sort((a, b) => b.root.length - a.root.length);
   for (const listing of byDepth) {
     listing.files = listing.files.filter((p) => {
-      const abs = join48(listing.root, p);
+      const abs = join49(listing.root, p);
       if (claimed.has(abs))
         return false;
       claimed.add(abs);
@@ -42244,7 +42416,7 @@ function within3(root, path) {
 function* readCorpus(files, withRoot, readCounts, outsideLinks) {
   const folderInside = /* @__PURE__ */ new Map();
   for (const { root, path } of files) {
-    const abs = join48(root, path);
+    const abs = join49(root, path);
     try {
       const folder = dirname27(abs);
       const key2 = `${root}\0${folder}`;
@@ -42270,7 +42442,7 @@ function* readCorpus(files, withRoot, readCounts, outsideLinks) {
 }
 function modifiedAt(root, path) {
   try {
-    return statSync17(join48(root, path)).mtime.toISOString();
+    return statSync17(join49(root, path)).mtime.toISOString();
   } catch {
     return null;
   }
@@ -42279,7 +42451,7 @@ function modifiedAt(root, path) {
 // dist/search-map.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { readFileSync as readFileSync26 } from "node:fs";
-import { basename as basename25, extname as extname2, join as join49 } from "node:path";
+import { basename as basename26, extname as extname2, join as join50 } from "node:path";
 function safeHead(repoRoot2) {
   try {
     return headSha(repoRoot2);
@@ -42290,7 +42462,7 @@ function safeHead(repoRoot2) {
 function member(path, source) {
   const frontmatter = parseFrontmatter(source);
   const rawName = frontmatter?.name;
-  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename25(path, extname2(path));
+  const name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : basename26(path, extname2(path));
   const summary = summarizeMarkdown(source);
   return {
     root: 0,
@@ -42302,7 +42474,7 @@ function member(path, source) {
 function projectSearchMap(repoRoot2, headBefore, hitPaths, dependencies = {}) {
   const headSha2 = dependencies.headSha ?? safeHead;
   const tracked = dependencies.trackedAt ?? ((root) => trackedAt("HEAD", root));
-  const readSource = dependencies.readSource ?? ((root, path) => readFileSync26(join49(root, path), "utf-8"));
+  const readSource = dependencies.readSource ?? ((root, path) => readFileSync26(join50(root, path), "utf-8"));
   let members = null;
   let readIssue;
   try {
@@ -42408,7 +42580,7 @@ Saved searches:
                    a Note naming / or a folder elsewhere is refused, on
                    --open and on --save. Answers in the --root form.`;
 function stem(path) {
-  return basename26(path).replace(/\.md$/i, "");
+  return basename27(path).replace(/\.md$/i, "");
 }
 function stringField(fm, key2) {
   const value4 = fm?.[key2];
@@ -42502,7 +42674,7 @@ function selectFiles(listings, base, query, skip) {
         if (!acceptsPath(query, locations, hitKind(path)))
           continue;
       }
-      if (skip !== void 0 && basename26(path) === basename26(skip) && canonicalFile(join50(listing.root, path)) === skip)
+      if (skip !== void 0 && basename27(path) === basename27(skip) && canonicalFile(join51(listing.root, path)) === skip)
         continue;
       files.push({ root: listing.root, path });
     }
@@ -42834,15 +43006,15 @@ import { resolve as resolve44 } from "node:path";
 
 // dist/file-listing.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync38, readdirSync as readdirSync10 } from "node:fs";
-import { join as join51, relative as relative28 } from "node:path";
+import { existsSync as existsSync39, readdirSync as readdirSync10 } from "node:fs";
+import { join as join52, relative as relative28 } from "node:path";
 var EXCLUDES = new Set(AUTOCOMPLETE_EXCLUDES);
 var DEFAULT_MAX_SCAN = 5e3;
 var DEFAULT_MAX_DEPTH = 10;
 function folderKind(abs) {
-  if (existsSync38(join51(abs, "_agent")))
+  if (existsSync39(join52(abs, "_agent")))
     return "ideaspace-repo";
-  if (existsSync38(join51(abs, ".git")))
+  if (existsSync39(join52(abs, ".git")))
     return "code-repo";
   return "folder";
 }
@@ -42868,7 +43040,7 @@ function listEntries(root, opts = {}) {
         continue;
       if (entries2.length >= maxScan)
         return { entries: entries2, truncated: true };
-      const childAbs = join51(abs, dirent.name);
+      const childAbs = join52(abs, dirent.name);
       const path = toPosix3(relative28(root, childAbs));
       if (dirent.isDirectory()) {
         entries2.push({ path, name: dirent.name, kind: folderKind(childAbs) });
@@ -44255,13 +44427,13 @@ init_define_IDEASPACES_AGENT_CATALOG();
 
 // dist/auth/session-state.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync39, unlinkSync as unlinkSync4 } from "node:fs";
+import { existsSync as existsSync40, unlinkSync as unlinkSync4 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
-import { join as join52 } from "node:path";
-var SESSION_FILE = join52(homedir5(), ".ideaspaces", "session.json");
+import { join as join53 } from "node:path";
+var SESSION_FILE = join53(homedir5(), ".ideaspaces", "session.json");
 function clearSessionState() {
   try {
-    if (existsSync39(SESSION_FILE))
+    if (existsSync40(SESSION_FILE))
       unlinkSync4(SESSION_FILE);
   } catch {
   }
@@ -44297,18 +44469,18 @@ init_define_IDEASPACES_AGENT_CATALOG();
 
 // dist/pi/pi-status.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync41, readFileSync as readFileSync28 } from "node:fs";
-import { basename as basename27, join as join55 } from "node:path";
+import { existsSync as existsSync42, readFileSync as readFileSync28 } from "node:fs";
+import { basename as basename28, join as join56 } from "node:path";
 
 // dist/local/probe-binary.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { spawnSync as spawnSync23 } from "node:child_process";
+import { spawnSync as spawnSync24 } from "node:child_process";
 
 // dist/local/runtime-command.js
 init_define_IDEASPACES_AGENT_CATALOG();
 var import_read_cmd_shim = __toESM(require_lib(), 1);
 import { closeSync as closeSync2, openSync, readSync as readSync2, statSync as statSync19 } from "node:fs";
-import { dirname as dirname28, extname as extname3, isAbsolute as isAbsolute25, join as join53, resolve as resolve45 } from "node:path";
+import { dirname as dirname28, extname as extname3, isAbsolute as isAbsolute25, join as join54, resolve as resolve45 } from "node:path";
 function isFile(path) {
   try {
     return statSync19(path).isFile();
@@ -44356,7 +44528,7 @@ function runtimeCommand(bin, args2, env = process.env, cwd = process.cwd()) {
     }
     if (!/^#!\s*(?:\/usr\/bin\/env\s+)?node(?:\.exe)?\s*$/.test(firstLine2))
       return original;
-    const localNode = join53(dirname28(shim), "node.exe");
+    const localNode = join54(dirname28(shim), "node.exe");
     return { command: isFile(localNode) ? localNode : process.execPath, args: [target, ...args2] };
   } catch {
     return original;
@@ -44367,7 +44539,7 @@ function runtimeCommand(bin, args2, env = process.env, cwd = process.cwd()) {
 function probeBinary(bin, env = process.env) {
   try {
     const command2 = runtimeCommand(bin, ["--version"], env);
-    const res = spawnSync23(command2.command, command2.args, { encoding: "utf8", timeout: 5e3, env });
+    const res = spawnSync24(command2.command, command2.args, { encoding: "utf8", timeout: 5e3, env });
     if (res.error || res.status !== 0)
       return { present: false, path: bin, version: null };
     const m = /\d+\.\d+\.\d+[\w.-]*/.exec(`${res.stdout ?? ""}
@@ -44380,17 +44552,17 @@ ${res.stderr ?? ""}`);
 
 // dist/pi/pi-auth.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { chmodSync, existsSync as existsSync40, mkdirSync as mkdirSync12, readFileSync as readFileSync27, writeFileSync as writeFileSync15 } from "node:fs";
+import { chmodSync, existsSync as existsSync41, mkdirSync as mkdirSync12, readFileSync as readFileSync27, writeFileSync as writeFileSync15 } from "node:fs";
 import { homedir as homedir6 } from "node:os";
-import { dirname as dirname29, join as join54 } from "node:path";
+import { dirname as dirname29, join as join55 } from "node:path";
 function resolvePiAgentDir(env = process.env) {
   const override = env.PI_CODING_AGENT_DIR?.trim();
   if (override)
-    return override.startsWith("~") ? join54(homedir6(), override.slice(1)) : override;
-  return join54(homedir6(), ".pi", "agent");
+    return override.startsWith("~") ? join55(homedir6(), override.slice(1)) : override;
+  return join55(homedir6(), ".pi", "agent");
 }
 function resolvePiAuthPath(env = process.env) {
-  return join54(resolvePiAgentDir(env), "auth.json");
+  return join55(resolvePiAgentDir(env), "auth.json");
 }
 function parseAuth(raw) {
   if (!raw || !raw.trim())
@@ -44413,13 +44585,13 @@ function removeProvider(current2, provider) {
   return { next, removed: true };
 }
 function readAuthFile(path) {
-  if (!existsSync40(path))
+  if (!existsSync41(path))
     return {};
   return parseAuth(readFileSync27(path, "utf8"));
 }
 function writeAuthFile(path, auth) {
   const dir = dirname29(path);
-  if (!existsSync40(dir))
+  if (!existsSync41(dir))
     mkdirSync12(dir, { recursive: true, mode: 448 });
   writeFileSync15(path, `${JSON.stringify(auth, null, 2)}
 `, { encoding: "utf8", mode: 384 });
@@ -44445,14 +44617,14 @@ function derivePiStatus(input) {
   };
 }
 function resolveExtension(path) {
-  const name = basename27(path.replace(/[/\\]+$/, "")) || path;
+  const name = basename28(path.replace(/[/\\]+$/, "")) || path;
   const check = (resolvable) => ({ name, path, resolvable });
-  if (!existsSync41(path))
+  if (!existsSync42(path))
     return check(false);
   if (/\.[cm]?[jt]s$/.test(path))
     return check(true);
-  const pkgPath = join55(path, "package.json");
-  if (existsSync41(pkgPath)) {
+  const pkgPath = join56(path, "package.json");
+  if (existsSync42(pkgPath)) {
     try {
       const pkg = JSON.parse(readFileSync28(pkgPath, "utf8"));
       const exts = pkg.pi?.extensions;
@@ -44461,7 +44633,7 @@ function resolveExtension(path) {
     } catch {
     }
   }
-  return check(existsSync41(join55(path, "index.ts")) || existsSync41(join55(path, "index.js")));
+  return check(existsSync42(join56(path, "index.ts")) || existsSync42(join56(path, "index.js")));
 }
 function formatHuman3(s) {
   const out = [];
@@ -44677,7 +44849,7 @@ var piModelsCommand = {
 
 // dist/pi/local-conversation-ops.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { join as join58 } from "node:path";
+import { join as join59 } from "node:path";
 
 // dist/local/observed-event.js
 init_define_IDEASPACES_AGENT_CATALOG();
@@ -44722,7 +44894,7 @@ init_define_IDEASPACES_AGENT_CATALOG();
 
 // dist/local/workspace-files.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync42, lstatSync as lstatSync13, statSync as statSync20, realpathSync as realpathSync29 } from "node:fs";
+import { existsSync as existsSync43, lstatSync as lstatSync13, statSync as statSync20, realpathSync as realpathSync29 } from "node:fs";
 import { dirname as dirname30, isAbsolute as isAbsolute26, relative as relative29, resolve as resolve46, sep as sep20 } from "node:path";
 
 // node_modules/@ideaspaces/sdk/dist/keeper-events.js
@@ -45315,7 +45487,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
       if (!present && kind === "read")
         continue;
       let ancestor = present ? absolute : dirname30(absolute);
-      while (!existsSync42(ancestor) && dirname30(ancestor) !== ancestor)
+      while (!existsSync43(ancestor) && dirname30(ancestor) !== ancestor)
         ancestor = dirname30(ancestor);
       try {
         absolute = resolve46(realpathSync29.native(ancestor), relative29(ancestor, absolute));
@@ -45326,7 +45498,7 @@ function harvestLocalFiles(tools, launchCwd, workingRoot = launchCwd) {
       if (!ws[bucket].includes(absolute))
         ws[bucket].push(absolute);
       let directory = isDir ? absolute : dirname30(absolute);
-      while (!existsSync42(directory) && dirname30(directory) !== directory)
+      while (!existsSync43(directory) && dirname30(directory) !== directory)
         directory = dirname30(directory);
       let scope = roots.get(directory);
       if (!scope) {
@@ -45386,8 +45558,8 @@ async function* readJsonLines(input) {
 
 // dist/pi/local-agent.js
 import { spawn as spawn4 } from "node:child_process";
-import { existsSync as existsSync43, mkdirSync as mkdirSync13, writeFileSync as writeFileSync16 } from "node:fs";
-import { join as join56 } from "node:path";
+import { existsSync as existsSync44, mkdirSync as mkdirSync13, writeFileSync as writeFileSync16 } from "node:fs";
+import { join as join57 } from "node:path";
 var NON_AGENT_TYPES = /* @__PURE__ */ new Set(["response", "extension_ui_request"]);
 function lastPosition(tools) {
   for (let i = tools.length - 1; i >= 0; i--) {
@@ -45412,8 +45584,8 @@ function deriveConversationName(message) {
 }
 function ensureSessionDir(dir) {
   mkdirSync13(dir, { recursive: true });
-  const ignore = join56(dir, ".gitignore");
-  if (!existsSync43(ignore))
+  const ignore = join57(dir, ".gitignore");
+  if (!existsSync44(ignore))
     writeFileSync16(ignore, "*\n");
 }
 function buildPiArgs(opts) {
@@ -45643,9 +45815,9 @@ async function* runLocalTurn(opts) {
 
 // dist/pi/local-conversations.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync44, readdirSync as readdirSync11, readFileSync as readFileSync29, realpathSync as realpathSync30, statSync as statSync21 } from "node:fs";
+import { existsSync as existsSync45, readdirSync as readdirSync11, readFileSync as readFileSync29, realpathSync as realpathSync30, statSync as statSync21 } from "node:fs";
 import { randomUUID as randomUUID17 } from "node:crypto";
-import { join as join57 } from "node:path";
+import { join as join58 } from "node:path";
 
 // dist/local/task-notification.js
 init_define_IDEASPACES_AGENT_CATALOG();
@@ -45656,7 +45828,7 @@ function isTaskNotification(content, origin) {
 
 // dist/pi/local-conversations.js
 function localSessionDir(contextRoot) {
-  return join57(contextRoot, ".pi", "sessions");
+  return join58(contextRoot, ".pi", "sessions");
 }
 function mintConversationId() {
   return `local-${randomUUID17()}`;
@@ -45748,17 +45920,17 @@ function parseSessionJsonl(text, fallbackTs) {
   return { id, name, messages: messages2, messageCount: count, preview, updatedAt: lastTs, modelTier };
 }
 function findSessionFile(dir, convId) {
-  if (!existsSync44(dir))
+  if (!existsSync45(dir))
     return null;
   const files = readdirSync11(dir).filter((f) => f.endsWith(".jsonl"));
   const bySuffix = files.find((f) => f.endsWith(`_${convId}.jsonl`));
   if (bySuffix)
-    return join57(dir, bySuffix);
+    return join58(dir, bySuffix);
   for (const f of files) {
     try {
-      const first = readFileSync29(join57(dir, f), "utf8").split("\n", 1)[0];
+      const first = readFileSync29(join58(dir, f), "utf8").split("\n", 1)[0];
       if (JSON.parse(first).id === convId)
-        return join57(dir, f);
+        return join58(dir, f);
     } catch {
     }
   }
@@ -45803,11 +45975,11 @@ function getLocalConversation(contextRoot, convId) {
 }
 function listLocalConversations(contextRoot) {
   const dir = localSessionDir(contextRoot);
-  if (!existsSync44(dir))
+  if (!existsSync45(dir))
     return { conversations: [], total: 0 };
   const summaries = [];
   for (const f of readdirSync11(dir).filter((f2) => f2.endsWith(".jsonl"))) {
-    const path = join57(dir, f);
+    const path = join58(dir, f);
     let text;
     try {
       text = readFileSync29(path, "utf8");
@@ -45910,7 +46082,7 @@ async function send(flags2, output, options) {
     output.error("--topic is supported only on agent run for a new Pi session.");
     return 1;
   }
-  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join58(repoPath, ".pi", "sessions");
+  const sessionDir = typeof flags2["session-dir"] === "string" ? flags2["session-dir"] : join59(repoPath, ".pi", "sessions");
   const conversationId = typeof flags2.conversation === "string" ? flags2.conversation : `local-${Date.now().toString(36)}`;
   if (options?.resumeOnly && !canResumePiConversation(repoPath, conversationId)) {
     output.error(`Pi conversation ${conversationId} is no longer a nonempty transcript at ${repoPath}; refusing to create a replacement.`);
@@ -46108,12 +46280,12 @@ import { spawn as spawn5 } from "node:child_process";
 
 // dist/claude/local-conversations.js
 init_define_IDEASPACES_AGENT_CATALOG();
-import { existsSync as existsSync45, readdirSync as readdirSync12, readFileSync as readFileSync30, realpathSync as realpathSync32, statSync as statSync23 } from "node:fs";
+import { existsSync as existsSync46, readdirSync as readdirSync12, readFileSync as readFileSync30, realpathSync as realpathSync32, statSync as statSync23 } from "node:fs";
 import { randomUUID as randomUUID18 } from "node:crypto";
 import { homedir as homedir7 } from "node:os";
-import { basename as basename28, dirname as dirname32, join as join59, resolve as resolve48 } from "node:path";
+import { basename as basename29, dirname as dirname32, join as join60, resolve as resolve48 } from "node:path";
 function claudeConfigDir(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR?.trim() || join59(homedir7(), ".claude");
+  return env.CLAUDE_CONFIG_DIR?.trim() || join60(homedir7(), ".claude");
 }
 function slugOf(path) {
   return path.replace(/[^a-zA-Z0-9]/gu, "-");
@@ -46127,10 +46299,10 @@ function claudeProjectSlug(cwd) {
   return slugOf(resolved);
 }
 function claudeProjectDir(cwd, env = process.env) {
-  return join59(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
+  return join60(claudeConfigDir(env), "projects", claudeProjectSlug(cwd));
 }
 function legacyClaudeProjectDir(cwd, env = process.env) {
-  return join59(claudeConfigDir(env), "projects", slugOf(resolve48(cwd)));
+  return join60(claudeConfigDir(env), "projects", slugOf(resolve48(cwd)));
 }
 function mintClaudeConversationId() {
   return randomUUID18();
@@ -46146,13 +46318,13 @@ function claudeSessionFile(cwd, convId, env = process.env) {
   if (!isClaudeConversationId(convId))
     return null;
   const projectDir = claudeProjectDir(cwd, env);
-  const file2 = join59(projectDir, `${convId}.jsonl`);
-  if (existsSync45(file2))
+  const file2 = join60(projectDir, `${convId}.jsonl`);
+  if (existsSync46(file2))
     return file2;
   const unresolvedDir = legacyClaudeProjectDir(cwd, env);
   if (unresolvedDir !== projectDir) {
-    const fallbackFile = join59(unresolvedDir, `${convId}.jsonl`);
-    if (existsSync45(fallbackFile))
+    const fallbackFile = join60(unresolvedDir, `${convId}.jsonl`);
+    if (existsSync46(fallbackFile))
       return fallbackFile;
   }
   return null;
@@ -46349,12 +46521,12 @@ function getClaudeConversation(contextRoot, convId, env = process.env) {
 }
 function listClaudeConversations(contextRoot, env = process.env) {
   const dir = claudeProjectDir(contextRoot, env);
-  const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync45(path));
+  const dirs = [.../* @__PURE__ */ new Set([dir, legacyClaudeProjectDir(contextRoot, env)])].filter((path) => existsSync46(path));
   const summaries = [];
   const seen = /* @__PURE__ */ new Set();
-  const files = dirs.flatMap((folder) => readdirSync12(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join59(folder, f)));
+  const files = dirs.flatMap((folder) => readdirSync12(folder).filter((f) => f.endsWith(".jsonl") && isClaudeConversationId(f.slice(0, -6))).map((f) => join60(folder, f)));
   for (const path of files) {
-    const fileId = basename28(path, ".jsonl");
+    const fileId = basename29(path, ".jsonl");
     if (seen.has(fileId))
       continue;
     seen.add(fileId);
@@ -46613,7 +46785,7 @@ init_define_IDEASPACES_AGENT_CATALOG();
 import { spawn as spawn6 } from "node:child_process";
 import { mkdtempSync as mkdtempSync4, rmSync as rmSync8 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
-import { join as join60 } from "node:path";
+import { join as join61 } from "node:path";
 var CLAUDE_ALIASES = ["", "opus", "sonnet", "haiku", "fable", "opusplan"];
 var ALIAS_PROBE_TIMEOUT_MS = 8e3;
 function aliasProbeArgs(ref) {
@@ -46728,7 +46900,7 @@ function removeFolder(path) {
   }
 }
 async function resolveClaudeAliases(bin, env = process.env, options = {}) {
-  const cwd = mkdtempSync4(join60(tmpdir3(), "ideaspaces-claude-aliases-"));
+  const cwd = mkdtempSync4(join61(tmpdir3(), "ideaspaces-claude-aliases-"));
   const probes = (options.refs ?? CLAUDE_ALIASES).map((ref) => resolveOne(bin, ref, env, cwd, options.timeoutMs ?? ALIAS_PROBE_TIMEOUT_MS));
   const results = await Promise.all(probes.map((probe) => probe.result));
   if (!removeFolder(cwd))
@@ -47412,7 +47584,7 @@ init_define_IDEASPACES_AGENT_CATALOG();
 // dist/host-token-flag.js
 init_define_IDEASPACES_AGENT_CATALOG();
 import { closeSync as closeSync3 } from "node:fs";
-var HOST_TOKEN_COMMANDS = /* @__PURE__ */ new Set(["vaults", "threads"]);
+var HOST_TOKEN_COMMANDS = /* @__PURE__ */ new Set(["vaults", "threads", "publish"]);
 function closeQuietly(raw) {
   if (/^\d+$/.test(raw) && Number(raw) >= 3)
     try {
@@ -47429,7 +47601,7 @@ function takeTokenFd(raw, command2) {
   }
   if (!command2 || !HOST_TOKEN_COMMANDS.has(command2)) {
     closeQuietly(raw);
-    throw new HostTokenError(`--token-fd is accepted only by \`ideaspaces vaults\` and the hosted \`ideaspaces threads\` verbs, not by ${command2 ?? "this command"}.`);
+    throw new HostTokenError(`--token-fd is accepted only by \`ideaspaces vaults\`, the hosted \`ideaspaces threads\` verbs and \`ideaspaces publish\`, not by ${command2 ?? "this command"}.`);
   }
   if (!/^\d+$/.test(raw))
     throw new HostTokenError("--token-fd needs an inherited descriptor number of 3 or more.");
