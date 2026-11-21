@@ -124,17 +124,18 @@ export async function publishInHost(cwd: string, flags: { name?: string }, check
   if (!me.username) return fail("no_username", "invalid_request", "This account has no username yet.");
 
   const committedId = typeof identity.declaration.head === "string" ? identity.declaration.head : undefined;
-  let repo;
+  let repo: { repo_id: string | null; root_node_id?: string; name: string } | undefined;
   try {
     repo = await createRepo(config, { name: flags.name?.toString() || basename(cwd), ...(committedId ? { root_node_id: committedId } : {}) }, { statusError: true });
   } catch (err) {
     if (err instanceof ApiStatusError) {
       if (err.status === 402) return fail("subscription", "forbidden", "Publishing needs a publishing plan.");
       if (err.status === 401) return fail("expired", "expired", "The sign-in was refused.");
-      if (err.status === 409) return fail("identity", "conflict", "IdeaSpaces already has a repository with this folder's identity.");
-      return fail("unavailable", err.status === 429 ? "rate_limited" : "unavailable", `IdeaSpaces refused to create the repository (${err.status}).`);
-    }
-    return fail("offline", "offline", "IdeaSpaces couldn't be reached.");
+      // A retry after a push that failed: the repository is there, empty. The push below decides by the token whose it is.
+      if (err.status === 409 && committedId) repo = { repo_id: null, root_node_id: committedId, name: flags.name?.toString() || basename(cwd) };
+      else if (err.status === 409) return fail("identity", "conflict", "IdeaSpaces already has a repository with this folder's identity.");
+      else return fail("unavailable", err.status === 429 ? "rate_limited" : "unavailable", `IdeaSpaces refused to create the repository (${err.status}).`);
+    } else return fail("offline", "offline", "IdeaSpaces couldn't be reached.");
   }
   if (!repo?.root_node_id || (committedId && repo.root_node_id !== committedId))
     return fail("identity", "conflict", "IdeaSpaces didn't keep this folder's identity. Nothing was pushed.");
@@ -142,6 +143,7 @@ export async function publishInHost(cwd: string, flags: { name?: string }, check
   // The pre-receive check reads the tip's author. Add, never rewrite: one empty commit under the person, if needed.
   const email = identityEmail(me.username);
   const tip = git(cwd, ["log", "-1", "--format=%ae"]);
+  const before = git(cwd, ["rev-parse", "HEAD"]).stdout;
   let added = false;
   if (tip.stdout !== email) {
     const commit = git(cwd, ["-c", `user.email=${email}`, "-c", `user.name=${identityName({ name: me.name, username: me.username })}`, "-c", "commit.gpgsign=false",
@@ -158,6 +160,8 @@ export async function publishInHost(cwd: string, flags: { name?: string }, check
   const loopback = url.startsWith("http://") ? [["protocol.http.allow", "always"] as [string, string]] : [];
   const push = git(cwd, ["push", "--no-verify", "--porcelain", url, "HEAD:refs/heads/main"], isolatedGitEnv([...loopback, [`http.${url}.extraHeader`, `Authorization: Basic ${basic}`]]));
   if (!push.ok) {
+    // Nothing left behind: the commit added for the identity check goes again, index and files untouched.
+    if (added) git(cwd, ["update-ref", "-m", "publish failed", "refs/heads/main", before]);
     const tooBig = /size cap|too large|exceeds/i.test(push.stderr);
     return fail(tooBig ? "too_large" : "push_refused", "invalid_request", tooBig ? "A file is over IdeaSpaces' 200 KB limit." : "IdeaSpaces refused the push.");
   }

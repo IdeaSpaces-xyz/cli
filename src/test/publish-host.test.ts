@@ -173,6 +173,22 @@ describe("publish in host mode", () => {
     expect((await publish(other)).answer).toMatchObject({ error: { code: "origin", state: "conflict" } });
   }, 60_000);
 
+  it("leaves no commit behind when the push fails, and a retry pushes to the repository that is already there", async () => {
+    const dir = folder();
+    const before = git(dir, "rev-parse", "HEAD");
+    await start("nopush");
+    const failed = await publish(dir);
+    expect(failed.answer).toMatchObject({ error: { code: "push_refused" } });
+    expect(git(dir, "rev-parse", "HEAD")).toBe(before);
+    expect(spawnSync("git", ["-C", dir, "remote"], { encoding: "utf-8" }).stdout.trim()).toBe("");
+    // The service has the empty repository now and answers 409; the retry pushes to it.
+    await start("409");
+    const again = await publish(dir);
+    expect(again.code, JSON.stringify(again.answer)).toBe(0);
+    expect(again.answer).toMatchObject({ status: "published", root_node_id: ROOT_ID });
+    expect(git(join(tmp, "served/repos", `${ROOT_ID}.git`), "rev-parse", "refs/heads/main")).toBe(git(dir, "rev-parse", "HEAD"));
+  }, 60_000);
+
   it("never reads IS_GIT_URL, IS_API_KEY or a stored login", async () => {
     mkdirSync(join(tmp, ".ideaspaces"), { recursive: true });
     writeFileSync(join(tmp, ".ideaspaces/credentials.json"), JSON.stringify({ api_url: "https://stored.test", api_key: "stored-key-must-not-be-used" }));

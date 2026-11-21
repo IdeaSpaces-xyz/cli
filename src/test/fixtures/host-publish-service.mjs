@@ -1,6 +1,7 @@
 // A loopback IdeaSpaces for publish-host.test.ts, in its own process: the CLI pushes with spawnSync, which would block a
 // server in the test's own event loop. The API answers /auth/me and POST /api/v1/repos; /repos/<id>.git is a real
-// `git http-backend`. Every request is logged as one JSON line to the log file. argv: <root> <log> <createStatus>.
+// `git http-backend`. Every request is logged as one JSON line to the log file. argv: <root> <log> <mode>: "200" creates,
+// another status refuses POST /repos with it ("409" as for a repository already there), "nopush" refuses every push.
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
@@ -35,7 +36,10 @@ function backend(req, res, url) {
 const server = createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   appendFileSync(log, `${JSON.stringify({ method: req.method, path: url.pathname, auth: req.headers.authorization ?? null })}\n`);
-  if (url.pathname.startsWith("/repos/")) return backend(req, res, url);
+  if (url.pathname.startsWith("/repos/")) {
+    if (createStatus === "nopush" && (url.search.includes("git-receive-pack") || url.pathname.endsWith("/git-receive-pack"))) { res.statusCode = 403; return res.end("no"); }
+    return backend(req, res, url);
+  }
   res.setHeader("Content-Type", "application/json");
   if (url.pathname === "/auth/me") return res.end(JSON.stringify({ user_id: 1, username: "anna", name: "Anna Bērziņa", email: "anna@example.com", repos: [], onboarding_complete: true }));
   if (url.pathname === "/api/v1/repos" && req.method === "POST") {
@@ -43,7 +47,7 @@ const server = createServer((req, res) => {
     req.on("data", (d) => { raw += d; });
     req.on("end", () => {
       const body = JSON.parse(raw);
-      if (createStatus !== "200") {
+      if (createStatus !== "200" && createStatus !== "nopush") {
         res.statusCode = Number(createStatus);
         return res.end(JSON.stringify({ detail: { code: "publishing_subscription_required" } }));
       }
