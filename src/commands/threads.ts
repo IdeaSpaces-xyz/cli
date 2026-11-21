@@ -386,7 +386,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
-    "ideaspaces threads inbox --as human,er [--reader <name>] [--hosted]  # what waits for you: posts whose to names you that you haven't answered or read, then the Threads that moved since your position (as threads recent); --hosted adds the service's unread. Names are compared exactly",
+    "ideaspaces threads inbox --as human,er [--reader <name>] [--hosted]  # what waits for you: posts whose to names you, until you answer them, then the Threads that moved since your position (as threads recent); --hosted adds the service's unread. Names are compared exactly",
     "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit 50]  # which local Threads moved, ids and counts only; --cursor writes nothing; a reader's first look stores a baseline; the host may name the reader with IDEASPACES_READER",
     "ideaspaces threads ack --recent <cursor> [--reader <name>]  # move a reader's recent position; a look never does",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
@@ -549,7 +549,7 @@ export const threadsCommand: CommandDef = {
             : result.moved.threads.length ? `Moved (${result.moved.threads.length}${result.moved.moved > result.moved.threads.length ? ` of ${result.moved.moved}` : ""}):` : "Nothing moved.",
           ...result.moved.threads.map((row) => `  ${row.slug}  ${row.new_thread ? `new Thread, ${row.new_posts} posts` : row.new_posts ? `${row.new_posts} new` : "changed"}${row.newest?.name ? ` · ${row.newest.name}` : ""}`),
           ...hosted.map((row) => `  ${row.id}  ${row.unread_count} unread · ${row.name} · hosted`),
-          ...(result.asks.length ? ["Answer with threads post <thread> --reply-to <post-id>; mark one read with threads ack <thread> --through <post-id>" + (reader === PERSON_READER ? "." : ` --reader ${reader}.`)] : []),
+          ...(result.asks.length ? ["Answer with threads post <thread> --reply-to <post-id>: an ask stays until it is answered."] : []),
         ];
         output.result({ schema: "ideaspaces.threads.inbox.v1", reader, as: names, asks: result.asks, moved: result.moved,
           hosted: hostedState.state === "ok" ? hosted : [], sides: { local: { complete: result.warnings.length === 0, ...(result.warnings.length ? { warnings: result.warnings } : {}) }, hosted: hostedState } },

@@ -43,7 +43,7 @@ const post = async (dir: string, thread: string, options: Record<string, string>
 const inbox = async (dir: string, options: Record<string, string | boolean> = { as: "human,er" }) => (await threads(dir, ["inbox"], options)).json;
 
 describe("threads inbox", () => {
-  it("lists what asks you, oldest first, until you answer it or read it; never your own, never someone else's", async () => {
+  it("lists what asks you, oldest first, until you answer it; never your own, never someone else's", async () => {
     const dir = space();
     await threads(dir, ["new", "lane"], { about: "Lane" });
     await threads(dir, ["new", "quiet"], { about: "Quiet" });
@@ -63,16 +63,20 @@ describe("threads inbox", () => {
     await post(dir, "lane", { message: "Blue.", author: "er", "reply-to": first.id });
     read = await inbox(dir);
     expect(read.asks.map((ask: any) => ask.post.id)).toEqual([second.id]);
-    // Read: your position passes it.
+    // Read is not answered: an ask stays until it is (the human, v23 msg_ef8b252e).
     await threads(dir, ["ack", "lane"], { through: second.id });
+    await threads(dir, ["open", "lane"], { new: true, ack: true, depth: "full" });
+    expect((await inbox(dir)).asks.map((ask: any) => ask.post.id)).toEqual([second.id]);
+    // Answered by another of your names is answered.
+    await post(dir, "lane", { message: "Keep.", author: "human", "reply-to": second.id });
     expect((await inbox(dir)).asks).toEqual([]);
   });
 
-  it("keeps each reader's own position: a firefly's read leaves the person's asks", async () => {
+  it("asks each name on its own: a firefly's answer leaves the person's ask", async () => {
     const dir = space();
     await threads(dir, ["new", "lane"], { about: "Lane" });
     const ask = await post(dir, "lane", { message: "Can you check?", author: "d-pm", to: "human,Integrator" });
-    await threads(dir, ["ack", "lane"], { through: ask.id, reader: "integrator" });
+    await post(dir, "lane", { message: "Checked.", author: "Integrator", "reply-to": ask.id });
     expect((await inbox(dir, { as: "Integrator", reader: "integrator" })).asks).toEqual([]);
     expect((await inbox(dir, { as: "human" })).asks.map((row: any) => row.post.id)).toEqual([ask.id]);
   });

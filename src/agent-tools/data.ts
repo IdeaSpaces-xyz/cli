@@ -3165,9 +3165,9 @@ export const entries: Entry[] = [
       "cli": ">=0.12.0"
     },
     "text": {
-      "does": "Read what waits for a reader: posts whose to names them, unanswered and unread, then the Threads that moved since their position.",
+      "does": "Read what waits for a reader: posts whose to names them until they answer, then the Threads that moved since their position.",
       "use_when": "Find what is asked of you, and what moved, before reading Threads one by one.",
-      "check": "Pass every name you go by in --as; names are compared exactly. An ask leaves when you answer it or ack it. A reader's first look sets a baseline; reading marks nothing read.",
+      "check": "Pass every name you go by in --as; names are compared exactly. An ask leaves only when one of your names replies to it; reading or ack doesn't clear it. A reader's first look sets a baseline; reading marks nothing read.",
       "bound": "Every ask in this Space's Threads; moved Threads default 50, max 500, as threads recent; --hosted drains the service's unread list."
     },
     "bound": {

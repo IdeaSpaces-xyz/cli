@@ -2,7 +2,8 @@
  * `threads inbox`: one read of what waits for a reader in this Space's Threads.
  *
  * - **Asks:** posts whose `to` (protocol #96) names one of the reader's names, not written by one of them,
- *   with no later post of theirs that replies to it, and not yet read by this reader (`threads ack`).
+ *   with no later post of theirs that replies to it. An ask stays until it is answered: reading it, opening its
+ *   Thread or `threads ack` doesn't clear it (the human, 2026-11-21, v23 msg_ef8b252e).
  * - **Moved:** the Threads that moved since this reader's held position, as `threads recent --reader`
  *   reads them (a reader's first look stores a baseline), each with its newest post.
  *
@@ -11,7 +12,7 @@
  */
 import { closeSync, existsSync, openSync, readSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { loadThread, readCursor, type LocalThread } from "./threads.js";
+import { loadThread, type LocalThread } from "./threads.js";
 import { recentForReader, type MovedThread } from "./thread-recent.js";
 
 /** How much of each post file is read to find a `to:` line before a Thread is loaded whole. */
@@ -60,14 +61,13 @@ const plain = (body: string) => {
   return [...text].length > EXCERPT_CHARS ? `${[...text].slice(0, EXCERPT_CHARS - 1).join("").trimEnd()}…` : text;
 };
 
-/** The asks one Thread holds for these names and this reader, oldest first. */
-export function threadAsks(thread: LocalThread, names: ReadonlySet<string>, reader: string): InboxAsk[] {
-  const seen = readCursor(thread, reader);
+/** The asks one Thread holds for these names, oldest first: each until one of them replies to it. */
+export function threadAsks(thread: LocalThread, names: ReadonlySet<string>): InboxAsk[] {
   const mine = (post: { frontmatter: { author?: string } }) => !!post.frontmatter.author && names.has(post.frontmatter.author);
   const answered = new Set(thread.posts.filter(mine).flatMap((post) => post.inReplyTo));
   return thread.posts.flatMap((post) => {
     const matched = (post.to ?? []).filter((name) => names.has(name));
-    if (!matched.length || mine(post) || answered.has(post.id) || seen.has(post.id)) return [];
+    if (!matched.length || mine(post) || answered.has(post.id)) return [];
     return [{ thread: thread.path, slug: thread.slug, thread_name: thread.name,
       post: { id: post.id, date: post.date ?? null, author: post.frontmatter.author ?? null,
         ...(post.frontmatter.name ? { name: post.frontmatter.name } : {}), ...(post.frontmatter.summary ? { summary: post.frontmatter.summary } : {}),
@@ -85,7 +85,7 @@ export function readInbox(root: string, threadsDir: string, names: readonly stri
     const dir = join(threadsDir, slug);
     try {
       if (!mayAsk(dir)) continue;
-      asks.push(...threadAsks(loadThread(dir), wanted, reader));
+      asks.push(...threadAsks(loadThread(dir), wanted));
     } catch (error) {
       warnings.push(`Thread ${slug} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
     }
