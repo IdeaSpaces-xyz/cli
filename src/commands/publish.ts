@@ -25,7 +25,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createOutput } from "../output.js";
-import { getDefaultApiUrl, loadConfig, loadStoredCredentials } from "../auth/credentials.js";
+import { getDefaultApiUrl, isHostAuth, loadConfig, loadStoredCredentials } from "../auth/credentials.js";
+import { publishInHost } from "./publish-host.js";
 import { fetchAuthMe, createRepo, deriveGitBase, deriveWebBase, UnauthorizedError } from "../auth/api.js";
 import {
   findSpaceFor,
@@ -250,6 +251,15 @@ export const publishCommand: CommandDef = {
     const flags = rawFlags as PublishFlags;
     // process.cwd() returns an absolute path; no resolve() needed.
     const cwd = process.cwd();
+
+    // An app's publish (IDEASPACES_AUTH=host, --token-fd): its own path, with Security's push. The app's confirm is the --yes.
+    if (isHostAuth()) {
+      if (global.yes !== true) {
+        process.stdout.write(`${JSON.stringify({ schema: "ideaspaces.hosted.error.v1", error: { state: "invalid_request", code: "not_confirmed", message: "An app publishes with --yes, after the person's confirm." } })}\n`);
+        return 1;
+      }
+      return publishInHost(cwd, flags, { sizeOffenders: preflightSize, frontmatterProblem: checkMarkdownFrontmatterSyntax, identityProblem: rootIdentityProblem });
+    }
 
     if (!existsSync(join(cwd, ".git"))) {
       output.error("Not a git repo. Run `ideaspaces create` first, or `git init` here.");

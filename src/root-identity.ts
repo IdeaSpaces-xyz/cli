@@ -9,7 +9,7 @@ import {
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { peekConfig, getDefaultApiUrl } from "./auth/credentials.js";
+import { peekConfig, getDefaultApiUrl, isHostAuth } from "./auth/credentials.js";
 import { preferredContractSource } from "./contract-source.js";
 import { findSpaceFor } from "./auth/spaces.js";
 import { gitBinary, originUrl } from "./git.js";
@@ -187,7 +187,8 @@ export function inspectLocalRootIdentity(cwd: string, apiUrl?: string): LocalRoo
       : null;
   const dirty = !sameDeclaration(head, index) || !sameDeclaration(head, worktree);
 
-  const record = findSpaceFor(cwd);
+  // Host mode leaves the terminal's ~/.ideaspaces alone: an app's folder is known by its committed identity and origin.
+  const record = isHostAuth() ? null : findSpaceFor(cwd);
   const localRegistry = record?.root_node_id;
   const origin = originUrl(cwd);
   const configuredApiUrl = apiUrl ?? peekConfig()?.apiUrl ?? getDefaultApiUrl();

@@ -3,7 +3,7 @@ import { HOST_AUTH_ENV, isHostAuth } from "./auth/credentials.js";
 import { HostTokenError, readHostToken } from "./auth/host-token.js";
 
 /** The only commands whose verbs spend a host token. Every other command refuses the flag. */
-export const HOST_TOKEN_COMMANDS: ReadonlySet<string> = new Set(["vaults", "threads"]);
+export const HOST_TOKEN_COMMANDS: ReadonlySet<string> = new Set(["vaults", "threads", "publish"]);
 
 function closeQuietly(raw: string): void {
   if (/^\d+$/.test(raw) && Number(raw) >= 3) try { closeSync(Number(raw)); } catch { /* not open */ }
@@ -22,7 +22,7 @@ export function takeTokenFd(raw: string | undefined, command: string | undefined
   }
   if (!command || !HOST_TOKEN_COMMANDS.has(command)) {
     closeQuietly(raw);
-    throw new HostTokenError(`--token-fd is accepted only by \`ideaspaces vaults\` and the hosted \`ideaspaces threads\` verbs, not by ${command ?? "this command"}.`);
+    throw new HostTokenError(`--token-fd is accepted only by \`ideaspaces vaults\`, the hosted \`ideaspaces threads\` verbs and \`ideaspaces publish\`, not by ${command ?? "this command"}.`);
   }
   if (!/^\d+$/.test(raw)) throw new HostTokenError("--token-fd needs an inherited descriptor number of 3 or more.");
   readHostToken(Number(raw));
