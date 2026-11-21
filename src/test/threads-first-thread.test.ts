@@ -113,6 +113,12 @@ describe("a place's first Thread", () => {
       expect(result.err).toContain("--summary must be one line");
     }
     expect(existsSync(join(dir, "_threads", "nope"))).toBe(false);
+    // Beside --from-note the Note says what the Thread is for: refused rather than ignored.
+    writeFileSync(join(dir, "idea.md"), "---\nname: An idea\nsummary: The Note's own line.\n---\n\nThe idea.\n");
+    const beside = await inPlace(dir, ["new", "nope"], { "from-note": "idea.md", summary: "Mine." });
+    expect(beside.code).toBe(1);
+    expect(beside.err).toContain("--from-note opens the Thread with the Note's own summary; omit --summary");
+    expect(existsSync(join(dir, "_threads", "nope"))).toBe(false);
   });
 
   it("says when Git can't commit posts here: no name and email of its own, or no repository", async () => {

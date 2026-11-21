@@ -608,6 +608,7 @@ export const threadsCommand: CommandDef = {
         const fromNote = typeof fromNoteFlag === "string" ? fromNoteFlag.trim() : undefined;
         if (rest.length !== 1 || (!str(flags, "about") && !fromNote)) throw new Error("Usage: threads new <slug> --about <title> [--summary <line>] [--attached-to <type>:<id>] [--map <pinned-note>], or threads new <slug> --from-note <note.md> [--about <title>] [--attached-to <post>]");
         if (fromNote && flags.map !== undefined) throw new Error("--from-note opens the Thread with the Note's own Map; omit --map, or put the members in the Note's map block. No Thread created.");
+        if (fromNote && flags.summary !== undefined) throw new Error("--from-note opens the Thread with the Note's own summary; omit --summary, or change the Note's. No Thread created.");
         const attachedTo = str(flags, "attached-to");
         if (flags["attached-to"] === true) throw new Error("--attached-to requires a <type>:<id> value. No Thread created.");
         if (flags.map !== undefined && !str(flags, "map")?.trim()) throw new Error("--map requires a pinned moment Map note; no Thread created.");
@@ -621,6 +622,7 @@ export const threadsCommand: CommandDef = {
         const title = str(flags, "about") ?? note!.name;
         const openingMap = note ? note.map : str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
         // A place's first Thread opens with what the place is for, unless the person said: never the title alone.
+        // A Thread is a folder in _threads/; loose files there (a README, a .DS_Store) are no Thread yet.
         const threadsHere = threadsDirectory();
         const first = !existsSync(threadsHere) || !readdirSync(threadsHere, { withFileTypes: true }).some((entry) => entry.isDirectory());
         const derived = summaryFlag || note || !first ? undefined : placeLine(threadBase());
