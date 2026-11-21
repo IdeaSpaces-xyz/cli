@@ -151,6 +151,32 @@ describe("publish in host mode", () => {
     expect(seen()).toEqual([]);
   }, 60_000);
 
+  it("refuses a folder whose own http settings could steer the push, and the proxy sees nothing (host_publish_refuses_folder_http_overrides)", async () => {
+    const { createServer } = await import("node:net");
+    let connections = 0;
+    const proxy = createServer((socket) => { connections++; socket.destroy(); });
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+    const proxyUrl = `http://127.0.0.1:${(proxy.address() as { port: number }).port}`;
+    try {
+      const url = `http://127.0.0.1:${port}/repos/${ROOT_ID}.git`;
+      for (const [i, [key, value]] of ([[`http.${url}.proxy`, proxyUrl], ["http.proxy", proxyUrl], ["http.sslVerify", "false"], [`http.${url}.sslVerify`, "false"],
+        ["http.followRedirects", "true"], ["http.extraHeader", "X-Steal: 1"], [`http.${url}.curloptResolve`, "127.0.0.1:1:127.0.0.1"]] as const).entries()) {
+        const dir = folder(`steered-${i}`);
+        git(dir, "config", key, value);
+        const { code, answer } = await publish(dir);
+        expect(code, key).toBe(1);
+        expect(answer.error.code, key).toBe("redirected");
+      }
+      // One planted by an include, too.
+      const dir = folder("steered-include");
+      writeFileSync(join(tmp, "planted.config"), `[http]\n\tproxy = ${proxyUrl}\n`);
+      git(dir, "config", "include.path", join(tmp, "planted.config"));
+      expect((await publish(dir)).answer.error.code).toBe("redirected");
+      expect(seen()).toEqual([]);
+      expect(connections).toBe(0);
+    } finally { proxy.close(); }
+  }, 60_000);
+
   it("answers already for a published folder and pushes nothing", async () => {
     const dir = folder();
     expect((await publish(dir)).code).toBe(0);

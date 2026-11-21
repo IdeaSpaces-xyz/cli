@@ -42,8 +42,9 @@ export interface HostPublishChecks {
   identityProblem(identity: ReturnType<typeof inspectLocalRootIdentity>): string | null;
 }
 
-function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): { ok: boolean; stdout: string; stderr: string; status: number | null } {
-  const r = spawnSync(gitBinary(), ["-C", cwd, ...args], { encoding: "utf-8", ...(env ? { env } : {}) });
+/** Every Git call here runs isolated, so nothing of the folder's own config but its content steers a step. */
+function git(cwd: string, args: string[], env: NodeJS.ProcessEnv = isolatedGitEnv()): { ok: boolean; stdout: string; stderr: string; status: number | null } {
+  const r = spawnSync(gitBinary(), ["-C", cwd, ...args], { encoding: "utf-8", env });
   if (r.error) return { ok: false, stdout: "", stderr: r.error.message, status: null };
   return { ok: r.status === 0, stdout: (r.stdout || "").trim(), stderr: (r.stderr || "").trim(), status: r.status };
 }
@@ -71,9 +72,15 @@ export function isolatedGitEnv(extra: Array<[string, string]> = []): NodeJS.Proc
   };
 }
 
-/** The effective `insteadOf`/`pushInsteadOf` rewrites in this folder, as the push child would read them. */
+/**
+ * What in this folder's effective config could steer the push, as the push child would read it, includes and all
+ * (Security, v23 msg_3a0ec07d): URL rewrites, and any `http.*` proxy, TLS, resolve, redirect or header setting, generic
+ * or scoped to a URL. A folder that came from elsewhere (Add to Space takes downloaded repos) could otherwise route the
+ * person's token through someone else's proxy.
+ */
 export function urlRewrites(cwd: string): string[] {
-  const r = git(cwd, ["config", "--get-regexp", "^url\\..*\\.(insteadof|pushinsteadof)$"], isolatedGitEnv());
+  const steer = "^(url\\..*\\.(insteadof|pushinsteadof)|http\\.(.*\\.)?(proxy|proxyauthmethod|sslverify|sslcainfo|sslcapath|sslcert|sslkey|sslcertpasswordprotected|curloptresolve|followredirects|extraheader|emptyauth|cookiefile))$";
+  const r = git(cwd, ["config", "--get-regexp", steer], isolatedGitEnv());
   return r.ok && r.stdout ? r.stdout.split("\n").filter(Boolean) : [];
 }
 
@@ -113,7 +120,7 @@ export async function publishInHost(cwd: string, flags: { name?: string }, check
   if (big.length) return fail("too_large", "invalid_request", `${big.length} file${big.length === 1 ? " is" : "s are"} over IdeaSpaces' 200 KB limit: ${big.slice(0, 3).map((o) => o.path).join(", ")}.`);
   const frontmatter = await checks.frontmatterProblem(cwd);
   if (frontmatter) return fail("frontmatter", "invalid_request", "Some Notes have frontmatter IdeaSpaces can't read. Fix it, commit, and publish again.");
-  if (urlRewrites(cwd).length) return fail("redirected", "invalid_request", "This folder's Git config rewrites URLs (insteadOf), which could send the push elsewhere. Nothing was published.");
+  if (urlRewrites(cwd).length) return fail("redirected", "invalid_request", "This folder's Git config rewrites URLs or sets a proxy, TLS or redirect option, which could send the push elsewhere. Nothing was published.");
 
   let me;
   try { me = await fetchAuthMe(config); }
@@ -158,7 +165,9 @@ export async function publishInHost(cwd: string, flags: { name?: string }, check
   const basic = Buffer.from(`ideaspaces:${config.apiKey}`).toString("base64");
   // A loopback test service speaks http; nothing else may.
   const loopback = url.startsWith("http://") ? [["protocol.http.allow", "always"] as [string, string]] : [];
-  const push = git(cwd, ["push", "--no-verify", "--porcelain", url, "HEAD:refs/heads/main"], isolatedGitEnv([...loopback, [`http.${url}.extraHeader`, `Authorization: Basic ${basic}`]]));
+  // Pinned for the exact URL too, which nothing in the folder can outrank: no proxy, TLS verified, no redirects.
+  const pinned: Array<[string, string]> = [[`http.${url}.proxy`, ""], [`http.${url}.sslVerify`, "true"], [`http.${url}.followRedirects`, "false"]];
+  const push = git(cwd, ["push", "--no-verify", "--porcelain", url, "HEAD:refs/heads/main"], isolatedGitEnv([...loopback, ...pinned, [`http.${url}.extraHeader`, `Authorization: Basic ${basic}`]]));
   if (!push.ok) {
     // Nothing left behind: the commit added for the identity check goes again, index and files untouched.
     if (added) git(cwd, ["update-ref", "-m", "publish failed", "refs/heads/main", before]);
