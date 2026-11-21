@@ -42,6 +42,9 @@ jobs:
         run: npx tsc --noEmit
       - name: Test
         run: npm test -- --maxWorkers=1 --no-file-parallelism
+      - name: Test the merge queue verdict gate
+        if: runner.os == 'Linux'
+        run: node --test .github/scripts/slc-verdict.node.mjs .github/scripts/slc-queue-gate.node.mjs
       - name: Build and verify the publishable package
         run: npm run check:package
 
