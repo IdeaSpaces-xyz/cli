@@ -301,11 +301,16 @@ export function listLocal(cwd = process.cwd(), onError?: (message: string) => vo
   return rows.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
-/** The Agreement `threads new` writes; `threads attach` writes it too for a Thread without one. */
-function minimalAgreement(about: string, attachedTo?: string): string {
-  return `---\nname: ${stringify(`Agreement — ${about}`).trim()}\nsummary: Local Thread entry schema and immutable posts.\n` +
+/**
+ * The Agreement `threads new` writes; `threads attach` writes it too for a Thread without one. Its summary
+ * says what the Thread is for: the line it opens with, when it has one, else what it holds.
+ */
+function minimalAgreement(about: string, attachedTo?: string, line?: string): string {
+  const summary = line ?? `The Agreement of the Thread "${about}": what it is for and what is agreed in it, kept as posts that are never edited.`;
+  // One line each: a folded scalar would leave the next lines outside the frontmatter key.
+  return `---\nname: ${stringify(`Agreement — ${about}`, { lineWidth: 0 }).trim()}\nsummary: ${stringify(summary, { lineWidth: 0 }).trim()}\n` +
     (attachedTo ? `attached_to: ${attachedTo}\n` : "") +
-    `---\n# ${about}\n\nPosts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.\n`;
+    `---\n# ${about}\n\n${line ? `${line}\n\n` : ""}Posts are immutable. Each carries an id and ISO date, optional in_reply_to and references, a kind, and an optional map. The README is the curated lens; update it deliberately.\n`;
 }
 
 /**
@@ -324,7 +329,8 @@ export function preflightThread(slug: string, about: string | undefined, attache
   if (folder && existsSync(join(base, slug))) throw new Error(`A Thread named ${slug} is already here (EEXIST). Choose another slug. No Thread created.`);
 }
 
-export function createThread(slug: string, about: string, cwd = process.cwd(), attachedTo?: string): LocalThread {
+/** `line`: one plain line about what the Thread is for, its README's and its Agreement's summary; the title when absent. */
+export function createThread(slug: string, about: string, cwd = process.cwd(), attachedTo?: string, line?: string): LocalThread {
   preflightThread(slug, about, attachedTo, cwd, false);
   const base = threadsDirectory(cwd);
   if (existsSync(base)) safeDirectory(base);
@@ -332,8 +338,8 @@ export function createThread(slug: string, about: string, cwd = process.cwd(), a
   const dir = join(base, slug);
   mkdirSync(dir); // exclusive; never overwrite a Thread
   mkdirSync(join(dir, "_agent"));
-  writeFileSync(join(dir, "_agent", "agreement.md"), minimalAgreement(about.trim()), { flag: "wx" });
-  writeFileSync(join(dir, "README.md"), stringify({ name: about.trim(), summary: about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n", { flag: "wx" });
+  writeFileSync(join(dir, "_agent", "agreement.md"), minimalAgreement(about.trim(), undefined, line), { flag: "wx" });
+  writeFileSync(join(dir, "README.md"), stringify({ name: about.trim(), summary: line ?? about.trim() }).replace(/^/, "---\n") + "---\n\n# " + about.trim() + "\n" + (line ? `\n${line}\n` : ""), { flag: "wx" });
   return loadThread(dir);
 }
 

@@ -2188,7 +2188,7 @@ export const entries: Entry[] = [
         },
         "summary": {
           "type": "string",
-          "description": "Dense summary for progressive discovery."
+          "description": "Hosted: the Thread's summary. Local: one line about what the Thread is for; the opening post, the README and the Thread's Agreement say it. A place's first Thread without it opens with its Agreement's line, or else its first firefly's."
         },
         "message": {
           "type": "string",
@@ -2271,6 +2271,7 @@ export const entries: Entry[] = [
       },
       "local_flags": [
         "about",
+        "summary",
         "attached-to",
         "map",
         "from-note"

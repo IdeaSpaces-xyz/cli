@@ -735,7 +735,7 @@ process.stdin.on("data", (chunk) => {
       console.log(JSON.stringify({ type: "agent_start" }));
       console.log(JSON.stringify({ type: "turn_start" }));
       const orientation = args[args.indexOf("--append-system-prompt") + 1] || "";
-      const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("Local Thread entry schema") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
+      const frame = command.message === "Pinned question" ? "|" + (orientation.includes("First authored summary") && orientation.includes("The Agreement of the Thread") && !orientation.includes("HEAD only") && !orientation.includes("Changed after pin") ? "pinned-frame" : "wrong-frame") : "";
       const answer = command.message === "topic_probe" ? JSON.stringify({ name: args.includes("--name") ? args[args.indexOf("--name") + 1] : null, resumed: args.includes("--session-id") ? args[args.indexOf("--session-id") + 1] : null })
         : command.message === "selection_probe" ? JSON.stringify({ ext: args.filter((arg) => arg === "--extension").length, paths: args.flatMap((arg, i) => arg === "--extension" ? [args[i + 1]] : []), skill: args.filter((arg) => arg === "--skill").length, noDiscovery: args.includes("--no-extensions"), noSkillsDiscovery: args.includes("--no-skills") })
         : command.message === "orientation_probe" ? (orientation.includes("Distinct Agreement POV") ? "contract:yes" : "contract:no")
