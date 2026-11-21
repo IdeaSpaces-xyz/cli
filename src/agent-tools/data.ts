@@ -1656,6 +1656,13 @@ export const entries: Entry[] = [
           },
           "description": "Retrieval labels on the entry."
         },
+        "to": {
+          "type": "array",
+          "description": "Local: who it asks, by name as an author would write it or a typed <type>:<id> address; a claim readers compare exactly. Grants no access and notifies no one.",
+          "items": {
+            "type": "string"
+          }
+        },
         "author": {
           "type": "string",
           "description": "Local author claim, not verified identity; defaults to the nearest agent Agreement's name."
@@ -1726,6 +1733,10 @@ export const entries: Entry[] = [
           "flag": "--tags",
           "list": "csv"
         },
+        "to": {
+          "flag": "--to",
+          "list": "csv"
+        },
         "author": {
           "flag": "--author"
         },
@@ -1755,6 +1766,7 @@ export const entries: Entry[] = [
         "mark",
         "supersedes",
         "tags",
+        "to",
         "author",
         "no-check-links",
         "no-commit"
@@ -1868,6 +1880,13 @@ export const entries: Entry[] = [
             "type": "string"
           }
         },
+        "to": {
+          "type": "array",
+          "description": "Local: who it asks, by name as an author would write it or a typed <type>:<id> address; a claim readers compare exactly. Grants no access and notifies no one.",
+          "items": {
+            "type": "string"
+          }
+        },
         "no_check_links": {
           "type": "boolean",
           "description": "Skip local post link validation only when deliberately required."
@@ -1933,6 +1952,10 @@ export const entries: Entry[] = [
           "flag": "--tags",
           "list": "csv"
         },
+        "to": {
+          "flag": "--to",
+          "list": "csv"
+        },
         "no_check_links": {
           "flag": "--no-check-links",
           "boolean": "bare"
@@ -1958,6 +1981,7 @@ export const entries: Entry[] = [
         "supersedes",
         "message",
         "tags",
+        "to",
         "no-check-links",
         "no-commit"
       ],

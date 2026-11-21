@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { stringify } from "yaml";
 import { inspectEntries, parseEntry, parseThreadAttachment, type Entry, type EntrySource, type ThreadKind } from "@ideaspaces/protocol";
 import { folderKeeping, folderPosition } from "./folder-state.js";
-import { parentReference, validateMarkOptions, validateTags, validateThreadMomentMap } from "./threads.js";
+import { parentReference, validateAddressees, validateMarkOptions, validateTags, validateThreadMomentMap } from "./threads.js";
 
 export { folderPosition };
 
@@ -29,6 +29,8 @@ export interface AppendEntryOptions {
   supersedes?: string;
   map?: unknown;
   tags?: string[];
+  /** Who the entry asks (`to`), checked by `validateAddressees`. */
+  to?: string[];
   parent?: string;
   about?: string[];
   closed?: boolean;
@@ -60,6 +62,7 @@ export function appendEntry(dir: string, options: AppendEntryOptions): { post: E
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Entry header values must be single-line and at most 1,000 characters.");
   }
   if (options.tags !== undefined) validateTags(options.tags);
+  const to = options.to === undefined ? undefined : validateAddressees(options.to);
   validateMarkOptions(options.kind, options.mark, options.replyTo);
   if (options.parent !== undefined) parentReference(options.parent);
   for (const link of options.about ?? []) {
@@ -95,6 +98,7 @@ export function appendEntry(dir: string, options: AppendEntryOptions): { post: E
     ...(options.supersedes ? { supersedes: options.supersedes } : {}),
     ...(options.name ? { name: options.name } : {}), ...(options.summary ? { summary: options.summary } : {}),
     ...(options.tags && options.tags.length ? { tags: [...new Set(options.tags)] } : {}),
+    ...(to ? { to: to.length === 1 ? to[0] : to } : {}),
     ...(options.author ? { author: options.author } : {}), ...(options.map !== undefined ? { map: options.map } : {}),
   };
   const content = `---\n${stringify(fields)}---\n\n${options.body.trim()}\n`;
