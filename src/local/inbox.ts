@@ -85,7 +85,10 @@ export function readInbox(root: string, threadsDir: string, names: readonly stri
     const dir = join(threadsDir, slug);
     try {
       if (!mayAsk(dir)) continue;
-      asks.push(...threadAsks(loadThread(dir), wanted));
+      const thread = loadThread(dir);
+      // A post that can't be read may be an ask, or its answer: say so, so the inbox is never complete by mistake.
+      if (thread.unreadablePosts.length) warnings.push(`Thread ${slug} has ${thread.unreadablePosts.length} post${thread.unreadablePosts.length === 1 ? "" : "s"} that can't be read; an ask there may be missing or shown as unanswered.`);
+      asks.push(...threadAsks(thread, wanted));
     } catch (error) {
       warnings.push(`Thread ${slug} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
     }

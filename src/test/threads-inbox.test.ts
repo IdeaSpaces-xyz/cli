@@ -93,6 +93,16 @@ describe("threads inbox", () => {
     expect(later.asks).toEqual([]);
   });
 
+  it("says when a post can't be read, so a hidden ask never looks like an empty inbox", async () => {
+    const dir = space();
+    await threads(dir, ["new", "lane"], { about: "Lane" });
+    await post(dir, "lane", { message: "Here?", author: "d-pm", to: "human" });
+    writeFileSync(join(dir, "_threads", "lane", "2026-11-21T10-00-00-000Z-msg_broken.md"), "---\nid: msg_broken\nto: human\ndate: [not a date\n---\nBroken.\n");
+    const read = await inbox(dir, { as: "human" });
+    expect(read.sides.local.complete).toBe(false);
+    expect(read.sides.local.warnings).toEqual([expect.stringContaining("Thread lane has 1 post that can't be read")]);
+  });
+
   it("says who you must be, and reports the hosted side without failing the local one", async () => {
     const dir = space();
     const none = await threads(dir, ["inbox"], {});
