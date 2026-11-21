@@ -19,6 +19,7 @@ import {
   isHostedThreadTarget, commitPost, NOT_IN_GIT_REPOSITORY, type PostCommit, type LocalThread, type BranchInfo, type ChildThreadInfo, type ThreadParentInfo,
 } from "../local/threads.js";
 import { LINE_LIMIT, commitBlocker, placeLine } from "../local/first-thread.js";
+import { readInbox } from "../local/inbox.js";
 import { claimedBy, markText, singleLine } from "../local/claims.js";
 import { deepLine, displayPost, displayThread } from "../local/display.js";
 import { checkText, checkThreads } from "../local/thread-check.js";
@@ -357,6 +358,7 @@ export const threadsCommand: CommandDef = {
     capabilities: "ideaspaces threads capabilities --json",
     list: "ideaspaces threads list [<directory>] [--depth name|summary|full] [--new|--unread] [--hosted] [--limit <n>] [--cursor <cursor>] [--reader <name>]",
     recent: "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit <n>]",
+    inbox: "ideaspaces threads inbox --as <names> [--reader <name>] [--limit <n>] [--hosted]",
     ...Object.fromEntries(["open", "read"].map((verb) => [verb,
       `ideaspaces threads ${verb} <slug|path> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|activity-id>] [--limit <n>] [--order older|newer] [--new] [--ack] [--reader <name>] [--agreement summary|full] [--map <file> --member <n> [--checkout <root>]] [--pin <sha> --position <path>]\n       ideaspaces threads ${verb} x_<id> [--limit <n>] [--cursor <cursor>]`])),
     new: "ideaspaces threads new <slug> --about <title> [--summary <line>] [--attached-to <post>] [--map <file>]\n       ideaspaces threads new <slug> --from-note <note.md> [--about <title>] [--attached-to <post>]\n       ideaspaces threads new --hosted --name <title> --summary <text> --message <text> [--home map:<id>] [--recipients <handles-or-emails>] [--map <file>] [--tags <labels>] [--post-id <id>]",
@@ -384,6 +386,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
+    "ideaspaces threads inbox --as human,er [--reader <name>] [--hosted]  # what waits for you: posts whose to names you, until you answer them, then the Threads that moved since your position (as threads recent); --hosted adds the service's unread. Names are compared exactly",
     "ideaspaces threads recent [--cursor <cursor>] [--reader <name>] [--limit 50]  # which local Threads moved, ids and counts only; --cursor writes nothing; a reader's first look stores a baseline; the host may name the reader with IDEASPACES_READER",
     "ideaspaces threads ack --recent <cursor> [--reader <name>]  # move a reader's recent position; a look never does",
     "ideaspaces threads close x_<id> --message 'Why' [--post-id msg_id]  # preview; --yes appends a closure Note",
@@ -501,6 +504,56 @@ export const threadsCommand: CommandDef = {
         if (reader && !result.baseline && shown.length) lines.push(`Move ${reader}'s position past what is shown here: ideaspaces threads ack --recent ${result.cursor}${reader === PERSON_READER ? "" : ` --reader ${reader}`}`);
         output.result({ schema: "ideaspaces.threads.recent.v1", location: "folder", hosted_checked: false, baseline: result.baseline, ...(reader ? { reader } : {}),
           threads: shown, moved: result.moved, shown: shown.length, cursor: result.cursor }, lines.join("\n"));
+        return 0;
+      }
+      if (sub === "inbox") {
+        if (rest.length) throw new Error("Usage: threads inbox --as <names> [--reader <name>] [--limit <n>] [--hosted]");
+        for (const flag of ["as", "reader", "limit"]) if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
+        const names = str(flags, "as")?.split(",").map((name) => name.trim()).filter(Boolean) ?? [];
+        if (!names.length) throw new Error("Say who you are in a post's to: --as <name>[,<name>…], every name you go by (an author's name, @handle, person:<handle>, agent:<id>). Names are compared exactly.");
+        const limit = flags.limit === undefined ? 50 : Number(flags.limit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("--limit must be a whole number from 1 to 500.");
+        const reader = readerName(str(flags, "reader"));
+        const result = readInbox(threadBase(), threadsDirectory(), names, reader, limit);
+        for (const warning of result.warnings) output.log(warning);
+        // Hosted: what's new on the service's read positions. Its posts don't carry to yet, so no hosted asks.
+        type HostedRow = { source: "hosted"; id: string; name: string; unread_count: number; last_post_at?: string | null };
+        let hosted: HostedRow[] = [];
+        let hostedState: { state: "ok" | "not_checked" | "unavailable"; message?: string } = { state: "not_checked" };
+        const config = yes(flags, "hosted") ? peekConfig() : undefined;
+        if (yes(flags, "hosted") && !config) hostedState = { state: "unavailable", message: isHostAuth() ? "Remote work is coming through the IdeaSpaces tools." : "Not logged in; run ideaspaces login." };
+        if (config) {
+          try {
+            let cursor: string | undefined;
+            const pages = new Set<string>();
+            do {
+              if (pages.size >= 100) throw new HostedError("invalid_response", "Hosted list exceeded 100 pages; the unread list is incomplete.");
+              const page = await hostedListPage(config, { limit: 200, ...(cursor ? { cursor } : {}) });
+              hosted.push(...page.threads.filter((row: any) => row.unread_count > 0).map((row: any) => ({ source: "hosted" as const, id: row.id, name: row.name, unread_count: row.unread_count,
+                ...(row.last_post_at !== undefined ? { last_post_at: row.last_post_at } : {}) })));
+              cursor = page.next_cursor ?? undefined;
+              if (cursor && pages.has(cursor)) throw new HostedError("invalid_response", "Service repeated a Thread list cursor; the unread list is incomplete.");
+              if (cursor) pages.add(cursor);
+            } while (cursor);
+            hostedState = { state: "ok" };
+          } catch (error) {
+            hosted = []; // never a partial account list
+            hostedState = { state: "unavailable", message: error instanceof Error ? error.message : String(error) };
+            output.log(`Hosted Threads unavailable: ${hostedState.message}`);
+          }
+        }
+        const lines = [
+          result.asks.length ? `Asks you (${result.asks.length}):` : "Nothing asks you.",
+          ...result.asks.map((ask) => `  ${ask.slug}  ${ask.post.id} · ${ask.post.author ?? "unknown"} · to ${ask.matched.join(", ")}\n    ${ask.post.name ?? ask.post.excerpt}`),
+          result.moved.baseline ? `Baseline set for ${reader}: later reads show what moved after this point.`
+            : result.moved.threads.length ? `Moved (${result.moved.threads.length}${result.moved.moved > result.moved.threads.length ? ` of ${result.moved.moved}` : ""}):` : "Nothing moved.",
+          ...result.moved.threads.map((row) => `  ${row.slug}  ${row.new_thread ? `new Thread, ${row.new_posts} posts` : row.new_posts ? `${row.new_posts} new` : "changed"}${row.newest?.name ? ` · ${row.newest.name}` : ""}`),
+          ...hosted.map((row) => `  ${row.id}  ${row.unread_count} unread · ${row.name} · hosted`),
+          ...(result.asks.length ? ["Answer with threads post <thread> --reply-to <post-id>: an ask stays until it is answered."] : []),
+        ];
+        output.result({ schema: "ideaspaces.threads.inbox.v1", reader, as: names, asks: result.asks, moved: result.moved,
+          hosted: hostedState.state === "ok" ? hosted : [], sides: { local: { complete: result.warnings.length === 0, ...(result.warnings.length ? { warnings: result.warnings } : {}) }, hosted: hostedState } },
+          lines.join("\n"));
         return 0;
       }
       if (sub === "ack") {

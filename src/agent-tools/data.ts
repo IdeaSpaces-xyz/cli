@@ -3154,6 +3154,101 @@ export const entries: Entry[] = [
     }
   },
   {
+    "id": "threads.inbox",
+    "owner": "cli",
+    "status": "active",
+    "job": "J6",
+    "effect": "read",
+    "reach": "local+hosted",
+    "confirm": "none",
+    "requires": {
+      "cli": ">=0.12.0"
+    },
+    "text": {
+      "does": "Read what waits for a reader: posts whose to names them until they answer, then the Threads that moved since their position.",
+      "use_when": "Find what is asked of you, and what moved, before reading Threads one by one.",
+      "check": "Pass every name you go by in --as; names are compared exactly. An ask leaves only when one of your names replies to it; reading or ack doesn't clear it. A reader's first look sets a baseline; reading marks nothing read.",
+      "bound": "Every ask in this Space's Threads; moved Threads default 50, max 500, as threads recent; --hosted drains the service's unread list."
+    },
+    "bound": {
+      "unit": "entries",
+      "default": 50,
+      "max": 500,
+      "says": true
+    },
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "as": {
+          "type": "array",
+          "description": "Every name the reader goes by in a post's to: an author's name, @handle, person:<handle> or agent:<id>.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reader": {
+          "type": "string",
+          "description": "Local reader identity; defaults to IDEASPACES_READER or person."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum moved Threads in this read; asks are all listed.",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 50
+        },
+        "hosted": {
+          "type": "boolean",
+          "description": "Also read the service's unread Threads under your login."
+        }
+      },
+      "required": [
+        "as"
+      ],
+      "additionalProperties": false
+    },
+    "cli": {
+      "argv": [
+        "threads",
+        "inbox"
+      ],
+      "positional": [],
+      "flags": {
+        "as": {
+          "flag": "--as",
+          "list": "csv"
+        },
+        "reader": {
+          "flag": "--reader"
+        },
+        "limit": {
+          "flag": "--limit"
+        },
+        "hosted": {
+          "flag": "--hosted",
+          "boolean": "bare"
+        }
+      },
+      "local_flags": [
+        "as",
+        "reader",
+        "limit",
+        "hosted"
+      ]
+    },
+    "output": {
+      "json": [
+        "schema",
+        "reader",
+        "as",
+        "asks",
+        "moved",
+        "hosted",
+        "sides"
+      ]
+    }
+  },
+  {
     "id": "threads.check",
     "owner": "cli",
     "status": "active",
