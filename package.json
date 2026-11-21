@@ -33,7 +33,7 @@
     "prepare": "npm run build"
   },
   "devDependencies": {
-    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#97271080cd553a05cbce6885a9cd9dd99097293b",
+    "@ideaspaces/protocol": "github:IdeaSpaces-xyz/ideaspace-protocol#v0.34.0",
     "@ideaspaces/sdk": "github:IdeaSpaces-xyz/sdk#96f51f660eb05dc6eb4a222b670efb066994c93b",
     "@types/cmd-shim": "^5.0.2",
     "@types/node": "^22.0.0",
