@@ -26,8 +26,14 @@ const seen = (): Array<{ method: string; path: string; auth: string | null }> =>
   existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
 const resetSeen = () => writeFileSync(log, "");
 /** The loopback service in its own process; `createStatus` other than 200 refuses POST /repos with it. */
+async function stop() {
+  const running = service;
+  service = undefined;
+  if (!running || running.exitCode !== null) return;
+  await new Promise<void>((resolve) => { running.once("exit", () => resolve()); running.kill(); });
+}
 async function start(createStatus = "200") {
-  service?.kill();
+  await stop();
   service = spawn(process.execPath, [SERVICE, tmp, log, createStatus], { stdio: ["ignore", "pipe", "inherit"] });
   port = await new Promise<number>((resolve) => service!.stdout!.once("data", (d) => resolve(Number(String(d).trim()))));
 }
@@ -77,9 +83,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
   process.chdir(originalCwd);
   vi.unstubAllEnvs();
-  service?.kill();
-  service = undefined;
-  rmSync(tmp, { recursive: true, force: true });
+  // Windows holds a folder a process has open until that process is gone: wait for it, then retry the removal.
+  await stop();
+  rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 /** One host publish in `dir`, with the token passed on a descriptor as the app passes it. */
