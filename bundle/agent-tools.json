@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "4c7b24e64aa09b5661becf5a2bbd6a9c998de380"
+    "commit": "c118da208174be4f68eb2e07b768c5bfd7d65f17"
   },
   "protocol": {
-    "version": "0.33.0",
-    "commit": "6e1aadd33e566a56b929d3698e245f8ea7084c58"
+    "version": "0.34.0",
+    "commit": "50e37831f488ddd0ba13b9bcfbf60a88047c767d"
   },
-  "digest": "sha256:ead2d917edbf07e1fc0f693381cd0d27d637678501be1094721cca2257a6cc9a",
+  "digest": "sha256:477dc550a7cc694857feebb317a9c2c3064c7235ea4c43da1da8e870230aa21c",
   "groups": [
     {
       "id": "read",
@@ -1664,6 +1664,13 @@
             },
             "description": "Retrieval labels on the entry."
           },
+          "to": {
+            "type": "array",
+            "description": "Local: who it asks, by name as an author would write it or a typed <type>:<id> address; a claim readers compare exactly. Grants no access and notifies no one.",
+            "items": {
+              "type": "string"
+            }
+          },
           "author": {
             "type": "string",
             "description": "Local author claim, not verified identity; defaults to the nearest agent Agreement's name."
@@ -1734,6 +1741,10 @@
             "flag": "--tags",
             "list": "csv"
           },
+          "to": {
+            "flag": "--to",
+            "list": "csv"
+          },
           "author": {
             "flag": "--author"
           },
@@ -1763,6 +1774,7 @@
           "mark",
           "supersedes",
           "tags",
+          "to",
           "author",
           "no-check-links",
           "no-commit"
@@ -1876,6 +1888,13 @@
               "type": "string"
             }
           },
+          "to": {
+            "type": "array",
+            "description": "Local: who it asks, by name as an author would write it or a typed <type>:<id> address; a claim readers compare exactly. Grants no access and notifies no one.",
+            "items": {
+              "type": "string"
+            }
+          },
           "no_check_links": {
             "type": "boolean",
             "description": "Skip local post link validation only when deliberately required."
@@ -1941,6 +1960,10 @@
             "flag": "--tags",
             "list": "csv"
           },
+          "to": {
+            "flag": "--to",
+            "list": "csv"
+          },
           "no_check_links": {
             "flag": "--no-check-links",
             "boolean": "bare"
@@ -1966,6 +1989,7 @@
           "supersedes",
           "message",
           "tags",
+          "to",
           "no-check-links",
           "no-commit"
         ],
