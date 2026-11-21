@@ -238,10 +238,14 @@ describe("the push child's environment", () => {
     vi.stubEnv("GIT_CURL_VERBOSE", "1");
     vi.stubEnv("GIT_ASKPASS", "/tmp/x");
     vi.stubEnv("GIT_CONFIG_PARAMETERS", "'url.x.insteadof'='y'");
+    for (const key of ["SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"]) vi.stubEnv(key, "/tmp/injected-ca.pem");
+    vi.stubEnv("https_proxy", "http://proxy.work.test:3128");
     const { isolatedGitEnv } = await import("../commands/publish-host.js");
     const env = isolatedGitEnv([["http.https://git.test/repos/n_x.git.extraHeader", "Authorization: Basic x"]]);
     expect(env).toMatchObject({ GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_TERMINAL_PROMPT: "0" });
-    for (const key of ["GIT_TRACE", "GIT_CURL_VERBOSE", "GIT_ASKPASS", "GIT_CONFIG_PARAMETERS"]) expect(env[key]).toBeUndefined();
+    for (const key of ["GIT_TRACE", "GIT_CURL_VERBOSE", "GIT_ASKPASS", "GIT_CONFIG_PARAMETERS", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"]) expect(env[key]).toBeUndefined();
+    // The person's network stays theirs.
+    expect(env.https_proxy).toBe("http://proxy.work.test:3128");
     const pairs = Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, i) => [env[`GIT_CONFIG_KEY_${i}`], env[`GIT_CONFIG_VALUE_${i}`]]);
     expect(pairs).toEqual([["credential.helper", ""], ["core.hooksPath", "/dev/null"], ["core.fsmonitor", "false"], ["protocol.allow", "never"], ["protocol.https.allow", "always"],
       ["http.https://git.test/repos/n_x.git.extraHeader", "Authorization: Basic x"]]);

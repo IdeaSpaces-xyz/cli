@@ -60,6 +60,10 @@ export function isolatedGitEnv(extra: Array<[string, string]> = []): NodeJS.Proc
   for (const key of Object.keys(env)) {
     if (/^GIT_(TRACE|CURL_VERBOSE|ASKPASS|SSH|PROXY|SSL_NO_VERIFY|CONFIG$|CONFIG_PARAMETERS|CONFIG_SYSTEM|REDIRECT)/.test(key) || key === "SSH_ASKPASS") delete env[key];
   }
+  // TLS trust comes from the app's own GIT_SSL_CAINFO or the system store, never a bundle the CLI inherits (Security,
+  // v23 msg_0420977a). The person's http_proxy, https_proxy, ALL_PROXY and NO_PROXY stay: with TLS verified, a proxy
+  // only carries the tunnel.
+  for (const key of ["SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE"]) delete env[key];
   const pairs: Array<[string, string]> = [["credential.helper", ""], ["core.hooksPath", "/dev/null"], ["core.fsmonitor", "false"], ["protocol.allow", "never"], ["protocol.https.allow", "always"], ...extra];
   return {
     ...env,
@@ -165,8 +169,10 @@ export async function publishInHost(cwd: string, flags: { name?: string }, check
   const basic = Buffer.from(`ideaspaces:${config.apiKey}`).toString("base64");
   // A loopback test service speaks http; nothing else may.
   const loopback = url.startsWith("http://") ? [["protocol.http.allow", "always"] as [string, string]] : [];
-  // Pinned for the exact URL too, which nothing in the folder can outrank: no proxy, TLS verified, no redirects.
-  const pinned: Array<[string, string]> = [[`http.${url}.proxy`, ""], [`http.${url}.sslVerify`, "true"], [`http.${url}.followRedirects`, "false"]];
+  // Pinned for the exact URL too, which nothing in the folder can outrank: TLS verified, no redirects. Not the proxy: an
+  // empty http.<url>.proxy also switches off the person's own proxy from the environment (measured on Git 2.53), and
+  // the folder's proxy keys are refused above.
+  const pinned: Array<[string, string]> = [[`http.${url}.sslVerify`, "true"], [`http.${url}.followRedirects`, "false"]];
   const push = git(cwd, ["push", "--no-verify", "--porcelain", url, "HEAD:refs/heads/main"], isolatedGitEnv([...loopback, ...pinned, [`http.${url}.extraHeader`, `Authorization: Basic ${basic}`]]));
   if (!push.ok) {
     // Nothing left behind: the commit added for the identity check goes again, index and files untouched.
