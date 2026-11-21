@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { HOSTED_THREAD_ID, currentThreadMap, isPinnedMomentMap, isPostReference, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, selectEntries, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind, type TimeCursor } from "@ideaspaces/protocol";
+import { HOSTED_THREAD_ID, THREAD_ADDRESSEES_MAX, THREAD_ADDRESSEE_MAX_LENGTH, parseAddressees, currentThreadMap, isPinnedMomentMap, isPostReference, inspectThreadPosts, parseFrontmatter, parseMap, parseThreadAttachment, parseThreadAgreementAttachment, parseThreadPost, reconstructThreadTimeline, resolveThreadParent as resolveProtocolParent, selectEntries, type CurrentThreadMap, type ThreadAttachment, type ThreadPost, type ThreadKind, type TimeCursor } from "@ideaspaces/protocol";
 import { stringify } from "yaml";
 import { gitAvailability, gitBinary, markPrivateThreadsWorktree, sanitizedGitEnvironment } from "../git.js";
 import { readCheckoutAt } from "./map-resolve.js";
@@ -314,6 +314,19 @@ function minimalAgreement(about: string, attachedTo?: string, line?: string): st
 }
 
 /**
+ * Who a post asks (`to`, protocol #96): one or more names as an author would write them, or typed `<type>:<id>`
+ * addresses; claims, compared exactly by readers and never resolved. Refused here rather than dropped by a reader:
+ * an empty name, one over a line or THREAD_ADDRESSEE_MAX_LENGTH characters, or more than THREAD_ADDRESSEES_MAX names. Repeats are dropped.
+ */
+export function validateAddressees(names: string[]): string[] {
+  const parsed = parseAddressees(names);
+  if (!names.length || names.some((name) => !name.trim()) || !parsed || !parsed.length) {
+    throw new Error(`--to names who the post asks: one or more names or <type>:<id> addresses, comma-separated, each one line of at most ${THREAD_ADDRESSEE_MAX_LENGTH} characters, at most ${THREAD_ADDRESSEES_MAX}. Nothing written.`);
+  }
+  return parsed;
+}
+
+/**
  * What `createThread` refuses, checked without writing: the slug, the title when there is one yet, the
  * attachment, and a folder already at that slug. `threads new --from-note` runs it before the Note's commit.
  */
@@ -567,6 +580,8 @@ export function parentReference(value: string): ThreadAttachment {
 export function appendPost(dir: string, options: {
   body: string; name?: string; summary?: string; author?: string; replyTo?: string[];
   kind?: ThreadKind; mark?: string; attachedTo?: string; supersedes?: string; map?: unknown; tags?: string[];
+  /** Who the post asks (`to`): names or typed addresses, checked by `validateAddressees`. */
+  to?: string[];
   /** The Thread's new parent, a post reference; a reframe that carries it moves the Thread. */
   parent?: string;
   /** What the Thread is about: typed links; `[]` clears. */
@@ -592,6 +607,7 @@ export function appendPost(dir: string, options: {
     if (value && (/[\r\n]/.test(value) || value.length > 1000)) throw new Error("Post header values must be single-line and at most 1,000 characters.");
   }
   if (options.tags !== undefined) validateTags(options.tags);
+  const to = options.to === undefined ? undefined : validateAddressees(options.to);
   validateMarkOptions(options.kind, options.mark, options.replyTo);
   if (options.attachedTo !== undefined && thread.allPosts.length) throw new Error("--attached-to belongs only on the opening post; use threads new --attached-to.");
   if (options.parent !== undefined) parentReference(options.parent);
@@ -664,6 +680,7 @@ export function appendPost(dir: string, options: {
     ...(options.supersedes ? { supersedes: options.supersedes } : {}),
     ...(options.name ? { name: options.name } : {}), ...(options.summary ? { summary: options.summary } : {}),
     ...(options.tags && options.tags.length ? { tags: [...new Set(options.tags)] } : {}),
+    ...(to ? { to: to.length === 1 ? to[0] : to } : {}),
     ...(options.author ? { author: options.author } : {}), ...(options.map !== undefined ? { map: options.map } : {}),
   };
   const content = `---\n${stringify(fields)}---\n\n${options.body.trim()}\n`;

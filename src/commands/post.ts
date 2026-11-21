@@ -31,7 +31,7 @@ type Flags = Record<string, string | boolean>;
 const str = (flags: Flags, key: string): string | undefined => (typeof flags[key] === "string" ? flags[key] : undefined);
 const WRITER_KINDS = new Set(["post", "reframe", "correction", "mark", "snapshot", "closure"]);
 
-const USAGE = "ideaspaces post <thread|folder|x_id> --message <text> [--reply-to <id>[,<id>]] [--kind post|reframe|correction|mark] [--parent <post:msg_…>] [--about <type>:<id>[,…]] [--closed true|false] [--name <title>] [--summary <text>] [--map <note>] [--mark <value>] [--supersedes <id>] [--tags <labels>] [--author <name>] [--no-check-links] [--no-commit]\n" +
+const USAGE = "ideaspaces post <thread|folder|x_id> --message <text> [--reply-to <id>[,<id>]] [--kind post|reframe|correction|mark] [--parent <post:msg_…>] [--about <type>:<id>[,…]] [--closed true|false] [--name <title>] [--summary <text>] [--map <note>] [--mark <value>] [--supersedes <id>] [--tags <labels>] [--to <names>] [--author <name>] [--no-check-links] [--no-commit]\n" +
   "       ideaspaces post --new <slug> --name <title> [--summary <text>] [--message <opening>] [--parent <post:msg_…>] [--about <type>:<id>[,…]] [--map <note>] [--author <name>] [--no-commit]\n" +
   "       ideaspaces post x_<id> --message <text> --reply-to <msg_id> [--name <title>] [--summary <text>] [--map <note>] [--tags <labels>] [--post-id <id>]";
 
@@ -78,7 +78,7 @@ export const postCommand: CommandDef = {
     const target = args[0]?.trim();
     if (!newSlug && (args.length !== 1 || !target)) { output.error(`Usage: ${USAGE}`); return 1; }
     if (newSlug && args.length) { output.error("--new opens a Thread by its slug; it takes no target."); return 1; }
-    for (const flag of ["message", "reply-to", "kind", "parent", "about", "closed", "name", "summary", "map", "mark", "supersedes", "tags", "author", "post-id"]) {
+    for (const flag of ["message", "reply-to", "kind", "parent", "about", "closed", "name", "summary", "map", "mark", "supersedes", "tags", "to", "author", "post-id"]) {
       if (flags[flag] === true) { output.error(`--${flag} requires a value.`); return 1; }
     }
 
@@ -86,7 +86,7 @@ export const postCommand: CommandDef = {
     if (target && isHostedThreadTarget(target)) {
       const hosted = allowedFlags("post", "hosted");
       const unknown = Object.keys(flags).find((flag) => !hosted.has(flag));
-      if (unknown) { output.error(`--${unknown} is not supported for a hosted Thread; post x_<id> takes ${[...hosted].map((f) => `--${f}`).join(", ")}. A hosted post's kind comes from its verb; its parent and state are kept by the service.`); return 1; }
+      if (unknown) { output.error(`--${unknown} is not supported for a hosted Thread; post x_<id> takes ${[...hosted].map((f) => `--${f}`).join(", ")}. A hosted post's kind comes from its verb; its parent and state are kept by the service.${unknown === "to" ? " The service doesn't keep who a post asks yet; --to is for local Threads." : ""}`); return 1; }
       return postVerb(output, global.json, target, flags);
     }
 
@@ -101,6 +101,7 @@ export const postCommand: CommandDef = {
       }
       const about = flags.about === undefined ? undefined : str(flags, "about") === "" ? [] : str(flags, "about")!.split(",").map((link) => link.trim()).filter(Boolean);
       const tags = str(flags, "tags")?.split(",").map((tag) => tag.trim());
+      const to = str(flags, "to")?.split(",").map((name) => name.trim());
       const parents = str(flags, "reply-to")?.split(",").map((id) => id.trim());
       if (parents?.some((id) => !id)) throw new Error("--reply-to must name non-empty entry ids, separated by commas.");
       const map = str(flags, "map") ? loadLocalThreadMap(str(flags, "map")!) : undefined;
@@ -122,7 +123,7 @@ export const postCommand: CommandDef = {
         if (summary !== name) writeFileSync(join(thread.path, "README.md"), `---\n${stringify({ name, summary })}---\n\n# ${name}\n`);
         let opening: ReturnType<typeof appendPost>;
         try {
-          opening = appendPost(thread.path, { body: body.trim() || name, name, summary, author, attachedTo, ...(parentRef ? { parent: parentRef } : {}), ...(about !== undefined ? { about } : {}), map, tags });
+          opening = appendPost(thread.path, { body: body.trim() || name, name, summary, author, attachedTo, ...(parentRef ? { parent: parentRef } : {}), ...(about !== undefined ? { about } : {}), map, tags, ...(to ? { to } : {}) });
         } catch (error) {
           throw new Error(`Thread created at ${thread.path}, but its opening post was not written: ${error instanceof Error ? error.message : String(error)}. Use ideaspaces post ${newSlug} --message <opening> to complete it; do not rerun --new.`);
         }
@@ -150,7 +151,7 @@ export const postCommand: CommandDef = {
       const body = str(flags, "message") ?? await stdin();
       const common = {
         body, name: str(flags, "name"), summary: str(flags, "summary"), author, replyTo: parents, kind: kind as ThreadKind, mark: str(flags, "mark"),
-        supersedes: str(flags, "supersedes"), map, tags, ...(parentRef !== undefined ? { parent: parentRef } : {}), ...(about !== undefined ? { about } : {}),
+        supersedes: str(flags, "supersedes"), map, tags, ...(to ? { to } : {}), ...(parentRef !== undefined ? { parent: parentRef } : {}), ...(about !== undefined ? { about } : {}),
         ...(closed !== undefined ? { closed } : {}), rejectEscapedNewlines: typeof flags.message === "string",
       };
       let written: { id: string; kind: string; inReplyTo: string[]; path: string; label: string; name?: string; warnings: string[]; mark?: string };

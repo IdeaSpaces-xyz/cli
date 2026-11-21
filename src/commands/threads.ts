@@ -289,7 +289,7 @@ function localText(
     context,
     ...posts.map(
       (p) =>
-        `\n${p.id} · ${claimedBy(p.frontmatter.author)} · ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`,
+        `\n${p.id} · ${claimedBy(p.frontmatter.author)} · ${p.kind}${stateOf(p)}${p.inReplyTo.length ? ` ↳ ${p.inReplyTo.join(", ")}` : ""}${p.frontmatter.tags?.length ? ` · tags: ${p.frontmatter.tags.join(", ")}` : ""}${p.to?.length ? ` · asks: ${p.to.join(", ")}` : ""}\n${p.frontmatter.name ?? ""}\n${p.body}${p.marks?.length ? `\nMarks: ${p.marks.map((m) => `${markText(m)}`).join(", ")}` : ""}`,
     ),
   ].join("\n");
 }
@@ -360,7 +360,7 @@ export const threadsCommand: CommandDef = {
     ...Object.fromEntries(["open", "read"].map((verb) => [verb,
       `ideaspaces threads ${verb} <slug|path> [--depth name|summary|children|surface|full] [--post <id>] [--since <date|activity-id>] [--limit <n>] [--order older|newer] [--new] [--ack] [--reader <name>] [--agreement summary|full] [--map <file> --member <n> [--checkout <root>]] [--pin <sha> --position <path>]\n       ideaspaces threads ${verb} x_<id> [--limit <n>] [--cursor <cursor>]`])),
     new: "ideaspaces threads new <slug> --about <title> [--summary <line>] [--attached-to <post>] [--map <file>]\n       ideaspaces threads new <slug> --from-note <note.md> [--about <title>] [--attached-to <post>]\n       ideaspaces threads new --hosted --name <title> --summary <text> --message <text> [--home map:<id>] [--recipients <handles-or-emails>] [--map <file>] [--tags <labels>] [--post-id <id>]",
-    post: "ideaspaces threads post <slug|path> --message <text> [--reply-to <id>] [--kind <kind>] [--mark <value>] [--supersedes <id>] [--author <name>] [--name <title>] [--summary <text>] [--tags <labels>] [--map <file> [--member <n> --checkout <root>]] [--no-check-links] [--no-commit]\n       ideaspaces threads post x_<id> --message <text> [--reply-to <id>] [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    post: "ideaspaces threads post <slug|path> --message <text> [--reply-to <id>] [--to <names>] [--kind <kind>] [--mark <value>] [--supersedes <id>] [--author <name>] [--name <title>] [--summary <text>] [--tags <labels>] [--map <file> [--member <n> --checkout <root>]] [--no-check-links] [--no-commit]\n       ideaspaces threads post x_<id> --message <text> [--reply-to <id>] [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     send: "ideaspaces threads send <@handle|email> --name <title> --summary <text> --message <text> [--home map:<id>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     reply: "ideaspaces threads reply x_<id> --reply-to <id> --message <text> [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     ack: "ideaspaces threads ack <slug|path> --through <id|latest> [--reader <name>]\n       ideaspaces threads ack --recent <cursor> [--reader <name>]\n       ideaspaces threads ack x_<id> (--cursor <cursor>|--seq <n>)",
@@ -393,6 +393,7 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads new <slug> --about 'Title' [--summary 'What it is for'] [--attached-to post:msg_parent] [--map context.map.md]  # opens with that line; a place's first Thread without --summary opens with the line its Agreement's summary (or else its first firefly's) gives; says when Git can't commit posts here",
     "ideaspaces threads new <slug> --from-note Ideas/garden.md [--attached-to post:msg_parent]  # commits the Note (that one file), opens the Thread about it, with the Note's Map pinned and the Note first, in full; a member with no depth gets summary; a Note inside a Thread goes in its notes/ folder",
     "ideaspaces threads open <slug|path> [--depth name|summary|children|surface|full] [--post msg_id] [--limit 10] [--order older|newer] [--since msg_id] [--new] [--agreement full]  # each local post says local only, committed or pushed (Git, no network)",
+    `ideaspaces threads post <slug|path> --message 'Which one?' --to human,d-pm  # who the post asks: names as an author would write them, or <type>:<id> addresses; a reader compares them exactly; it grants no access and notifies no one`,
     `ideaspaces threads post <slug|path> --message 'Decision' [--reply-to msg_id|latest] [--map <note>] [--author Name] [--tags ux] [--no-check-links] [--no-commit]  # a local post is committed (that one file, never pushed) unless --no-commit; --kind is one of ${KIND_HELP}; a label goes in --tags; a post carrying --map <note> is the Thread's current Map`,
     "ideaspaces threads close <slug|path> --message 'Rationale' [--no-commit]  # writes closed: true (beside the legacy kind closure, for older readers); committed like any local post",
     "ideaspaces threads locate msg_opening <space-root> [<space-root> ...]",
@@ -844,7 +845,7 @@ export const threadsCommand: CommandDef = {
         const projected = effectiveRung === "name" || effectiveRung === "children" ? [] : boundedPosts.map((p) => effectiveRung === "summary"
           ? { id: p.id, path: p.path, kind: p.kind, date: p.date ?? null, name: p.frontmatter.name ?? p.id,
             summary: p.frontmatter.summary ?? null, in_reply_to: p.inReplyTo, author: p.frontmatter.author ?? null,
-            ...stateField(p), ...(p.marks?.length ? { marks: p.marks } : {}), ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}) }
+            ...stateField(p), ...(p.marks?.length ? { marks: p.marks } : {}), ...(p.frontmatter.tags?.length ? { tags: p.frontmatter.tags } : {}), ...(p.to?.length ? { to: p.to } : {}) }
           : { ...p, ...stateField(p) });
         const frame = effectiveRung === "name" ? threadFrame(thread) : undefined;
         const rawPost = postId && posts.length ? readFileSync(join(thread.path, posts[0].path), "utf8") : undefined;
@@ -929,7 +930,7 @@ export const threadsCommand: CommandDef = {
       }
       if (sub === "post" || sub === "close") {
         if (rest.length !== 1 || hostedTarget) throw new Error(`Usage: threads ${sub} <local-path> [--message <body>]`);
-        for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags"]) {
+        for (const flag of ["map", "reply-to", "kind", "mark", "author", "name", "summary", "supersedes", "message", "tags", "to"]) {
           if (flags[flag] === true) throw new Error(`--${flag} requires a value.`);
         }
         if (sub === "close" && flags.kind !== undefined && flags.kind !== "closure") throw new Error("threads close always appends a closure post; omit --kind.");
@@ -954,11 +955,12 @@ export const threadsCommand: CommandDef = {
         if (selected && !parents?.length) throw new Error("Selected post requires explicit --reply-to <post-id> at the authored pin.");
         const target = selected ? selectLocalThreadTarget(rest[0], selected.root, selected.member, str(flags, "checkout")) : undefined;
         const tags = typeof flags.tags === "string" ? flags.tags.split(",").map((t) => t.trim()) : undefined;
+        const to = typeof flags.to === "string" ? flags.to.split(",").map((name) => name.trim()) : undefined;
 
         const body = str(flags, "message") ?? await stdin();
         const { post, path, warnings } = appendPost(target?.thread.path ?? resolveLocalThread(rest[0]), { body, checkLinks: flags["no-check-links"] !== true, name: str(flags, "name"),
           summary: str(flags, "summary"), author: target ? selectedWriterName() : writerName(str(flags, "author")), replyTo: parents,
-          kind: kind as ThreadKind, mark: str(flags, "mark"), supersedes: str(flags, "supersedes"), map, tags,
+          kind: kind as ThreadKind, mark: str(flags, "mark"), supersedes: str(flags, "supersedes"), map, tags, ...(to ? { to } : {}),
           rejectEscapedNewlines: typeof flags.message === "string", verifyTarget: target?.verifyWrite,
           onDefaultReplyTo: (id) => output.log(`Replying to opening post ${id}. Pass --reply-to <id> to answer a specific post, or --reply-to latest for newest.`) });
         for (const warning of warnings) output.log(`Link warning: ${warning}`);
@@ -973,7 +975,7 @@ export const threadsCommand: CommandDef = {
           : flags["no-commit"] === true ? "\nState: local only. Written, not committed (--no-commit); commit and push it for anyone else to read it."
           : outcome.reason === NOT_IN_GIT_REPOSITORY ? "\nState: local only. This folder is not in a Git repository, so there is nothing to commit or push here; the file is on this disk only."
           : `\nState: local only. Written, not committed: ${outcome.reason}. The post is on this disk; commit that file when you can.`;
-        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(posted ? { state: posted } : {}),
+        output.result({ id: post.id, path, kind: post.kind, ...(post.mark ? { mark: post.mark } : {}), in_reply_to: post.inReplyTo, ...(post.to?.length ? { to: post.to } : {}), ...(posted ? { state: posted } : {}),
           committed: outcome.committed, ...(outcome.committed ? { commit: outcome.commit } : { reason: outcome.reason }), ...(warnings.length ? { warnings } : {}) },
           `Appended ${post.kind}: ${path}${commitLine}`); return 0;
       }
