@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "69ff8db0da32407b33d86401d2306b7fd865548b"
+    "commit": "9afcb671ac36c1ff9e8567da025161c38c7a8121"
   },
   "protocol": {
     "version": "0.34.0",
     "commit": "50e37831f488ddd0ba13b9bcfbf60a88047c767d"
   },
-  "digest": "sha256:bc50b75f7c4b798f84ce9d0c93f8c9c2fc49d7d41eec2bcd03d08ec033b88862",
+  "digest": "sha256:6aa499ab97897e1456a50cd62dc178728b963f3b66fc4ffbc71daef5611ce2ae",
   "groups": [
     {
       "id": "read",
@@ -7589,6 +7589,10 @@
           "claude_auth": {
             "type": "string",
             "description": "Claude authentication mode: login or api-key."
+          },
+          "no_settings": {
+            "type": "boolean",
+            "description": "Ask Claude Code to load no settings file, as a host whose own turns load none does."
           }
         },
         "required": [],
@@ -7605,6 +7609,10 @@
           },
           "claude_auth": {
             "flag": "--claude-auth"
+          },
+          "no_settings": {
+            "flag": "--no-settings",
+            "boolean": "bare"
           }
         }
       },

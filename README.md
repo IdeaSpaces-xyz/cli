@@ -255,7 +255,7 @@ Both stream the same transcript; they differ in whose agent runs and how it is p
 | Where sessions live | `<context>/.pi/sessions/`, inside the space | `~/.claude/projects/`, outside the space |
 | Reasoning in the transcript | shown | not shown — Claude Code redacts it when run headless |
 | Needs a Claude account | no | yes |
-| Is it ready? | `pi-status` | `claude-status` — asks the binary (`claude --version`, `claude auth status`, and the model each alias resolves to); never reads `~/.claude` |
+| Is it ready? | `pi-status` | `claude-status` — asks the binary (`claude --version`, `claude auth status`, and the model each alias resolves to); never reads `~/.claude`. `--no-settings` asks Claude Code to load no settings file either |
 | Models | `pi-models` — any provider pi supports | `claude-models` — what your Claude Code reports for each alias (`opus`, `sonnet`, `haiku`, `fable`, `opusplan`, and the default), read from its `system/init` with the run stopped there: no model call, no saved session. A new Claude model appears the day Claude Code resolves an alias to it. Context windows are defaults until a turn reports its own |
 | Compaction | context skills (`context_cleanup`) | `conversation compact --local` and `--autocompact` (100k–1M tokens) |
 

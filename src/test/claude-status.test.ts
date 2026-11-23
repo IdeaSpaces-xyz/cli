@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { deriveClaudeStatus, parseClaudeAuthReport } from "../claude/claude-status.js";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it, expect, vi } from "vitest";
+import { claudeStatusCommand, deriveClaudeStatus, loginProbeArgs, parseClaudeAuthReport } from "../claude/claude-status.js";
 import type { ClaudeBinary } from "../claude/claude-status.js";
 import { claudeModelList, getClaudeDefaults } from "../claude/claude-models.js";
 
@@ -138,5 +141,30 @@ describe("parseClaudeAuthReport", () => {
     expect(parseClaudeAuthReport("{}")).toBeNull();
     expect(parseClaudeAuthReport(JSON.stringify({ loggedIn: "yes" }))).toBeNull();
     expect(parseClaudeAuthReport("null")).toBeNull();
+  });
+});
+
+describe("--no-settings", () => {
+  it("goes before the subcommand, and only when asked for", () => {
+    expect(loginProbeArgs()).toEqual(["auth", "status", "--json"]);
+    expect(loginProbeArgs(true)).toEqual(["--setting-sources", "", "auth", "status", "--json"]);
+  });
+
+  it.skipIf(process.platform === "win32")("reaches the binary", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "claude-status-"));
+    const bin = join(dir, "claude");
+    const log = join(dir, "args.txt");
+    // Answers --version and the report, and records every start.
+    writeFileSync(bin, `#!/bin/sh\nprintf '<%s>' "$@" >> '${log}'; echo >> '${log}'\ncase "$*" in *--version*) echo '2.1.327 (Claude Code)';; *auth*) echo '${SIGNED_OUT}'; exit 1;; *) exit 1;; esac\n`);
+    chmodSync(bin, 0o755);
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const global = { json: true, quiet: false, yes: false, help: false };
+      await claudeStatusCommand.run([], { "claude-bin": bin }, global);
+      await claudeStatusCommand.run([], { "claude-bin": bin, "no-settings": true }, global);
+    } finally { write.mockRestore(); }
+    const asked = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("<auth>"));
+    rmSync(dir, { recursive: true, force: true });
+    expect(asked).toEqual(["<auth><status><--json>", "<--setting-sources><><auth><status><--json>"]);
   });
 });
