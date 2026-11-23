@@ -140,15 +140,24 @@ export function deriveClaudeStatus(input: {
   };
 }
 
+/**
+ * The arguments that ask the binary for its sign-in state. With `noSettings`, for a host whose own turns load no
+ * settings file, none of the person's is read here either: their `env` would otherwise steer the probe. The flag counts
+ * only before the subcommand (Claude Code 2.1.323 to 2.1.327 refuse it after). It does not reach `~/.claude.json`.
+ */
+export function loginProbeArgs(noSettings = false): string[] {
+  return [...(noSettings ? ["--setting-sources", ""] : []), "auth", "status", "--json"];
+}
+
 /** Ask the binary for its sign-in state. Resolves stdout whatever the exit code; null when it could not run. */
-function probeLogin(claudeBin: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+function probeLogin(claudeBin: string, env: NodeJS.ProcessEnv, noSettings: boolean): Promise<string | null> {
   return new Promise((resolve) => {
     let stdout = "";
     let settled = false;
     const finish = (value: string | null) => { if (!settled) { settled = true; clearTimeout(timer); resolve(value); } };
     let child: ReturnType<typeof spawn>;
     try {
-      const command = runtimeCommand(claudeBin, ["auth", "status", "--json"], env);
+      const command = runtimeCommand(claudeBin, loginProbeArgs(noSettings), env);
       child = spawn(command.command, command.args, { env, stdio: ["ignore", "pipe", "ignore"] });
     } catch {
       resolve(null);
@@ -192,12 +201,13 @@ function formatHuman(s: ClaudeStatus): string {
 export const claudeStatusCommand: CommandDef = {
   name: "claude-status",
   description: "Is your Claude Code usable for a local agent? (binary, version, signed in)",
-  usage: "ideaspaces claude-status [--claude-bin <path>] [--claude-auth login|api-key] [--json]",
+  usage: "ideaspaces claude-status [--claude-bin <path>] [--claude-auth login|api-key] [--no-settings] [--json]",
   examples: [
     "ideaspaces claude-status",
     "ideaspaces claude-status --json",
     "ideaspaces claude-status --claude-bin /opt/homebrew/bin/claude --json",
     "ideaspaces claude-status --claude-auth api-key  # count an ANTHROPIC_API_KEY as signed in",
+    "ideaspaces claude-status --no-settings          # ask as a host that loads no Claude settings file does",
   ],
   async run(_args, flags, global) {
     const output = createOutput(global);
@@ -211,10 +221,12 @@ export const claudeStatusCommand: CommandDef = {
       return 1;
     }
     const env = buildClaudeEnv(auth);
+    // The alias probe already loads none.
+    const noSettings = flags["no-settings"] === true;
 
     const binary = probeBinary(claudeBin, env);
     const [authStdout, models] = binary.present
-      ? await Promise.all([probeLogin(claudeBin, env), probeClaudeModels(binary, env)])
+      ? await Promise.all([probeLogin(claudeBin, env, noSettings), probeClaudeModels(binary, env)])
       : [null, undefined];
 
     const status = deriveClaudeStatus({ binary, authStdout, auth, ...(models ? { models } : {}) });

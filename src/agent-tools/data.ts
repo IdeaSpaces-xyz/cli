@@ -7581,6 +7581,10 @@ export const entries: Entry[] = [
         "claude_auth": {
           "type": "string",
           "description": "Claude authentication mode: login or api-key."
+        },
+        "no_settings": {
+          "type": "boolean",
+          "description": "Ask Claude Code to load no settings file, as a host whose own turns load none does."
         }
       },
       "required": [],
@@ -7597,6 +7601,10 @@ export const entries: Entry[] = [
         },
         "claude_auth": {
           "flag": "--claude-auth"
+        },
+        "no_settings": {
+          "flag": "--no-settings",
+          "boolean": "bare"
         }
       }
     },
