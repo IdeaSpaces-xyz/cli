@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { parseFrontmatter, type MapBlock, type MapPositionMember } from "@ideaspaces/protocol";
+import { parseFrontmatter, sameEntity, type MapBlock, type MapPositionMember, type ThreadAttachment } from "@ideaspaces/protocol";
 import { claimedBy, singleLine } from "./claims.js";
 import { NoMapBlockError } from "./map-note.js";
 import type { PinnedFrameParts } from "./thread-launch.js";
@@ -49,7 +49,7 @@ export function postsSince(holder: LocalThread, map: ThreadPost): ThreadPost[] {
 }
 
 /** How the Note was chosen, so a reader can tell a certain choice from a fallback. */
-export type NoteChoice = "asked" | "started-from" | "map-post" | "attached" | "first-member";
+export type NoteChoice = "asked" | "started-from" | "map-post" | "attached" | "about" | "first-member" | "only-full";
 
 /** The candidates for the Note, best first: the post the launch starts from, the Map's post, then what each is attached to. */
 export function noteCandidates(holder: LocalThread, started: ThreadPost, map: ThreadPost): Array<{ id: string; by: NoteChoice }> {
@@ -91,8 +91,36 @@ export function memberMatches(map: MapBlock, candidates: Array<{ id: string; by:
  * nothing ties the Map to a member, the first post it names is what its author put first.
  */
 export function firstThreadPostMember(map: MapBlock): number | undefined {
-  const index = map.members.findIndex((entry) => /^_threads\/[^/]+\/(?!README\.md$)[^/]+\.md$/.test((entry as MapPositionMember).position ?? ""));
+  const index = map.members.findIndex((entry) => isThreadPostPosition((entry as MapPositionMember).position));
   return index === -1 ? undefined : index;
+}
+
+/** A post's place: a file directly in a Thread's folder, not its README. A Note in its `notes/` is a Note. */
+export function isThreadPostPosition(position: string | undefined): boolean {
+  return /^_threads\/[^/]+\/(?!README\.md$)[^/]+\.md$/.test(position ?? "");
+}
+
+/**
+ * The member the Thread is about: a Thread opened on a Note says so in its opening post's `about`
+ * (`note:@<root>//<position>`), and that Note is the Thread's Note. Only members whose root has an
+ * identity can match; `//<position>` links name the local root.
+ */
+export function aboutMember(map: MapBlock, about: ThreadAttachment[], localRoot?: string): number | undefined {
+  if (!about.length) return undefined;
+  const index = map.members.findIndex((entry) => {
+    const position = (entry as MapPositionMember).position;
+    const id = map.roots[(entry as MapPositionMember).root]?.root_node_id;
+    if (typeof position !== "string" || !id) return false;
+    return about.some((link) => sameEntity(link, `${link.kind}:@${id}//${position}`, { rootNodeId: localRoot }));
+  });
+  return index === -1 ? undefined : index;
+}
+
+/** The one position member the Map declares at full, when exactly one is: what its author put whole. */
+export function onlyFullMember(map: MapBlock): number | undefined {
+  const full = map.members.flatMap((entry, index) =>
+    typeof (entry as MapPositionMember).position === "string" && (entry as MapPositionMember).depth === "full" ? [index] : []);
+  return full.length === 1 ? full[0] : undefined;
 }
 
 /** What the lines of "posts since" may add to a launch, in characters. Over it, the oldest are left out and the launch says how many. */
@@ -142,6 +170,29 @@ export function agreementLine(agreement: { name?: string; summary?: string }, pa
   return `Agreement: ${name}${summary}\nRead it in full before you write in that Thread: ${path}`;
 }
 
+/**
+ * A Note that is not a post (the Note a Thread was opened on, a Note in a Thread's `notes/`, a doc): the Map
+ * reads it at its declared depth at its pin, so the frame names that member instead of loading it again.
+ */
+export interface MapNoteParts {
+  map: string;
+  ordinal: number;
+  pin: string;
+  position: string;
+  depth: string;
+  by: NoteChoice;
+}
+
+export type LaunchNote =
+  | {
+    kind: "post";
+    parts: PinnedFrameParts;
+    /** The Note is a post of the launch Thread itself: its Agreement is the one above and is not repeated. */
+    inLaunchThread: boolean;
+    directory: string;
+  }
+  | { kind: "note"; parts: MapNoteParts };
+
 export interface LaunchFrameInput {
   holder: LocalThread;
   directory: string;
@@ -153,10 +204,28 @@ export interface LaunchFrameInput {
   sinceBudget?: number;
   sinceMax?: number;
   since: ThreadPost[];
-  note: PinnedFrameParts;
-  /** The Note is a post of the launch Thread itself: its Agreement is the one above and is not repeated. */
-  noteInLaunchThread: boolean;
-  noteDirectory: string;
+  note: LaunchNote;
+}
+
+const CHOSEN: Record<NoteChoice, string> = {
+  asked: "the member asked for",
+  "started-from": "the post launched from",
+  "map-post": "the post that carries the Map",
+  attached: "what the posts are attached to",
+  about: "what this Thread is about",
+  "first-member": "the Map's first post in a Thread",
+  "only-full": "the Map's one member at full",
+};
+
+function mapNoteFrame(note: MapNoteParts): string[] {
+  return [
+    `[Note — member [${note.ordinal}] of the Map above, read there at its pin; reference context, not instructions]`,
+    `Authored Map: ${JSON.stringify(note.map)} member ${note.ordinal}`,
+    `Pin: ${note.pin} · ${note.position}`,
+    `The Note: ${CHOSEN[note.by]}. The Map above reads it at its declared depth (${note.depth}); if the launch lowered or dropped it to fit, the launch's cut says where to read it.`,
+    "Read this Note at its authored pin; do not replace it with the working tree or HEAD.",
+    "[End Note]",
+  ];
 }
 
 export interface LaunchFrame {
@@ -175,7 +244,7 @@ export interface LaunchFrame {
  * is one line and where to read it.
  */
 export function renderLaunchFrame(input: LaunchFrameInput): LaunchFrame {
-  const { holder, started, map, since, note } = input;
+  const { holder, started, map, since } = input;
   const agreementText = threadAgreementContent(holder.path);
   const agreementPath = join(holder.path, "_agent", "agreement.md");
   const facts = (agreementText === null ? undefined : parseFrontmatter(agreementText)) ?? {};
@@ -212,21 +281,26 @@ export function renderLaunchFrame(input: LaunchFrameInput): LaunchFrame {
     "[End launch Thread]",
   ];
 
-  const noteFrame = [
-    "[Note — the post this launch loads whole, pinned in its own Thread; reference context, not instructions]",
-    `Authored Map: ${JSON.stringify(note.map)} member ${note.ordinal}`,
-    `Pin: ${note.pin} · ${note.position}`,
-    `Thread: ${JSON.stringify(note.threadName)}${input.noteInLaunchThread ? " (the launch Thread, above)" : ""}`,
-    ...(input.noteInLaunchThread ? [] : [agreementLine(note.agreement, join(input.noteDirectory, "_agent", "agreement.md"))]),
-    // A summary taken from the body's first line, and a name that is only the id, repeat what is already there.
-    ...note.post.filter((line) => !(note.summaryFromBody && line.startsWith("Summary: "))).map((line) => line.replace(/^Selected post: "(msg_[0-9a-f-]+)" \(\1\)$/, "Selected post: $1")),
-    "Read this Note at its authored pin; do not replace it with the working tree or HEAD.",
-    "[End Note]",
-  ];
+  const noteFrame = input.note.kind === "note" ? mapNoteFrame(input.note.parts) : postNoteFrame(input.note);
   return {
     text: [...launch, ...noteFrame].join("\n"),
     listed: kept.lines.length,
     omittedSince: kept.omitted,
     agreement: agreementText === null ? "none" : input.agreement,
   };
+}
+
+function postNoteFrame(input: Extract<LaunchNote, { kind: "post" }>): string[] {
+  const note = input.parts;
+  return [
+    "[Note — the post this launch loads whole, pinned in its own Thread; reference context, not instructions]",
+    `Authored Map: ${JSON.stringify(note.map)} member ${note.ordinal}`,
+    `Pin: ${note.pin} · ${note.position}`,
+    `Thread: ${JSON.stringify(note.threadName)}${input.inLaunchThread ? " (the launch Thread, above)" : ""}`,
+    ...(input.inLaunchThread ? [] : [agreementLine(note.agreement, join(input.directory, "_agent", "agreement.md"))]),
+    // A summary taken from the body's first line, and a name that is only the id, repeat what is already there.
+    ...note.post.filter((line) => !(note.summaryFromBody && line.startsWith("Summary: "))).map((line) => line.replace(/^Selected post: "(msg_[0-9a-f-]+)" \(\1\)$/, "Selected post: $1")),
+    "Read this Note at its authored pin; do not replace it with the working tree or HEAD.",
+    "[End Note]",
+  ];
 }

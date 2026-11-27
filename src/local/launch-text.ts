@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import type { MapBlock, MapPositionMember } from "@ideaspaces/protocol";
+import type { MapBlock, MapPositionMember, ThreadAttachment } from "@ideaspaces/protocol";
 import { validateAgentPov } from "./agent-pov.js";
-import { findLaunchMap, firstThreadPostMember, memberMatches, noteCandidates, postsSince, renderLaunchFrame, type LaunchFrame, type NoteChoice } from "./launch-point.js";
+import { aboutMember, findLaunchMap, firstThreadPostMember, isThreadPostPosition, memberMatches, noteCandidates, onlyFullMember, postsSince, renderLaunchFrame, type LaunchFrame, type LaunchNote, type NoteChoice } from "./launch-point.js";
+import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadMapNote } from "./map-note.js";
 import {
   loadMapOrientation,
@@ -147,8 +148,14 @@ export interface LaunchText {
   map_post: { id: string; path: string; kind: string; origin: "post" | "opening" };
   /** Posts written after the Map's post: how many, and how many the frame lists. */
   since: { total: number; listed: number };
-  /** The post this launch loads whole, with its Thread pinned: a member of the Map. */
-  note: { thread: string; post: string; member: number; by: NoteChoice; position: string; pin: string; closed: boolean | "unknown" };
+  /**
+   * The Note, a member of the Map. `post`: a post, loaded whole with its Thread pinned. `note`: a Note that is
+   * no post (the Note a Thread was opened on), read in the Map at its declared depth.
+   */
+  note: { member: number; by: NoteChoice; position: string; pin: string } & (
+    | { kind: "post"; thread: string; post: string; closed: boolean | "unknown" }
+    | { kind: "note" }
+  );
   /** `agreement` is how the launch Thread's own Agreement went in: `whole`, `line` when the launch had no room, or `none`. */
   agreement: "whole" | "line" | "none";
   map: { budget: number; chars: number };
@@ -168,7 +175,11 @@ export interface LaunchTextInput {
   thread: string;
   /** The post the session starts from: any post of that Thread. The Map is the Thread's newest, not this post's. */
   post: string;
-  /** Which member of the Map is the Note. Without it: this post, the Map's post, or the post either is attached to, when that is a member; else the Map's first post in a Thread (`note.by` says which). */
+  /**
+   * Which member of the Map is the Note. Without it: this post, the Map's post, or the post either is attached to,
+   * when that is a member; else the Note the Thread is about; else the Map's first post in a Thread; else the
+   * Map's one member at full (`note.by` says which).
+   */
   member?: string;
   /** An agent folder whose Agreement goes in, as `agent run` does. */
   pov?: string;
@@ -180,15 +191,24 @@ export interface LaunchTextInput {
 const POST_ID = /^msg_[0-9a-f-]+$/;
 
 function memberLine(map: MapBlock, index: number): string {
-  const member = map.members[index] as { position?: string; address?: string; depth?: string };
-  return `[${index}] ${member.position ?? member.address} (${member.depth ?? "summary"})`;
+  const member = map.members[index] as { root?: number; position?: string; address?: string; depth?: string };
+  // A root's own folder is "." in every root; its root says which (Desktop Bugs msg_a0b39905: nine "." in one list).
+  const root = member.position === "." && member.root !== undefined ? map.roots[member.root] : undefined;
+  const where = root ? `@${root.name ?? root.root_node_id ?? member.root}//.` : member.position ?? member.address;
+  return `[${index}] ${where} (${member.depth ?? "summary"})`;
 }
 
 /**
  * The Note's ordinal: the one asked for, else the first member that is one of the candidate posts, else the
  * Map's first post in a Thread (a Map is authored in priority order). `by` says which, so a fallback is visible.
  */
-function selectNote(map: MapBlock, candidates: Array<{ id: string; by: NoteChoice }>, postId: string, member: string | undefined): { index: number; by: NoteChoice } {
+function selectNote(
+  map: MapBlock,
+  candidates: Array<{ id: string; by: NoteChoice }>,
+  postId: string,
+  member: string | undefined,
+  about: { links: ThreadAttachment[]; localRoot?: string },
+): { index: number; by: NoteChoice } {
   if (member !== undefined) {
     if (!/^(0|[1-9][0-9]*)$/.test(member) || Number(member) >= map.members.length) {
       throw new Error(`--member must be a zero-based ordinal of the Thread's Map (0 to ${map.members.length - 1}); got ${JSON.stringify(member)}.`);
@@ -197,11 +217,17 @@ function selectNote(map: MapBlock, candidates: Array<{ id: string; by: NoteChoic
   }
   const found = memberMatches(map, candidates);
   if (found) return found;
+  // A Thread opened on a Note is about it (its opening post's `about`): that Note is the Thread's Note.
+  const subject = aboutMember(map, about.links, about.localRoot);
+  if (subject !== undefined) return { index: subject, by: "about" };
   const first = firstThreadPostMember(map);
   if (first !== undefined) return { index: first, by: "first-member" };
+  const full = onlyFullMember(map);
+  if (full !== undefined) return { index: full, by: "only-full" };
   const listed = map.members.flatMap((entry, index) => typeof (entry as MapPositionMember).position === "string" ? [`  ${memberLine(map, index)}`] : []).join("\n");
   throw new Error(
-    `Neither post ${postId}, the post that carries the Map, nor anything they are attached to is a member of the Map, and the Map names no post in a Thread, so no member is the Note. ` +
+    `Neither post ${postId}, the post that carries the Map, nor anything they are attached to is a member of the Map; the Map names no post in a Thread, ` +
+    `the Thread is about none of its members, and not exactly one is at full, so nothing says which member is the Note. ` +
     `Name one with --member <ordinal>:\n${listed || "  (the Map has no position members)"}`,
   );
 }
@@ -225,14 +251,17 @@ export async function assembleLaunchText(input: LaunchTextInput): Promise<Launch
 
   const source = findLaunchMap(holder, directory);
   const note = loadMapNote(source.file, cwd);
-  const chosen = selectNote(note.map, noteCandidates(holder, started, source.post), started.id, input.member);
+  const base = threadBase(dirname(dirname(directory)));
+  const about = { links: holder.about, localRoot: inspectLocalRootIdentity(base).root_node_id ?? undefined };
+  const chosen = selectNote(note.map, noteCandidates(holder, started, source.post), started.id, input.member, about);
   const ordinal = chosen.index;
   const selected = note.map.members[ordinal] as MapPositionMember;
-  if (typeof selected.position !== "string") throw new Error(`Map member ${ordinal} is an address, not a post in a local Thread; choose a position member with --member.`);
-  const home = /^_threads\/([^/]+)\//.exec(selected.position)?.[1];
-  if (!home) throw new Error(`Map member ${ordinal} (${selected.position}) is not a post in a Thread; choose another with --member.`);
+  if (typeof selected.position !== "string") throw new Error(`Map member ${ordinal} is an address, not a Note at a position; choose a position member with --member.`);
   const pin = note.map.roots[selected.root]?.sha;
   if (!pin) throw new Error(`Map member ${ordinal} is in root ${selected.root}, which has no pin; a launch reads its Note at a pin.`);
+  // A post is loaded whole in its pinned Thread; any other Note (the one a Thread was opened on, one in a
+  // Thread's notes/) is read by the Map at its declared depth, and the frame names it.
+  const home = isThreadPostPosition(selected.position) ? /^_threads\/([^/]+)\//.exec(selected.position)![1] : undefined;
 
   let pov: { path: string; text: string } | undefined;
   if (input.pov !== undefined) {
@@ -241,15 +270,20 @@ export async function assembleLaunchText(input: LaunchTextInput): Promise<Launch
     pov = { path: valid.path, text: renderPovOrientation(valid, readFileSync(valid.contractPath, "utf8")) };
   }
 
-  // The Note is read the way `agent run` reads it: pinned, in its own Thread. Its frame is laid out here.
-  const noteDirectory = join(dirname(directory), home);
-  const pinned = prepareThreadLaunch(pov?.path ?? threadBase(dirname(dirname(directory))), noteDirectory, source.file, String(ordinal), { requireAuthor: false, readOnly: true, frameLimit: false });
+  // A post Note is read the way `agent run` reads it: pinned, in its own Thread. Its frame is laid out here.
+  const noteDirectory = home ? join(dirname(directory), home) : undefined;
+  const pinned = noteDirectory
+    ? prepareThreadLaunch(pov?.path ?? base, noteDirectory, source.file, String(ordinal), { requireAuthor: false, readOnly: true, frameLimit: false })
+    : undefined;
+  const launchNote: LaunchNote = pinned && noteDirectory
+    ? { kind: "post", parts: pinned.parts, directory: noteDirectory, inLaunchThread: noteDirectory === directory }
+    : { kind: "note", parts: { map: basename(source.file), ordinal, pin, position: selected.position, depth: selected.depth ?? "summary", by: chosen.by } };
   const since = postsSince(holder, source.post);
   // Room is made in this order: the Map's members first (last up, in `loadLaunchMap`), then the lines of posts
   // since the Map, the oldest first, one at a time, and only then the Thread's Agreement, down to one line. What
   // decided the Thread is the cheapest current record, so it outlasts the lines and the Map. The Agreement of the
   // one who launches and the Note never give way.
-  const listable = renderLaunchFrame({ holder, directory, started, map: source, since, note: pinned.parts, noteDirectory, noteInLaunchThread: noteDirectory === directory, agreement: "whole" }).listed;
+  const listable = renderLaunchFrame({ holder, directory, started, map: source, since, note: launchNote, agreement: "whole" }).listed;
   const steps: Array<{ agreement: "whole" | "line"; sinceMax: number }> = [
     ...Array.from({ length: listable + 1 }, (_, i) => ({ agreement: "whole" as const, sinceMax: listable - i })),
     ...Array.from({ length: Math.min(listable, 3) + 1 }, (_, i) => ({ agreement: "line" as const, sinceMax: Math.min(listable, 3) - i })),
@@ -258,10 +292,10 @@ export async function assembleLaunchText(input: LaunchTextInput): Promise<Launch
   let map: MapOrientationResult | undefined;
   let failure: unknown;
   for (const step of steps) {
-    frame = renderLaunchFrame({ holder, directory, started, map: source, since, note: pinned.parts, noteDirectory, noteInLaunchThread: noteDirectory === directory, ...step });
+    frame = renderLaunchFrame({ holder, directory, started, map: source, since, note: launchNote, ...step });
     try {
       // `agent run` reads the Map with the agent folder as its context, which sets how the Map's own path is shown.
-      map = await loadLaunchMap(source.file, pov?.path ?? cwd, { pov: pov?.text, frame: frame.text, loadedAsNote: pinned.citation, budget: input.budget });
+      map = await loadLaunchMap(source.file, pov?.path ?? cwd, { pov: pov?.text, frame: frame.text, loadedAsNote: pinned?.citation, budget: input.budget });
       break;
     } catch (error) {
       if (!(error instanceof LaunchSizeError) && !(error instanceof MapBudgetError)) throw error;
@@ -315,21 +349,16 @@ export async function assembleLaunchText(input: LaunchTextInput): Promise<Launch
     post: { id: started.id, path: startedFile },
     map_post: { id: source.post.id, path: source.file, kind: source.post.kind, origin: source.origin },
     since: { total: since.length, listed: since.length - frame.omittedSince },
-    note: {
-      thread: pinned.receipt.thread,
-      post: pinned.parentId,
-      member: ordinal,
-      by: chosen.by,
-      position: selected.position,
-      pin,
-      closed: pinned.closed,
-    },
+    note: pinned
+      ? { kind: "post", thread: pinned.receipt.thread, post: pinned.parentId, member: ordinal, by: chosen.by, position: selected.position, pin, closed: pinned.closed }
+      : { kind: "note", member: ordinal, by: chosen.by, position: selected.position, pin },
     agreement: frame.agreement,
     map: { budget: map.budget, chars: map.text.length },
     lowered: map.lowered,
     dropped: map.dropped,
     cut,
     merged: map.merged,
-    receipt: pinned.receipt,
+    // A Note that is no post supplies no post: the receipt names the launch Thread and the Map member.
+    receipt: pinned?.receipt ?? { thread: holder.slug, name: holder.name, post_count: 0, people: [], map: `${basename(source.file)}#${ordinal}` },
   };
 }

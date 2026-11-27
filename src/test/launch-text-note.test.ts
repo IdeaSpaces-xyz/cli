@@ -135,9 +135,10 @@ describe("threads launch-text from a Thread whose Map names Notes", () => {
     const pin = git(dir, "rev-parse", "HEAD");
     const thread = createThread("plain", "Plain", dir).path;
     const opening = appendPost(thread, { body: "Two docs.", author: "d-pm", map: { roots: [{ root_node_id: ROOT_ID, sha: pin }], members: [
-      { root: 0, position: "docs/a.md", depth: "full" }, { root: 0, position: "docs/b.md", depth: "full" },
+      { root: 0, position: "docs/a.md", depth: "full" }, { root: 0, position: "docs/b.md", depth: "full" }, { root: 0, position: ".", depth: "summary" },
     ] } });
-    await expect(assembleLaunchText({ thread, post: opening.post.id, cwd: dir })).rejects.toThrow(/--member <ordinal>[\s\S]*\[0\] docs\/a\.md \(full\)[\s\S]*\[1\] docs\/b\.md \(full\)/);
+    // A root's own folder is listed by its root, not as a bare "." (msg_a0b39905).
+    await expect(assembleLaunchText({ thread, post: opening.post.id, cwd: dir })).rejects.toThrow(new RegExp(`--member <ordinal>[\\s\\S]*\\[0\\] docs/a\\.md \\(full\\)[\\s\\S]*\\[1\\] docs/b\\.md \\(full\\)[\\s\\S]*\\[2\\] @${ROOT_ID}//\\. \\(summary\\)`));
     const asked = await assembleLaunchText({ thread, post: opening.post.id, member: "1", cwd: dir });
     expect(asked.note).toMatchObject({ kind: "note", member: 1, by: "asked", position: "docs/b.md" });
     expect(asked.text).toContain("B-BODY");

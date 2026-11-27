@@ -470,11 +470,14 @@ describe("threads launch-text", () => {
     expect((await assembleLaunchText({ thread: attached.launch.dir, post: attached.launch.id, cwd: attached.root })).note.by).toBe("attached");
   });
 
-  it("asks for --member only when the Map names no post in a Thread at all", async () => {
+  it("asks for --member only when nothing says which member is the Note, and takes a Note that is no post", async () => {
     const f = fixture({ attach: false });
     const docsOnly = appendPost(f.launch.dir, { body: "Docs only.", kind: "snapshot", map: { roots: [{ root_node_id: ROOT_ID, sha: f.pin }], members: [{ root: 0, position: "docs/n0.md", depth: "summary" }, { root: 0, position: "docs/n1.md", depth: "summary" }] } });
     await expect(assembleLaunchText({ thread: f.launch.dir, post: docsOnly.post.id, cwd: f.root })).rejects.toThrow(/names no post in a Thread[\s\S]*--member <ordinal>[\s\S]*\[0\] docs\/n0\.md/);
-    await expect(assembleLaunchText({ thread: f.launch.dir, post: docsOnly.post.id, member: "0", cwd: f.root })).rejects.toThrow(/is not a post in a Thread/);
+    // Desktop Bugs msg_1d2f1a7d: the way out the refusal names works on a Note that is no post.
+    const asked = await assembleLaunchText({ thread: f.launch.dir, post: docsOnly.post.id, member: "0", cwd: f.root });
+    expect(asked.note).toMatchObject({ kind: "note", member: 0, by: "asked", position: "docs/n0.md" });
+    expect(asked.merged).toEqual([]);
   });
 
   it("tells a Thread with no Map by type, an unknown post and a malformed id by what to do", async () => {
