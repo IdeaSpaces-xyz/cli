@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { MapBlock, MapPositionMember, ThreadAttachment } from "@ideaspaces/protocol";
 import { validateAgentPov } from "./agent-pov.js";
+import { singleLine } from "./claims.js";
 import { aboutMember, findLaunchMap, firstThreadPostMember, isThreadPostPosition, memberMatches, noteCandidates, onlyFullMember, postsSince, renderLaunchFrame, type LaunchFrame, type LaunchNote, type NoteChoice } from "./launch-point.js";
 import { inspectLocalRootIdentity } from "../root-identity.js";
 import { loadMapNote } from "./map-note.js";
@@ -194,8 +195,11 @@ function memberLine(map: MapBlock, index: number): string {
   const member = map.members[index] as { root?: number; position?: string; address?: string; depth?: string };
   // A root's own folder is "." in every root; its root says which (Desktop Bugs msg_a0b39905: nine "." in one list).
   const root = member.position === "." && member.root !== undefined ? map.roots[member.root] : undefined;
-  const where = root ? `@${root.name ?? root.root_node_id ?? member.root}//.` : member.position ?? member.address;
-  return `[${index}] ${where} (${member.depth ?? "summary"})`;
+  // A name and a position are the Map author's words, and a refusal reaches a model unfenced: each is one line,
+  // with no control or format character (a direction mark), and at most 120 characters (Security msg_5a947e9c).
+  const words = (value: unknown) => singleLine(typeof value === "string" ? value.replace(/\p{Cf}/gu, "") : String(value), 120);
+  const where = root ? `@${words(root.name ?? root.root_node_id ?? member.root)}//.` : words(member.position ?? member.address);
+  return `[${index}] ${where} (${words(member.depth ?? "summary")})`;
 }
 
 /**
