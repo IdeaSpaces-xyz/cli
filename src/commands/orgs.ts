@@ -32,7 +32,7 @@ function memberLine(member: OrgMember): string {
   const who = member.username ? `@${member.username}` : "(no handle yet)";
   const role = member.org_role ?? "no role";
   const status = member.status && member.status !== "active" ? ` · ${member.status}` : "";
-  return `  ${who.padEnd(24)} ${(member.email ?? "").padEnd(32)} ${role}${status}`;
+  return `  ${who.padEnd(24)} ${(member.email ?? "").padEnd(32)} ${role}${status}`.replace(/\s+$/, "");
 }
 
 async function members(rest: string[], output: Output): Promise<number> {

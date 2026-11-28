@@ -69,6 +69,7 @@ describe("orgs members", () => {
     expect(stdout).toContain("acme.com: 3 members");
     expect(stdout).toMatch(/@ann\s+ann@acme\.com\s+OWNER/);
     expect(stdout).toMatch(/@bo\s+MEMBER/);
+    expect(stdout.split("\n").filter((line) => /\s$/.test(line))).toEqual([]);
     expect(stdout).toMatch(/\(no handle yet\)\s+new@acme\.com\s+MEMBER/);
     // A removed member is still shown, marked, after the active ones.
     expect(stdout).toMatch(/@cy\s+cy@acme\.com\s+MEMBER · removed/);
@@ -112,6 +113,16 @@ describe("orgs members", () => {
     expect(await orgsCommand.run(["list"], {}, TEXT)).toBe(1);
     expect(stderr).toContain("Usage: ideaspaces orgs members <hostname>");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("says the session expired on a 401, and keeps a refusal off stdout under --json", async () => {
+    answer(401, { detail: "Not authenticated" });
+    expect(await orgsCommand.run(["members", "acme.com"], {}, TEXT)).toBe(1);
+    expect(stderr).toContain("Session expired. Run `ideaspaces login`.");
+    answer(403, { detail: "Only organization owners can view organization members" });
+    stdout = "";
+    expect(await orgsCommand.run(["members", "acme.com"], {}, JSON_G)).toBe(1);
+    expect(stdout).toBe("");
   });
 
   it("asks to sign in when there is no session", async () => {
