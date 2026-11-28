@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "7b3034735e5902ae0def213b8bc45d8dc8b13515"
+    "commit": "d3171ce8cf7e55b42c2673f3091ea95bab9e618d"
   },
   "protocol": {
     "version": "0.34.0",
     "commit": "50e37831f488ddd0ba13b9bcfbf60a88047c767d"
   },
-  "digest": "sha256:d8976613fcd06500c3a011fd12ee2911c094179b2cf314d3fa4b73cc4d210363",
+  "digest": "sha256:8d0a61aab5bc2ac916cf597da6a763763dd4721ed9de6032bcfbaf6c0e065636",
   "groups": [
     {
       "id": "read",
@@ -5431,6 +5431,54 @@
           "pending_invites",
           "teams",
           "unavailable"
+        ]
+      }
+    },
+    {
+      "id": "orgs.members",
+      "owner": "cli",
+      "status": "active",
+      "job": "J10",
+      "effect": "read",
+      "reach": "hosted",
+      "confirm": "none",
+      "requires": {
+        "cli": ">=0.12.0"
+      },
+      "text": {
+        "does": "List who is in an organization: each member's @handle, role and status, and their email when it is on the organization's hostname.",
+        "use_when": "Before sharing with a person in a team, to find their @handle, or to see who a team share reaches.",
+        "check": "The service answers an organization's owner only; anyone else gets a refusal that says so.",
+        "bound": "Unbounded service result for one organization; no client-side continuation."
+      },
+      "bound": "unbounded",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "description": "The organization's hostname, like acme.com, or its address hostname:acme.com."
+          }
+        },
+        "required": [
+          "hostname"
+        ],
+        "additionalProperties": false
+      },
+      "cli": {
+        "argv": [
+          "orgs",
+          "members"
+        ],
+        "positional": [
+          "hostname"
+        ],
+        "flags": {}
+      },
+      "output": {
+        "json": [
+          "hostname",
+          "members"
         ]
       }
     },

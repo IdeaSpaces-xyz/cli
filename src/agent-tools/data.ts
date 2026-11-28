@@ -5427,6 +5427,54 @@ export const entries: Entry[] = [
     }
   },
   {
+    "id": "orgs.members",
+    "owner": "cli",
+    "status": "active",
+    "job": "J10",
+    "effect": "read",
+    "reach": "hosted",
+    "confirm": "none",
+    "requires": {
+      "cli": ">=0.12.0"
+    },
+    "text": {
+      "does": "List who is in an organization: each member's @handle, role and status, and their email when it is on the organization's hostname.",
+      "use_when": "Before sharing with a person in a team, to find their @handle, or to see who a team share reaches.",
+      "check": "The service answers an organization's owner only; anyone else gets a refusal that says so.",
+      "bound": "Unbounded service result for one organization; no client-side continuation."
+    },
+    "bound": "unbounded",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "hostname": {
+          "type": "string",
+          "description": "The organization's hostname, like acme.com, or its address hostname:acme.com."
+        }
+      },
+      "required": [
+        "hostname"
+      ],
+      "additionalProperties": false
+    },
+    "cli": {
+      "argv": [
+        "orgs",
+        "members"
+      ],
+      "positional": [
+        "hostname"
+      ],
+      "flags": {}
+    },
+    "output": {
+      "json": [
+        "hostname",
+        "members"
+      ]
+    }
+  },
+  {
     "id": "share.remove",
     "owner": "cli",
     "status": "active",
