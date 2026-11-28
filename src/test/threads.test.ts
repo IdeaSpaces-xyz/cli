@@ -260,7 +260,7 @@ describe("local Threads", () => {
     for (const [verb, flag] of Object.entries({
       list: "depth", open: "post", read: "since", new: "about", post: "reply-to",
       posts: "limit", close: "message", render: "", init: "", push: "remote", send: "name",
-      reply: "reply-to", expand: "", add: "grade", rename: "name",
+      reply: "reply-to", expand: "", add: "access", rename: "name", members: "", remove: "",
     })) {
       expect(threadFlagError(verb, flag ? { [flag]: "value" } : {}), verb).toBeUndefined();
       expect(threadFlagError(verb, { typo: true }), verb).toContain("--typo");
