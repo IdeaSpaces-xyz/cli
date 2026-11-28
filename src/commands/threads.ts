@@ -32,12 +32,13 @@ export { threadFlagError } from "./thread-flags.js";
 
 const SURFACE_BODY_BYTES = 800;
 const KNOWN_POST_KINDS = new Set<string>(THREAD_KINDS);
-/** Verbs whose first argument names a Thread; only these need the local-or-hosted decision. Keep with the dispatch below. */
+/** A hosted Thread's membership verbs: each takes an x_ id first, and no local Thread has members. */
 const MEMBER_USAGE: Record<"members" | "add" | "remove", string> = {
   members: "ideaspaces threads members x_<id>",
   add: "ideaspaces threads add x_<id> <@handle,...> [--access comment|view] [--agents <n_id,...>]",
   remove: "ideaspaces threads remove x_<id> <@handle|agent:n_id|inv_id>",
 };
+/** Verbs whose first argument names a Thread; only these need the local-or-hosted decision. Keep with the dispatch below. */
 const TAKES_THREAD_ID = new Set(["open", "read", "post", "reply", "close", "rename", "ack", "attach"]);
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
