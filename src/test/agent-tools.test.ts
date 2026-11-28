@@ -16,8 +16,8 @@ describe("agent tool contract data", () => {
     const data = catalog();
     expect(validate(data), JSON.stringify(validate.errors)).toBe(true);
     expect(groups.map(g => g.job)).toEqual(Array.from({ length: 14 }, (_, i) => `J${i + 1}`));
-    expect(entries.filter(e => e.owner === "cli" && e.status === "active")).toHaveLength(103); // post joined the catalog (protocol 0.33.0), then threads inbox, then orgs members
-    expect(entries.filter(e => e.status === "retired").map(e => e.id)).toEqual(["follow", "unfollow", "threads.posts", "threads.expand", "threads.add"]);
+    expect(entries.filter(e => e.owner === "cli" && e.status === "active")).toHaveLength(106); // post joined the catalog (protocol 0.33.0), then threads inbox, then orgs members, then threads members, add and remove
+    expect(entries.filter(e => e.status === "retired").map(e => e.id)).toEqual(["follow", "unfollow", "threads.posts", "threads.expand"]); // threads.add returned as membership, 2026-11-28
     expect(entries.filter(e => e.owner === "host").map(e => e.id)).toEqual(["change.open", "change.close", "session.status"]);
     for (const host of entries.filter(e => e.owner === "host")) {
       expect(host.implemented_by).toEqual(["mcp", "pi"]);

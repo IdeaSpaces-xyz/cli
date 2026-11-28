@@ -20,7 +20,7 @@ export function threadFlagError(verb: string, flags: Flags): string | undefined 
 /** The only flags each hosted-Thread (x_<id>) verb takes; anything else is refused by name.
  * Checked instead of THREAD_FLAGS when the verb is hosted, so local verbs keep their own set. */
 const HOSTED_VERB_FLAGS: Record<string, ReadonlySet<string>> = Object.fromEntries(
-  ["list", "open", "post", "new", "close", "rename", "send", "ack"].map(verb => [verb, allowedFlags(`threads.${verb}`, "hosted")]),
+  ["list", "open", "post", "new", "close", "rename", "send", "ack", "members", "add", "remove"].map(verb => [verb, allowedFlags(`threads.${verb}`, "hosted")]),
 );
 
 export function hostedVerbFlagError(verb: string, flags: Flags): string | undefined {
@@ -29,5 +29,5 @@ export function hostedVerbFlagError(verb: string, flags: Flags): string | undefi
   if (!unknown) return undefined;
   const label = unknown === "kind" && known.has("tags") ? " A hosted post's kind comes from its verb; a label goes in --tags."
     : unknown === "to" ? " The service doesn't keep who a post asks yet; --to is for local Threads." : "";
-  return `--${unknown} is not supported by hosted threads ${verb}; it takes ${[...known].map((f) => `--${f}`).join(", ")}.${label}`;
+  return `--${unknown} is not supported by hosted threads ${verb}; it takes ${known.size ? [...known].map((f) => `--${f}`).join(", ") : "no flags"}.${label}`;
 }
