@@ -3,13 +3,13 @@
   "version": 1,
   "cli": {
     "version": "0.11.0",
-    "commit": "69ff8db0da32407b33d86401d2306b7fd865548b"
+    "commit": "0fea50ccdb1742593fe966b8ae982ae09c0b9e83"
   },
   "protocol": {
     "version": "0.34.0",
     "commit": "50e37831f488ddd0ba13b9bcfbf60a88047c767d"
   },
-  "digest": "sha256:bc50b75f7c4b798f84ce9d0c93f8c9c2fc49d7d41eec2bcd03d08ec033b88862",
+  "digest": "sha256:d8976613fcd06500c3a011fd12ee2911c094179b2cf314d3fa4b73cc4d210363",
   "groups": [
     {
       "id": "read",
@@ -5245,7 +5245,7 @@
         "cli": ">=0.9.0"
       },
       "text": {
-        "does": "Grant or invite a person at an explicit grade.",
+        "does": "Share with a person, by @handle or an existing account's email, at an explicit grade; IdeaSpaces sends no invitation emails.",
         "use_when": "When the person explicitly requested sharing.",
         "check": "Verify recipient and grade; history is a separate explicit grant.",
         "bound": "Unbounded service result for this repo/node; no client-side continuation."
@@ -5260,7 +5260,7 @@
           },
           "grade": {
             "type": "string",
-            "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+            "description": "explore, fork or collaborate (Copy on the web is fork); the older viewer, copying and editor still work."
           },
           "history": {
             "type": "boolean",
@@ -5335,7 +5335,7 @@
           },
           "grade": {
             "type": "string",
-            "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+            "description": "explore, fork or collaborate (Copy on the web is fork); the older viewer, copying and editor still work."
           },
           "repo": {
             "type": "string",
@@ -5722,7 +5722,7 @@
           },
           "grade": {
             "type": "string",
-            "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+            "description": "explore, fork or collaborate (Copy on the web is fork); the older viewer, copying and editor still work."
           },
           "reason": {
             "type": "string",
@@ -5862,7 +5862,7 @@
           },
           "grade": {
             "type": "string",
-            "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+            "description": "explore, fork or collaborate (Copy on the web is fork); the older viewer, copying and editor still work."
           }
         },
         "required": [
