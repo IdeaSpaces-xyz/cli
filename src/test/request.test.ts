@@ -104,7 +104,7 @@ describe("ideaspaces request", () => {
       grade: "explore",
       reason: "Need to review finding",
     });
-    expect(stdout()).toContain("Requested Viewer (explore) access to n_0123456789abcdef01234567");
+    expect(stdout()).toContain("Requested explore access to n_0123456789abcdef01234567");
     expect(stdout()).toContain(`(request ${REQUEST_ID})`);
     expect(stdout()).toContain("The owner will decide.");
   });
@@ -168,7 +168,7 @@ describe("ideaspaces request", () => {
     expect(code).toBe(0);
     expect(stdout()).toContain("Incoming access requests (1):");
     expect(stdout()).toContain(`${REQUEST_ID}  Access request for ${TARGET}`);
-    expect(stdout()).toContain("person:user_2 requests Viewer (explore)");
+    expect(stdout()).toContain("person:user_2 requests explore");
     expect(stdout()).toContain("Reason: Please give access");
   });
 
@@ -190,7 +190,7 @@ describe("ideaspaces request", () => {
     expect(code).toBe(0);
     expect(stdout()).toContain("Your access requests (1):");
     expect(stdout()).toContain(`${REQUEST_ID}  Access request for ${TARGET}`);
-    expect(stdout()).toContain("Requested: Viewer (explore) · State: pending");
+    expect(stdout()).toContain("Requested: explore · State: pending");
   });
 
   it("approves an incoming request", async () => {
@@ -209,7 +209,42 @@ describe("ideaspaces request", () => {
     const code = await requestCommand.run(["approve", REQUEST_ID], {}, TEXT_GLOBAL);
     expect(code).toBe(0);
     expect(approveAccessRequestMock).toHaveBeenCalledWith(CFG, REQUEST_ID, { grade: undefined });
-    expect(stdout()).toContain(`Approved Viewer (explore) access for request ${REQUEST_ID} (${TARGET}).`);
+    expect(stdout()).toContain(`Approved explore access for request ${REQUEST_ID} (${TARGET}).`);
+  });
+
+  it("takes the grades share takes, and keeps the older words as aliases", async () => {
+    approveAccessRequestMock.mockResolvedValue({
+      id: REQUEST_ID, target_node_id: TARGET, requested_grade: "explore", approved_grade: "fork",
+      state: "approved", changed: true, expires_at: "2026-10-12T00:00:00Z", created_at: "2026-10-05T00:00:00Z",
+    });
+    for (const [word, grade] of [
+      ["explore", "explore"], ["fork", "fork"], ["collaborate", "collaborate"],
+      ["viewer", "explore"], ["copying", "fork"], ["copy", "fork"], ["editor", "collaborate"],
+    ] as const) {
+      approveAccessRequestMock.mockClear();
+      expect(await requestCommand.run(["approve", REQUEST_ID], { grade: word }, TEXT_GLOBAL)).toBe(0);
+      expect(approveAccessRequestMock).toHaveBeenCalledWith(CFG, REQUEST_ID, { grade });
+    }
+    expect(stdout()).toContain(`Approved fork access for request ${REQUEST_ID}`);
+    expect(requestCommand.usage).toContain("--grade explore|fork|collaborate");
+    expect(requestCommand.usage).not.toContain("viewer|editor|copying");
+  });
+
+  it("names the grades and their older words when a grade is wrong", async () => {
+    expect(await requestCommand.run([TARGET], { grade: "owner" }, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("must be explore, fork or collaborate");
+    expect(stderr()).toContain("viewer, copying and editor still work");
+    expect(createAccessRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("prints a refusal's link, not the raw API line", async () => {
+    createAccessRequestMock.mockRejectedValue(new Error(
+      `POST /api/v1/nodes/${TARGET}/access-requests → 403: ` +
+      '{"detail":{"code":"person_credential_required","message":"Asking for access is done on ideaspaces.xyz","url":"https://ideaspaces.xyz/shared/n_x"}}',
+    ));
+    expect(await requestCommand.run([TARGET], {}, TEXT_GLOBAL)).toBe(1);
+    expect(stderr()).toContain("Asking for access is done on ideaspaces.xyz\nOpen: https://ideaspaces.xyz/shared/n_x");
+    expect(stderr()).not.toContain("→ 403");
   });
 
   it("declines an incoming request", async () => {

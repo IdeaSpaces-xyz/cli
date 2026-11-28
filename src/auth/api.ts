@@ -632,6 +632,12 @@ export async function fetchAgents(
   return res.agents;
 }
 
+/** The web address a refusal points to (the Share sheet, say), when it is a plain http(s) URL. */
+function refusalLink(detail: object): string {
+  const url = (detail as { url?: unknown }).url;
+  return typeof url === "string" && /^https?:\/\/[^\s\u0000-\u001f\u007f]+$/.test(url) ? `\nOpen: ${url}` : "";
+}
+
 /** Pull the clean message or detail string out of an API error. */
 export function apiErrorDetail(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
@@ -646,7 +652,8 @@ export function apiErrorDetail(err: unknown): string {
         "message" in parsed.detail &&
         typeof (parsed.detail as { message: unknown }).message === "string"
       ) {
-        return (parsed.detail as { message: string }).message;
+        // A refusal that names where to go next keeps that link: the person has no other way to find it.
+        return (parsed.detail as { message: string }).message + refusalLink(parsed.detail);
       }
       if (typeof parsed.message === "string") return parsed.message;
     } catch {
@@ -1236,6 +1243,12 @@ export function describeShareRefusal(err: unknown): string | null {
   }
   if (message.includes("→ 409") && message.includes("Person Share is unavailable")) {
     return "Direct person sharing is unavailable for this Space.";
+  }
+  if (message.includes("→ 409") && /invitation emails are disabled/i.test(message)) {
+    return (
+      "IdeaSpaces sends no invitation emails, so nothing was sent. Share with their @handle, " +
+      "or with the email of an account they already have, or send them the Space's link and they can ask for access."
+    );
   }
   return null;
 }

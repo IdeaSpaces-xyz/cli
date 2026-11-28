@@ -12,6 +12,8 @@
 
 import {
   addPersonShare,
+  apiErrorDetail,
+  deriveWebBase,
   describeShareRefusal,
   fetchAuthMe,
   removePersonShare,
@@ -46,6 +48,7 @@ import { parseRepoLocator } from "../repo-locator.js";
 import { createOutput, type Output } from "../output.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 import { NODE_ID } from "./thread-flags.js";
+import { parseShareGrade, SHARE_GRADE_HELP } from "../share-grades.js";
 
 type Flags = Record<string, string | boolean>;
 
@@ -84,23 +87,28 @@ function repoFlag(flags: Flags): string | undefined {
 }
 
 function parseGrade(flags: Flags, output: Output): ShareGrade | null {
-  const grade = (flagStr(flags, "grade")?.toLowerCase() ?? "explore") as ShareGrade;
-  if (!GRADES.includes(grade)) {
-    output.error(`--grade must be one of: ${GRADES.join(", ")}`);
+  const grade = parseShareGrade(flagStr(flags, "grade") ?? "explore");
+  if (!grade) {
+    output.error(`--grade must be one of: ${GRADES.join(", ")} (the older viewer, copying and editor still work)`);
     return null;
   }
   return grade;
 }
 
+/**
+ * An email names an existing account, as on the web: IdeaSpaces sends no
+ * invitation emails, and asking for one (`invite_if_no_match`) is the one thing
+ * the service refuses with an email.
+ */
 function personSelector(value: string):
   | { username: string; invite_if_no_match: false }
-  | { email: string; invite_if_no_match: true }
+  | { email: string; invite_if_no_match: false }
   | null {
   if (value.startsWith("@") && value.length > 1 && !value.slice(1).includes("@")) {
     return { username: value.slice(1), invite_if_no_match: false };
   }
   if (value.includes("@") && !value.startsWith("@")) {
-    return { email: value, invite_if_no_match: true };
+    return { email: value, invite_if_no_match: false };
   }
   return null;
 }
@@ -239,7 +247,7 @@ async function resolveTarget(
 }
 
 /** What happened, in the words the person sharing needs. */
-function describeShare(res: PersonShareAddResult): string {
+function describeShare(res: PersonShareAddResult, spaceLink?: string): string {
   // Straight from username to the *invite's* email skipped the relationship's
   // own address, so anyone without a username became "them" — and
   // "them's account cannot receive access" with it.
@@ -265,12 +273,25 @@ function describeShare(res: PersonShareAddResult): string {
     case "self":
       return "That is your own address — you already have this Space.";
     case "no_match":
-      return "No account matches, and no invitation was sent.";
+      return (
+        "No IdeaSpaces account has that address, so nothing was shared. IdeaSpaces sends no invitation emails: " +
+        "share with their @handle once they have an account" +
+        (spaceLink ? `, or send them the Space's link and they can ask for access:\n${spaceLink}` : ".")
+      );
     case "recipient_unavailable":
       return `${who}'s account cannot receive access right now.`;
     default:
       return `${res.status}: ${who}`;
   }
+}
+
+/**
+ * A service refusal in the service's own words, with the link it sent, instead
+ * of the raw `POST /path → 409: {...}` line. Any other error keeps its message,
+ * which already says where it happened.
+ */
+function refusalText(err: unknown): string {
+  return err instanceof Error && /^[A-Z]+ \/\S* → \d{3}: /.test(err.message) ? apiErrorDetail(err) : errorText(err);
 }
 
 function errorText(reason: unknown): string {
@@ -337,7 +358,7 @@ async function shareWithPerson(
     grade,
     share_history: Boolean(flags.history),
   });
-  output.result(result, describeShare(result));
+  output.result(result, describeShare(result, `${deriveWebBase(config.apiUrl)}/repos/${target}`));
   return 0;
 }
 
@@ -909,7 +930,7 @@ async function run(
       (teamOperation
         ? describeTeamShareRefusal(err) ?? describeShareRefusal(err)
         : describeShareRefusal(err) ?? describeTeamShareRefusal(err)) ??
-        (err instanceof Error ? err.message : String(err)),
+        refusalText(err),
     );
     return 1;
   }
@@ -919,6 +940,7 @@ export const shareCommand: CommandDef = {
   name: "share",
   description: "Inspect and manage access (log is per-node: share log [--node <id>])",
   usage: USAGE,
+  help: SHARE_GRADE_HELP,
   subcommands: {
     person: "ideaspaces share person <email|@handle> [--grade explore|fork|collaborate] [--history] [--repo <url>]",
     team: "ideaspaces share team <hostname> [--grade explore|fork|collaborate] [--repo <url>]",
@@ -931,9 +953,10 @@ export const shareCommand: CommandDef = {
     visibility: "ideaspaces share visibility <public|private> [--yes] [--repo <url>]",
   },
   examples: [
-    "ideaspaces share person someone@example.com --grade explore",
+    "ideaspaces share person @someone --grade explore",
+    "ideaspaces share person someone@example.com --grade explore  # an existing account's email; IdeaSpaces sends no invitation emails",
     "ideaspaces share person @someone --grade fork",
-    `ideaspaces share person someone@example.com --grade collaborate --history  # ${COLLABORATE_HISTORY_WARNING}`,
+    `ideaspaces share person @someone --grade collaborate --history  # ${COLLABORATE_HISTORY_WARNING}`,
     "ideaspaces share team acme.com --grade collaborate",
     "ideaspaces share status --repo https://ideaspaces.xyz/repos/n_0123456789abcdef01234567  # crawls the whole Space; may take a while, exits nonzero on failure",
     "ideaspaces share log --node n_0123456789abcdef01234567 --json  # per-node events; scope identifies this partial log",
@@ -941,7 +964,7 @@ export const shareCommand: CommandDef = {
     "ideaspaces share resend someone@example.com",
     `ideaspaces share history @someone on  # For a Collaborator: ${COLLABORATE_HISTORY_WARNING}`,
     "ideaspaces share history @someone off",
-    "ideaspaces share remove someone@example.com",
+    "ideaspaces share remove @someone",
     "ideaspaces share remove team:acme.com",
     "ideaspaces share visibility public        # plan only — shows what opens up",
     "ideaspaces share visibility public --yes  # apply",

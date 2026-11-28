@@ -60,7 +60,7 @@ ideaspaces update --yes                                                   # late
 ```sh
 ideaspaces login
 ideaspaces publish --yes                                     # host it, private to you
-ideaspaces share person someone@example.com --grade explore
+ideaspaces share person @someone --grade explore
 ideaspaces share visibility public --yes                     # anyone can view and fork
 ideaspaces push
 ideaspaces pull

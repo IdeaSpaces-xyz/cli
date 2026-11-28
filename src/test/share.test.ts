@@ -360,14 +360,15 @@ describe("share access inspection", () => {
 });
 
 describe("share person — a grade on a Space, not a seat in a repo", () => {
-  it("invites from the folder you are standing in, with no repo_id anywhere", async () => {
+  it("shares by an existing account's email from the folder you are standing in, with no repo_id anywhere", async () => {
     expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(0);
 
     // The done-when's first clause: the owner never discovers an internal
     // repository identifier to share what they are looking at.
     expect(addPersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, {
       email: "bob@example.com",
-      invite_if_no_match: true,
+      // IdeaSpaces sends no invitation emails; asking for one is what the service refuses.
+      invite_if_no_match: false,
       grade: "explore",
       share_history: false,
     });
@@ -1098,7 +1099,7 @@ describe("every outcome says something true", () => {
     ["already_direct", {}, ["already has direct access", "Nothing changed"]],
     ["already_pending", {}, ["still stands"]],
     ["self", {}, ["your own address"]],
-    ["no_match", { relationship: null }, ["No account matches"]],
+    ["no_match", { relationship: null }, ["No IdeaSpaces account has that address", "sends no invitation emails"]],
     ["recipient_unavailable", {}, ["cannot receive access"]],
   ];
 
@@ -1178,6 +1179,92 @@ describe("share refusals other than the governance one", () => {
     expect(await shareCommand.run(["person", "bob@example.com"], {}, JSON_G)).toBe(1);
     expect(stderr).toContain("Direct person sharing is unavailable");
     expect(stderr).not.toContain("409");
+  });
+});
+
+describe("a refusal in the service's words, with its link", () => {
+  const refused = (status: number, body: string) =>
+    new Error(`POST /api/v1/nodes/${ROOT}/person-shares → ${status}: ${body}`);
+
+  it("prints the message and the link a refusal carries, not the raw API line", async () => {
+    addPersonShareMock.mockRejectedValue(refused(403,
+      '{"detail":{"code":"person_credential_required","message":"Including version history is done in the Share sheet on ideaspaces.xyz","url":"https://ideaspaces.xyz/v2/r/repo_abc?share=1"}}'));
+
+    expect(await shareCommand.run(["person", "@bob"], { grade: "collaborate", history: true }, JSON_G)).toBe(1);
+    expect(stderr).toContain(
+      "Including version history is done in the Share sheet on ideaspaces.xyz\nOpen: https://ideaspaces.xyz/v2/r/repo_abc?share=1",
+    );
+    expect(stderr).not.toContain("→ 403");
+    expect(stderr).not.toContain("person_credential_required");
+  });
+
+  it("prints a refusal's message without a link that is not a plain web address", async () => {
+    addPersonShareMock.mockRejectedValue(refused(403,
+      '{"detail":{"code":"person_credential_required","message":"Refused","url":"javascript:alert(1)"}}'));
+    expect(await shareCommand.run(["person", "@bob"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Refused");
+    expect(stderr).not.toContain("Open:");
+    expect(stderr).not.toContain("javascript");
+  });
+
+  it("says no email was sent when the service refuses an invitation email", async () => {
+    addPersonShareMock.mockRejectedValue(refused(409,
+      '{"detail":"Copy the link or invite by handle; invitation emails are disabled"}'));
+    expect(await shareCommand.run(["person", "new@example.com"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("IdeaSpaces sends no invitation emails, so nothing was sent");
+    expect(stderr).toContain("@handle");
+    expect(stderr).not.toContain("→ 409");
+  });
+
+  it("prints a plain-string refusal as its sentence", async () => {
+    addPersonShareMock.mockRejectedValue(refused(429,
+      '{"detail":"You\'ve used your 200 sharing actions today across Desktop and CLI. Taking back still works. Share again at 00:00 UTC."}'));
+    expect(await shareCommand.run(["person", "@bob"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("You've used your 200 sharing actions today");
+    expect(stderr).not.toContain("→ 429");
+  });
+
+  it("keeps a message that is not a service refusal as it was", async () => {
+    addPersonShareMock.mockRejectedValue(new Error("Cannot inspect hosted tree at /: GET /x → 500: boom"));
+    expect(await shareCommand.run(["person", "@bob"], {}, JSON_G)).toBe(1);
+    expect(stderr).toContain("Cannot inspect hosted tree at /: GET /x → 500: boom");
+  });
+});
+
+describe("an email names an existing account", () => {
+  it("says no account has the address, and gives the Space's link instead of an invitation", async () => {
+    addPersonShareMock.mockResolvedValue(addResult({ status: "no_match", relationship: null }));
+    expect(await shareCommand.run(["person", "nobody@example.com"], {}, TEXT_G)).toBe(0);
+    expect(addPersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT,
+      expect.objectContaining({ email: "nobody@example.com", invite_if_no_match: false }));
+    expect(stdout).toContain("No IdeaSpaces account has that address, so nothing was shared");
+    expect(stdout).toContain(`https://example.test/repos/${ROOT}`);
+  });
+
+  it("leads its help examples with an @handle", () => {
+    const firstPerson = shareCommand.examples?.find((line) => line.includes("share person"));
+    expect(firstPerson).toContain("share person @someone");
+    expect(shareCommand.examples?.join("\n")).toContain("IdeaSpaces sends no invitation emails");
+  });
+});
+
+describe("one set of grade words", () => {
+  for (const [word, grade] of [["copy", "fork"], ["copying", "fork"], ["viewer", "explore"], ["editor", "collaborate"]] as const) {
+    it(`takes ${word} as ${grade}, for a person and for a team`, async () => {
+      expect(await shareCommand.run(["person", "@bob"], { grade: word }, JSON_G)).toBe(0);
+      expect(addPersonShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, expect.objectContaining({ grade }));
+      listEligibleTeamAudiencesMock.mockResolvedValue([
+        { audience: "org_members", hostname: "acme.com", org_node_id: "n_org", grantee: "g", label: "Acme", role: "MEMBER" },
+      ]);
+      expect(await shareCommand.run(["team", "acme.com"], { grade: word }, JSON_G)).toBe(0);
+      expect(setTeamShareMock).toHaveBeenCalledWith(expect.anything(), ROOT, "n_org", grade);
+    });
+  }
+
+  it("names the three grades and the older words in --help", () => {
+    expect(shareCommand.help).toContain("explore");
+    expect(shareCommand.help).toContain("fork (read it and take an independent copy; Copy on the web)");
+    expect(shareCommand.help).toContain("viewer, copying (or copy) and editor still work");
   });
 });
 

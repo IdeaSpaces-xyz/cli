@@ -10,6 +10,7 @@ import {
 } from "../auth/api.js";
 import { loadConfig } from "../auth/credentials.js";
 import { createOutput, type Output } from "../output.js";
+import { parseShareGrade, SHARE_GRADE_HELP, type ShareGradeWord } from "../share-grades.js";
 import type { CommandDef, GlobalFlags } from "../types.js";
 
 type Flags = Record<string, string | boolean>;
@@ -18,9 +19,9 @@ const NODE_ID = /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/;
 
 export const REQUEST_USAGE =
   "ideaspaces request <ask|list|approve|deny|cancel> ...\n" +
-  "       ideaspaces request <node_id> [--grade viewer|editor|copying] [--reason 'why']\n" +
+  "       ideaspaces request <node_id> [--grade explore|fork|collaborate] [--reason 'why']\n" +
   "       ideaspaces request list [--incoming|--mine]\n" +
-  "       ideaspaces request approve <request_id> [--grade viewer|editor|copying]\n" +
+  "       ideaspaces request approve <request_id> [--grade explore|fork|collaborate]\n" +
   "       ideaspaces request deny <request_id>  # or decline\n" +
   "       ideaspaces request cancel <request_id>";
 
@@ -29,38 +30,13 @@ function flagString(flags: Flags, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-export function parseGrade(grade?: string): "explore" | "fork" | "collaborate" | null {
-  if (!grade) return "explore";
-  const normalized = grade.toLowerCase().trim();
-  switch (normalized) {
-    case "viewer":
-    case "explore":
-      return "explore";
-    case "copying":
-    case "allow copying":
-    case "allow-copying":
-    case "fork":
-      return "fork";
-    case "editor":
-    case "collaborate":
-      return "collaborate";
-    default:
-      return null;
-  }
+/** The same three grades `share` takes; the request verb's older words still work. */
+export function parseGrade(grade?: string): ShareGradeWord | null {
+  return grade ? parseShareGrade(grade) : "explore";
 }
 
-export function humanGrade(grade: string): string {
-  switch (grade) {
-    case "explore":
-      return "Viewer (explore)";
-    case "fork":
-      return "Allow copying (fork)";
-    case "collaborate":
-      return "Editor (collaborate)";
-    default:
-      return grade;
-  }
-}
+const INVALID_GRADE =
+  "Invalid --grade: must be explore, fork or collaborate (the older viewer, copying and editor still work).";
 
 async function runAuthenticated(
   output: Output,
@@ -91,14 +67,14 @@ async function ask(target: string, flags: Flags, output: Output): Promise<number
   const gradeStr = flagString(flags, "grade");
   const grade = parseGrade(gradeStr);
   if (!grade) {
-    output.error("Invalid --grade: must be viewer (explore), copying (fork), or editor (collaborate).");
+    output.error(INVALID_GRADE);
     return 1;
   }
   const reason = flagString(flags, "reason");
 
   return runAuthenticated(output, async (config) => {
     const result = await createAccessRequest(config, target, { grade, reason });
-    const gradeLabel = humanGrade(result.requested_grade);
+    const gradeLabel = result.requested_grade;
     const text = `Requested ${gradeLabel} access to ${result.target_node_id} (request ${result.id}). The owner will decide.`;
     output.result(result, text);
     return 0;
@@ -119,7 +95,7 @@ async function list(args: string[], flags: Flags, output: Output): Promise<numbe
       for (const req of requests) {
         lines.push(
           `${req.id}  Access request for ${req.target_node_id}`,
-          `  Requested: ${humanGrade(req.requested_grade)} · State: ${req.state}`,
+          `  Requested: ${req.requested_grade} · State: ${req.state}`,
         );
         if (req.reason) lines.push(`  Reason: ${req.reason}`);
         lines.push("");
@@ -138,7 +114,7 @@ async function list(args: string[], flags: Flags, output: Output): Promise<numbe
     for (const req of requests) {
       lines.push(
         `${req.id}  Access request for ${req.target_node_id}`,
-        `  ${req.requester} requests ${humanGrade(req.requested_grade)}`,
+        `  ${req.requester} requests ${req.requested_grade}`,
       );
       if (req.reason) lines.push(`  Reason: ${req.reason}`);
       lines.push("");
@@ -156,14 +132,14 @@ async function approve(requestId: string, flags: Flags, output: Output): Promise
   const gradeStr = flagString(flags, "grade");
   const parsed = gradeStr ? parseGrade(gradeStr) : undefined;
   if (gradeStr && !parsed) {
-    output.error("Invalid --grade: must be viewer (explore), copying (fork), or editor (collaborate).");
+    output.error(INVALID_GRADE);
     return 1;
   }
   const grade = parsed ?? undefined;
 
   return runAuthenticated(output, async (config) => {
     const result = await approveAccessRequest(config, requestId, { grade });
-    const gradeLabel = humanGrade(result.approved_grade ?? result.requested_grade);
+    const gradeLabel = result.approved_grade ?? result.requested_grade;
     const text = `Approved ${gradeLabel} access for request ${result.id} (${result.target_node_id}).`;
     output.result(result, text);
     return 0;
@@ -202,22 +178,23 @@ export const requestCommand: CommandDef = {
   name: "request",
   description: "Ask for access to shared Content, and list, approve or decline requests",
   usage: REQUEST_USAGE,
+  help: SHARE_GRADE_HELP,
   subcommands: {
-    ask: "ideaspaces request ask <node_id> [--grade viewer|editor|copying] [--reason <text>]",
+    ask: "ideaspaces request ask <node_id> [--grade explore|fork|collaborate] [--reason <text>]",
     list: "ideaspaces request list [--incoming|--mine]",
     incoming: "ideaspaces request incoming",
-    approve: "ideaspaces request approve <request_id> [--grade viewer|editor|copying]",
+    approve: "ideaspaces request approve <request_id> [--grade explore|fork|collaborate]",
     deny: "ideaspaces request deny <request_id>",
     decline: "ideaspaces request decline <request_id>",
     cancel: "ideaspaces request cancel <request_id>",
   },
   helpArgument: (word) => /^n_(?:[0-9a-f]{12}|[0-9a-f]{24})$/.test(word),
   examples: [
-    "ideaspaces request n_0123456789abcdef01234567 --grade viewer --reason 'Need to review finding'",
+    "ideaspaces request n_0123456789abcdef01234567 --grade explore --reason 'Need to review finding'",
     "ideaspaces request list",
     "ideaspaces request list --mine",
     "ideaspaces request approve r_0123456789abcdef01",
-    "ideaspaces request approve r_0123456789abcdef01 --grade editor",
+    "ideaspaces request approve r_0123456789abcdef01 --grade collaborate",
     "ideaspaces request decline r_0123456789abcdef01",
     "ideaspaces request cancel r_0123456789abcdef01",
   ],
