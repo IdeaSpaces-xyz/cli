@@ -716,6 +716,26 @@ export async function fetchVaults(config: ApiConfig, opts?: RequestOptions): Pro
   return request<unknown>(config, "GET", `${API_V1}/vaults`, undefined, { ...opts, ...HOSTED });
 }
 
+/** One member of an organization, as its owner sees them. `email` is given only when it is on the organization's own hostname. */
+export interface OrgMember {
+  user_id: number;
+  username?: string | null;
+  email?: string | null;
+  org_role?: string | null;
+  status?: string | null;
+  sources?: string[];
+}
+
+export interface OrgMembersResponse {
+  hostname: string;
+  members: OrgMember[];
+}
+
+/** GET /orgs/{hostname}/members: who is in an organization. The service answers its owner only. */
+export async function listOrgMembers(config: ApiConfig, hostname: string, opts?: RequestOptions): Promise<OrgMembersResponse> {
+  return request<OrgMembersResponse>(config, "GET", `${API_V1}/orgs/${encodeURIComponent(hostname)}/members`, undefined, { ...opts, ...HOSTED });
+}
+
 /** GET /threads: hosted Threads the caller can read, newest activity first, cursor-paged. */
 export async function listHostedThreads(config: ApiConfig, query: { limit: number; cursor?: string }, opts?: RequestOptions): Promise<unknown> {
   const params = new URLSearchParams({ limit: String(query.limit) });
