@@ -62,7 +62,7 @@ describe("post link check", () => {
     const root = space();
     const t = createThread("t", "T", root);
     const r = checkPostLinks("Write `[x](nope.md)` like this:\n\n```md\n[y](also-nope.md)\n```\n", t.path, root);
-    expect(r).toEqual({ errors: [], warnings: [] });
+    expect(r).toEqual({ errors: [], warnings: [], refusals: [] });
     // A Map position is repository-relative; it is never resolved from the post file, so only the body is checked.
     const map = { roots: [{ root_node_id: "n_x", sha: "a".repeat(40) }], members: [{ root: 0, position: "knowledge/note.md", depth: "summary" }] };
     expect(() => appendPost(t.path, { body: "Cites the note by Map.", map, checkLinks: true })).not.toThrow(/Post not written/);
@@ -82,7 +82,7 @@ describe("post link check", () => {
     const alias = join(mkdtempSync(join(tmpdir(), "is-post-links-alias-")), "space"); temp.push(join(alias, ".."));
     symlinkSync(root, alias);
     const r = checkPostLinks("[a](../../knowledge/note.md)", join(alias, "_threads", "t"), alias);
-    expect(r).toEqual({ errors: [], warnings: [] });
+    expect(r).toEqual({ errors: [], warnings: [], refusals: [] });
     expect(t.path).toBeTruthy();
   });
 
@@ -91,7 +91,7 @@ describe("post link check", () => {
     const t = createThread("t", "T", root);
     writeFileSync(join(root, "knowledge", "a b.md"), "x");
     const ok = checkPostLinks("[a](../../knowledge/a%20b.md) [b](<../../knowledge/a b.md>)", t.path, root);
-    expect(ok).toEqual({ errors: [], warnings: [] });
+    expect(ok).toEqual({ errors: [], warnings: [], refusals: [] });
     const bad = checkPostLinks("[a](100%.md) [b](one.md) [c](two.md)", t.path, root);
     expect(bad.errors).toHaveLength(3);
     expect(() => appendPost(t.path, { body: "[b](one.md) [c](two.md)", checkLinks: true })).toThrow(/2 links do not resolve[\s\S]*--no-check-links/);

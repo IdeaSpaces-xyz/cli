@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { threadsCommand } from "../commands/threads.js";
@@ -134,7 +134,7 @@ describe("a Thread's own _assets/ folder", () => {
     });
   });
 
-  it("allows _assets/ only as a real folder with that exact name; every other entry is refused as before", async () => {
+  it("allows _assets/ only as a real folder with that exact name; a link, a file and another case are refused", async () => {
     const dir = space();
     await inSpace(dir, async (run) => {
       expect((await run(["new", "bugs"], { about: "Bugs" })).code).toBe(0);
@@ -144,9 +144,6 @@ describe("a Thread's own _assets/ folder", () => {
         ["_assets", () => symlinkSync(elsewhere, join(thread, "_assets"), process.platform === "win32" ? "junction" : "dir")], // a link to a folder is not the folder
         ["_assets", () => writeFileSync(join(thread, "_assets"), "a file, not a folder")],
         ["_Assets", () => mkdirSync(join(thread, "_Assets"))], // exact and case-sensitive, as schema/assets.md says
-        ["assets", () => mkdirSync(join(thread, "assets"))],
-        ["files", () => mkdirSync(join(thread, "files"))],
-        ["_scratch", () => mkdirSync(join(thread, "_scratch"))],
       ];
       for (const [name, make] of refused) {
         make();
@@ -157,6 +154,108 @@ describe("a Thread's own _assets/ folder", () => {
       }
       mkdirSync(join(thread, "_assets"));
       expect(loadThread(thread).allPosts).toHaveLength(1);
+    });
+  });
+
+  // Security on fix/thread-assets (2026-11-28): the writer refuses what the reader would refuse.
+  it("post_link_into_assets_through_a_symlink_is_refused", async () => {
+    const dir = space();
+    const outside = realpathSync.native(mkdtempSync(join(tmpdir(), "is-thread-assets-outside-"))); temp.push(outside);
+    writeFileSync(join(outside, "secret.png"), PNG);
+    await inSpace(dir, async (run) => {
+      const { opening, assets } = await roomWithScreenshot(run, dir, "bugs", "here.png");
+      const other = await run(["new", "other"], { about: "Other" });
+      expect(other.code, other.err).toBe(0);
+      mkdirSync(join(dir, "_threads", "other", "_assets"));
+      writeFileSync(join(dir, "_threads", "other", "_assets", "theirs.png"), PNG);
+      const elsewhere = join(dir, "elsewhere"); mkdirSync(elsewhere);
+      writeFileSync(join(elsewhere, "x.png"), PNG);
+      symlinkSync(join(outside, "secret.png"), join(assets, "out.png"));                       // a file out of the Space
+      symlinkSync(join("..", "..", "other", "_assets", "theirs.png"), join(assets, "theirs.png")); // another Thread's _assets/
+      symlinkSync(elsewhere, join(assets, "sub"), process.platform === "win32" ? "junction" : "dir"); // a linked subfolder
+      mkdirSync(join(assets, "folder"));                                                        // a folder, not a file
+      const posts = () => readdirSync(join(dir, "_threads", "bugs")).filter((name) => name.endsWith(".md") && name !== "README.md").length;
+      const before = posts();
+      for (const link of ["_assets/out.png", "_assets/theirs.png", "_assets/sub/x.png", "_assets/folder", "_Assets/here.png"]) {
+        for (const options of [{}, { "no-check-links": true }]) {
+          const refused = await run(["post", "bugs"], { message: `![shot](${link})`, author: "Ana", "reply-to": opening, ...options });
+          expect.soft(refused.code, `${link} ${JSON.stringify(options)}`).toBe(1);
+          expect.soft(refused.err, link).toContain(`${link}: a file a post links to in _assets/ must be a real file in this Thread's _assets/`);
+        }
+      }
+      expect(posts()).toBe(before);
+      // The real file still posts, and a file that lands later still posts with --no-check-links.
+      expect((await run(["post", "bugs"], { message: "![here](_assets/here.png)", author: "Ana", "reply-to": opening })).code).toBe(0);
+      expect((await run(["post", "bugs"], { message: "![later](_assets/later.png)", author: "Ana", "reply-to": opening, "no-check-links": true })).code).toBe(0);
+    });
+  });
+
+  it("thread_assets_refuses_case_and_lookalikes", async () => {
+    const dir = space();
+    await inSpace(dir, async (run) => {
+      expect((await run(["new", "bugs"], { about: "Bugs" })).code).toBe(0);
+      const thread = join(dir, "_threads", "bugs");
+      const cyrillicA = String.fromCodePoint(0x430), cyrillicO = String.fromCodePoint(0x43e), zeroWidth = String.fromCodePoint(0x200b);
+      const lookalikes = ["_ASSETS", "_Assets", "_assets ", ` _assets`, `_${cyrillicA}ssets`, `_as${zeroWidth}sets`, `_assets${zeroWidth}`, "Notes", `n${cyrillicO}tes`]; // _Agent can't be made beside _agent on a case-insensitive disk
+      for (const name of lookalikes) {
+        mkdirSync(join(thread, name));
+        expect.soft(() => loadThread(thread), JSON.stringify(name)).toThrow(`Unexpected thread entry: ${name} in ${thread}.`);
+        rmSync(join(thread, name), { recursive: true, force: true });
+      }
+      // An _assets that links to a folder inside the Thread is a link, not the folder.
+      mkdirSync(join(thread, "notes"));
+      symlinkSync(join(thread, "notes"), join(thread, "_assets"), process.platform === "win32" ? "junction" : "dir");
+      expect(() => loadThread(thread)).toThrow(`Unexpected thread entry: _assets in ${thread}.`);
+      unlinkSync(join(thread, "_assets"));
+      expect(loadThread(thread).allPosts).toHaveLength(1);
+    });
+  });
+
+  it("picture_link_outside_the_threads_assets_warns", async () => {
+    const dir = space();
+    mkdirSync(join(dir, "Ideas", "_assets"), { recursive: true });
+    writeFileSync(join(dir, "Ideas", "_assets", "garden.png"), PNG);
+    await inSpace(dir, async (run) => {
+      const { opening } = await roomWithScreenshot(run, dir, "bugs", "here.png");
+      const note = "../../Ideas/_assets/garden.png";
+      const warned = await run(["post", "bugs"], { message: `![garden](${note})`, author: "Ana", "reply-to": opening });
+      expect(warned.code, warned.err).toBe(0);
+      expect(warned.json.warnings).toEqual([`${note}: the app draws pictures only from this Thread's _assets/; this one shows as its name.`]);
+      // A plain link to the same file, and a picture in the Thread's own _assets/, are written with no warning.
+      for (const message of [`[garden](${note})`, "![here](_assets/here.png)"]) {
+        const quiet = await run(["post", "bugs"], { message, author: "Ana", "reply-to": opening });
+        expect(quiet.code, quiet.err).toBe(0);
+        expect(quiet.json.warnings, message).toBeUndefined();
+      }
+    });
+  });
+
+  it("unknown_folder_in_a_thread_is_skipped_and_named", async () => {
+    const dir = space();
+    await inSpace(dir, async (run) => {
+      const { opening } = await roomWithScreenshot(run, dir, "bugs", "here.png");
+      const thread = join(dir, "_threads", "bugs");
+      for (const name of ["files", "assets", "_scratch"]) {
+        mkdirSync(join(thread, name));
+        writeFileSync(join(thread, name, "looks-like-a-post.md"), "---\nid: msg_in_a_folder\nauthor: Someone\n---\nNot a post.\n");
+      }
+      const posted = await run(["post", "bugs"], { message: "Still open", author: "Ana", "reply-to": opening });
+      expect(posted.code, posted.err).toBe(0);
+      const read = loadThread(thread);
+      expect(read.allPosts.map((post) => post.id)).not.toContain("msg_in_a_folder");
+      expect(read.allPosts).toHaveLength(2);
+      for (const name of ["_scratch", "assets", "files"]) {
+        expect(read.warnings).toContain(`_threads/bugs/${name}/: unknown_folder: skipped and not read; a Thread folder holds its posts, README.md, _agent/, notes/ and _assets/.`);
+      }
+      const opened = await run(["open", "bugs"], { depth: "summary" });
+      expect(opened.code, opened.err).toBe(0);
+      expect(opened.json.thread.warnings).toContain("_threads/bugs/files/: unknown_folder: skipped and not read; a Thread folder holds its posts, README.md, _agent/, notes/ and _assets/.");
+      // A file that isn't a post, and a link to a folder, are still refused: a reader can't tell a misplaced post from noise.
+      writeFileSync(join(thread, "notes.txt"), "a file");
+      expect(() => loadThread(thread)).toThrow(`Unexpected thread entry: notes.txt in ${thread}.`);
+      rmSync(join(thread, "notes.txt"));
+      symlinkSync(join(thread, "files"), join(thread, "linked"), process.platform === "win32" ? "junction" : "dir");
+      expect(() => loadThread(thread)).toThrow(`Unexpected thread entry: linked in ${thread}.`);
     });
   });
 });

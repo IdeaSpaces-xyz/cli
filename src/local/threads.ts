@@ -20,6 +20,28 @@ export const THREAD_NOTES_FOLDER = "notes";
  * Exact and case-sensitive, a real folder and never a link to one; a reader of posts never opens it.
  */
 export const THREAD_ASSETS_FOLDER = "_assets";
+const KNOWN_THREAD_FOLDERS = ["_agent", THREAD_NOTES_FOLDER, THREAD_ASSETS_FOLDER];
+/** A folder name a reader can skip and name: ASCII letters, digits, `.`, `_` and `-`, nothing that hides or poses. */
+const PLAIN_FOLDER = /^[A-Za-z0-9._-]+$/;
+const THREAD_HOLDS = "A Thread folder holds only its posts (.md files), README.md, _agent/, notes/ and _assets/, each a real file or folder and not a link.";
+
+/** A name with every character outside printable ASCII shown as <U+XXXX>, so an invisible one can be seen. */
+function visibleName(name: string): string {
+  return [...name].map((c) => (c >= " " && c <= "~" ? c : `<U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}>`)).join("");
+}
+
+/**
+ * Why a Thread folder entry is refused: a file that isn't a post, a link, or a folder that poses as one a
+ * reader trusts (another case of _agent, notes or _assets, or a name with a space, an invisible character
+ * or a letter from another script). A plain folder of any other name is skipped and named instead.
+ */
+function unexpectedThreadEntry(path: string, name: string, isFolder: boolean): Error {
+  const known = KNOWN_THREAD_FOLDERS.find((folder) => folder === name.toLowerCase());
+  const poses = !isFolder ? ""
+    : known ? ` It is ${known}/ in another case, and only ${known}/ itself counts.`
+    : ` Its name (${visibleName(name)}) has a space, an invisible character or a letter outside A-Z, so it may pose as another folder; a folder a Thread skips has a plain name.`;
+  return new Error(`Unexpected thread entry: ${name} in ${path}.${poses} ${THREAD_HOLDS} Move ${name} out of the Thread; a file a post links to goes in its _assets/.`);
+}
 
 export class NoAgreementError extends Error {}
 
@@ -230,15 +252,19 @@ export function loadThread(dir: string, options: LoadThreadOptions = {}): LocalT
   if (!fm) throw new Error(`Malformed README frontmatter: ${readmePath}`);
   const slug = basename(path);
   let sources: Array<{ path: string; content: string }> = [];
+  const skippedFolders: string[] = [];
   for (const entry of readdirSync(path, { withFileTypes: true })) {
     if (entry.name === "README.md" || entry.name === "_agent") continue;
     // A Thread's notes/ folder holds the person's Notes about it, never posts: only direct files are posts.
     if (entry.name === THREAD_NOTES_FOLDER && entry.isDirectory()) continue;
     // Its _assets/ folder holds the files its posts link to; they are never posts and are not read here.
     if (entry.name === THREAD_ASSETS_FOLDER && entry.isDirectory()) continue;
-    if (!entry.isFile() || !entry.name.endsWith(".md")) {
-      throw new Error(`Unexpected thread entry: ${entry.name} in ${path}. A Thread folder holds only its posts (.md files), README.md, _agent/, notes/ and _assets/, each a real file or folder and not a link. Move ${entry.name} out of the Thread; a file a post links to goes in its _assets/.`);
+    // Any other real folder with a plain name is skipped, never read, and named: only direct files are posts.
+    if (entry.isDirectory() && PLAIN_FOLDER.test(entry.name) && !KNOWN_THREAD_FOLDERS.includes(entry.name.toLowerCase())) {
+      skippedFolders.push(entry.name);
+      continue;
     }
+    if (!entry.isFile() || !entry.name.endsWith(".md")) throw unexpectedThreadEntry(path, entry.name, entry.isDirectory());
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join(path, entry.name)) });
   }
   if (options.asOf) {
@@ -272,6 +298,7 @@ export function loadThread(dir: string, options: LoadThreadOptions = {}): LocalT
   const warnings = [
     ...(agreementContent === null ? [NO_THREAD_AGREEMENT] : []),
     ...inspection.warnings.map((warning) => `${warning.post}: ${warning.field}: ${warning.warning}`),
+    ...skippedFolders.sort().map((name) => `_threads/${slug}/${name}/: unknown_folder: skipped and not read; a Thread folder holds its posts, README.md, _agent/, notes/ and _assets/.`),
   ];
   // The Thread's name is the state rule's (protocol 0.33.0, time.md): the newest reframe that carries one,
   // else the opening post's. The README is a view of that state and only speaks when no post does.
@@ -663,9 +690,13 @@ export function appendPost(dir: string, options: {
   }
   if (options.map !== undefined) validateThreadMomentMap(options.map);
   const warnings: string[] = [];
+  if (options.checkLinks && basename(dirname(thread.path)) !== "_threads") throw new Error("Thread must be an immediate child of _threads/.");
+  // The _assets/ rule runs even with --no-check-links: a file that lands later may be missing, never a link.
+  const links = checkPostLinks(options.body, thread.path, dirname(dirname(thread.path)), { assetsOnly: !options.checkLinks });
+  if (links.refusals.length) {
+    throw new Error(`Post not written: ${links.refusals.length === 1 ? "a link into _assets/ isn't" : `${links.refusals.length} links into _assets/ aren't`} a real file in this Thread's _assets/.\n${links.refusals.map((e) => `  - ${e}`).join("\n")}\nCopy the file itself into this Thread's _assets/ (not a link to it) and link it as _assets/<file>. --no-check-links doesn't skip this.`);
+  }
   if (options.checkLinks) {
-    if (basename(dirname(thread.path)) !== "_threads") throw new Error("Thread must be an immediate child of _threads/.");
-    const links = checkPostLinks(options.body, thread.path, dirname(dirname(thread.path)));
     if (links.errors.length) {
       throw new Error(`Post not written: ${links.errors.length === 1 ? "a link does" : `${links.errors.length} links do`} not resolve.\n${links.errors.map((e) => `  - ${e}`).join("\n")}\nFix the path (it is relative to the post file), remove the link, or pass --no-check-links to post it as written (for a file that lands in the same change or lives on another branch). Map positions are not checked here.`);
     }
