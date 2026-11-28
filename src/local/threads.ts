@@ -15,6 +15,11 @@ const SHA = /^[0-9a-f]{40}$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,100}$/;
 /** The folder inside a Thread for Notes about it (`threads new --from-note`); a reader of posts skips it. */
 export const THREAD_NOTES_FOLDER = "notes";
+/**
+ * The folder inside a Thread for the files its posts link to, such as a screenshot (`![…](_assets/x.png)`).
+ * Exact and case-sensitive, a real folder and never a link to one; a reader of posts never opens it.
+ */
+export const THREAD_ASSETS_FOLDER = "_assets";
 
 export class NoAgreementError extends Error {}
 
@@ -229,7 +234,11 @@ export function loadThread(dir: string, options: LoadThreadOptions = {}): LocalT
     if (entry.name === "README.md" || entry.name === "_agent") continue;
     // A Thread's notes/ folder holds the person's Notes about it, never posts: only direct files are posts.
     if (entry.name === THREAD_NOTES_FOLDER && entry.isDirectory()) continue;
-    if (!entry.isFile() || !entry.name.endsWith(".md")) throw new Error(`Unexpected thread entry: ${entry.name}`);
+    // Its _assets/ folder holds the files its posts link to; they are never posts and are not read here.
+    if (entry.name === THREAD_ASSETS_FOLDER && entry.isDirectory()) continue;
+    if (!entry.isFile() || !entry.name.endsWith(".md")) {
+      throw new Error(`Unexpected thread entry: ${entry.name} in ${path}. A Thread folder holds only its posts (.md files), README.md, _agent/, notes/ and _assets/, each a real file or folder and not a link. Move ${entry.name} out of the Thread; a file a post links to goes in its _assets/.`);
+    }
     sources.push({ path: `_threads/${slug}/${entry.name}`, content: safeFile(join(path, entry.name)) });
   }
   if (options.asOf) {
