@@ -632,13 +632,13 @@ export async function fetchAgents(
   return res.agents;
 }
 
-/** Pull the clean message or detail string out of an API error. */
 /** The web address a refusal points to (the Share sheet, say), when it is a plain http(s) URL. */
 function refusalLink(detail: object): string {
   const url = (detail as { url?: unknown }).url;
   return typeof url === "string" && /^https?:\/\/[^\s\u0000-\u001f\u007f]+$/.test(url) ? `\nOpen: ${url}` : "";
 }
 
+/** Pull the clean message or detail string out of an API error. */
 export function apiErrorDetail(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
   const raw = err instanceof ApiStatusError ? (err.body.trim() || err.message) : err.message.match(/→ \d+:\s*(.+)$/)?.[1];
