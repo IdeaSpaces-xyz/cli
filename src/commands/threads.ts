@@ -26,13 +26,18 @@ import { checkText, checkThreads } from "../local/thread-check.js";
 import { readThreadShare, shareLine, STATE_WORDS, type ThreadShare } from "../local/thread-state.js";
 import { acknowledgeRecent, PERSON_READER, readerName, recentForReader, recentSince, type MovedThread } from "../local/thread-recent.js";
 import { hostedVerbFlagError, threadFlagError, type Flags } from "./thread-flags.js";
-import { ackVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, NAMED_THREAD_HINT, newVerb, openVerb, postVerb, reportHostedRefusal } from "./hosted-threads.js";
+import { ackVerb, addVerb, hostedListPage, lifecycleVerb, HostedError, hostedFailure, listVerb, membersVerb, NAMED_THREAD_HINT, newVerb, openVerb, postVerb, removeVerb, reportHostedRefusal } from "./hosted-threads.js";
 
 export { threadFlagError } from "./thread-flags.js";
 
 const SURFACE_BODY_BYTES = 800;
 const KNOWN_POST_KINDS = new Set<string>(THREAD_KINDS);
 /** Verbs whose first argument names a Thread; only these need the local-or-hosted decision. Keep with the dispatch below. */
+const MEMBER_USAGE: Record<"members" | "add" | "remove", string> = {
+  members: "ideaspaces threads members x_<id>",
+  add: "ideaspaces threads add x_<id> <@handle,...> [--access comment|view] [--agents <n_id,...>]",
+  remove: "ideaspaces threads remove x_<id> <@handle|agent:n_id|inv_id>",
+};
 const TAKES_THREAD_ID = new Set(["open", "read", "post", "reply", "close", "rename", "ack", "attach"]);
 function str(flags: Flags, key: string): string | undefined {
   return typeof flags[key] === "string" ? flags[key] : undefined;
@@ -350,7 +355,7 @@ export function writerName(explicit?: string): string {
 export const threadsCommand: CommandDef = {
   name: "threads",
   description: "List, read and write local or hosted Threads (local posts stay in Git)",
-  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|ack|close|rename|locate|launch-text|attach|render|check|init|push|capabilities> ...",
+  usage: "ideaspaces threads <list|recent|open|read|new|post|send|reply|members|add|remove|ack|close|rename|locate|launch-text|attach|render|check|init|push|capabilities> ...",
   help: "For hosted new or send, --home map:<id> places the Thread in a hosted Space. Placement is not a grant and does not add a Map member. Local and remote Spaces remain independent; local Threads do not accept --home.\n\n" +
     "launch-text builds the text a session starts with when it is launched from a post of a local Thread. The frame is that Thread as it is now: its Agreement in full, its current Map (the Map of the newest post that carries one, of any kind, else the opening post's), and one line per post written since that Map. The Note, a member of the Map, is loaded whole, pinned in its own Thread; any other Thread's Agreement is one line and where to read it. " +
     "A launch is never refused for size: Map members are lowered, then dropped from the last up, and the posts-since lines and the Thread's Agreement give way before the Note does. What did not arrive whole is named, with where to read it. --budget lowers the Map's character budget; the whole text is still held to 16 KiB in bytes. Reads the Note at its authored pin and writes nothing.",
@@ -364,6 +369,7 @@ export const threadsCommand: CommandDef = {
     new: "ideaspaces threads new <slug> --about <title> [--summary <line>] [--attached-to <post>] [--map <file>]\n       ideaspaces threads new <slug> --from-note <note.md> [--about <title>] [--attached-to <post>]\n       ideaspaces threads new --hosted --name <title> --summary <text> --message <text> [--home map:<id>] [--recipients <handles-or-emails>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     post: "ideaspaces threads post <slug|path> --message <text> [--reply-to <id>] [--to <names>] [--kind <kind>] [--mark <value>] [--supersedes <id>] [--author <name>] [--name <title>] [--summary <text>] [--tags <labels>] [--map <file> [--member <n> --checkout <root>]] [--no-check-links] [--no-commit]\n       ideaspaces threads post x_<id> --message <text> [--reply-to <id>] [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     send: "ideaspaces threads send <@handle|email> --name <title> --summary <text> --message <text> [--home map:<id>] [--map <file>] [--tags <labels>] [--post-id <id>]",
+    ...MEMBER_USAGE,
     reply: "ideaspaces threads reply x_<id> --reply-to <id> --message <text> [--name <title>] [--summary <text>] [--map <file>] [--tags <labels>] [--post-id <id>]",
     ack: "ideaspaces threads ack <slug|path> --through <id|latest> [--reader <name>]\n       ideaspaces threads ack --recent <cursor> [--reader <name>]\n       ideaspaces threads ack x_<id> (--cursor <cursor>|--seq <n>)",
     close: "ideaspaces threads close <slug|path> --message <text> [--reply-to <id>] [--author <name>] [--name <title>] [--summary <text>] [--map <file>] [--no-commit]\n       ideaspaces threads close x_<id> --message <text> [--post-id <id>] [--yes]",
@@ -383,6 +389,9 @@ export const threadsCommand: CommandDef = {
     "ideaspaces threads open x_<id> [--limit 50] [--cursor <cursor>]  # read is an alias",
     "ideaspaces threads new --hosted --name 'Title' --summary 'One line' --message 'Opening' [--home map:<id>] [--recipients '@handle,email@example.org'] [--map context.map.md] [--tags label] [--post-id msg_id]",
     "ideaspaces threads send @handle [--home map:<id>] --name 'Title' --summary 'One line' --message 'Opening' [--map context.map.md] [--tags label]  # alias of new --hosted --recipients; to someone new it's a knock: text only, up to 1,000 characters, alone, and nobody posts until they let you in",
+    "ideaspaces threads members x_<id>  # who is in it, its agents, pending invitations, and the link someone knocks from",
+    "ideaspaces threads add x_<id> @ann,@bo [--access view] [--agents n_<agent>]  # its owner adds people by @handle or sets their level; someone new to you knocks instead",
+    "ideaspaces threads remove x_<id> @ann  # or agent:n_<agent>, or a pending invitation's inv_ id",
     "ideaspaces threads reply x_<id> --reply-to msg_parent --message 'Reply' [--map context.map.md] [--tags label] [--post-id msg_id]  # alias of post; old n_ parents are not accepted",
     "ideaspaces threads ack x_<id> --cursor <cursor from open>  # or --seq <n>; reading never acknowledges",
     "ideaspaces threads ack <slug|path> --through <post-id|latest> [--reader <name>]  # a local read position; other readers keep theirs",
@@ -421,7 +430,19 @@ export const threadsCommand: CommandDef = {
       const hostedTarget = TAKES_THREAD_ID.has(sub ?? "") && isHostedThreadTarget(rest[0] ?? "");
       const hostedFlag = flags.hosted !== undefined;
       if (hostedFlag && flags.hosted !== true) throw new HostedError("invalid_request", "--hosted takes no value.");
-      if (["posts", "expand", "add"].includes(sub ?? "")) throw new Error(`threads ${sub} retired with the Inbox; use threads list and open, or manage membership on the web.`);
+      if (["posts", "expand"].includes(sub ?? "")) throw new Error(`threads ${sub} retired with the Inbox; use threads list and open.`);
+      // Membership is a hosted Thread's: who is in it, and its owner adding or removing people.
+      if (sub === "members" || sub === "add" || sub === "remove") {
+        const arity = sub === "members" ? 1 : 2;
+        const memberFlagError = hostedVerbFlagError(sub, flags);
+        if (memberFlagError) throw new HostedError("invalid_request", memberFlagError);
+        if (rest.length !== arity || !isHostedThreadTarget(rest[0] ?? "")) {
+          throw new HostedError("invalid_request", `Usage: ${MEMBER_USAGE[sub]}`);
+        }
+        if (sub === "members") return await membersVerb(output, global.json, rest[0]);
+        if (sub === "add") return await addVerb(output, global.json, rest[0], rest[1], flags);
+        return await removeVerb(output, global.json, rest[0], rest[1]);
+      }
       if ((sub === "list" || sub === "new") && hostedFlag || sub === "send" || hostedTarget && ["open", "read", "post", "reply", "close", "rename", "ack"].includes(sub ?? "")) {
         const hostedFlagError = hostedVerbFlagError(sub!, flags);
         if (hostedFlagError) throw new HostedError("invalid_request", hostedTarget ? `${hostedFlagError} ${NAMED_THREAD_HINT}` : hostedFlagError);

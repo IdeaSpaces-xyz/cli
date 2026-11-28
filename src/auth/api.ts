@@ -772,6 +772,27 @@ export async function openHostedThread(config: ApiConfig, note: string, recipien
   return request<unknown>(config, "POST", `${API_V1}/threads`, { note, ...(recipients.length ? { recipients } : {}), ...(opts?.homeRef ? { home_ref: opts.homeRef } : {}) }, { ...opts, ...HOSTED });
 }
 
+/** POST /threads/{id}/members: the owner adds people by handle and their own agents, or sets the level of those already in. Never retried. */
+export async function addHostedThreadMembers(
+  config: ApiConfig,
+  threadId: string,
+  body: { people: string[]; agents: string[]; access: "comment" | "view" },
+  opts?: RequestOptions,
+): Promise<unknown> {
+  return request<unknown>(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/members`, body, { ...opts, ...HOSTED });
+}
+
+/** DELETE /threads/{id}/members/{ref}: the owner removes a person (handle), an agent (agent:n_…) or a pending invitation (inv_…). */
+export async function removeHostedThreadMember(config: ApiConfig, threadId: string, memberRef: string, opts?: RequestOptions): Promise<unknown> {
+  return request<unknown>(
+    config,
+    "DELETE",
+    `${API_V1}/threads/${encodeURIComponent(threadId)}/members/${encodeURIComponent(memberRef)}`,
+    undefined,
+    { ...opts, ...HOSTED },
+  );
+}
+
 /** POST /threads/{id}/ack: move the caller's read cursor forward to seq (never back). */
 export async function ackHostedThread(config: ApiConfig, threadId: string, seq: number, opts?: RequestOptions): Promise<unknown> {
   return request<unknown>(config, "POST", `${API_V1}/threads/${encodeURIComponent(threadId)}/ack`, { seq }, { ...opts, ...HOSTED });

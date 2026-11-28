@@ -25,8 +25,9 @@ import { stringify } from "yaml";
 import { loadLocalThreadMap } from "../local/thread-map-member.js";
 import { validateTags, validateThreadMomentMap } from "../local/threads.js";
 import {
-  ackHostedThread, ApiStatusError, appendHostedThreadPost, fetchHostedThread, fetchHostedThreadPosts, fetchVaults,
-  listHostedThreads, NetworkError, openHostedThread, UnauthorizedError, type ApiConfig,
+  ackHostedThread, addHostedThreadMembers, ApiStatusError, appendHostedThreadPost, deriveWebBase, fetchHostedThread,
+  fetchHostedThreadPosts, fetchVaults, listHostedThreads, NetworkError, openHostedThread, removeHostedThreadMember,
+  UnauthorizedError, type ApiConfig,
 } from "../auth/api.js";
 import { HostAuthRefusal, hostedConfig, isHostAuth, type HostedConfig } from "../auth/credentials.js";
 import type { Output } from "../output.js";
@@ -568,6 +569,116 @@ export async function ackVerb(output: Output, json: boolean, id: string, flags: 
     requireValue(record(raw) && raw.thread_id === id && seq(raw.read_seq));
     return { data: { schema: "ideaspaces.hosted-thread.ack.v1", thread_id: id, read_seq: raw.read_seq }, text: `Read up to seq ${raw.read_seq} in ${id}.` };
   });
+}
+
+// ─── Members ─────────────────────────────────────────────────────
+
+const HANDLE = /^@[A-Za-z0-9_.-]{1,32}$/;
+const MEMBER_REF = /^(?:@[A-Za-z0-9_.-]{1,32}|agent:n_(?:[0-9a-f]{12}|[0-9a-f]{24})|inv_[A-Za-z0-9_-]{1,64})$/;
+
+/** The Thread's web address: someone who can't be added straight in knocks from it. */
+function threadLink(config: ApiConfig, id: string): string {
+  return `${deriveWebBase(config.apiUrl)}/t/${encodeURIComponent(id)}`;
+}
+
+/** One line per person, agent and pending invitation, from the service's own rows. */
+function membersText(view: Record<string, any>): string[] {
+  const people: any[] = Array.isArray(view.participants) ? view.participants : [];
+  const groups: any[] = Array.isArray(view.agents) ? view.agents : [];
+  const agents = groups.flatMap((group) => (Array.isArray(group?.agents) ? group.agents : [])
+    .filter((agent: any) => agent?.member)
+    .map((agent: any) => ({ ...agent, principal: group.principal_handle ? `@${group.principal_handle}` : group.principal_label })));
+  const pending: any[] = Array.isArray(view.pending_invites) ? view.pending_invites : [];
+  const name = (row: any) => (row?.handle ? `@${row.handle}` : row?.display_name || row?.actor_ref || "someone");
+  const lines = [
+    view.participants === null ? "People: unknown (who is left could not be read)" : `People (${people.length}):`,
+    ...people.map((row) => `  ${remoteLine(name(row), 40).padEnd(28)} ${row?.grade ?? ""}`.trimEnd()),
+  ];
+  if (agents.length) {
+    lines.push(`Agents (${agents.length}):`, ...agents.map((agent: any) =>
+      `  ${remoteLine(agent.actor_label ?? agent.actor_ref, 40).padEnd(28)} ${agent.grade ?? agent.access ?? ""}  ${agent.actor_ref}  (added by ${remoteLine(agent.principal ?? "the owner", 40)})`.trimEnd()));
+  }
+  if (pending.length) {
+    lines.push(`Pending invitations (${pending.length}):`, ...pending.map((row) =>
+      `  ${remoteLine(row?.email ?? "", 60).padEnd(28)} ${row?.access ?? ""}  ${row?.invite_id ?? ""}`.trimEnd()));
+  }
+  return lines;
+}
+
+export async function membersVerb(output: Output, json: boolean, id: string): Promise<number> {
+  return runHosted(output, json, "Reading hosted Threads", "thread", async (config) => {
+    const raw: any = await fetchHostedThread(config, id);
+    requireValue(record(raw) && raw.thread_id === id && typeof raw.name === "string" && Array.isArray(raw.participants));
+    const data = {
+      schema: "ideaspaces.hosted-thread.members.v1",
+      thread_id: id,
+      name: raw.name,
+      owner: raw.owner ?? null,
+      grade: raw.grade ?? null,
+      door_open: typeof raw.door_open === "boolean" ? raw.door_open : null,
+      participants: raw.participants,
+      agents: Array.isArray(raw.agents) ? raw.agents : [],
+      pending_invites: Array.isArray(raw.pending_invites) ? raw.pending_invites : [],
+    };
+    const text = [`${id}  ${remoteLine(raw.name)}`, ...membersText(data),
+      `Link: ${threadLink(config, id)}  ${raw.door_open === false ? "(its door is closed: nobody can knock until you open it on the web)" : "(someone not in it can knock from it)"}`,
+      raw.grade === "Editor" ? `Add someone: ideaspaces threads add ${id} @handle [--access view]` : ""].filter(Boolean).join("\n");
+    return { data, text };
+  }, { namesThread: true });
+}
+
+function entryLine(entry: any): string {
+  const who = entry?.handle ? `@${entry.handle}` : entry?.actor_label ?? entry?.email ?? entry?.display_name ?? entry?.actor_ref ?? "someone";
+  return remoteLine(who, 60);
+}
+
+export async function addVerb(output: Output, json: boolean, id: string, list: string, flags: Record<string, string | boolean>): Promise<number> {
+  // Validate before any credential is touched or anything is sent.
+  const people = list.split(",").map((p) => p.trim()).filter(Boolean);
+  const agents = (str(flags, "agents") ?? "").split(",").map((a) => a.trim()).filter(Boolean);
+  const access = str(flags, "access") ?? "comment";
+  if (access !== "comment" && access !== "view") throw new HostedError("invalid_request", "--access must be comment (read and post) or view (read only).");
+  if (flags.agents !== undefined && !agents.length) throw new HostedError("invalid_request", "--agents needs one or more Agent Actor ids n_..., comma-separated.");
+  if (people.some((p) => !p.startsWith("@") && p.includes("@"))) {
+    throw new HostedError("invalid_request", "IdeaSpaces sends no invitation emails, so a Thread takes people by @handle. Nothing was sent. Add them by their @handle, or send them the Thread's link and they knock; ideaspaces threads members " + id + " prints it.");
+  }
+  if (people.length > 16 || people.some((p) => !HANDLE.test(p)) || new Set(people.map((p) => p.toLowerCase())).size !== people.length) {
+    throw new HostedError("invalid_request", "Name up to 16 distinct @handles, comma-separated, like @ann,@bo.");
+  }
+  if (agents.length > 8 || agents.some((a) => !NODE_ID.test(a.replace(/^agent:/, ""))) || new Set(agents).size !== agents.length) {
+    throw new HostedError("invalid_request", "--agents takes up to 8 distinct Agent Actor ids n_..., comma-separated.");
+  }
+  if (!people.length && !agents.length) throw new HostedError("invalid_request", "Name at least one @handle, or --agents.");
+  return runHosted(output, json, "Adding people to hosted Threads", "thread", async (config) => {
+    const raw: any = await addHostedThreadMembers(config, id, { people: people.map((p) => p.slice(1)), agents: agents.map((a) => a.replace(/^agent:/, "")), access });
+    requireValue(record(raw) && raw.thread_id === id && Array.isArray(raw.added) && Array.isArray(raw.unchanged));
+    const lines = [
+      ...raw.added.map((entry: any) => entry?.previous
+        ? `${entryLine(entry)}: ${entry.previous} → ${raw.access}`
+        : `Added ${entryLine(entry)} at ${raw.access} to ${id}.`),
+      ...(Array.isArray(raw.invited) ? raw.invited : []).map((entry: any) => `Invitation for ${entryLine(entry)} now at ${raw.access}.`),
+      ...(raw.unchanged.length ? [`Already in at ${raw.access}, nothing changed: ${raw.unchanged.map(entryLine).join(", ")}`] : []),
+      "",
+      ...membersText(raw),
+    ];
+    return { data: { schema: "ideaspaces.hosted-thread.members-add.v1", ...raw }, text: lines.join("\n").trim() };
+  }, { namesThread: true });
+}
+
+export async function removeVerb(output: Output, json: boolean, id: string, member: string): Promise<number> {
+  if (!MEMBER_REF.test(member)) {
+    throw new HostedError("invalid_request", "Name one member as threads members lists them: an @handle, agent:n_..., or a pending invitation's inv_ id.");
+  }
+  return runHosted(output, json, "Removing people from hosted Threads", "thread", async (config) => {
+    const raw: any = await removeHostedThreadMember(config, id, member.startsWith("@") ? member.slice(1) : member);
+    requireValue(record(raw) && raw.thread_id === id && record(raw.removed));
+    const lines = [
+      `Removed ${entryLine(raw.removed)} from ${id}. What they already read can't be taken back.`,
+      "",
+      ...membersText(raw),
+    ];
+    return { data: { schema: "ideaspaces.hosted-thread.members-remove.v1", ...raw }, text: lines.join("\n").trim() };
+  }, { namesThread: true });
 }
 
 /** For a refusal raised before any request (bad flags): print it the same way. */

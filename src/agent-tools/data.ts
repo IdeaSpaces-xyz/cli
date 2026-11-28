@@ -8473,33 +8473,101 @@ export const entries: Entry[] = [
     }
   },
   {
-    "id": "threads.add",
+    "id": "threads.members",
     "owner": "cli",
-    "status": "retired",
-    "refusal": "threads add retired with the Inbox; use threads list and open, or manage membership on the web.",
-    "job": "J16",
-    "effect": "status",
-    "reach": "local+hosted",
+    "status": "active",
+    "job": "J5",
+    "effect": "read",
+    "reach": "hosted",
     "confirm": "none",
     "requires": {
-      "cli": ">=0.9.0"
+      "cli": ">=0.12.0"
     },
     "text": {
-      "does": "Refuse a retired operation; no request is sent.",
-      "use_when": "Recognize a stale wrapper or instruction; choose the replacement instead.",
-      "check": "Read the refusal and do not retry this retired id.",
-      "bound": "One refusal; no continuation."
+      "does": "List who is in a hosted Thread: its people with their grade, its agents, and invitations still pending.",
+      "use_when": "Before adding or removing someone, or to see who reads a Thread.",
+      "check": "Pending invitations are shown to the Thread's owner only.",
+      "bound": "One Thread; the service's answer, no continuation."
     },
     "bound": "n/a",
     "parameters": {
       "type": "object",
       "properties": {
-        "grade": {
+        "thread": {
           "type": "string",
-          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+          "description": "Hosted Thread id x_<id>."
         }
       },
-      "required": [],
+      "required": [
+        "thread"
+      ],
+      "additionalProperties": false
+    },
+    "cli": {
+      "argv": [
+        "threads",
+        "members"
+      ],
+      "positional": [
+        "thread"
+      ],
+      "flags": {}
+    },
+    "output": {
+      "json": [
+        "thread_id",
+        "owner",
+        "participants",
+        "agents",
+        "pending_invites"
+      ]
+    }
+  },
+  {
+    "id": "threads.add",
+    "owner": "cli",
+    "status": "active",
+    "job": "J5",
+    "effect": "share",
+    "reach": "hosted",
+    "confirm": "none",
+    "requires": {
+      "cli": ">=0.12.0"
+    },
+    "text": {
+      "does": "Add people by @handle, and your own agents, to a hosted Thread you own, or set the level of those already in it.",
+      "use_when": "When the person asked to bring someone into a Thread that is already open.",
+      "check": "Someone new to the person can't be added straight in: they knock, from the Thread's link. A widening counts toward the day's sharing actions. IdeaSpaces sends no invitation emails.",
+      "bound": "Up to 16 people and 8 agents per call."
+    },
+    "bound": "n/a",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "type": "string",
+          "description": "Hosted Thread id x_<id>."
+        },
+        "people": {
+          "type": "string",
+          "description": "@handles, comma-separated."
+        },
+        "access": {
+          "type": "string",
+          "enum": [
+            "comment",
+            "view"
+          ],
+          "description": "comment (read and post, the default) or view (read only)."
+        },
+        "agents": {
+          "type": "string",
+          "description": "Agent Actor ids n_... you manage, comma-separated."
+        }
+      },
+      "required": [
+        "thread"
+      ],
       "additionalProperties": false
     },
     "cli": {
@@ -8507,14 +8575,86 @@ export const entries: Entry[] = [
         "threads",
         "add"
       ],
-      "positional": [],
+      "positional": [
+        "thread",
+        "people"
+      ],
       "flags": {
-        "grade": {
-          "flag": "--grade"
+        "access": {
+          "flag": "--access"
+        },
+        "agents": {
+          "flag": "--agents"
+        }
+      }
+    },
+    "output": {
+      "json": [
+        "thread_id",
+        "access",
+        "added",
+        "invited",
+        "unchanged",
+        "participants",
+        "agents",
+        "pending_invites"
+      ]
+    }
+  },
+  {
+    "id": "threads.remove",
+    "owner": "cli",
+    "status": "active",
+    "job": "J5",
+    "effect": "share",
+    "reach": "hosted",
+    "confirm": "none",
+    "requires": {
+      "cli": ">=0.12.0"
+    },
+    "text": {
+      "does": "Remove a person, one of your agents, or a pending invitation from a hosted Thread you own.",
+      "use_when": "When the person asked to take someone out of a Thread.",
+      "check": "Taking access away always works, on a closed Thread too; it can't recall what was already read.",
+      "bound": "One member per call."
+    },
+    "bound": "n/a",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "thread": {
+          "type": "string",
+          "description": "Hosted Thread id x_<id>."
+        },
+        "member": {
+          "type": "string",
+          "description": "@handle, agent:n_... or a pending invitation's inv_ id, as threads members lists them."
         }
       },
-      "local_flags": [
-        "grade"
+      "required": [
+        "thread",
+        "member"
+      ],
+      "additionalProperties": false
+    },
+    "cli": {
+      "argv": [
+        "threads",
+        "remove"
+      ],
+      "positional": [
+        "thread",
+        "member"
+      ],
+      "flags": {}
+    },
+    "output": {
+      "json": [
+        "thread_id",
+        "removed",
+        "participants",
+        "agents",
+        "pending_invites"
       ]
     }
   },

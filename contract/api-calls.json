@@ -219,6 +219,14 @@
       "path": "/api/v1/threads/{threadId}/ack"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/threads/{threadId}/members"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/threads/{threadId}/members/{memberRef}"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/threads/{threadId}/posts"
     },
