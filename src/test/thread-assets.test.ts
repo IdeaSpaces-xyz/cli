@@ -258,4 +258,43 @@ describe("a Thread's own _assets/ folder", () => {
       expect(() => loadThread(thread)).toThrow(`Unexpected thread entry: linked in ${thread}.`);
     });
   });
+
+  it("reference_style_link_into_assets_through_a_symlink_is_refused", async () => {
+    const dir = space();
+    const outside = realpathSync.native(mkdtempSync(join(tmpdir(), "is-thread-assets-outside-"))); temp.push(outside);
+    writeFileSync(join(outside, "secret.png"), PNG);
+    mkdirSync(join(dir, "Ideas", "_assets"), { recursive: true });
+    writeFileSync(join(dir, "Ideas", "_assets", "garden.png"), PNG);
+    await inSpace(dir, async (run) => {
+      const { opening, assets } = await roomWithScreenshot(run, dir, "bugs", "here.png");
+      symlinkSync(join(outside, "secret.png"), join(assets, "out.png"));
+      const posts = () => readdirSync(join(dir, "_threads", "bugs")).filter((name) => name.endsWith(".md") && name !== "README.md").length;
+      const before = posts();
+      const bodies = [
+        "![shot][r]\n\n[r]: _assets/out.png",            // full
+        "![r][]\n\n[R]: _assets/out.png",                 // collapsed, label case-folded
+        "![r]\n\n  [r]: <_assets/out.png> \"a title\"",  // shortcut, indented, <…> and a title
+        "[the file][r]\n\n[r]:\n  _assets/out.png",       // not a picture, destination on the next line
+      ];
+      for (const message of bodies) {
+        for (const options of [{}, { "no-check-links": true }]) {
+          const refused = await run(["post", "bugs"], { message, author: "Ana", "reply-to": opening, ...options });
+          expect.soft(refused.code, `${JSON.stringify(message)} ${JSON.stringify(options)}`).toBe(1);
+          expect.soft(refused.err, message).toContain("_assets/out.png: a file a post links to in _assets/ must be a real file in this Thread's _assets/");
+        }
+      }
+      expect(posts()).toBe(before);
+      // The real file passes; a definition in code is not a link; a reference picture elsewhere warns, as an inline one does.
+      expect((await run(["post", "bugs"], { message: "![here][h]\n\n[h]: _assets/here.png", author: "Ana", "reply-to": opening })).code).toBe(0);
+      expect((await run(["post", "bugs"], { message: "```\n[r]: _assets/out.png\n```", author: "Ana", "reply-to": opening })).code).toBe(0);
+      const warned = await run(["post", "bugs"], { message: "![garden][g]\n\n[g]: ../../Ideas/_assets/garden.png", author: "Ana", "reply-to": opening });
+      expect(warned.code, warned.err).toBe(0);
+      expect(warned.json.warnings).toEqual(["../../Ideas/_assets/garden.png: the app draws pictures only from this Thread's _assets/; this one shows as its name."]);
+      // A shortcut and a collapsed use, in another case, make the definition a picture too.
+      for (const message of ["![Garden]\n\n[garden]: ../../Ideas/_assets/garden.png", "![GARDEN][]\n\n[garden]: ../../Ideas/_assets/garden.png"]) {
+        const also = await run(["post", "bugs"], { message, author: "Ana", "reply-to": opening });
+        expect.soft(also.json?.warnings, message).toEqual(["../../Ideas/_assets/garden.png: the app draws pictures only from this Thread's _assets/; this one shows as its name."]);
+      }
+    });
+  });
 });

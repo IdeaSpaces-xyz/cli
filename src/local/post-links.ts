@@ -29,13 +29,30 @@ function withoutCode(body: string): string {
     .replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length));
 }
 
-/** Inline Markdown link destinations: [text](dest) and [text](<dest with spaces> "title"); `picture` for ![text](dest). */
+/** A reference label as Markdown matches it: trimmed, inner whitespace collapsed, case-folded. */
+const label = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * Markdown link destinations, `picture` for one a reader draws as a picture:
+ * - inline: [text](dest), [text](<dest with spaces> "title"), ![text](dest);
+ * - reference definitions: `[label]: dest` (up to three spaces in, dest may be `<…>` or on the next line),
+ *   a picture when some ![text][label], ![label][] or ![label] uses it.
+ */
 function destinations(text: string): Array<{ raw: string; picture: boolean }> {
   const found: Array<{ raw: string; picture: boolean }> = [];
-  const pattern = /(!?)\[(?:[^\]\\]|\\.)*\]\(\s*(<[^>\n]*>|[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
-  for (const match of text.matchAll(pattern)) {
+  const inline = /(!?)\[(?:[^\]\\]|\\.)*\]\(\s*(<[^>\n]*>|[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+  for (const match of text.matchAll(inline)) {
     const raw = match[2];
     found.push({ raw: raw.startsWith("<") ? raw.slice(1, -1) : raw, picture: match[1] === "!" });
+  }
+  const pictures = new Set<string>();
+  for (const match of text.matchAll(/!\[((?:[^\]\\]|\\.)*)\](?!\()(?:\[((?:[^\]\\]|\\.)*)\])?/g)) {
+    pictures.add(label(match[2] ? match[2] : match[1]));
+  }
+  const definition = /^ {0,3}\[((?:[^\]\\\n]|\\.)*[^\s\]\\](?:[^\]\\\n]|\\.)*)\]:[ \t]*(?:\n[ \t]*)?(<[^>\n]*>|[^\s<]\S*)/gm;
+  for (const match of text.matchAll(definition)) {
+    const raw = match[2];
+    found.push({ raw: raw.startsWith("<") ? raw.slice(1, -1) : raw, picture: pictures.has(label(match[1])) });
   }
   return found;
 }
@@ -66,8 +83,8 @@ function assetsLink(realThread: string, steps: string[]): "ok" | "missing" | "re
  * anchors and mail links are not paths and are skipped. A Map block's `position` values are
  * repository-relative, not file-relative, and are never read here: only the body is.
  *
- * Deliberately partial: only inline `[text](path)` links are checked; reference-style links and
- * autolinks are not. Both the Space root and the post directory are realpathed so a symlinked
+ * Deliberately partial: inline links and reference definitions are checked; autolinks and raw HTML
+ * are not (the app's Markdown draws neither as a local file). Both the Space root and the post directory are realpathed so a symlinked
  * checkout compares like with like; a symlink inside the Space that points out is not followed.
  */
 export function checkPostLinks(body: string, postDir: string, spaceRoot: string, options: PostLinkOptions = {}): PostLinkReport {
