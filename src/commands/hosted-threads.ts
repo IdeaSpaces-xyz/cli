@@ -661,7 +661,7 @@ export async function addVerb(output: Output, json: boolean, id: string, list: s
       "",
       ...membersText(raw),
     ];
-    return { data: { schema: "ideaspaces.hosted-thread.members-add.v1", ...raw }, text: lines.join("\n").trim() };
+    return { data: { ...raw, schema: "ideaspaces.hosted-thread.members-add.v1" }, text: lines.join("\n").trim() };
   }, { namesThread: true });
 }
 
@@ -677,7 +677,7 @@ export async function removeVerb(output: Output, json: boolean, id: string, memb
       "",
       ...membersText(raw),
     ];
-    return { data: { schema: "ideaspaces.hosted-thread.members-remove.v1", ...raw }, text: lines.join("\n").trim() };
+    return { data: { ...raw, schema: "ideaspaces.hosted-thread.members-remove.v1" }, text: lines.join("\n").trim() };
   }, { namesThread: true });
 }
 

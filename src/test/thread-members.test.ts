@@ -198,6 +198,13 @@ describe("threads remove", () => {
     } };
     expect(await threads(["remove", T, "inv_abc"], {}, JSON_FLAGS)).toBe(0);
     expect(JSON.parse(stdout)).toMatchObject({ schema: "ideaspaces.hosted-thread.members-remove.v1", removed: { invite_id: "inv_abc" } });
+
+    // A field the service might add named schema never replaces the contract's tag.
+    answers[`DELETE /api/v1/threads/${T}/members/inv_abc`] = { status: 200, body: {
+      schema: "service.v9", thread_id: T, removed: { invite_id: "inv_abc", email: "old@example.com", access: "view" }, post: null, ...VIEW,
+    } };
+    expect(await threads(["remove", T, "inv_abc"], {}, JSON_FLAGS)).toBe(0);
+    expect(JSON.parse(stdout).schema).toBe("ideaspaces.hosted-thread.members-remove.v1");
   });
 
   it("names a member the way threads members lists them, or refuses before sending", async () => {
