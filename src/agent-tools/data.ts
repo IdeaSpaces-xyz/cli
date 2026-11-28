@@ -5237,7 +5237,7 @@ export const entries: Entry[] = [
       "cli": ">=0.9.0"
     },
     "text": {
-      "does": "Grant or invite a person at an explicit grade.",
+      "does": "Share with a person, by @handle or an existing account's email, at an explicit grade; IdeaSpaces sends no invitation emails.",
       "use_when": "When the person explicitly requested sharing.",
       "check": "Verify recipient and grade; history is a separate explicit grant.",
       "bound": "Unbounded service result for this repo/node; no client-side continuation."
@@ -5252,7 +5252,7 @@ export const entries: Entry[] = [
         },
         "grade": {
           "type": "string",
-          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+          "description": "explore, fork or collaborate (Copy on the web is fork); the older viewer, copying and editor still work."
         },
         "history": {
           "type": "boolean",
@@ -5327,7 +5327,7 @@ export const entries: Entry[] = [
         },
         "grade": {
           "type": "string",
-          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+          "description": "explore, fork or collaborate (Copy on the web is fork); the older viewer, copying and editor still work."
         },
         "repo": {
           "type": "string",
@@ -5714,7 +5714,7 @@ export const entries: Entry[] = [
         },
         "grade": {
           "type": "string",
-          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+          "description": "explore, fork or collaborate (Copy on the web is fork); the older viewer, copying and editor still work."
         },
         "reason": {
           "type": "string",
@@ -5854,7 +5854,7 @@ export const entries: Entry[] = [
         },
         "grade": {
           "type": "string",
-          "description": "Requested or granted access grade; command-specific vocabulary is checked by the CLI."
+          "description": "explore, fork or collaborate (Copy on the web is fork); the older viewer, copying and editor still work."
         }
       },
       "required": [
